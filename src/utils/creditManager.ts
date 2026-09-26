@@ -1,18 +1,18 @@
 import { UserProfile, CreditState, CreditGift, SubscriptionPlan } from '../types';
 
-export const STORAGE_KEY_USER_PROFILE = 'marketx_user_profile_v2';
-export const STORAGE_KEY_CREDIT_STATE = 'marketx_credit_state_v2';
-export const STORAGE_KEY_CREDIT_GIFTS = 'marketx_credit_gifts_v2';
+// Unlimited access is decided by the server (verified email on its allow-list); the UI mirrors it
+let serverUnlimitedEmail: string | null = null;
 
-export const UNLIMITED_USER_EMAIL = 'tcrypt3@gmail.com';
+export function setServerUnlimitedEmail(email: string | null) {
+  serverUnlimitedEmail = email ? email.trim().toLowerCase() : null;
+}
 
 /**
- * Checks if a user has permanent unlimited access.
- * tcrypt3@gmail.com has unlimited credits and permanent verified access.
+ * Checks if a user has permanent unlimited access, as reported by the server.
  */
 export function isUnlimitedUser(email?: string): boolean {
-  if (!email) return false;
-  return email.trim().toLowerCase() === UNLIMITED_USER_EMAIL.toLowerCase();
+  if (!email || !serverUnlimitedEmail) return false;
+  return email.trim().toLowerCase() === serverUnlimitedEmail;
 }
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -202,31 +202,3 @@ export function getSubscriptionRemainingInfo(profile: UserProfile): {
     }),
   };
 }
-
-/**
- * Activates a subscription when paid via Paystack
- * Yearly plan includes -13% off ($187.92 vs $216 standard)
- */
-export function activateSubscription(
-  profile: UserProfile,
-  plan: 'monthly' | 'yearly',
-  paystackRef: string
-): UserProfile {
-  const now = Date.now();
-  const durationMs = plan === 'yearly' ? THREE_HUNDRED_SIXTY_FIVE_DAYS_MS : THIRTY_DAYS_MS;
-  const price = plan === 'yearly' ? 187.92 : 18;
-
-  return {
-    ...profile,
-    isVerified: true,
-    subscription: {
-      plan,
-      active: true,
-      startDate: now,
-      expiresAt: now + durationMs,
-      price,
-      paystackRef,
-    },
-  };
-}
-

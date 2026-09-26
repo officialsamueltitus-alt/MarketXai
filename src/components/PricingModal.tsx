@@ -3,6 +3,7 @@ import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
 import { UserProfile } from '../types';
 import { isUnlimitedUser } from '../utils/creditManager';
+import { apiFetch, PaymentsPublicConfig } from '../utils/firebaseClient';
 import {
   X,
   Check,
@@ -21,7 +22,17 @@ interface PricingModalProps {
   isOpen: boolean;
   onClose: () => void;
   userProfile: UserProfile;
-  onSelectPlan: (plan: 'monthly' | 'yearly', paystackRef: string) => void;
+  paymentsConfig: PaymentsPublicConfig | null;
+  // Receives the updated account after the server verified the payment with Paystack
+  onPaymentVerified: (account: any, plan: 'monthly' | 'yearly') => void;
+}
+
+function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
 }
 
 declare global {
@@ -46,69 +57,72 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   isOpen,
   onClose,
   userProfile,
-  onSelectPlan,
+  paymentsConfig,
+  onPaymentVerified,
 }) => {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('yearly');
-  const email = userProfile.email || 'trader@marketx.world';
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const isUnlimited = isUnlimitedUser(userProfile.email);
 
-  // Pricing:
-  // Monthly: $18 / month
-  // Yearly: $18 * 12 = $216 standard. With -13% off: $187.92 / year (~$15.66 / month)
-  const monthlyPrice = 18;
-  const yearlyRegularPrice = 216;
-  const yearlyDiscountedPrice = 187.92;
-  const yearlyMonthlyEquivalent = 15.66;
+  // Prices come from the server (PAYSTACK_* env vars); the browser never decides the amount
+  const currency = paymentsConfig?.currency || 'USD';
+  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 18;
+  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 187.92;
+  const monthlyPrice = formatMoney(monthlyAmount, currency);
+  const yearlyDiscountedPrice = formatMoney(yearlyAmount, currency);
+  const yearlyMonthlyEquivalent = formatMoney(yearlyAmount / 12, currency);
+  const discountPct = Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
+  const paymentsEnabled = !!paymentsConfig?.enabled;
 
-  const currentAmountUSD = billingPeriod === 'yearly' ? yearlyDiscountedPrice : monthlyPrice;
-
-  const handlePaystackCheckout = () => {
-    setIsProcessing(true);
-    const amountInUSD = currentAmountUSD;
-    const ref = `pstk_${billingPeriod}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    // Check if Paystack inline script is available
-    if (typeof window !== 'undefined' && window.PaystackPop) {
-      try {
-        const handler = window.PaystackPop.setup({
-          key: 'pk_test_marketx_ai_paystack_public_sandbox',
-          email: email || userProfile.email,
-          amount: Math.round(amountInUSD * 100), // in cents
-          currency: 'USD',
-          ref,
-          callback: (response: { reference: string }) => {
-            setIsProcessing(false);
-            setPaymentSuccess(response.reference || ref);
-            setTimeout(() => {
-              onSelectPlan(billingPeriod, response.reference || ref);
-              onClose();
-            }, 1200);
-          },
-          onClose: () => {
-            setIsProcessing(false);
-          },
-        });
-        handler.openIframe();
-        return;
-      } catch (err) {
-        console.warn('Paystack inline iframe opening failed, falling back to direct secure checkout:', err);
-      }
+  const handlePaystackCheckout = async () => {
+    setCheckoutError(null);
+    if (!paymentsEnabled) {
+      setCheckoutError('Payments are not available yet. Please check back soon.');
+      return;
     }
-
-    // Direct seamless Paystack checkout processing
-    setTimeout(() => {
+    if (!window.PaystackPop) {
+      setCheckoutError('Paystack checkout could not load. Disable any ad/script blocker and try again.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const plan = billingPeriod;
+      const init = await apiFetch<{ reference: string; amount: number; currency: string; email: string; publicKey: string }>(
+        '/api/payments/initialize',
+        { method: 'POST', body: JSON.stringify({ plan }) }
+      );
+      const handler = window.PaystackPop.setup({
+        key: init.publicKey,
+        email: init.email,
+        amount: init.amount,
+        currency: init.currency,
+        ref: init.reference,
+        callback: (response: { reference: string }) => {
+          // Only the server's verification with Paystack activates the plan
+          apiFetch('/api/payments/verify', {
+            method: 'POST',
+            body: JSON.stringify({ reference: response.reference || init.reference }),
+          })
+            .then(account => {
+              setPaymentSuccess(init.reference);
+              onPaymentVerified(account, plan);
+              setTimeout(onClose, 1200);
+            })
+            .catch(err => setCheckoutError(err?.message || 'Payment could not be verified.'))
+            .finally(() => setIsProcessing(false));
+        },
+        onClose: () => setIsProcessing(false),
+      });
+      handler.openIframe();
+    } catch (err: any) {
+      setCheckoutError(err?.message || 'Could not start checkout. Please try again.');
       setIsProcessing(false);
-      setPaymentSuccess(ref);
-      setTimeout(() => {
-        onSelectPlan(billingPeriod, ref);
-        onClose();
-      }, 1000);
-    }, 1200);
+    }
   };
 
   return (
@@ -180,7 +194,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               >
                 <span>Yearly</span>
                 <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[10px] tracking-tight animate-pulse">
-                  -13% OFF
+                  -{discountPct}% OFF
                 </span>
               </button>
             </div>
@@ -190,7 +204,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
           {paymentSuccess && (
             <div className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-2 animate-fadeIn">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Payment confirmed via Paystack! Activating tier...</span>
+              <span>Payment verified by Paystack. Pro is now active!</span>
             </div>
           )}
 
@@ -203,7 +217,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             {/* Top Badge for Yearly */}
             {billingPeriod === 'yearly' && (
               <div className="absolute -top-3 right-6 px-3 py-1 rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-[10px] font-black uppercase tracking-wider shadow-md">
-                Best Value • Save 13%
+                Best Value • Save {discountPct}%
               </div>
             )}
 
@@ -232,23 +246,23 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl sm:text-4xl font-black text-white font-mono">
-                      ${yearlyMonthlyEquivalent}
+                      {yearlyMonthlyEquivalent}
                     </span>
                     <span className="text-xs text-slate-400 font-medium">/ month</span>
                     <span className="text-xs text-slate-500 line-through font-mono ml-2">
-                      ${monthlyPrice}/mo
+                      {monthlyPrice}/mo
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-cyan-300">
-                    <span className="font-semibold font-mono">${yearlyDiscountedPrice} billed annually</span>
+                    <span className="font-semibold font-mono">{yearlyDiscountedPrice} billed annually</span>
                     <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
-                      -13% OFF applied
+                      -{discountPct}% OFF applied
                     </span>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-baseline gap-1">
-                  <span className="text-3xl sm:text-4xl font-black text-white font-mono">${monthlyPrice}</span>
+                  <span className="text-3xl sm:text-4xl font-black text-white font-mono">{monthlyPrice}</span>
                   <span className="text-xs text-slate-400 font-medium">/ month</span>
                 </div>
               )}
@@ -293,10 +307,13 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               </ul>
             </div>
 
-            <div className="pt-5 mt-4 border-t border-white/[0.08]">
+            <div className="pt-5 mt-4 border-t border-white/[0.08] space-y-2">
+              {checkoutError && (
+                <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl p-2.5">{checkoutError}</p>
+              )}
               <button
                 type="button"
-                disabled={isProcessing}
+                disabled={isProcessing || !paymentsEnabled || isUnlimited}
                 onClick={handlePaystackCheckout}
                 className={`w-full py-3.5 px-4 rounded-xl text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50 ${
                   billingPeriod === 'yearly'
@@ -307,10 +324,12 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                 <CreditCard className="w-4 h-4 shrink-0" />
                 <span>
                   {isProcessing
-                    ? 'Connecting Paystack...'
+                    ? 'Processing payment...'
+                    : !paymentsEnabled
+                    ? 'Payments coming soon'
                     : billingPeriod === 'yearly'
-                    ? `Pay $${yearlyDiscountedPrice} / Year via Paystack (-13% OFF)`
-                    : `Pay $${monthlyPrice} / Month via Paystack`}
+                    ? `Pay ${yearlyDiscountedPrice} / Year via Paystack`
+                    : `Pay ${monthlyPrice} / Month via Paystack`}
                 </span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               </button>

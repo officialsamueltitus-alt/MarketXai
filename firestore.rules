@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// MarketX: all reads and writes go through the server (firebase-admin bypasses these rules).
+// Browsers must never read or write Firestore directly, so credits and payments can't be tampered with.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

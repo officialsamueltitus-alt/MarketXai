@@ -9,7 +9,14 @@
   prompt text built in the `/api/market/analyze` handler in `server.ts`, the Gemini model
   list (`modelsToTry`), `getGeminiClient`, and `src/data/prompts.ts`.
 
+## Architecture
+- Accounts use Firebase Authentication (email/password + Google); the server verifies ID tokens with
+  `firebase-admin` and owns all data in Firestore (`server/account.ts`, `server/payments.ts`).
+- Credits, subscriptions, gifts, rewards and payments are only ever changed server-side inside
+  Firestore transactions. `firestore.rules` denies all direct client access — keep it that way.
+- Paystack plans are granted only after server verification (verify endpoint or signed webhook).
+
 ## Deployment
-- Deployed on Render as a single Web Service (not a static site).
-- Required env vars: `GEMINI_API_KEY`, `NODE_ENV=production`.
+- Deployed on Render as a single Web Service (not a static site), Node >= 22.
+- Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
 - Build: `npm install && npm run build` — Start: `npm start`.

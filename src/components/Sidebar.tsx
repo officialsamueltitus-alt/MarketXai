@@ -52,14 +52,17 @@ interface SidebarProps {
   onOpenPricing: () => void;
   onOpenGiftModal: () => void;
   onUpdateUsername?: (newUsername: string) => void;
-  onUpdateProfile: (updated: { displayName: string; username: string; avatarUrl?: string }) => void;
+  onUpdateProfile: (updated: { displayName: string; username: string; avatarUrl?: string }) => Promise<string | null>;
   xShareReward?: XShareReward | null;
-  onRegisterShareReward?: (reward: XShareReward) => void;
+  onRegisterShareReward?: (tweetUrl: string) => Promise<string | null>;
   onDismissRewardNotice?: () => void;
   isOpen: boolean;
   onCloseMobile: () => void;
   unreadNotificationsCount?: number;
   onOpenNotifications?: () => void;
+  isSignedIn?: boolean;
+  onSignIn?: () => void;
+  onSignOut?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -91,6 +94,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   unreadNotificationsCount = 0,
   onOpenNotifications,
+  isSignedIn = false,
+  onSignIn,
+  onSignOut,
 }) => {
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
@@ -457,7 +463,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* SETTINGS: bottom of the side menu, reveals Credits & Profile */}
           <div className="border-t border-white/[0.08] bg-black/40 pb-safe">
-            {isSettingsOpen && (
+            {isSignedIn && isSettingsOpen && (
               <div className="p-2 space-y-1.5 border-b border-white/[0.06]">
                 <button
                   type="button"
@@ -507,6 +513,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
 
             <div className="p-2.5 flex items-center justify-between gap-2">
+              {!isSignedIn && onSignIn ? (
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <User className="w-4 h-4" />
+                Sign in / Create account
+              </button>
+              ) : (
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(prev => !prev)}
@@ -523,6 +539,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isSettingsOpen ? 'rotate-180' : ''}`} />
               </button>
+              )}
 
               <a
                 href="https://x.com/_MarketXai"
@@ -697,6 +714,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     xShareReward={xShareReward}
                     onRegisterShareReward={onRegisterShareReward}
                     onDismissRewardNotice={onDismissRewardNotice}
+                    onSignOut={onSignOut}
                   />
                 )}
               </div>

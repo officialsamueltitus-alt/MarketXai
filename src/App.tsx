@@ -23,19 +23,17 @@ import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { TermsAndPrivacyModal } from './components/TermsAndPrivacyModal';
 import { ShareProfileModal } from './components/ShareProfileModal';
 import { RewardEmailNotificationModal } from './components/RewardEmailNotificationModal';
+import { AuthModal } from './components/AuthModal';
 import {
   INITIAL_USER_PROFILE,
   INITIAL_CREDIT_STATE,
-  STORAGE_KEY_USER_PROFILE,
-  STORAGE_KEY_CREDIT_STATE,
-  STORAGE_KEY_CREDIT_GIFTS,
-  checkAndRefreshDailyQuota,
-  checkSubscriptionExpiry,
-  activateSubscription,
   isUnlimitedUser,
+  setServerUnlimitedEmail,
 } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
-import { extractAssetInfo, generateClientFallbackStrategy } from './utils/localStrategyEngine';
+import { apiFetch, ApiError, getFirebaseAuth, loadPublicConfig, PaymentsPublicConfig } from './utils/firebaseClient';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift } from 'lucide-react';
 import worldMapBg from './assets/images/world_map_bg_1789305116043.jpg';
 
@@ -43,64 +41,29 @@ import worldMapBg from './assets/images/world_map_bg_1789305116043.jpg';
 const SHOW_AMBIENT_BACKDROP =
   typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(min-width: 1024px)').matches;
 
-const STORAGE_KEY_SESSIONS = 'market_ai_sessions_v1';
-const STORAGE_KEY_ANALYSES = 'market_ai_saved_analyses_v1';
-const STORAGE_KEY_X_SHARE_REWARD = 'market_ai_x_share_reward_v1';
-const STORAGE_KEY_NOTIFICATIONS = 'market_ai_notifications_v1';
+interface AccountPayload {
+  profile: UserProfile;
+  credits: CreditState;
+  xShareReward: XShareReward | null;
+  recentGifts?: CreditGift[];
+  unlimited?: boolean;
+}
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'chat'>('home');
 
-  // User Profile state with persistent storage and subscription check
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_USER_PROFILE);
-      if (saved) {
-        const parsed: UserProfile = JSON.parse(saved);
-        return checkSubscriptionExpiry(parsed);
-      }
-    } catch (e) {
-      console.error('Failed to load user profile:', e);
-    }
-    return INITIAL_USER_PROFILE;
-  });
+  // Signed-in Firebase user; all account data below is loaded from and saved to the server
+  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUnavailable, setAuthUnavailable] = useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const pendingSignupRef = useRef<{ username: string; displayName: string } | null>(null);
+  const [paymentsConfig, setPaymentsConfig] = useState<PaymentsPublicConfig | null>(null);
 
-  // X Share Reward state for tracking the 10-hour +10 credit workflow
-  const [xShareReward, setXShareReward] = useState<XShareReward | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_X_SHARE_REWARD);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Failed to load X share reward:', e);
-    }
-    return null;
-  });
-
-  // Credit State tracking daily quota (resets strictly every 24h, no rollover) & total credits
-  const [creditState, setCreditState] = useState<CreditState>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_CREDIT_STATE);
-      if (saved) {
-        const parsed: CreditState = JSON.parse(saved);
-        const savedProfile = localStorage.getItem(STORAGE_KEY_USER_PROFILE);
-        const email = savedProfile ? JSON.parse(savedProfile).email : INITIAL_USER_PROFILE.email;
-        const { state } = checkAndRefreshDailyQuota(parsed, false, email);
-        return state;
-      }
-    } catch (e) {
-      console.error('Failed to load credit state:', e);
-    }
-    return INITIAL_CREDIT_STATE;
-  });
-
-  // Recent Gifts History
-  const [recentGifts, setRecentGifts] = useState<CreditGift[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_CREDIT_GIFTS);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [];
-  });
+  const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_USER_PROFILE);
+  const [xShareReward, setXShareReward] = useState<XShareReward | null>(null);
+  const [creditState, setCreditState] = useState<CreditState>(INITIAL_CREDIT_STATE);
+  const [recentGifts, setRecentGifts] = useState<CreditGift[]>([]);
 
   // Modals state
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
@@ -112,78 +75,167 @@ export default function App() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' } | null>(null);
 
-  // Notifications state
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [
-      {
-        id: 'notif-welcome',
-        title: 'Welcome to MarketX Quantitative Terminal',
-        message: 'Your institutional liquidity sweep and 0.618 golden pocket engine is active. Built by SpiriTech Labs.',
-        type: 'system',
-        timestamp: Date.now() - 1000 * 60 * 25,
-        read: false,
-      },
-      {
-        id: 'notif-market-btc',
-        title: 'Institutional Liquidity Expansion Alert',
-        message: 'BTC/USDT 4H golden pocket defense confirmed near order block. Scan confluence levels.',
-        type: 'market',
-        timestamp: Date.now() - 1000 * 60 * 75,
-        read: false,
-        actionPrompt: 'Analyze BTC/USDT 4H liquidity pools and identify high-probability institutional confluence zones for entry.',
-      },
-      {
-        id: 'notif-campaign-reward',
-        title: 'Campaign: Share Profile on X (+10 Credits)',
-        message: 'Share your official trader card on X to earn 10 complimentary AI credits after 10 hours.',
-        type: 'reward',
-        timestamp: Date.now() - 1000 * 60 * 160,
-        read: false,
-      },
-    ];
-  });
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  // Save notifications to localStorage
+  // Server-sync bookkeeping: what the server already has, so only changes are uploaded
+  const historyLoadedRef = useRef(false);
+  const syncedSessionsRef = useRef<Map<string, ChatSession>>(new Map());
+  const syncedAnalysesRef = useRef<SavedAnalysis[] | null>(null);
+
+  const applyAccount = useCallback((data: AccountPayload) => {
+    setUserProfile(data.profile);
+    setCreditState(data.credits);
+    setXShareReward(data.xShareReward || null);
+    if (data.recentGifts) setRecentGifts(data.recentGifts);
+    setServerUnlimitedEmail(data.unlimited ? data.profile.email : null);
+  }, []);
+
+  const refreshAccount = useCallback(async () => {
+    try {
+      applyAccount(await apiFetch<AccountPayload>('/api/account'));
+    } catch {}
+  }, [applyAccount]);
+
+  const refreshNotifications = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ notifications: AppNotification[] }>('/api/notifications');
+      setNotifications(data.notifications || []);
+    } catch {}
+  }, []);
+
+  const resetToSignedOut = useCallback(() => {
+    historyLoadedRef.current = false;
+    syncedSessionsRef.current = new Map();
+    syncedAnalysesRef.current = null;
+    setUserProfile(INITIAL_USER_PROFILE);
+    setCreditState(INITIAL_CREDIT_STATE);
+    setXShareReward(null);
+    setRecentGifts([]);
+    setNotifications([]);
+    setSessions([]);
+    setSavedAnalyses([]);
+    setCurrentSessionId(null);
+    setServerUnlimitedEmail(null);
+  }, []);
+
+  // Firebase auth listener: bootstrap the server account and load history on sign-in
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(notifications));
-    } catch {}
-  }, [notifications]);
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
 
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SESSIONS);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Failed to load sessions from storage:', e);
-    }
-    return [];
-  });
+    loadPublicConfig()
+      .then(cfg => !cancelled && setPaymentsConfig(cfg.payments))
+      .catch(() => {});
 
-  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_ANALYSES);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Failed to load saved analyses:', e);
-    }
-    return [];
-  });
+    getFirebaseAuth()
+      .then(auth => {
+        if (cancelled) return;
+        if (!auth) {
+          setAuthUnavailable('Sign-in is not available yet: accounts are not configured on this server.');
+          setAuthReady(true);
+          return;
+        }
+        unsubscribe = onAuthStateChanged(auth, async user => {
+          setAuthUser(user);
+          if (!user) {
+            resetToSignedOut();
+            setAuthReady(true);
+            return;
+          }
+          try {
+            const signup = pendingSignupRef.current;
+            pendingSignupRef.current = null;
+            const account = await apiFetch<AccountPayload>('/api/account/session', {
+              method: 'POST',
+              body: JSON.stringify(signup || {}),
+            });
+            applyAccount(account);
+            const [history, notif] = await Promise.all([
+              apiFetch<{ sessions: ChatSession[]; analyses: SavedAnalysis[] }>('/api/history'),
+              apiFetch<{ notifications: AppNotification[] }>('/api/notifications'),
+            ]);
+            syncedSessionsRef.current = new Map((history.sessions || []).map(sess => [sess.id, sess]));
+            syncedAnalysesRef.current = history.analyses || [];
+            historyLoadedRef.current = true;
+            setSessions(history.sessions || []);
+            setSavedAnalyses(history.analyses || []);
+            setNotifications(notif.notifications || []);
+          } catch (err: any) {
+            setToastNotification({ message: err?.message || 'Could not load your account. Please refresh.', type: 'success' });
+          } finally {
+            setAuthReady(true);
+          }
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAuthUnavailable('Could not reach the MarketX server. Please check your connection and refresh.');
+        setAuthReady(true);
+      });
 
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SESSIONS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.length > 0) return parsed[0].id;
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [applyAccount, resetToSignedOut]);
+
+  // Keep credits, rewards and gifts received in sync while the app is open
+  useEffect(() => {
+    if (!authUser) return;
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      refreshAccount();
+      refreshNotifications();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [authUser, refreshAccount, refreshNotifications]);
+
+  // Persist changed chat sessions to the server (debounced; in-flight analyses wait until done)
+  useEffect(() => {
+    if (!authUser || !historyLoadedRef.current) return;
+    const timer = setTimeout(() => {
+      const previous = syncedSessionsRef.current;
+      const next = new Map<string, ChatSession>();
+      for (const session of sessions) {
+        const inFlight = session.messages.some(m => m.status === 'searching' || m.status === 'analyzing');
+        if (inFlight || session.messages.length === 0) {
+          const prior = previous.get(session.id);
+          if (prior) next.set(session.id, prior);
+          continue;
+        }
+        next.set(session.id, session);
+        if (previous.get(session.id) !== session) {
+          apiFetch(`/api/history/sessions/${encodeURIComponent(session.id)}`, {
+            method: 'PUT',
+            body: JSON.stringify(session),
+          }).catch(err => console.warn('Session sync failed:', err?.message));
+        }
       }
-    } catch {}
-    return null;
-  });
+      for (const id of previous.keys()) {
+        if (!sessions.some(sess => sess.id === id)) {
+          apiFetch(`/api/history/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+        }
+      }
+      syncedSessionsRef.current = next;
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [sessions, authUser]);
+
+  // Persist saved trade setups to the server (debounced)
+  useEffect(() => {
+    if (!authUser || !historyLoadedRef.current || syncedAnalysesRef.current === savedAnalyses) return;
+    const timer = setTimeout(() => {
+      syncedAnalysesRef.current = savedAnalyses;
+      apiFetch('/api/history/analyses', {
+        method: 'PUT',
+        body: JSON.stringify({ analyses: savedAnalyses }),
+      }).catch(err => console.warn('Setup sync failed:', err?.message));
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [savedAnalyses, authUser]);
 
   const [tickers, setTickers] = useState<MarketQuote[]>([
     {
@@ -422,162 +474,42 @@ export default function App() {
     });
   }, [currentSessionId]);
 
-  // Sync user profile to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_USER_PROFILE, JSON.stringify(userProfile));
-    } catch (e) {
-      console.error('Failed to save user profile:', e);
-    }
-  }, [userProfile]);
-
-  // Sync credit state to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_CREDIT_STATE, JSON.stringify(creditState));
-    } catch (e) {
-      console.error('Failed to save credit state:', e);
-    }
-  }, [creditState]);
-
-  // Sync recent gifts to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_CREDIT_GIFTS, JSON.stringify(recentGifts));
-    } catch (e) {
-      console.error('Failed to save gifts:', e);
-    }
-  }, [recentGifts]);
-
-  // Sync sessions to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(sessions));
-    } catch (e) {
-      console.error('Failed to save sessions:', e);
-    }
-  }, [sessions]);
-
-  // Sync savedAnalyses to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_ANALYSES, JSON.stringify(savedAnalyses));
-    } catch (e) {
-      console.error('Failed to save analyses:', e);
-    }
-  }, [savedAnalyses]);
-
-  // Sync X Share Reward to localStorage
-  useEffect(() => {
-    try {
-      if (xShareReward) {
-        localStorage.setItem(STORAGE_KEY_X_SHARE_REWARD, JSON.stringify(xShareReward));
-      } else {
-        localStorage.removeItem(STORAGE_KEY_X_SHARE_REWARD);
-      }
-    } catch (e) {
-      console.error('Failed to save X share reward:', e);
-    }
-  }, [xShareReward]);
-
-  // Check 10-hour timer for X Share Reward and credit 10 credits + dispatch notifications
-  useEffect(() => {
-    if (!xShareReward || xShareReward.status !== 'pending') return;
-
-    const evaluateReward = async () => {
-      const now = Date.now();
-      if (now >= xShareReward.unlockAt) {
-        // 1. Credit 10 credits to the user balance
-        setCreditState(prev => {
-          const next = {
-            ...prev,
-            availableCredits: prev.availableCredits + 10,
-          };
-          try {
-            localStorage.setItem(STORAGE_KEY_CREDIT_STATE, JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-
-        // 2. Mark reward as credited and enable on-site notification
-        const updated: XShareReward = {
-          ...xShareReward,
-          status: 'credited',
-          notifiedOnSite: true,
-          notifiedEmail: true,
-        };
-        setXShareReward(updated);
-
-        // 3. Trigger site toast notification
-        setToastNotification({
-          message: '🎉 You have been credited with 10 credits for sharing your profile on X! Email notice sent.',
-          type: 'success',
-        });
-
-        // 3.5 Add to in-app notification center
-        const rewardNotif: AppNotification = {
-          id: `notif-reward-${Date.now()}`,
-          title: '🎉 +10 Credits Added to Your Account',
-          message: 'You have been credited with 10 AI credits for sharing your profile on X! Verification window completed.',
-          type: 'reward',
-          timestamp: Date.now(),
-          read: false,
-        };
-        setNotifications(prev => [rewardNotif, ...prev]);
-
-        // 4. Mark notified
-        const completed: XShareReward = {
-          ...xShareReward,
-          status: 'credited',
-          notifiedOnSite: true,
-          notifiedEmail: true,
-        };
-        setXShareReward(completed);
-      }
-    };
-
-    if (!xShareReward || xShareReward.status !== 'pending') return;
-
-    evaluateReward();
-    const interval = setInterval(evaluateReward, 8000);
-    return () => clearInterval(interval);
-  }, [xShareReward]);
-
-  // Handlers for X Share Reward
-  const handleRegisterShareReward = useCallback((reward: XShareReward) => {
-    setXShareReward(reward);
-    setToastNotification({
-      message: '🚀 Profile shared on X! 10 credits will be unlocked after 10 hours.',
-      type: 'success',
-    });
+  const handleSignOut = useCallback(async () => {
+    const auth = await getFirebaseAuth().catch(() => null);
+    if (auth) await signOut(auth);
+    setActiveSidebarTab('history');
+    setToastNotification({ message: 'Signed out', type: 'success' });
   }, []);
 
+  // Credits / Profile pop-ups need an account; prompt sign-in otherwise
+  const openAccountTab = useCallback(
+    (tab: 'history' | 'credits' | 'profile') => {
+      if (tab !== 'history' && !authUser) {
+        setIsAuthModalOpen(true);
+        return;
+      }
+      setActiveSidebarTab(tab);
+    },
+    [authUser]
+  );
+
+  // X share campaign: the server validates the post link and times the 10-hour unlock
+  const handleRegisterShareReward = useCallback(
+    async (tweetUrl: string): Promise<string | null> => {
+      try {
+        applyAccount(await apiFetch<AccountPayload>('/api/rewards/x-share', { method: 'POST', body: JSON.stringify({ tweetUrl }) }));
+        setToastNotification({ message: '🚀 Post submitted! 10 credits unlock in 10 hours.', type: 'success' });
+        return null;
+      } catch (err: any) {
+        return err?.message || 'Could not submit your post. Please try again.';
+      }
+    },
+    [applyAccount]
+  );
+
   const handleDismissRewardNotice = useCallback(() => {
-    if (!xShareReward) return;
-    setXShareReward(prev => prev ? { ...prev, notifiedOnSite: false } : null);
-  }, [xShareReward]);
-
-  // Periodic check: 24-hour quota renewal & subscription expiry check
-  useEffect(() => {
-    const checkInterval = setInterval(() => {
-      // Check subscription
-      setUserProfile(prev => checkSubscriptionExpiry(prev));
-
-      // Check daily quota (strictly 24-hour cycle, resets to 10 for premium, no carry over)
-      setCreditState(prev => {
-        const { state, refreshed } = checkAndRefreshDailyQuota(prev, userProfile.subscription.active);
-        if (refreshed) {
-          setToastNotification({
-            message: `Your daily quota renewed: ${state.dailyUsageRemaining} uses available!`,
-            type: 'success',
-          });
-        }
-        return state;
-      });
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(checkInterval);
-  }, [userProfile.subscription.active]);
+    setXShareReward(prev => (prev ? { ...prev, notifiedOnSite: false } : null));
+  }, []);
 
   // Dismiss toast notification after 5s
   useEffect(() => {
@@ -587,123 +519,52 @@ export default function App() {
     }
   }, [toastNotification]);
 
-  // Handle plan purchase via Paystack
-  const handleSelectPlan = (plan: 'monthly' | 'yearly', paystackRef?: string) => {
-    const updatedProfile = activateSubscription(userProfile, plan, paystackRef || `ref_${Date.now()}`);
-    setUserProfile(updatedProfile);
-
-    // Give immediate refreshed quota & additional compute balance
-    setCreditState(prev => ({
-      ...prev,
-      availableCredits: prev.availableCredits + (plan === 'yearly' ? 500 : 50),
-      dailyUsageLimit: 10,
-      dailyUsageRemaining: 10, // restarts to 10 immediately
-      lastDailyResetTime: Date.now(),
-    }));
-
+  // Called by the pricing modal after the server has verified the Paystack payment
+  const handlePaymentVerified = (account: AccountPayload, plan: 'monthly' | 'yearly') => {
+    applyAccount(account);
+    refreshNotifications();
     setToastNotification({
-      message: `🎉 Success! Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated via Paystack. Verified badge added!`,
+      message: `🎉 Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated. Payment verified by Paystack.`,
       type: 'success',
     });
   };
 
-  // Handle gifting credits to another user
-  const handleSendGift = (toUsername: string, amount: number, note?: string) => {
-    if (creditState.availableCredits < amount) {
-      return false;
-    }
-
-    // Deduct credits
-    setCreditState(prev => ({
-      ...prev,
-      availableCredits: Math.max(0, prev.availableCredits - amount),
-    }));
-
-    // Record gift
-    const giftRecord: CreditGift = {
-      id: `gift-${Date.now()}`,
-      fromUsername: userProfile.username,
-      toUsername: toUsername.replace(/^@/, '').trim(),
-      amount,
-      timestamp: Date.now(),
-      note,
-    };
-
-    setRecentGifts(prev => [giftRecord, ...prev]);
-
-    setToastNotification({
-      message: `🎁 Successfully gifted ${amount} AI Credits to @${giftRecord.toUsername}!`,
-      type: 'gift',
-    });
-
-    return true;
-  };
-
-  // Handle username updates
-  const handleUpdateUsername = (newUsername: string) => {
-    const cleaned = newUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
-    if (cleaned.length >= 3) {
-      setUserProfile(prev => ({
-        ...prev,
-        username: cleaned,
-      }));
-      setToastNotification({
-        message: `Username updated to @${cleaned}`,
-        type: 'success',
-      });
-    }
-  };
-
-  // Handle comprehensive profile updates (displayName, username, profile picture)
-  const handleUpdateProfile = (updated: { displayName: string; username: string; avatarUrl?: string }) => {
-    setUserProfile(prev => ({
-      ...prev,
-      displayName: updated.displayName,
-      username: updated.username,
-      avatarUrl: updated.avatarUrl,
-    }));
-    setToastNotification({
-      message: 'Profile updated successfully!',
-      type: 'success',
-    });
-  };
-
-  // Initial backfill of savedAnalyses once if not previously initialized
-  useEffect(() => {
+  // Gift credits to another user (server moves the balance atomically)
+  const handleSendGift = async (toUsername: string, amount: number, note?: string): Promise<string | null> => {
     try {
-      const initialized = localStorage.getItem('marketx_analyses_initialized');
-      if (!initialized && savedAnalyses.length === 0 && sessions.length > 0) {
-        const existing: SavedAnalysis[] = [];
-        sessions.forEach(session => {
-          session.messages.forEach(msg => {
-            if (msg.strategy) {
-              const st = msg.strategy;
-              existing.push({
-                id: `analysis-${msg.id}`,
-                symbol: st.symbol,
-                name: st.name,
-                timeframe: st.timeframe,
-                bias: st.bias,
-                tradeType: st.tradeType,
-                optimalEntry: st.entryZone.optimal,
-                stopLossPrice: st.stopLoss.price,
-                tp1Price: st.takeProfits[0]?.price || 0,
-                riskReward: st.riskRewardRatio,
-                confidenceScore: st.confidenceScore,
-                timestamp: msg.timestamp || session.updatedAt,
-                sessionId: session.id,
-                messageId: msg.id,
-              });
-            }
-          });
-        });
-        if (existing.length > 0) {
-          setSavedAnalyses(existing);
-        }
-        localStorage.setItem('marketx_analyses_initialized', 'true');
-      }
-    } catch {}
-  }, [sessions, savedAnalyses.length]);
+      const data = await apiFetch<AccountPayload>('/api/credits/gift', {
+        method: 'POST',
+        body: JSON.stringify({ toUsername, amount, note }),
+      });
+      applyAccount(data);
+      setToastNotification({
+        message: `🎁 Successfully gifted ${amount} AI Credits to @${toUsername.replace(/^@/, '')}!`,
+        type: 'gift',
+      });
+      return null;
+    } catch (err: any) {
+      return err?.message || 'Gift failed. Please try again.';
+    }
+  };
+
+  // Profile updates (display name, unique username, avatar) are validated server-side
+  const handleUpdateProfile = async (updated: { displayName: string; username: string; avatarUrl?: string }): Promise<string | null> => {
+    try {
+      applyAccount(await apiFetch<AccountPayload>('/api/account/profile', { method: 'PUT', body: JSON.stringify(updated) }));
+      setToastNotification({ message: 'Profile updated successfully!', type: 'success' });
+      return null;
+    } catch (err: any) {
+      return err?.message || 'Could not update your profile.';
+    }
+  };
+
+  const handleUpdateUsername = (newUsername: string) => {
+    handleUpdateProfile({
+      displayName: userProfile.displayName,
+      username: newUsername,
+      avatarUrl: userProfile.avatarUrl,
+    }).then(err => err && setToastNotification({ message: err, type: 'success' }));
+  };
 
   // Retrieve current active session
   const currentSession = sessions.find(s => s.id === currentSessionId);
@@ -744,17 +605,11 @@ export default function App() {
     e?.stopPropagation();
     setSessions(prev => {
       const updated = prev.filter(s => s.id !== id);
-      try {
-        localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(updated));
-      } catch {}
       return updated;
     });
     // Also remove associated savedAnalyses that belong to this session
     setSavedAnalyses(prev => {
       const updated = prev.filter(a => a.sessionId !== id);
-      try {
-        localStorage.setItem(STORAGE_KEY_ANALYSES, JSON.stringify(updated));
-      } catch {}
       return updated;
     });
     if (currentSessionId === id) {
@@ -769,10 +624,9 @@ export default function App() {
 
   // Clear all chat sessions
   const handleClearAllSessions = () => {
+    syncedSessionsRef.current = new Map();
+    if (authUser) apiFetch('/api/history/sessions', { method: 'DELETE' }).catch(() => {});
     setSessions([]);
-    try {
-      localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify([]));
-    } catch {}
     setCurrentSessionId(null);
     setToastNotification({
       message: 'All chat conversations cleared',
@@ -785,10 +639,6 @@ export default function App() {
     e?.stopPropagation();
     setSavedAnalyses(prev => {
       const updated = prev.filter(a => a.id !== id);
-      try {
-        localStorage.setItem(STORAGE_KEY_ANALYSES, JSON.stringify(updated));
-        localStorage.setItem('marketx_analyses_initialized', 'true');
-      } catch {}
       return updated;
     });
     setToastNotification({
@@ -800,10 +650,6 @@ export default function App() {
   // Clear all saved trade setups
   const handleClearAllSignals = () => {
     setSavedAnalyses([]);
-    try {
-      localStorage.setItem(STORAGE_KEY_ANALYSES, JSON.stringify([]));
-      localStorage.setItem('marketx_analyses_initialized', 'true');
-    } catch {}
     setToastNotification({
       message: 'All trade setups cleared',
       type: 'success',
@@ -812,14 +658,11 @@ export default function App() {
 
   // Clear all history at once (sessions + saved setups)
   const handleClearAllHistory = () => {
+    syncedSessionsRef.current = new Map();
+    if (authUser) apiFetch('/api/history/sessions', { method: 'DELETE' }).catch(() => {});
     setSessions([]);
     setSavedAnalyses([]);
     setCurrentSessionId(null);
-    try {
-      localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEY_ANALYSES, JSON.stringify([]));
-      localStorage.setItem('marketx_analyses_initialized', 'true');
-    } catch {}
     setToastNotification({
       message: 'All history records cleared',
       type: 'success',
@@ -837,6 +680,12 @@ export default function App() {
   ) => {
     if (!promptText.trim() || isLoading) return;
 
+    // Analyses run on the server against the signed-in account's credits
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     setCurrentView('chat');
     // Clear any historical signal locks so the view always focuses and slides down to the recent response
     setTargetSignalMessageId(null);
@@ -853,36 +702,11 @@ export default function App() {
     const isTightenPrompt = Boolean(baseStrategy && hasTightenKeywords && !hasNewAnalysisDirectives);
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
 
+    // Quick client-side check; the server enforces and deducts credits authoritatively
     const isUnlimited = isUnlimitedUser(userProfile.email);
-
-    // First ensure 24h daily quota is fresh
-    const refreshed = checkAndRefreshDailyQuota(creditState, userProfile.subscription.active, userProfile.email);
-    let activeCredits = refreshed.state;
-    if (refreshed.refreshed) {
-      setCreditState(activeCredits);
-    }
-
-    // Check if user has daily usage left or available compute credits
-    const hasDailyQuota = activeCredits.dailyUsageRemaining > 0;
-    const hasAvailableCredits = activeCredits.availableCredits > 0;
-
-    if (!isUnlimited && !hasDailyQuota && !hasAvailableCredits) {
-      // Both daily quota and credits exhausted: show refill page
+    if (!isUnlimited && creditState.dailyUsageRemaining <= 0 && creditState.availableCredits <= 0) {
       setIsPricingModalOpen(true);
       return;
-    }
-
-    // Deduct daily quota (or compute credit if daily quota reached) - only for non-unlimited users
-    if (!isUnlimited) {
-      setCreditState(prev => {
-        const newDaily = Math.max(0, prev.dailyUsageRemaining - 1);
-        const newAvailable = Math.max(0, prev.availableCredits - 1);
-        return {
-          ...prev,
-          dailyUsageRemaining: newDaily,
-          availableCredits: newAvailable,
-        };
-      });
     }
 
     // Ensure we have an active session
@@ -969,151 +793,124 @@ export default function App() {
           'Synthesizing asymmetric risk/reward targets & institutional thesis...',
         ];
 
-    try {
-      // 1. Kick off backend analysis in parallel immediately
-      const fetchPromise = (async () => {
-        try {
-          const analyzeRes = await fetch(getApiUrl('/api/market/analyze'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: promptText,
-              symbol: assetInfo.symbol,
-              timeframe: resolvedBaseStrategy?.timeframe || timeframe,
-              slMode: isTightenPrompt ? 'tight' : slMode,
-              baseStrategy: resolvedBaseStrategy,
-              chartImage,
-            }),
-            signal: controller.signal,
-          });
-
-          if (analyzeRes.ok) {
-            const data = await analyzeRes.json();
-            if (data && data.strategy) {
-              return {
-                strategy: data.strategy as StrategyResult,
-                assistantText: (data.content || data.message || data.strategy.detailedThesis) as string,
-              };
-            }
-          }
-        } catch (err: any) {
-          if (err.name === 'AbortError') return null;
-          console.warn('Backend analyze fallback to local high-precision engine:', err);
-        }
-        return null;
-      })();
-
-      // 2. Step smoothly through the 8 stages, each taking exactly 3 seconds
-      for (let i = 0; i < scanStages.length; i++) {
-        if (controller.signal.aborted) return;
-
-        setSessions(prev =>
-          prev.map(s => {
-            if (s.id === targetSessionId) {
-              return {
+    const updateAssistant = (patch: Partial<ChatMessage>, sessionPatch?: Partial<ChatSession>) => {
+      setSessions(prev =>
+        prev.map(s =>
+          s.id === targetSessionId
+            ? {
                 ...s,
-                messages: s.messages.map(m =>
-                  m.id === assistantMessageId
-                    ? { ...m, searchStep: scanStages[i] }
-                    : m
-                ),
-              };
-            }
-            return s;
-          })
-        );
-
-        // Exactly 3 seconds per step
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        if (controller.signal.aborted) return;
-      }
-
-      // 3. After 8 is complete, take additional 5 seconds before giving output
-      setSessions(prev =>
-        prev.map(s => {
-          if (s.id === targetSessionId) {
-            return {
-              ...s,
-              messages: s.messages.map(m =>
-                m.id === assistantMessageId
-                  ? { ...m, searchStep: 'All 8 quantitative stages complete. Synthesizing institutional trade thesis & execution matrix...' }
-                  : m
-              ),
-            };
-          }
-          return s;
-        })
-      );
-
-      // Additional 5 seconds
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      if (controller.signal.aborted) return;
-
-      // 4. Retrieve backend result or fallback to client strategy engine
-      const backendResult = await fetchPromise;
-      let strategy: StrategyResult | null = backendResult?.strategy || null;
-      let assistantText = backendResult?.assistantText || '';
-
-      if (!strategy) {
-        const currentTicker = tickers.find(t => t.symbol.toUpperCase() === assetInfo.symbol.toUpperCase());
-        strategy = generateClientFallbackStrategy(
-          assetInfo,
-          currentTicker,
-          resolvedBaseStrategy?.timeframe || timeframe,
-          promptText,
-          isTightenPrompt ? 'tight' : slMode,
-          chartImage
-        );
-        assistantText = strategy.detailedThesis;
-      }
-
-      const requestEndTime = Date.now();
-      const actualDuration = Math.max(29.0, parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1)));
-
-      // Construct verified 8-stage breakdown (3.0s each) + final synthesis step (5.0s)
-      const completedReasoningSteps = [
-        ...scanStages.map((stageName) => ({
-          title: stageName.replace(/\.{3}$/, ''),
-          detail: `Verified quantitative execution node for ${strategy!.symbol} (${strategy!.timeframe} timeframe).`,
-          time: '3.0s',
-        })),
-        {
-          title: 'Institutional Execution & Thesis Finalization',
-          detail: 'Completed all 8 quantitative audits and locked institutional execution matrix with live multi-tier targets.',
-          time: '5.0s',
-        },
-      ];
-
-      // Update the assistant message in current session
-      setSessions(prev =>
-        prev.map(s => {
-          if (s.id === targetSessionId) {
-            const updatedMessages = s.messages.map(m => {
-              if (m.id === assistantMessageId) {
-                return {
-                  ...m,
-                  content: assistantText,
-                  strategy,
-                  status: 'completed' as const,
-                  searchStep: undefined,
-                  durationSeconds: actualDuration,
-                  reasoningSteps: completedReasoningSteps,
-                };
+                ...(sessionPatch || {}),
+                messages: s.messages.map(m => (m.id === assistantMessageId ? { ...m, ...patch } : m)),
               }
-              return m;
-            });
+            : s
+        )
+      );
+    };
+
+    try {
+      // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
+      type BackendResult =
+        | { kind: 'strategy'; strategy: StrategyResult; text: string }
+        | { kind: 'chat'; text: string }
+        | { kind: 'error'; status: number; code: string; message: string };
+
+      const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: promptText,
+          symbol: assetInfo.symbol,
+          timeframe: resolvedBaseStrategy?.timeframe || timeframe,
+          slMode: isTightenPrompt ? 'tight' : slMode,
+          baseStrategy: resolvedBaseStrategy,
+          chartImage,
+        }),
+        signal: controller.signal,
+      })
+        .then((data): BackendResult => {
+          if (data?.strategy) {
             return {
-              ...s,
-              title: `${strategy.symbol} ${strategy.tradeType}`,
-              lastMessage: `${strategy.tradeType} ${strategy.symbol}`,
-              updatedAt: Date.now(),
-              symbol: strategy.symbol,
-              bias: strategy.bias,
-              messages: updatedMessages,
+              kind: 'strategy',
+              strategy: data.strategy as StrategyResult,
+              text: (data.content || data.message || data.strategy.detailedThesis) as string,
             };
           }
-          return s;
+          const text = data?.content || data?.message;
+          if (text) return { kind: 'chat', text };
+          return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
         })
+        .catch((err: any): BackendResult | null => {
+          if (err?.name === 'AbortError' || controller.signal.aborted) return null;
+          if (err instanceof ApiError) return { kind: 'error', status: err.status, code: err.code, message: err.message };
+          return { kind: 'error', status: 0, code: 'NETWORK', message: 'Could not reach the MarketX server. Check your connection and try again.' };
+        });
+
+      // 2. Show pipeline progress only while the real request is running
+      let settled = false;
+      fetchPromise.finally(() => {
+        settled = true;
+      });
+      const stageStarts: number[] = [];
+      for (let i = 0; i < scanStages.length && !settled; i++) {
+        if (controller.signal.aborted) return;
+        stageStarts.push(Date.now());
+        updateAssistant({ searchStep: scanStages[i] });
+        await Promise.race([new Promise(resolve => setTimeout(resolve, 2500)), fetchPromise]);
+      }
+
+      const result = await fetchPromise;
+      if (!result || controller.signal.aborted) return;
+      const requestEndTime = Date.now();
+      const actualDuration = parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1));
+
+      if (result.kind === 'error') {
+        if (result.status === 402) setIsPricingModalOpen(true);
+        if (result.status === 401) setIsAuthModalOpen(true);
+        updateAssistant({
+          content: `⚠️ ${result.message}`,
+          status: 'completed',
+          searchStep: undefined,
+          durationSeconds: actualDuration,
+        });
+        refreshAccount();
+        return;
+      }
+
+      if (result.kind === 'chat') {
+        updateAssistant(
+          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration },
+          { lastMessage: promptText, updatedAt: Date.now() }
+        );
+        refreshAccount();
+        return;
+      }
+
+      const strategy = result.strategy;
+      // Real per-stage timings for the stages the pipeline actually went through
+      const completedReasoningSteps = stageStarts.map((start, i) => {
+        const end = stageStarts[i + 1] ?? requestEndTime;
+        return {
+          title: scanStages[i].replace(/\.{3}$/, ''),
+          detail: `Quantitative execution node for ${strategy.symbol} (${strategy.timeframe} timeframe).`,
+          time: `${((end - start) / 1000).toFixed(1)}s`,
+        };
+      });
+
+      updateAssistant(
+        {
+          content: result.text,
+          strategy,
+          status: 'completed',
+          searchStep: undefined,
+          durationSeconds: actualDuration,
+          reasoningSteps: completedReasoningSteps,
+        },
+        {
+          title: `${strategy.symbol} ${strategy.tradeType}`,
+          lastMessage: `${strategy.tradeType} ${strategy.symbol}`,
+          updatedAt: Date.now(),
+          symbol: strategy.symbol,
+          bias: strategy.bias,
+        }
       );
 
       // Automatically log to Trade Results
@@ -1134,12 +931,14 @@ export default function App() {
         messageId: assistantMessageId,
       };
       setSavedAnalyses(prev => [newAnalysisItem, ...prev]);
+      refreshAccount();
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
         console.log('Analysis aborted by user.');
         return;
       }
       console.error('Market analysis computation notice:', err);
+      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined });
     } finally {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
@@ -1185,7 +984,18 @@ export default function App() {
         isOpen={isPricingModalOpen}
         onClose={() => setIsPricingModalOpen(false)}
         userProfile={userProfile}
-        onSelectPlan={handleSelectPlan}
+        paymentsConfig={paymentsConfig}
+        onPaymentVerified={handlePaymentVerified}
+      />
+
+      {/* Sign in / Create account (Firebase Authentication) */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSignedUp={details => {
+          pendingSignupRef.current = details;
+        }}
+        unavailableReason={authUnavailable}
       />
 
       {/* Gift AI Credits Modal */}
@@ -1205,10 +1015,15 @@ export default function App() {
         notifications={notifications}
         onMarkAllAsRead={() => {
           setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+          if (authUser) apiFetch('/api/notifications/read-all', { method: 'POST' }).catch(() => {});
         }}
-        onClearAll={() => setNotifications([])}
+        onClearAll={() => {
+          setNotifications([]);
+          if (authUser) apiFetch('/api/notifications', { method: 'DELETE' }).catch(() => {});
+        }}
         onDismissNotification={(id) => {
           setNotifications(prev => prev.filter(n => n.id !== id));
+          if (authUser) apiFetch(`/api/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
         }}
         onNotificationAction={(notif) => {
           setIsNotificationCenterOpen(false);
@@ -1216,7 +1031,7 @@ export default function App() {
             setCurrentView('chat');
             handleSendMessage(notif.actionPrompt, '4H');
           } else if (notif.type === 'reward' || notif.type === 'credit') {
-            setActiveSidebarTab('profile');
+            openAccountTab('profile');
           }
         }}
       />
@@ -1262,7 +1077,7 @@ export default function App() {
         credits={creditState.availableCredits}
         maxCredits={creditState.dailyUsageLimit}
         activeTab={activeSidebarTab}
-        setActiveTab={setActiveSidebarTab}
+        setActiveTab={openAccountTab}
         userProfile={userProfile}
         creditState={creditState}
         onOpenPricing={() => setIsPricingModalOpen(true)}
@@ -1276,6 +1091,9 @@ export default function App() {
         onCloseMobile={() => setIsSidebarOpen(false)}
         unreadNotificationsCount={notifications.filter(n => !n.read).length}
         onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+        isSignedIn={!!authUser}
+        onSignIn={() => setIsAuthModalOpen(true)}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Workspace Area */}
@@ -1289,12 +1107,8 @@ export default function App() {
           username={userProfile.username}
           avatarUrl={userProfile.avatarUrl}
           isVerified={userProfile.isVerified}
-          onOpenCredits={() => {
-            setActiveSidebarTab('credits');
-          }}
-          onOpenProfile={() => {
-            setActiveSidebarTab('profile');
-          }}
+          onOpenCredits={() => openAccountTab('credits')}
+          onOpenProfile={() => openAccountTab('profile')}
           onResetChat={handleNewSession}
           onSelectTicker={sym => {
             setCurrentView('chat');
