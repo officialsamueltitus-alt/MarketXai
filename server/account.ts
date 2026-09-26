@@ -244,7 +244,7 @@ async function createUserIfMissing(user: AuthedUser, requestedUsername?: string,
         addNotificationInTx(tx, user.uid, {
           type: 'reward',
           title: `Campaign: Share Your Profile on X (+${X_SHARE_CREDITS} Credits)`,
-          message: `Share your trader card on X and submit the post link to earn ${X_SHARE_CREDITS} AI credits after 10 hours.`,
+          message: `Share your trader card on X to earn ${X_SHARE_CREDITS} AI credits after 10 hours.`,
           actionType: 'open_campaign',
         });
         return doc;
@@ -585,22 +585,13 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     res.json({ success: true, gift: result.gift, ...(await readAccountState(user)) });
   }));
 
-  // --- X share campaign: submit the post link, credits unlock 10h later (server-timed) ---
+  // --- X share campaign: user is sent to X with a pre-written post; credits unlock 10h later (server-timed, once per account) ---
   app.post('/api/rewards/x-share', limiter, requireAuth, wrap(async (req, res) => {
     const user = getUser(res);
-    const tweetUrl = String(req.body?.tweetUrl || '').trim();
-    const match = /^https:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/status\/(\d{5,25})(?:[/?#].*)?$/.exec(tweetUrl);
-    if (!match) {
-      return res.status(400).json({ error: 'INVALID_URL', message: 'Paste the link to your post, e.g. https://x.com/yourname/status/123…' });
-    }
-    const statusId = match[2];
-
     const result = await db().runTransaction(async tx => {
       const loaded = await loadUserInTx(tx, user.uid);
       if (!loaded) return { error: 'NO_ACCOUNT', message: 'Account not found.' };
       if (loaded.doc.xShareReward) return { error: 'ALREADY_CLAIMED', message: 'You have already joined this campaign.' };
-      const postRef = db().collection('rewardPosts').doc(statusId);
-      if ((await tx.get(postRef)).exists) return { error: 'POST_USED', message: 'This post has already been used for a reward.' };
 
       const now = Date.now();
       const reward: XShareReward = {
@@ -613,10 +604,8 @@ export function registerAccountRoutes(app: Express, limiter: any) {
         status: 'pending',
         notifiedOnSite: false,
         notifiedEmail: false,
-        tweetUrl,
       };
       saveNormalized(tx, loaded);
-      tx.set(postRef, { uid: user.uid, tweetUrl, createdAt: now });
       tx.update(loaded.ref, { xShareReward: reward });
       return { reward };
     });

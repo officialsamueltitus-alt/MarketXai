@@ -54,7 +54,7 @@ interface SidebarProps {
   onUpdateUsername?: (newUsername: string) => void;
   onUpdateProfile: (updated: { displayName: string; username: string; avatarUrl?: string }) => Promise<string | null>;
   xShareReward?: XShareReward | null;
-  onRegisterShareReward?: (tweetUrl: string) => Promise<string | null>;
+  onRegisterShareReward?: () => Promise<string | null>;
   onDismissRewardNotice?: () => void;
   isOpen: boolean;
   onCloseMobile: () => void;

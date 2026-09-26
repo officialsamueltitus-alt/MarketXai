@@ -38,7 +38,7 @@ interface ProfileViewProps {
   onOpenGiftModal: () => void;
   completedAnalysesCount?: number;
   xShareReward?: XShareReward | null;
-  onRegisterShareReward?: (tweetUrl: string) => Promise<string | null>;
+  onRegisterShareReward?: () => Promise<string | null>;
   onDismissRewardNotice?: () => void;
   onSignOut?: () => void;
 }
@@ -441,8 +441,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         userProfile={userProfile}
-        onRegisterShareReward={tweetUrl =>
-          onRegisterShareReward ? onRegisterShareReward(tweetUrl) : Promise.resolve('Sign in to join the campaign.')
+        onRegisterShareReward={() =>
+          onRegisterShareReward ? onRegisterShareReward() : Promise.resolve('Sign in to join the campaign.')
         }
         existingReward={xShareReward}
       />
