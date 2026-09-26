@@ -360,7 +360,7 @@ export default function App() {
     };
 
     fetchLatestTickers();
-    const interval = setInterval(fetchLatestTickers, 30000);
+    const interval = setInterval(fetchLatestTickers, 10000);
 
     return () => {
       isMounted = false;
