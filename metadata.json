@@ -1,0 +1,6 @@
+{
+  "name": "MarketX",
+  "description": "AI-powered real-time financial market analyzer utilizing institutional liquidity zones and mathematical golden ratio confluence to identify high-probability trading opportunities with optimal entries, stop loss, and take profits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

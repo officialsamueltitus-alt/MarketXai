@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- Primary SEO Metadata -->
+    <title>MarketX — AI Financial Market Analysis & Trading Intelligence</title>
+    <meta name="title" content="MarketX — AI Financial Market Analysis & Trading Intelligence" />
+    <meta name="description" content="AI-powered real-time financial market analyzer utilizing institutional liquidity zones and mathematical golden ratio confluence to identify high-probability trading opportunities with optimal entries, stop loss, and take profits." />
+    <meta name="keywords" content="MarketX, AI trading, crypto analysis, stock market predictions, institutional liquidity, order blocks, SMC, Fibonacci confluence, forex signals, real-time market data" />
+    <meta name="author" content="MarketX Intelligence" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="canonical" href="https://marketx.world" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://marketx.world" />
+    <meta property="og:title" content="MarketX — AI Financial Market Analysis & Trading Intelligence" />
+    <meta property="og:description" content="AI-powered real-time financial market analyzer utilizing institutional liquidity zones and mathematical golden ratio confluence to identify high-probability trading opportunities with optimal entries, stop loss, and take profits." />
+    <meta property="og:site_name" content="MarketX" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card Metadata -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://marketx.world" />
+    <meta name="twitter:title" content="MarketX — AI Financial Market Analysis & Trading Intelligence" />
+    <meta name="twitter:description" content="AI-powered real-time financial market analyzer utilizing institutional liquidity zones and mathematical golden ratio confluence to identify high-probability trading opportunities with optimal entries, stop loss, and take profits." />
+
+    <!-- Browser & Platform UI Theme -->
+    <meta name="theme-color" content="#020617" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Favicon with 'X' and dynamic changing colors -->
+    <link rel="icon" id="dynamic-favicon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Web Fonts & Preconnects -->
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    <link rel="dns-prefetch" href="https://api.binance.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@800;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Paystack Inline Checkout JS (Deferred for zero render-blocking) -->
+    <script defer src="https://js.paystack.co/v1/inline.js"></script>
+
+    <!-- Schema.org JSON-LD Structured Data for SEO -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "MarketX",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Web",
+      "description": "AI-powered real-time financial market analyzer utilizing institutional liquidity order blocks and mathematical golden ratio confluence.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
+
+    <!-- Dynamic Favicon "X" color cycling across all browsers -->
+    <script>
+      (function() {
+        const colorPairs = [
+          ['#06B6D4', '#6366F1'], // Cyan to Indigo
+          ['#6366F1', '#A855F7'], // Indigo to Violet
+          ['#EC4899', '#8B5CF6'], // Pink to Purple
+          ['#F59E0B', '#EF4444'], // Amber to Red
+          ['#10B981', '#06B6D4'], // Emerald to Cyan
+          ['#38BDF8', '#818CF8']  // Sky to Indigo
+        ];
+        let colorIndex = 0;
+
+        function updateFaviconColor() {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            // Background container
+            ctx.fillStyle = '#020617';
+            ctx.beginPath();
+            ctx.roundRect(0, 0, 64, 64, 16);
+            ctx.fill();
+
+            // Gradient for X
+            const colors = colorPairs[colorIndex];
+            const grad = ctx.createLinearGradient(0, 0, 64, 64);
+            grad.addColorStop(0, colors[0]);
+            grad.addColorStop(1, colors[1]);
+
+            // Subtle border
+            ctx.strokeStyle = colors[0];
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.roundRect(2, 2, 60, 60, 14);
+            ctx.stroke();
+
+            // Draw "X"
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            // Path of stylized X
+            ctx.moveTo(16, 16);
+            ctx.lineTo(27.5, 32);
+            ctx.lineTo(16, 48);
+            ctx.lineTo(22.5, 48);
+            ctx.lineTo(32, 34.5);
+            ctx.lineTo(41.5, 48);
+            ctx.lineTo(48, 48);
+            ctx.lineTo(36.5, 32);
+            ctx.lineTo(48, 16);
+            ctx.lineTo(41.5, 16);
+            ctx.lineTo(32, 29.5);
+            ctx.lineTo(22.5, 16);
+            ctx.closePath();
+            ctx.fill();
+
+            const faviconLink = document.getElementById('dynamic-favicon');
+            if (faviconLink) {
+              faviconLink.href = canvas.toDataURL('image/png');
+            }
+
+            colorIndex = (colorIndex + 1) % colorPairs.length;
+          } catch(e) {}
+        }
+
+        // Generate once immediately
+        updateFaviconColor();
+
+        // On desktop devices only, cycle occasionally if page is visible
+        if (window.matchMedia && window.matchMedia('(min-width: 1024px)').matches) {
+          setInterval(function() {
+            if (!document.hidden) {
+              updateFaviconColor();
+            }
+          }, 15000);
+        }
+      })();
+    </script>
+  </head>
+  <body class="bg-black bg-[#000000] text-slate-100 antialiased overflow-hidden select-none">
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>
+
