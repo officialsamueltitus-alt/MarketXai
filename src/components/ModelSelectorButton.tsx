@@ -87,6 +87,7 @@ export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({
   // Cycling the models logo one after another, changing every 3 seconds
   useEffect(() => {
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       setActiveModelIndex(prev => (prev + 1) % aiModels.length);
     }, 3000);
     return () => clearInterval(timer);

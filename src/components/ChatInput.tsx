@@ -14,7 +14,20 @@ import {
   FileImage,
   Clipboard,
   CheckCircle2,
+  Target,
+  SlidersHorizontal,
+  Bot,
+  Plug,
+  Lock,
 } from 'lucide-react';
+
+// Slash-command menu shown when the user types "/" in the chat input
+const SLASH_COMMANDS = [
+  { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
+  { id: 'preference', label: 'Preference Mode', description: 'Tune analysis style, risk and defaults', icon: SlidersHorizontal },
+  { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
+  { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
+] as const;
 
 interface ChatInputProps {
   onSendMessage: (
@@ -51,6 +64,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [comingSoonLabel, setComingSoonLabel] = useState<string | null>(null);
+
+  // Slash menu is open while the input is a single "/word" token
+  const slashMatch = /^\/(\S*)$/.exec(input);
+  const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
+  const filteredCommands = slashMatch
+    ? SLASH_COMMANDS.filter(
+        c => c.label.toLowerCase().replace(/\s+/g, '').includes(slashQuery) || c.id.includes(slashQuery)
+      )
+    : [];
+  const isSlashMenuOpen = !!slashMatch && !slashDismissed && filteredCommands.length > 0;
+
+  useEffect(() => {
+    setSlashIndex(0);
+    if (!input.startsWith('/')) setSlashDismissed(false);
+  }, [input]);
+
+  useEffect(() => {
+    if (!comingSoonLabel) return;
+    const timer = setTimeout(() => setComingSoonLabel(null), 3000);
+    return () => clearTimeout(timer);
+  }, [comingSoonLabel]);
+
+  const selectSlashCommand = (label: string) => {
+    setInput('');
+    setComingSoonLabel(label);
+    textareaRef.current?.focus();
+  };
 
   // Sync external initial chart image if passed
   useEffect(() => {
@@ -210,6 +253,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSlashMenuOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex(i => (i + 1) % filteredCommands.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const cmd = filteredCommands[Math.min(slashIndex, filteredCommands.length - 1)];
+        if (cmd) selectSlashCommand(cmd.label);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashDismissed(true);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -226,7 +292,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div
-      className="w-full max-w-[280px] sm:max-w-[320px] mx-auto"
+      className="relative w-full max-w-[280px] sm:max-w-[320px] mx-auto"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -286,6 +352,63 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           >
             <X className="w-3 h-3" />
           </button>
+        </div>
+      )}
+
+      {/* Slash-command pop-out, anchored to the top of the input box */}
+      {(isSlashMenuOpen || comingSoonLabel) && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[min(92vw,320px)] z-30 rounded-2xl bg-slate-950 border border-white/[0.14] shadow-2xl shadow-black/80 overflow-hidden">
+          {comingSoonLabel ? (
+            <div className="flex items-start gap-2.5 p-3" role="status">
+              <span className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <Lock className="w-4 h-4 text-amber-300" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-white">{comingSoonLabel}</div>
+                <div className="text-[11px] text-slate-300 mt-0.5">In private test mode. Coming soon.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setComingSoonLabel(null)}
+                className="w-5 h-5 rounded-md bg-white/[0.08] hover:bg-white/[0.16] text-slate-400 hover:text-white flex items-center justify-center shrink-0 cursor-pointer"
+                aria-label="Dismiss"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <div role="listbox" aria-label="Commands" className="p-1.5">
+              <div className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Commands
+              </div>
+              {filteredCommands.map((cmd, i) => {
+                const Icon = cmd.icon;
+                const active = i === slashIndex;
+                return (
+                  <button
+                    key={cmd.id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onMouseDown={e => e.preventDefault()}
+                    onMouseEnter={() => setSlashIndex(i)}
+                    onClick={() => selectSlashCommand(cmd.label)}
+                    className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left transition-colors cursor-pointer ${
+                      active ? 'bg-indigo-600/25 text-white' : 'text-slate-200 hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <span className="w-7 h-7 rounded-lg bg-white/[0.05] border border-white/[0.1] flex items-center justify-center shrink-0">
+                      <Icon className="w-3.5 h-3.5 text-indigo-300" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold">{cmd.label}</span>
+                      <span className="block text-[10px] text-slate-400 truncate">{cmd.description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
