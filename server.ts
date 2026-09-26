@@ -125,140 +125,213 @@ let lastTickerFetch = 0;
 let cachedForexRates: Record<string, number> | null = null;
 let lastForexFetch = 0;
 
+// Last successfully fetched live quote per ticker symbol, so a transient upstream failure
+// keeps serving the most recent real price instead of reverting to hardcoded baselines.
+const lastLiveQuotes: Record<string, { data: Partial<MarketTicker>; at: number }> = {};
+// A live quote older than this is no longer treated as "live" by the quote resolver
+const LIVE_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
+
+// Throttled upstream failure logging (visible in Render logs) without flooding output
+const lastFeedWarning: Record<string, number> = {};
+function warnFeed(source: string, detail: string) {
+  const now = Date.now();
+  if (now - (lastFeedWarning[source] || 0) < 60000) return;
+  lastFeedWarning[source] = now;
+  console.warn(`[MarketX Feed] ${source} unavailable: ${detail}`);
+}
+
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<{ status: number; data: any }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Accept: 'application/json' },
+    });
+    if (!res.ok) return { status: res.status, data: null };
+    return { status: res.status, data: await res.json() };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Binance geo-blocks some regions (HTTP 451 from US datacenters, e.g. Render Oregon/Ohio/Virginia).
+// data-api.binance.vision is Binance's public market-data mirror; api.binance.us is the last resort.
+const BINANCE_HOSTS = ['https://api.binance.com', 'https://data-api.binance.vision', 'https://api.binance.us'];
+let preferredBinanceHost = 0;
+
+async function binanceRequest(pathAndQuery: string, timeoutMs: number): Promise<any | null> {
+  for (let i = 0; i < BINANCE_HOSTS.length; i++) {
+    const idx = (preferredBinanceHost + i) % BINANCE_HOSTS.length;
+    const host = BINANCE_HOSTS[idx];
+    try {
+      const { status, data } = await fetchJsonWithTimeout(`${host}${pathAndQuery}`, timeoutMs);
+      if (data) {
+        preferredBinanceHost = idx;
+        return data;
+      }
+      warnFeed(`Binance ${host}`, `HTTP ${status}`);
+    } catch (err: any) {
+      warnFeed(`Binance ${host}`, err?.name === 'AbortError' ? 'timeout' : String(err?.message || err));
+    }
+  }
+  return null;
+}
+
+function mapBinanceTicker(data: any): Partial<MarketTicker> | null {
+  const price = parseFloat(data?.lastPrice);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  return {
+    price,
+    change24h: parseFloat(data.priceChangePercent),
+    high24h: parseFloat(data.highPrice),
+    low24h: parseFloat(data.lowPrice),
+    volume24h: parseFloat(data.volume).toLocaleString(undefined, { maximumFractionDigits: 0 }),
+  };
+}
+
 // Fetch live crypto quotes from Binance public API for a single pair
 async function fetchBinanceTicker(symbol: string): Promise<Partial<MarketTicker> | null> {
-  try {
-    const cleanSym = symbol.replace(/[^A-Z0-9]/g, '');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${cleanSym}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      price: parseFloat(data.lastPrice),
-      change24h: parseFloat(data.priceChangePercent),
-      high24h: parseFloat(data.highPrice),
-      low24h: parseFloat(data.lowPrice),
-      volume24h: parseFloat(data.volume).toLocaleString(undefined, { maximumFractionDigits: 0 }),
-    };
-  } catch {
-    return null;
-  }
+  const cleanSym = symbol.replace(/[^A-Z0-9]/g, '');
+  const data = await binanceRequest(`/api/v3/ticker/24hr?symbol=${cleanSym}`, 4000);
+  return data ? mapBinanceTicker(data) : null;
 }
 
 // Fetch batch quotes for multiple crypto pairs in a single high-speed request
 async function fetchBinanceBatchTickers(symbols: string[]): Promise<Record<string, Partial<MarketTicker>>> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4500);
-    const encoded = encodeURIComponent(JSON.stringify(symbols));
-    const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encoded}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return {};
-    const list: any[] = await res.json();
-    const map: Record<string, Partial<MarketTicker>> = {};
-    if (Array.isArray(list)) {
-      for (const item of list) {
-        if (item && item.symbol) {
-          map[item.symbol] = {
-            price: parseFloat(item.lastPrice),
-            change24h: parseFloat(item.priceChangePercent),
-            high24h: parseFloat(item.highPrice),
-            low24h: parseFloat(item.lowPrice),
-            volume24h: parseFloat(item.volume).toLocaleString(undefined, { maximumFractionDigits: 0 }),
-          };
-        }
-      }
+  const map: Record<string, Partial<MarketTicker>> = {};
+  const encoded = encodeURIComponent(JSON.stringify(symbols));
+  const list = await binanceRequest(`/api/v3/ticker/24hr?symbols=${encoded}`, 4500);
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      const mapped = item && item.symbol ? mapBinanceTicker(item) : null;
+      if (mapped) map[item.symbol] = mapped;
     }
-    return map;
-  } catch {
-    return {};
   }
+  // A batch is rejected as a whole if one pair is not listed on the answering host; fill gaps individually
+  const missing = symbols.filter(s => !map[s]);
+  if (missing.length > 0) {
+    const singles = await Promise.all(missing.map(s => fetchBinanceTicker(s)));
+    missing.forEach((s, i) => {
+      if (singles[i]) map[s] = singles[i]!;
+    });
+  }
+  return map;
 }
 
-// Fetch live forex exchange rates from open.er-api.com
+// Fetch daily reference exchange rates from open.er-api.com (fallback when intraday FX quotes are unavailable)
 async function fetchForexRates(): Promise<Record<string, number> | null> {
   const now = Date.now();
   if (cachedForexRates && now - lastForexFetch < 15000) {
     return cachedForexRates;
   }
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return cachedForexRates;
-    const data = await res.json();
+    const { status, data } = await fetchJsonWithTimeout('https://open.er-api.com/v6/latest/USD', 3500);
+    lastForexFetch = now;
     if (data && data.rates) {
       cachedForexRates = data.rates;
-      lastForexFetch = now;
       return data.rates;
     }
+    warnFeed('open.er-api.com', `HTTP ${status}`);
     return cachedForexRates;
-  } catch {
+  } catch (err: any) {
+    lastForexFetch = now;
+    warnFeed('open.er-api.com', String(err?.message || err));
     return cachedForexRates;
   }
 }
 
+type LiveQuote = { price: number; change24h: number; high24h: number; low24h: number };
+
+// Per-symbol Yahoo Finance quote cache (equities, indices, FX and commodity futures)
+const yahooQuoteCache: Record<string, { quote: LiveQuote | null; at: number }> = {};
+const YAHOO_TTL_MS = 10000;
+const YAHOO_FAIL_TTL_MS = 5000;
+
+async function fetchYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
+  const now = Date.now();
+  const cached = yahooQuoteCache[yahooSym];
+  if (cached && now - cached.at < (cached.quote ? YAHOO_TTL_MS : YAHOO_FAIL_TTL_MS)) {
+    return cached.quote;
+  }
+  let quote: LiveQuote | null = null;
+  for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
+    try {
+      const { status, data } = await fetchJsonWithTimeout(
+        `${host}/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=5m&range=1d`,
+        3500
+      );
+      const meta = data?.chart?.result?.[0]?.meta;
+      const price = Number(meta?.regularMarketPrice);
+      if (!meta || !Number.isFinite(price) || price <= 0) {
+        warnFeed(`Yahoo ${host}`, `HTTP ${status} for ${yahooSym}`);
+        continue;
+      }
+      const prevClose = Number(meta.previousClose || meta.regularMarketPreviousClose || meta.chartPreviousClose || price);
+      const decimals = price < 10 ? 5 : price < 1000 ? 3 : 2;
+      quote = {
+        price,
+        change24h: Number((((price - prevClose) / prevClose) * 100).toFixed(2)),
+        high24h: Number(Number(meta.regularMarketDayHigh || Math.max(price, prevClose)).toFixed(decimals)),
+        low24h: Number(Number(meta.regularMarketDayLow || Math.min(price, prevClose)).toFixed(decimals)),
+      };
+      break;
+    } catch (err: any) {
+      warnFeed(`Yahoo ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
+    }
+  }
+  // Keep serving the last good quote on failure
+  if (!quote && cached?.quote) {
+    yahooQuoteCache[yahooSym] = { quote: cached.quote, at: now - YAHOO_TTL_MS + YAHOO_FAIL_TTL_MS };
+    return cached.quote;
+  }
+  yahooQuoteCache[yahooSym] = { quote, at: now };
+  return quote;
+}
+
 // Memory cache for major US stocks to minimize latency
-let cachedStockQuotes: Record<string, { price: number; change24h: number; high24h: number; low24h: number }> = {};
-let lastStockFetch = 0;
+let cachedStockQuotes: Record<string, LiveQuote> = {};
 
 // Fetch live US equities quotes (AAPL, TSLA, GOOGL, NVDA, WMT) from Yahoo Finance
-async function fetchStockQuotes(): Promise<Record<string, { price: number; change24h: number; high24h: number; low24h: number }>> {
-  const now = Date.now();
-  if (Object.keys(cachedStockQuotes).length > 0 && now - lastStockFetch < 30000) {
-    return cachedStockQuotes;
-  }
+async function fetchStockQuotes(): Promise<Record<string, LiveQuote>> {
   const symbols = ['AAPL', 'TSLA', 'GOOGL', 'NVDA', 'WMT'];
-  try {
-    const results = await Promise.all(
-      symbols.map(async sym => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3000);
-          const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d`, {
-            signal: controller.signal,
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-          });
-          clearTimeout(timeout);
-          if (!res.ok) return null;
-          const data = await res.json();
-          const meta = data?.chart?.result?.[0]?.meta;
-          if (!meta || !meta.regularMarketPrice) return null;
-          const price = Number(meta.regularMarketPrice);
-          const prevClose = Number(meta.chartPreviousClose || price);
-          const change24h = Number((((price - prevClose) / prevClose) * 100).toFixed(2));
-          const high24h = Number((meta.regularMarketDayHigh || price * 1.01).toFixed(2));
-          const low24h = Number((meta.regularMarketDayLow || price * 0.99).toFixed(2));
-          return { symbol: sym, price, change24h, high24h, low24h };
-        } catch {
-          return null;
-        }
-      })
-    );
-    for (const r of results) {
-      if (r) {
-        cachedStockQuotes[r.symbol] = {
-          price: r.price,
-          change24h: r.change24h,
-          high24h: r.high24h,
-          low24h: r.low24h,
-        };
-      }
-    }
-    lastStockFetch = now;
-    return cachedStockQuotes;
-  } catch {
-    return cachedStockQuotes;
-  }
+  const results = await Promise.all(symbols.map(sym => fetchYahooQuote(sym)));
+  symbols.forEach((sym, i) => {
+    if (results[i]) cachedStockQuotes[sym] = results[i]!;
+  });
+  return cachedStockQuotes;
+}
+
+// Yahoo Finance symbols for indices and non-gold commodities
+const YAHOO_SYMBOL_MAP: Record<string, string> = {
+  US30: '^DJI',
+  NAS100: '^NDX',
+  SPX500: '^GSPC',
+  GER40: '^GDAXI',
+  UK100: '^FTSE',
+  JP225: '^N225',
+  XAUUSD: 'GC=F',
+  XAGUSD: 'SI=F',
+  XPTUSD: 'PL=F',
+  XPDUSD: 'PA=F',
+  WTIUSD: 'CL=F',
+  BRENT: 'BZ=F',
+  NGAS: 'NG=F',
+  COPPER: 'HG=F',
+};
+
+// Live intraday FX quote from Yahoo Finance (e.g. EURUSD=X), falling back to daily reference rates
+async function fetchForexQuote(base: string, quote: string): Promise<(LiveQuote & { intraday: boolean }) | null> {
+  const live = await fetchYahooQuote(`${base}${quote}=X`);
+  if (live) return { ...live, intraday: true };
+
+  const rates = await fetchForexRates();
+  if (!rates) return null;
+  const baseVsUSD = base === 'USD' ? 1 : rates[base];
+  const quoteVsUSD = quote === 'USD' ? 1 : rates[quote];
+  if (!baseVsUSD || !quoteVsUSD) return null;
+  const rate = quoteVsUSD / baseVsUSD;
+  return { price: rate, change24h: 0, high24h: rate, low24h: rate, intraday: false };
 }
 
 // Fetch live quotes across key markets
@@ -588,120 +661,102 @@ async function getLiveMarketTickers(): Promise<MarketTicker[]> {
     },
   ];
 
-  // Fetch real-time live quotes: All Cryptos + Gold Spot (PAXG) from Binance in batch, Forex from Exchange Rates API, Equities from Yahoo Finance
+  // Fetch real-time live quotes: All Cryptos + Gold Spot (PAXG) from Binance in batch, Forex (intraday) and Equities from Yahoo Finance
+  const liveUpdates: Record<string, Partial<MarketTicker>> = {};
   try {
     const cryptoSymbolsToFetch = [
       'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT',
       'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'SUIUSDT', 'LINKUSDT',
       'PAXGUSDT'
     ];
-    const [cryptoBatch, forexRates, stockQuotes] = await Promise.all([
+    const forexItems = baseList.filter(b => b.type === 'forex');
+    const [cryptoBatch, stockQuotes, forexQuotes] = await Promise.all([
       fetchBinanceBatchTickers(cryptoSymbolsToFetch),
-      fetchForexRates(),
       fetchStockQuotes(),
+      Promise.all(
+        forexItems.map(item => {
+          const [base, quote] = item.symbol.split('/');
+          return fetchForexQuote(base, quote);
+        })
+      ),
     ]);
 
-    // Update US equity tickers from live quotes
-    if (stockQuotes) {
-      for (const item of baseList) {
-        if (item.type === 'stock' && stockQuotes[item.symbol]) {
-          const sq = stockQuotes[item.symbol];
-          item.price = sq.price;
-          item.change24h = sq.change24h;
-          item.high24h = sq.high24h;
-          item.low24h = sq.low24h;
-        }
+    // US equity tickers from live quotes
+    for (const item of baseList) {
+      if (item.type === 'stock' && stockQuotes[item.symbol]) {
+        liveUpdates[item.symbol] = { ...stockQuotes[item.symbol] };
       }
     }
 
-    // Update all crypto tickers from live Binance batch quotes
+    // All crypto tickers from live Binance batch quotes
     for (const item of baseList) {
       if (item.type === 'crypto') {
         const cleanSym = item.symbol.replace(/[^A-Z0-9]/g, '');
         const live = cryptoBatch[cleanSym] || cryptoBatch[cleanSym + 'USDT'];
         if (live && live.price) {
-          Object.assign(item, live);
+          liveUpdates[item.symbol] = live;
         }
       }
     }
 
+    // Gold spot tracked through PAXG/USDT (1:1 fine troy ounce backed), COMEX gold futures as backup
     const paxgLive = cryptoBatch['PAXGUSDT'];
-    const xauItem = baseList.find(b => b.symbol.startsWith('XAU'));
-    if (paxgLive && paxgLive.price && xauItem) {
-      xauItem.price = paxgLive.price;
-      if (paxgLive.change24h !== undefined) xauItem.change24h = paxgLive.change24h;
-      if (paxgLive.high24h !== undefined) xauItem.high24h = paxgLive.high24h;
-      if (paxgLive.low24h !== undefined) xauItem.low24h = paxgLive.low24h;
+    if (paxgLive && paxgLive.price) {
+      liveUpdates['XAU/USD'] = {
+        price: paxgLive.price,
+        change24h: paxgLive.change24h,
+        high24h: paxgLive.high24h,
+        low24h: paxgLive.low24h,
+      };
+    } else {
+      const goldFutures = await fetchYahooQuote('GC=F');
+      if (goldFutures) liveUpdates['XAU/USD'] = { ...goldFutures };
     }
 
-    // Apply accurate real-time Forex exchange rates
-    if (forexRates) {
-      const usdjpy = baseList.find(b => b.symbol === 'USD/JPY');
-      if (usdjpy && forexRates.JPY) {
-        const jpyRate = Number(forexRates.JPY.toFixed(3));
-        usdjpy.price = jpyRate;
-        usdjpy.high24h = Number((jpyRate * 1.004).toFixed(3));
-        usdjpy.low24h = Number((jpyRate * 0.996).toFixed(3));
-        usdjpy.ratio = jpyRate.toFixed(2);
-      }
-
-      const eurusd = baseList.find(b => b.symbol === 'EUR/USD');
-      if (eurusd && forexRates.EUR) {
-        const eurRate = Number((1 / forexRates.EUR).toFixed(4));
-        eurusd.price = eurRate;
-        eurusd.high24h = Number((eurRate * 1.003).toFixed(4));
-        eurusd.low24h = Number((eurRate * 0.997).toFixed(4));
-        eurusd.ratio = eurRate.toFixed(3);
-      }
-
-      const gbpusd = baseList.find(b => b.symbol === 'GBP/USD');
-      if (gbpusd && forexRates.GBP) {
-        const gbpRate = Number((1 / forexRates.GBP).toFixed(4));
-        gbpusd.price = gbpRate;
-        gbpusd.high24h = Number((gbpRate * 1.003).toFixed(4));
-        gbpusd.low24h = Number((gbpRate * 0.997).toFixed(4));
-        gbpusd.ratio = gbpRate.toFixed(3);
-      }
-
-      const audusd = baseList.find(b => b.symbol === 'AUD/USD');
-      if (audusd && forexRates.AUD) {
-        const audRate = Number((1 / forexRates.AUD).toFixed(4));
-        audusd.price = audRate;
-        audusd.high24h = Number((audRate * 1.004).toFixed(4));
-        audusd.low24h = Number((audRate * 0.996).toFixed(4));
-      }
-
-      const usdcad = baseList.find(b => b.symbol === 'USD/CAD');
-      if (usdcad && forexRates.CAD) {
-        const cadRate = Number(forexRates.CAD.toFixed(4));
-        usdcad.price = cadRate;
-        usdcad.high24h = Number((cadRate * 1.003).toFixed(4));
-        usdcad.low24h = Number((cadRate * 0.997).toFixed(4));
-      }
-
-      const usdchf = baseList.find(b => b.symbol === 'USD/CHF');
-      if (usdchf && forexRates.CHF) {
-        const chfRate = Number(forexRates.CHF.toFixed(4));
-        usdchf.price = chfRate;
-        usdchf.high24h = Number((chfRate * 1.003).toFixed(4));
-        usdchf.low24h = Number((chfRate * 0.997).toFixed(4));
-      }
-
-      const gbpjpy = baseList.find(b => b.symbol === 'GBP/JPY');
-      if (gbpjpy && forexRates.JPY && forexRates.GBP) {
-        const gbpJpyRate = Number((forexRates.JPY / forexRates.GBP).toFixed(3));
-        gbpjpy.price = gbpJpyRate;
-        gbpjpy.high24h = Number((gbpJpyRate * 1.005).toFixed(3));
-        gbpjpy.low24h = Number((gbpJpyRate * 0.995).toFixed(3));
-      }
-    }
+    // Accurate real-time Forex quotes
+    forexItems.forEach((item, i) => {
+      const fx = forexQuotes[i];
+      if (!fx) return;
+      const decimals = item.symbol.includes('JPY') ? 3 : 5;
+      const price = Number(fx.price.toFixed(decimals));
+      liveUpdates[item.symbol] = {
+        price,
+        // Daily reference rates carry no intraday range; keep a narrow band around the rate
+        change24h: fx.intraday ? fx.change24h : item.change24h,
+        high24h: Number((fx.intraday ? fx.high24h : price * 1.003).toFixed(decimals)),
+        low24h: Number((fx.intraday ? fx.low24h : price * 0.997).toFixed(decimals)),
+        ratio: price.toFixed(decimals === 3 ? 2 : 3),
+      };
+    });
   } catch (err) {
     console.warn('Live ticker fetch error:', err);
+  }
+
+  // Apply fresh live quotes, or the last known live quote when an upstream feed is temporarily down
+  for (const item of baseList) {
+    const fresh = liveUpdates[item.symbol];
+    if (fresh) {
+      lastLiveQuotes[item.symbol] = { data: fresh, at: now };
+    }
+    const known = lastLiveQuotes[item.symbol];
+    if (known) {
+      for (const [key, value] of Object.entries(known.data)) {
+        if (value !== undefined && !(typeof value === 'number' && !Number.isFinite(value))) {
+          (item as any)[key] = value;
+        }
+      }
+    }
   }
 
   cachedTickers = baseList;
   lastTickerFetch = now;
   return cachedTickers;
+}
+
+// True when the ticker carries a real upstream quote from the last few minutes (not a baseline placeholder)
+function hasRecentLiveQuote(symbol: string): boolean {
+  const known = lastLiveQuotes[symbol];
+  return !!known && Date.now() - known.at < LIVE_QUOTE_MAX_AGE_MS;
 }
 
 // Helper to determine asset symbol and details from user prompt
@@ -2013,12 +2068,12 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
   const asset = extractAssetInfo(query);
   const cleanSym = asset.symbol;
 
-  // 1. Check live tickers cache first (homepage tickers)
+  // 1. Check live tickers cache first (homepage tickers) — only when it holds a real live quote
   const tickers = await getLiveMarketTickers();
   const match = tickers.find(
     t => t.symbol.toUpperCase() === cleanSym.toUpperCase() || t.name.toLowerCase() === asset.name.toLowerCase()
   );
-  if (match && match.price > 0) {
+  if (match && match.price > 0 && hasRecentLiveQuote(match.symbol)) {
     return match;
   }
 
@@ -2032,92 +2087,84 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
         symbol: cleanSym,
         name: asset.name,
         price: liveCrypto.price,
-        change24h: liveCrypto.change24h ?? 0.85,
-        high24h: liveCrypto.high24h ?? Number((liveCrypto.price * 1.025).toFixed(liveCrypto.price < 0.001 ? 8 : 2)),
-        low24h: liveCrypto.low24h ?? Number((liveCrypto.price * 0.975).toFixed(liveCrypto.price < 0.001 ? 8 : 2)),
+        change24h: liveCrypto.change24h ?? 0,
+        high24h: liveCrypto.high24h ?? liveCrypto.price,
+        low24h: liveCrypto.low24h ?? liveCrypto.price,
         volume24h: liveCrypto.volume24h || 'Live Binance Liquid Order Book',
+        currency: 'USD',
+        type: 'crypto',
+      };
+    }
+    // Secondary live source: Yahoo Finance crypto spot (e.g. BTC-USD)
+    const yahooCrypto = await fetchYahooQuote(`${pair.replace(/USDT$/, '')}-USD`);
+    if (yahooCrypto) {
+      return {
+        symbol: cleanSym,
+        name: asset.name,
+        ...yahooCrypto,
+        volume24h: 'Live Global Spot Aggregate',
         currency: 'USD',
         type: 'crypto',
       };
     }
   }
 
-  // 3. FOREX: Live calculation from interbank currency rates
+  // 3. FOREX: Live intraday FX quote, with interbank reference rates as backup
   if (asset.type === 'forex') {
-    const forexRates = await fetchForexRates();
-    const fallbackRates: Record<string, number> = {
-      USD: 1.0,
-      EUR: 0.9213,
-      GBP: 0.7721,
-      JPY: 153.61,
-      CHF: 0.8865,
-      CAD: 1.3863,
-      AUD: 1.5192,
-      NZD: 1.6891,
-      ZAR: 18.24,
-      MXN: 20.35,
-      TRY: 35.12,
-    };
-    const rates = forexRates || fallbackRates;
     const parts = cleanSym.split('/');
     const base = parts[0] ? parts[0].trim().toUpperCase() : 'EUR';
     const quote = parts[1] ? parts[1].trim().toUpperCase() : 'USD';
-
-    let rate = 1.0854;
-    const baseVsUSD = rates[base] ?? fallbackRates[base] ?? 1.0;
-    const quoteVsUSD = rates[quote] ?? fallbackRates[quote] ?? 1.0;
-
-    if (quote === 'USD') {
-      rate = 1 / baseVsUSD;
-    } else if (base === 'USD') {
-      rate = quoteVsUSD;
-    } else {
-      rate = quoteVsUSD / baseVsUSD;
+    const fx = await fetchForexQuote(base, quote);
+    if (fx) {
+      const isJpy = quote === 'JPY' || cleanSym.includes('JPY');
+      const decimals = isJpy ? 3 : 5;
+      const numPrice = Number(fx.price.toFixed(decimals));
+      return {
+        symbol: cleanSym,
+        name: asset.name,
+        price: numPrice,
+        change24h: fx.change24h,
+        high24h: Number((fx.intraday ? fx.high24h : numPrice * (isJpy ? 1.006 : 1.004)).toFixed(decimals)),
+        low24h: Number((fx.intraday ? fx.low24h : numPrice * (isJpy ? 0.994 : 0.996)).toFixed(decimals)),
+        volume24h: '168.40 B Live Interbank Liquidity',
+        currency: quote,
+        type: 'forex',
+      };
     }
-
-    const isJpy = quote === 'JPY' || cleanSym.includes('JPY');
-    const decimals = isJpy ? 3 : 5;
-    const numPrice = Number(rate.toFixed(decimals));
-
-    return {
-      symbol: cleanSym,
-      name: asset.name,
-      price: numPrice,
-      change24h: 0.22,
-      high24h: Number((numPrice * (isJpy ? 1.006 : 1.004)).toFixed(decimals)),
-      low24h: Number((numPrice * (isJpy ? 0.994 : 0.996)).toFixed(decimals)),
-      volume24h: '168.40 B Live Interbank Liquidity',
-      currency: quote,
-      type: 'forex',
-    };
   }
 
-  // 4. STOCKS & INDICES
+  // 4. COMMODITIES: Gold via PAXG/USDT spot liquidity, other metals & energy via global futures benchmarks
+  if (asset.type === 'commodity') {
+    const commodityKey = cleanSym.replace(/[^A-Z0-9]/g, '');
+    let live: Partial<MarketTicker> | null = null;
+    if (commodityKey === 'XAUUSD') {
+      live = await fetchBinanceTicker('PAXGUSDT');
+    }
+    if (!live || !live.price) {
+      const yahooSym = YAHOO_SYMBOL_MAP[commodityKey];
+      live = yahooSym ? await fetchYahooQuote(yahooSym) : null;
+    }
+    if (live && live.price) {
+      return {
+        symbol: cleanSym,
+        name: asset.name,
+        price: live.price,
+        change24h: live.change24h ?? 0,
+        high24h: live.high24h ?? live.price,
+        low24h: live.low24h ?? live.price,
+        volume24h: live.volume24h || 'Live Global Metals & Energy Benchmark',
+        currency: 'USD',
+        type: 'commodity',
+      };
+    }
+  }
+
+  // 5. STOCKS & INDICES: Live Yahoo Finance quote for any listed equity or benchmark index
   if (asset.type === 'stock') {
-    const stockMap: Record<string, string> = {
-      'US30': '^DJI',
-      'NAS100': '^IXIC',
-      'SPX 500': '^GSPC',
-      'GER40': '^GDAXI',
-      'UK100': '^FTSE',
-      'JP225': '^N225',
-      'NVDA': 'NVDA',
-      'TSLA': 'TSLA',
-      'AAPL': 'AAPL',
-      'GOOGL': 'GOOGL',
-      'MSFT': 'MSFT',
-      'AMZN': 'AMZN',
-      'META': 'META',
-      'AMD': 'AMD',
-      'NFLX': 'NFLX',
-      'PLTR': 'PLTR',
-      'COIN': 'COIN',
-      'WMT': 'WMT',
-    };
     const stockSym = cleanSym.replace(/[^A-Z0-9]/g, '');
-    const yahooSym = stockMap[stockSym] || stockSym;
-    if (cachedStockQuotes[yahooSym]) {
-      const q = cachedStockQuotes[yahooSym];
+    const yahooSym = YAHOO_SYMBOL_MAP[stockSym] || stockSym;
+    const q = (await fetchYahooQuote(yahooSym)) || cachedStockQuotes[yahooSym];
+    if (q) {
       return {
         symbol: cleanSym,
         name: asset.name,
@@ -2132,7 +2179,12 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
     }
   }
 
-  // 5. SYNTHETICS (Deriv Volatility, Boom, Crash, Step Index)
+  // Live feeds unavailable: prefer the homepage ticker (last known live quote) over static baselines
+  if (match && match.price > 0 && asset.type !== 'synthetic') {
+    return match;
+  }
+
+  // 6. SYNTHETICS (Deriv Volatility, Boom, Crash, Step Index)
   if (asset.type === 'synthetic') {
     const s = cleanSym.toUpperCase();
     let synPrice = 428500;
@@ -2164,7 +2216,7 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
     };
   }
 
-  // 6. ACCURATE BASELINE FALLBACK
+  // 7. ACCURATE BASELINE FALLBACK
   const basePrice = getDefaultPriceForAsset(cleanSym);
   const isJpy = cleanSym.includes('JPY');
   const isForex = (asset.type as string) === 'forex';
@@ -2483,7 +2535,7 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
     // -------------------------------------------------------------
     console.log(`[MarketX] Detected ANALYSIS PROMPT REQUEST: "${cleanPrompt.slice(0, 50)}" (SL Mode: ${safeSlMode})`);
     const asset = extractAssetInfo(cleanPrompt, safeSymbol);
-    const currentTicker = await resolveAccurateAssetQuote(safeSymbol || asset.symbol);
+    const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
 
     if (!ai) {
       console.log('Gemini API key not configured, using algorithmic institutional analysis engine.');
