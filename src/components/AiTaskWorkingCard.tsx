@@ -30,13 +30,13 @@ export const AiTaskWorkingCard: React.FC<AiTaskWorkingCardProps> = ({
   const [elapsed, setElapsed] = useState(0);
   const [isLogOpen, setIsLogOpen] = useState(true);
 
-  // Live elapsed counter updated every 100ms
+  // Live elapsed counter updated every second (100ms re-renders overheat mobile devices)
   useEffect(() => {
     const startTime = timestamp;
     const interval = setInterval(() => {
       const diff = Math.max(0, (Date.now() - startTime) / 1000);
       setElapsed(parseFloat(diff.toFixed(1)));
-    }, 100);
+    }, 1000);
     return () => clearInterval(interval);
   }, [timestamp]);
 

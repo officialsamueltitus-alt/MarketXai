@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ChatSession, SavedAnalysis, UserProfile, CreditState, XShareReward } from '../types';
 import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
@@ -24,7 +25,10 @@ import {
   Clock,
   Sparkles,
   X,
-  Bell
+  Bell,
+  Settings,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -90,6 +94,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // 'credits' / 'profile' now open as pop-up detail windows; 'history' is the only in-menu view
+  const detailView = activeTab === 'credits' || activeTab === 'profile' ? activeTab : null;
+  const closeDetail = () => setActiveTab('history');
+
+  useEffect(() => {
+    if (!detailView) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveTab('history');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detailView, setActiveTab]);
 
   const formatPrice = (p: number) =>
     p < 10
@@ -170,61 +188,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* 3 Core Navigation Tabs in EXACT arrangement requested: History, Credits, Profile */}
-          <div className="px-3 pt-3">
-            <div className="grid grid-cols-3 gap-1 p-1 bg-black/40 rounded-xl border border-white/[0.08] shadow-xs">
-              {/* Tab 1: History */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('history')}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  activeTab === 'history'
-                    ? 'bg-indigo-600/30 text-white border border-indigo-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <History className="w-3.5 h-3.5" />
-                <span>History</span>
-              </button>
-
-              {/* Tab 2: Credits */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('credits')}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  activeTab === 'credits'
-                    ? 'bg-indigo-600/30 text-white border border-indigo-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Coins className="w-3.5 h-3.5" />
-                <span>Credits</span>
-              </button>
-
-              {/* Tab 3: Profile (Replaces the old Feed) */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('profile')}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  activeTab === 'profile'
-                    ? 'bg-indigo-600/30 text-white border border-indigo-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <div className="relative">
-                  <User className="w-3.5 h-3.5" />
-                  {isPremium && (
-                    <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  )}
-                </div>
-                <span>Profile</span>
-              </button>
-            </div>
+          {/* HISTORY: the only section shown in the side menu */}
+          <div className="px-4 pt-3 pb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            <History className="w-3.5 h-3.5 text-indigo-300" />
+            <span>History</span>
           </div>
-
-          {/* TAB 1: HISTORY */}
-          {activeTab === 'history' && (
-            <div className="flex-1 overflow-y-auto p-3 pb-16 sm:pb-6 space-y-2.5 overscroll-contain pb-safe">
+          <div className="flex-1 overflow-y-auto p-3 pt-1.5 space-y-2.5 overscroll-contain">
               {/* Master Clear All Bar if there is any history */}
               {(savedAnalyses.length > 0 || sessions.length > 0) && (
                 <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs">
@@ -484,190 +453,257 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                 </div>
               )}
-            </div>
-          )}
+          </div>
 
-          {/* TAB 2: CREDITS SECTION */}
-          {activeTab === 'credits' && (
-            <div className="flex-1 overflow-y-auto p-3.5 pb-16 sm:pb-6 space-y-4 overscroll-contain pb-safe">
-              {/* Available Credits Card */}
-              <div className="p-4 rounded-2xl bg-gradient-to-b from-indigo-950/50 via-slate-900/60 to-black/40 border border-indigo-500/30 shadow-md">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                    <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
-                    Available AI Credits
+          {/* SETTINGS: bottom of the side menu, reveals Credits & Profile */}
+          <div className="border-t border-white/[0.08] bg-black/40 pb-safe">
+            {isSettingsOpen && (
+              <div className="p-2 space-y-1.5 border-b border-white/[0.06]">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('credits')}
+                  className="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-400/40 text-left transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                      <Coins className="w-3.5 h-3.5 text-amber-300" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-semibold text-white">Credits</span>
+                      <span className="block text-[10px] text-slate-400 font-mono truncate">
+                        {isUnlimitedUser(userProfile.email)
+                          ? 'Unlimited access'
+                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining}/10 daily`}
+                      </span>
+                    </span>
                   </span>
-                  <span
-                    className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                      isUnlimitedUser(userProfile.email)
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                        : isPremium
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                        : 'bg-white/[0.05] text-slate-400 border-white/[0.1]'
-                    }`}
-                  >
-                    {isUnlimitedUser(userProfile.email) ? 'Unlimited VIP' : isPremium ? 'Pro Tier Active' : 'Free Tier'}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 mt-2">
-                  <span className="text-3xl font-black font-mono text-white">
-                    {isUnlimitedUser(userProfile.email) || creditState.availableCredits >= 99999 ? '∞' : creditState.availableCredits}
-                  </span>
-                  <span className="text-xs font-mono text-slate-400">
-                    {isUnlimitedUser(userProfile.email) ? 'Unlimited Access' : 'Compute Balance'}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center text-[10px] text-slate-400 mt-2 pt-2 border-t border-white/[0.06]">
-                  <span>{isUnlimitedUser(userProfile.email) ? 'VIP Unlimited Mode' : 'Cost per prompt: 1 Credit'}</span>
-                  <span className="text-indigo-300 font-medium">{isUnlimitedUser(userProfile.email) ? 'No limits apply' : 'Auto-renewing quota'}</span>
-                </div>
-              </div>
-
-              {/* Visual Range Visualizer for Day, Month, and Year */}
-              <CreditRangeVisualizer
-                creditState={creditState}
-                userProfile={userProfile}
-                onOpenPricing={onOpenPricing}
-              />
-
-              {/* Refill Section & Pricing Trigger */}
-              <div className="space-y-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block px-1">
-                  Refill & Subscription
-                </span>
+                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                </button>
 
                 <button
                   type="button"
-                  onClick={onOpenPricing}
-                  className="w-full p-3.5 rounded-xl bg-gradient-to-r from-indigo-600/30 via-cyan-600/20 to-indigo-600/30 hover:from-indigo-600/45 hover:to-cyan-600/35 border border-indigo-500/40 text-left transition-all group flex items-center justify-between shadow-md cursor-pointer"
+                  onClick={() => setActiveTab('profile')}
+                  className="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-400/40 text-left transition-colors cursor-pointer"
                 >
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Refill Credits & Plans</span>
-                    </div>
-                    <span className="text-[10px] text-slate-300 block">
-                      $18/month • Paystack
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="w-7 h-7 rounded-lg overflow-hidden bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 border border-indigo-400/40 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                      {userProfile.avatarUrl ? (
+                        <img src={userProfile.avatarUrl} alt={userProfile.username} className="w-full h-full object-cover" />
+                      ) : (
+                        userProfile.username.substring(0, 2).toUpperCase()
+                      )}
                     </span>
-                  </div>
-                  <span className="px-2 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold font-mono group-hover:scale-105 transition-transform">
-                    Refill &rarr;
-                  </span>
-                </button>
-
-                {/* Gift Credits Button */}
-                <button
-                  type="button"
-                  onClick={onOpenGiftModal}
-                  className="w-full p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.08] text-left transition-all group flex items-center justify-between shadow-xs cursor-pointer"
-                >
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                      <Gift className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Gift Credits to User</span>
-                    </div>
-                    <span className="text-[10px] text-slate-400 block">
-                      Transfer credits via @username
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1 text-xs font-semibold text-white">
+                        Profile
+                        {(isPremium || isUnlimitedUser(userProfile.email)) && <VerifiedBadge size="sm" />}
+                      </span>
+                      <span className="block text-[10px] text-slate-400 font-mono truncate">@{userProfile.username}</span>
                     </span>
-                  </div>
-                  <span className="text-xs font-mono text-cyan-300 font-semibold group-hover:translate-x-0.5 transition-transform">
-                    Gift &rarr;
                   </span>
+                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                 </button>
               </div>
+            )}
 
-              {/* Value Proposition Note */}
-              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs space-y-2 text-slate-300">
-                <span className="font-semibold text-white block text-[11px]">
-                  Included with Pro Tier:
+            <div className="p-2.5 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(prev => !prev)}
+                aria-expanded={isSettingsOpen}
+                className={`flex-1 flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                  isSettingsOpen
+                    ? 'bg-indigo-600/25 border-indigo-500/40 text-white'
+                    : 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08] hover:text-white'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-indigo-300" />
+                  Settings
                 </span>
-                <div className="space-y-1 text-[11px] text-slate-400">
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
-                    <span>10 daily usage quota renewed every 24h</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <VerifiedBadge size="sm" />
-                    <span>Verified Pro Trader badge on Profile</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
-                    <span>Paystack multi-currency billing integration</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isSettingsOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-          {/* TAB 3: PROFILE (Replaces the old Feed) */}
-          {activeTab === 'profile' && (
-            <ProfileView
-              userProfile={userProfile}
-              creditState={creditState}
-              onUpdateUsername={onUpdateUsername}
-              onUpdateProfile={onUpdateProfile}
-              onOpenPricing={onOpenPricing}
-              onOpenGiftModal={onOpenGiftModal}
-              completedAnalysesCount={savedAnalyses.length}
-              xShareReward={xShareReward}
-              onRegisterShareReward={onRegisterShareReward}
-              onDismissRewardNotice={onDismissRewardNotice}
-            />
-          )}
-
-          {/* Footer: User Summary & Version */}
-          <div className="p-3 border-t border-white/[0.08] bg-black/40 flex items-center justify-between text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveTab('profile')}
-              className="flex items-center gap-2 cursor-pointer hover:opacity-90 transition-opacity text-left min-w-0"
-            >
-              <div className="w-6 h-6 rounded-lg overflow-hidden bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 border border-indigo-400/40 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
-                {userProfile.avatarUrl ? (
-                  <img
-                    src={userProfile.avatarUrl}
-                    alt={userProfile.username}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  userProfile.username.substring(0, 2).toUpperCase()
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1">
-                  <span className="text-white font-mono text-xs font-semibold truncate">
-                    @{userProfile.username}
-                  </span>
-                  {(isPremium || isUnlimitedUser(userProfile.email)) && <VerifiedBadge size="sm" />}
-                </div>
-                <span className="text-[10px] text-slate-400 block font-mono">
-                  {isUnlimitedUser(userProfile.email) ? '∞ Unlimited daily' : `${creditState.dailyUsageRemaining}/10 daily`}
-                </span>
-              </div>
-            </button>
-
-            <div className="flex items-center gap-2 shrink-0">
               <a
                 href="https://x.com/_MarketXai"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-slate-400 hover:text-white transition-colors p-1 rounded hover:bg-white/[0.06] flex items-center gap-1"
+                className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/[0.06] shrink-0"
                 title="Follow @_MarketXai on X"
               >
                 <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
-                <span className="text-[10px] font-mono hidden sm:inline">@_MarketXai</span>
               </a>
-              <span className="text-[10px] text-indigo-400 font-mono font-semibold">
-                v2.4 Pro
-              </span>
             </div>
           </div>
         </div>
       </aside>
+
+      {/* Credits / Profile detail pop-up (portaled so the menu's transform can't clip it) */}
+      {detailView && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[45] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 sidebar-detail-fade"
+            onClick={closeDetail}
+            role="dialog"
+            aria-modal="true"
+            aria-label={detailView === 'credits' ? 'Credits' : 'Profile'}
+          >
+            <div
+              className="w-full sm:max-w-md max-h-[88dvh] sm:max-h-[85dvh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-slate-950 border border-white/[0.14] shadow-2xl shadow-black/80 overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/[0.08] shrink-0">
+                <span className="flex items-center gap-2 text-sm font-bold text-white">
+                  {detailView === 'credits' ? (
+                    <Coins className="w-4 h-4 text-amber-300" />
+                  ) : (
+                    <User className="w-4 h-4 text-indigo-300" />
+                  )}
+                  {detailView === 'credits' ? 'Credits' : 'Profile'}
+                </span>
+                <button
+                  type="button"
+                  onClick={closeDetail}
+                  className="p-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.14] text-slate-200 hover:text-white border border-white/[0.12] transition-colors cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain pb-safe">
+                {detailView === 'credits' ? (
+                  <div className="p-3.5 sm:p-4 space-y-4">
+                    {/* Available Credits Card */}
+                    <div className="p-4 rounded-2xl bg-gradient-to-b from-indigo-950/50 via-slate-900/60 to-black/40 border border-indigo-500/30 shadow-md">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                          <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
+                          Available AI Credits
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                            isUnlimitedUser(userProfile.email)
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : isPremium
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-white/[0.05] text-slate-400 border-white/[0.1]'
+                          }`}
+                        >
+                          {isUnlimitedUser(userProfile.email) ? 'Unlimited VIP' : isPremium ? 'Pro Tier Active' : 'Free Tier'}
+                        </span>
+                      </div>
+      
+                      <div className="flex items-baseline gap-1.5 mt-2">
+                        <span className="text-3xl font-black font-mono text-white">
+                          {isUnlimitedUser(userProfile.email) || creditState.availableCredits >= 99999 ? '∞' : creditState.availableCredits}
+                        </span>
+                        <span className="text-xs font-mono text-slate-400">
+                          {isUnlimitedUser(userProfile.email) ? 'Unlimited Access' : 'Compute Balance'}
+                        </span>
+                      </div>
+      
+                      <div className="flex justify-between items-center text-[10px] text-slate-400 mt-2 pt-2 border-t border-white/[0.06]">
+                        <span>{isUnlimitedUser(userProfile.email) ? 'VIP Unlimited Mode' : 'Cost per prompt: 1 Credit'}</span>
+                        <span className="text-indigo-300 font-medium">{isUnlimitedUser(userProfile.email) ? 'No limits apply' : 'Auto-renewing quota'}</span>
+                      </div>
+                    </div>
+      
+                    {/* Visual Range Visualizer for Day, Month, and Year */}
+                    <CreditRangeVisualizer
+                      creditState={creditState}
+                      userProfile={userProfile}
+                      onOpenPricing={onOpenPricing}
+                    />
+      
+                    {/* Refill Section & Pricing Trigger */}
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block px-1">
+                        Refill & Subscription
+                      </span>
+      
+                      <button
+                        type="button"
+                        onClick={onOpenPricing}
+                        className="w-full p-3.5 rounded-xl bg-gradient-to-r from-indigo-600/30 via-cyan-600/20 to-indigo-600/30 hover:from-indigo-600/45 hover:to-cyan-600/35 border border-indigo-500/40 text-left transition-all group flex items-center justify-between shadow-md cursor-pointer"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <CreditCard className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Refill Credits & Plans</span>
+                          </div>
+                          <span className="text-[10px] text-slate-300 block">
+                            $18/month • Paystack
+                          </span>
+                        </div>
+                        <span className="px-2 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold font-mono group-hover:scale-105 transition-transform">
+                          Refill &rarr;
+                        </span>
+                      </button>
+      
+                      {/* Gift Credits Button */}
+                      <button
+                        type="button"
+                        onClick={onOpenGiftModal}
+                        className="w-full p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.08] text-left transition-all group flex items-center justify-between shadow-xs cursor-pointer"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <Gift className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Gift Credits to User</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 block">
+                            Transfer credits via @username
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono text-cyan-300 font-semibold group-hover:translate-x-0.5 transition-transform">
+                          Gift &rarr;
+                        </span>
+                      </button>
+                    </div>
+      
+                    {/* Value Proposition Note */}
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs space-y-2 text-slate-300">
+                      <span className="font-semibold text-white block text-[11px]">
+                        Included with Pro Tier:
+                      </span>
+                      <div className="space-y-1 text-[11px] text-slate-400">
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
+                          <span>10 daily usage quota renewed every 24h</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <VerifiedBadge size="sm" />
+                          <span>Verified Pro Trader badge on Profile</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
+                          <span>Paystack multi-currency billing integration</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <ProfileView
+                    userProfile={userProfile}
+                    creditState={creditState}
+                    onUpdateUsername={onUpdateUsername}
+                    onUpdateProfile={onUpdateProfile}
+                    onOpenPricing={onOpenPricing}
+                    onOpenGiftModal={onOpenGiftModal}
+                    completedAnalysesCount={savedAnalyses.length}
+                    xShareReward={xShareReward}
+                    onRegisterShareReward={onRegisterShareReward}
+                    onDismissRewardNotice={onDismissRewardNotice}
+                  />
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 };

@@ -521,9 +521,35 @@ html, body {
     background: #0a0e1a !important;
   }
 
-  /* Disable expensive continuous background spin on mobile */
+  /* Keep the rainbow border static on mobile: the spinning layer is 3x the input size and repaints every frame */
   .running-rainbow-wrapper .border-light-beam {
-    animation-duration: 6s !important;
+    animation: none !important;
+    will-change: auto !important;
+  }
+
+  /* Color/background-position loops force a full repaint each frame; freeze them on mobile */
+  .marketx-chroma-x,
+  .hero-x-chroma,
+  .market-x-animated {
+    animation: none !important;
+    will-change: auto !important;
+    text-shadow: none !important;
+    color: #38bdf8;
+  }
+  .water-flowing-text {
+    animation: none !important;
+  }
+
+  /* Tailwind backdrop-blur utilities are the most expensive GPU effect on phones */
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* One compositor layer per chat message exhausts mobile GPU memory */
+  .fast-chat-item {
+    transform: none;
+    backface-visibility: visible;
   }
 
   /* Speed up marquee and reduce rendering cost */
@@ -549,7 +575,6 @@ html, body {
   overscroll-behavior-y: contain !important;
   touch-action: pan-y !important;
   scroll-behavior: auto;
-  will-change: scroll-position;
 }
 
 .fast-chat-item {
@@ -558,3 +583,21 @@ html, body {
 }
 
 
+
+/* Respect OS-level reduced motion: stop all decorative infinite animations */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Opacity-only fade for the Credits / Profile pop-up (cheap on mobile GPUs) */
+@keyframes sidebar-detail-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.sidebar-detail-fade {
+  animation: sidebar-detail-fade-in 0.15s ease-out;
+}

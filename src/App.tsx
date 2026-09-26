@@ -37,6 +37,11 @@ import {
 import { getApiUrl } from './utils/api';
 import { extractAssetInfo, generateClientFallbackStrategy } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift } from 'lucide-react';
+import worldMapBg from './assets/images/world_map_bg_1789305116043.jpg';
+
+// The decorative world-map backdrop is ~700KB and barely visible under its overlays; skip it on phones
+const SHOW_AMBIENT_BACKDROP =
+  typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(min-width: 1024px)').matches;
 
 const STORAGE_KEY_SESSIONS = 'market_ai_sessions_v1';
 const STORAGE_KEY_ANALYSES = 'market_ai_saved_analyses_v1';
@@ -360,7 +365,7 @@ export default function App() {
     };
 
     fetchLatestTickers();
-    const interval = setInterval(fetchLatestTickers, 10000);
+    const interval = setInterval(fetchLatestTickers, 15000);
 
     return () => {
       isMounted = false;
@@ -863,8 +868,6 @@ export default function App() {
 
     if (!isUnlimited && !hasDailyQuota && !hasAvailableCredits) {
       // Both daily quota and credits exhausted: show refill page
-      setActiveSidebarTab('credits');
-      setIsSidebarOpen(true);
       setIsPricingModalOpen(true);
       return;
     }
@@ -1150,15 +1153,16 @@ export default function App() {
       {/* High-Performance Ambient Background (Smooth GPU rasterization without CPU lag) */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true">
         <div className="absolute inset-0 bg-[#020617]/90 z-10" />
-        <img
-          src="/src/assets/images/world_map_bg_1789305116043.jpg"
-          alt=""
-          loading="eager"
-          decoding="async"
-          className="w-full h-full object-cover opacity-20 select-none"
-          style={{ transform: 'translateZ(0)' }}
-          referrerPolicy="no-referrer"
-        />
+        {SHOW_AMBIENT_BACKDROP && (
+          <img
+            src={worldMapBg}
+            alt=""
+            loading="eager"
+            decoding="async"
+            className="w-full h-full object-cover opacity-20 select-none"
+            referrerPolicy="no-referrer"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/85 via-black/65 to-black/90 pointer-events-none z-20" />
       </div>
 
@@ -1213,7 +1217,6 @@ export default function App() {
             handleSendMessage(notif.actionPrompt, '4H');
           } else if (notif.type === 'reward' || notif.type === 'credit') {
             setActiveSidebarTab('profile');
-            setIsSidebarOpen(true);
           }
         }}
       />
@@ -1288,11 +1291,9 @@ export default function App() {
           isVerified={userProfile.isVerified}
           onOpenCredits={() => {
             setActiveSidebarTab('credits');
-            setIsSidebarOpen(true);
           }}
           onOpenProfile={() => {
             setActiveSidebarTab('profile');
-            setIsSidebarOpen(true);
           }}
           onResetChat={handleNewSession}
           onSelectTicker={sym => {

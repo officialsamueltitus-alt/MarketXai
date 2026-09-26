@@ -20,7 +20,7 @@ export const AiStepProgressIndicator: React.FC<AiStepProgressIndicatorProps> = (
     const interval = setInterval(() => {
       const diff = Math.max(0, (Date.now() - startTime) / 1000);
       setElapsed(parseFloat(diff.toFixed(1)));
-    }, 100);
+    }, 1000);
     return () => clearInterval(interval);
   }, [timestamp]);
 
