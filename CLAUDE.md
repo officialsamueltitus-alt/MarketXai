@@ -17,6 +17,7 @@
 - Paystack plans are granted only after server verification (verify endpoint or signed webhook).
 
 ## Deployment
-- Deployed on Render as a single Web Service (not a static site), Node >= 22.
+- Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
+  and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
 - Build: `npm install && npm run build` — Start: `npm start`.

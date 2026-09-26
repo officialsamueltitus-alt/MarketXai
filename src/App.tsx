@@ -493,12 +493,12 @@ export default function App() {
     [authUser]
   );
 
-  // X share campaign: the server validates the post link and times the 10-hour unlock
+  // X share campaign: the server records the share and times the 10-hour unlock
   const handleRegisterShareReward = useCallback(
-    async (tweetUrl: string): Promise<string | null> => {
+    async (): Promise<string | null> => {
       try {
-        applyAccount(await apiFetch<AccountPayload>('/api/rewards/x-share', { method: 'POST', body: JSON.stringify({ tweetUrl }) }));
-        setToastNotification({ message: '🚀 Post submitted! 10 credits unlock in 10 hours.', type: 'success' });
+        applyAccount(await apiFetch<AccountPayload>('/api/rewards/x-share', { method: 'POST', body: '{}' }));
+        setToastNotification({ message: '🚀 Thanks for sharing! 10 credits unlock in 10 hours.', type: 'success' });
         return null;
       } catch (err: any) {
         return err?.message || 'Could not submit your post. Please try again.';
