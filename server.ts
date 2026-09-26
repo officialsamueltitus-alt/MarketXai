@@ -4,6 +4,11 @@ import compression from 'compression';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
+import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
+import { getFirebaseWebConfig, isFirebaseConfigured, firebaseStatus } from './server/firebase';
+import { isMailerConfigured } from './server/mailer';
+import { fetchDerivQuote, mapDerivSymbol } from './server/deriv';
 
 const app = express();
 const PORT = 3000;
@@ -86,7 +91,15 @@ app.use((req, res, next) => {
 });
 
 // Standard 15MB limit sufficient for high-resolution chart images while preventing memory exhaustion
-app.use(express.json({ limit: '15mb' }));
+// rawBody is kept for Paystack webhook signature verification
+app.use(
+  express.json({
+    limit: '15mb',
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // Initialize Gemini Client
@@ -934,92 +947,13 @@ interface ForexFactoryEvent {
 }
 
 // Active and upcoming verified economic calendar entries aligned with current date
-const VERIFIED_FOREXFACTORY_CALENDAR: ForexFactoryEvent[] = [
-  {
-    title: 'Bank Holiday - Respect for the Aged Day',
-    country: 'JPY',
-    dateStr: 'Mon, Sep 21, 2026',
-    timeStr: 'All Day (Tokyo Clearing Closed)',
-    impact: 'Holiday',
-    forecast: 'N/A',
-    previous: 'N/A',
-    detail: 'National Bank Holiday in Japan - Financial and interbank banking clearing closed',
-    isoDate: '2026-09-21T00:00:00Z',
-  },
-  {
-    title: 'RBA Gov Bullock Speaks',
-    country: 'AUD',
-    dateStr: 'Tue, Sep 22, 2026',
-    timeStr: '11:10 PM EDT (03:10 UTC)',
-    impact: 'HIGH',
-    forecast: 'Monetary Policy Speech',
-    previous: 'N/A',
-    detail: 'Reserve Bank of Australia Governor Michele Bullock speech regarding cash rate trajectory',
-    isoDate: '2026-09-22T03:10:00Z',
-  },
-  {
-    title: 'Bank Holiday - Autumnal Equinox Day',
-    country: 'JPY',
-    dateStr: 'Wed, Sep 23, 2026',
-    timeStr: 'All Day (Tokyo Markets Closed)',
-    impact: 'Holiday',
-    forecast: 'N/A',
-    previous: 'N/A',
-    detail: 'National Holiday in Japan - Interbank settlements and securities exchanges closed',
-    isoDate: '2026-09-23T00:00:00Z',
-  },
-  {
-    title: 'SNB Monetary Policy Assessment & Policy Rate',
-    country: 'CHF',
-    dateStr: 'Thu, Sep 24, 2026',
-    timeStr: '03:30 AM EDT (07:30 UTC)',
-    impact: 'CRITICAL',
-    forecast: '1.00%',
-    previous: '1.25%',
-    detail: 'Swiss National Bank quarterly monetary policy rate decision and press conference',
-    isoDate: '2026-09-24T07:30:00Z',
-  },
-  {
-    title: 'Initial Jobless Claims & Final GDP q/q',
-    country: 'USD',
-    dateStr: 'Thu, Sep 24, 2026',
-    timeStr: '08:30 AM EDT (12:30 UTC)',
-    impact: 'HIGH',
-    forecast: '222K / 3.0%',
-    previous: '219K / 3.0%',
-    detail: 'US Department of Labor weekly initial unemployment claims and Bureau of Economic Analysis GDP',
-    isoDate: '2026-09-24T12:30:00Z',
-  },
-  {
-    title: 'Flash Manufacturing & Services PMI',
-    country: 'EUR',
-    dateStr: 'Fri, Sep 25, 2026',
-    timeStr: '04:00 AM EDT (08:00 UTC)',
-    impact: 'HIGH',
-    forecast: '46.8 / 52.1',
-    previous: '45.8 / 52.9',
-    detail: 'Eurozone S&P Global Flash Manufacturing and Services Purchasing Managers Index',
-    isoDate: '2026-09-25T08:00:00Z',
-  },
-  {
-    title: 'Core PCE Price Index m/m & Personal Spending',
-    country: 'USD',
-    dateStr: 'Fri, Sep 25, 2026',
-    timeStr: '08:30 AM EDT (12:30 UTC)',
-    impact: 'CRITICAL',
-    forecast: '0.2% m/m',
-    previous: '0.2% m/m',
-    detail: 'Federal Reserve primary inflation benchmark gauge (Personal Consumption Expenditures)',
-    isoDate: '2026-09-25T12:30:00Z',
-  },
-];
+// Populated exclusively from the live ForexFactory weekly feed (refreshed on startup and every 30 minutes)
+const VERIFIED_FOREXFACTORY_CALENDAR: ForexFactoryEvent[] = [];
+let lastCalendarFetchTime = 0;
 
 // Live MarketWatch / Dow Jones Breaking Wire Cache
-let cachedMarketWatchHeadlines: string[] = [
-  'Central bank officials evaluate cross-market liquidity and policy balance sheets.',
-  'Treasury yields hold narrow range as currency desks assess global economic releases.',
-  'Dollar index consolidates around key support as trading desks monitor upcoming macro indicators.',
-];
+// Filled only from the live MarketWatch RSS feed
+let cachedMarketWatchHeadlines: string[] = [];
 let lastNewsFetchTime = 0;
 
 async function refreshMarketNewsFeed() {
@@ -1054,43 +988,52 @@ async function refreshMarketNewsFeed() {
     // Retain cached headlines
   }
 
-  // 2. Fetch live ForexFactory JSON feed if accessible
+  // 2. Live ForexFactory weekly calendar (high-impact events & bank holidays); replaces the list wholesale
+  if (now - lastCalendarFetchTime < 30 * 60 * 1000 && VERIFIED_FOREXFACTORY_CALENDAR.length > 0) return;
   try {
     const ffRes = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(3500),
+      signal: AbortSignal.timeout(5000),
     });
-    if (ffRes.ok) {
-      const data = await ffRes.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const relevantItems = data.filter((item: any) => item.impact === 'High' || item.impact === 'Holiday');
-        if (relevantItems.length > 0) {
-          relevantItems.forEach((hi: any) => {
-            const exists = VERIFIED_FOREXFACTORY_CALENDAR.find(
-              e => e.country === hi.country && e.title.toLowerCase().includes(hi.title.toLowerCase().slice(0, 8))
-            );
-            if (!exists && hi.title && hi.country) {
-              const itemDate = hi.date ? new Date(hi.date) : new Date();
-              VERIFIED_FOREXFACTORY_CALENDAR.push({
-                title: hi.title,
-                country: hi.country,
-                dateStr: hi.date ? itemDate.toDateString() : 'Active Week',
-                timeStr: hi.time || 'Scheduled',
-                impact: hi.impact === 'Holiday' ? 'Holiday' : 'HIGH',
-                forecast: hi.forecast || 'N/A',
-                previous: hi.previous || 'N/A',
-                detail: hi.title,
-                isoDate: hi.date || itemDate.toISOString(),
-              });
-            }
-          });
-        }
-      }
+    if (!ffRes.ok) {
+      console.warn(`[MarketX Feed] ForexFactory calendar unavailable: HTTP ${ffRes.status}`);
+      return;
     }
-  } catch (err) {
-    // Retain verified active calendar
+    const data = await ffRes.json();
+    if (!Array.isArray(data)) return;
+    const events: ForexFactoryEvent[] = data
+      .filter((item: any) => (item.impact === 'High' || item.impact === 'Holiday') && item.title && item.country && item.date)
+      .map((item: any) => {
+        const eventDate = new Date(item.date);
+        const isHoliday = item.impact === 'Holiday';
+        return {
+          title: item.title,
+          country: item.country,
+          dateStr: eventDate.toUTCString().slice(0, 16),
+          timeStr: isHoliday
+            ? 'All Day'
+            : `${eventDate.toISOString().slice(11, 16)} UTC`,
+          impact: isHoliday ? ('Holiday' as const) : ('HIGH' as const),
+          forecast: item.forecast || 'N/A',
+          previous: item.previous || 'N/A',
+          detail: item.title,
+          isoDate: eventDate.toISOString(),
+        };
+      });
+    VERIFIED_FOREXFACTORY_CALENDAR.length = 0;
+    VERIFIED_FOREXFACTORY_CALENDAR.push(...events);
+    lastCalendarFetchTime = now;
+  } catch (err: any) {
+    console.warn(`[MarketX Feed] ForexFactory calendar unavailable: ${err?.message || err}`);
   }
 }
+
+// Warm the live news & calendar feeds at startup and keep them fresh
+refreshMarketNewsFeed().catch(() => {});
+setInterval(() => {
+  lastNewsFetchTime = 0;
+  refreshMarketNewsFeed().catch(() => {});
+}, 30 * 60 * 1000).unref();
 
 // Extract relevant national currencies from an asset symbol
 function getCurrenciesForAsset(symbol: string): string[] {
@@ -1928,9 +1871,25 @@ app.get('/api/health', (req: Request, res: Response) => {
     status: 'ok',
     service: 'MarketX AI Strategy Engine',
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    accountsConfigured: isFirebaseConfigured() && !!getFirebaseWebConfig(),
+    accountsError: firebaseStatus(),
+    paymentsConfigured: getPaymentsPublicConfig().enabled,
+    emailConfigured: isMailerConfigured(),
     supportedAssets: ['Forex', 'Gold (XAU/USD)', 'Synthetic Indices', 'Crypto', 'Stocks'],
   });
 });
+
+// Public runtime config for the browser (Firebase web config & Paystack public key are not secrets)
+app.get('/api/public-config', (req: Request, res: Response) => {
+  res.json({
+    firebase: isFirebaseConfigured() ? getFirebaseWebConfig() : null,
+    payments: getPaymentsPublicConfig(),
+  });
+});
+
+// Accounts, credits, history, notifications, gifts, rewards & payments (Firestore-backed)
+registerAccountRoutes(app, generalApiRateLimiter);
+registerPaymentRoutes(app, generalApiRateLimiter);
 
 // Live market ticker feed
 app.get('/api/market/tickers', generalApiRateLimiter, async (req: Request, res: Response) => {
@@ -2184,8 +2143,24 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
     return match;
   }
 
-  // 6. SYNTHETICS (Deriv Volatility, Boom, Crash, Step Index)
+  // 6. SYNTHETICS (Deriv Volatility, Boom, Crash, Step Index): live from Deriv's public API
   if (asset.type === 'synthetic') {
+    const derivSym = mapDerivSymbol(cleanSym);
+    const liveSyn = derivSym ? await fetchDerivQuote(derivSym) : null;
+    if (liveSyn) {
+      const synDecimals = liveSyn.price < 1000 ? 3 : 2;
+      return {
+        symbol: cleanSym,
+        name: asset.name,
+        price: Number(liveSyn.price.toFixed(synDecimals)),
+        change24h: liveSyn.change24h,
+        high24h: Number(liveSyn.high24h.toFixed(synDecimals)),
+        low24h: Number(liveSyn.low24h.toFixed(synDecimals)),
+        volume24h: 'Live Deriv Synthetic Feed',
+        currency: 'pts',
+        type: 'synthetic',
+      };
+    }
     const s = cleanSym.toUpperCase();
     let synPrice = 428500;
     if (s.includes('BOOM') && s.includes('1000')) synPrice = 9450;
@@ -2409,7 +2384,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3059,28 +3034,6 @@ INSTRUCTIONS:
       return res.status(500).json({ error: 'Market Analysis Engine temporarily unavailable' });
     }
   }
-});
-
-// Notification endpoint for X profile share reward completion & email dispatch
-app.post('/api/notifications/x-share-reward', generalApiRateLimiter, (req: Request, res: Response) => {
-  const { username, email, creditsAwarded = 10, sharedAt } = req.body || {};
-  const recipient = email || 'help.marketx@gmail.com';
-  const targetUser = username || 'Trader';
-
-  console.log(`[MarketX Rewards] Profile share verified for @${targetUser}. Dispatched email notification to ${recipient}.`);
-  console.log(`[MarketX Email Engine] From: "MarketX Support Desk" <help.marketx@gmail.com>`);
-  console.log(`[MarketX Email Engine] To: ${recipient}`);
-  console.log(`[MarketX Email Engine] Subject: You have been credited with ${creditsAwarded} credits for sharing your profile on X!`);
-
-  return res.json({
-    success: true,
-    message: `You have been credited with ${creditsAwarded} credits for sharing your profile on X!`,
-    recipient,
-    creditsAwarded,
-    deliveredAt: Date.now(),
-    supportEmail: 'help.marketx@gmail.com',
-    xHandle: 'https://x.com/marketx_ai',
-  });
 });
 
 // -------------------------------------------------------------

@@ -33,13 +33,14 @@ interface ProfileViewProps {
   userProfile: UserProfile;
   creditState: CreditState;
   onUpdateUsername?: (newUsername: string) => void;
-  onUpdateProfile: (updated: { displayName: string; username: string; avatarUrl?: string }) => void;
+  onUpdateProfile: (updated: { displayName: string; username: string; avatarUrl?: string }) => Promise<string | null>;
   onOpenPricing: () => void;
   onOpenGiftModal: () => void;
   completedAnalysesCount?: number;
   xShareReward?: XShareReward | null;
-  onRegisterShareReward?: (reward: XShareReward) => void;
+  onRegisterShareReward?: (tweetUrl: string) => Promise<string | null>;
   onDismissRewardNotice?: () => void;
+  onSignOut?: () => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -53,6 +54,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   xShareReward,
   onRegisterShareReward,
   onDismissRewardNotice,
+  onSignOut,
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -417,6 +419,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </a>
       </div>
 
+      {onSignOut && (
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="w-full py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 hover:text-rose-200 text-xs font-semibold transition-colors cursor-pointer"
+        >
+          Sign out
+        </button>
+      )}
+
       {/* Modals */}
       <EditProfileModal
         isOpen={isEditModalOpen}
@@ -429,9 +441,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         userProfile={userProfile}
-        onRegisterShareReward={reward => {
-          if (onRegisterShareReward) onRegisterShareReward(reward);
-        }}
+        onRegisterShareReward={tweetUrl =>
+          onRegisterShareReward ? onRegisterShareReward(tweetUrl) : Promise.resolve('Sign in to join the campaign.')
+        }
         existingReward={xShareReward}
       />
 

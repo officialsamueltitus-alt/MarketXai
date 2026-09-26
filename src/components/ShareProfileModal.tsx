@@ -22,7 +22,8 @@ interface ShareProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   userProfile: UserProfile;
-  onRegisterShareReward: (reward: XShareReward) => void;
+  // Submits the X post link; resolves to an error message, or null on success
+  onRegisterShareReward: (tweetUrl: string) => Promise<string | null>;
   existingReward?: XShareReward | null;
 }
 
@@ -39,12 +40,15 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
   const [shareStep, setShareStep] = useState<'download' | 'confirm' | 'scheduled'>('download');
   const [timeRemainingStr, setTimeRemainingStr] = useState<string>('');
   const [copiedWriteup, setCopiedWriteup] = useState(false);
+  const [tweetUrl, setTweetUrl] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Generate card preview whenever modal opens
   useEffect(() => {
     if (!isOpen) return;
 
-    if (existingReward && existingReward.status === 'pending') {
+    if (existingReward) {
       setShareStep('scheduled');
     } else {
       setShareStep('download');
@@ -99,29 +103,24 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
   // Catchy, sleek writeup for X promotion
   const xWriteup = `I Trade with @_MarketXai ⚡\n\nTrader: @${userProfile.username || 'trader'}\nWebsite: https://marketx.world\n\n#MarketX #Trading #AI`;
 
-  // Handle "I have downloaded" trigger
+  // Open X with the pre-written post; the reward starts once the post link is submitted
   const handleConfirmDownloaded = () => {
-    // 1. Create and schedule the 10-hour reward
-    const now = Date.now();
-    const tenHoursMs = 10 * 60 * 60 * 1000;
-    const newReward: XShareReward = {
-      id: `x-share-${now}`,
-      username: userProfile.username,
-      email: userProfile.email || 'trader@marketx.world',
-      sharedAt: now,
-      unlockAt: now + tenHoursMs,
-      creditsAwarded: 10,
-      status: 'pending',
-      notifiedOnSite: false,
-      notifiedEmail: false,
-    };
-
-    onRegisterShareReward(newReward);
-    setShareStep('scheduled');
-
-    // 2. Redirect to X with catchy promotion
+    setShareStep('confirm');
     const tweetIntentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(xWriteup)}`;
     window.open(tweetIntentUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSubmitPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitError(null);
+    setIsSubmitting(true);
+    const error = await onRegisterShareReward(tweetUrl.trim());
+    setIsSubmitting(false);
+    if (error) {
+      setSubmitError(error);
+      return;
+    }
+    setShareStep('scheduled');
   };
 
   return (
@@ -293,8 +292,34 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
                   </button>
                 </div>
 
+                {shareStep === 'confirm' && (
+                  <form onSubmit={handleSubmitPost} className="sm:pl-8 space-y-2">
+                    <label className="text-[11px] font-semibold text-slate-200 block">
+                      Paste the link to your post to claim:
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="url"
+                        value={tweetUrl}
+                        onChange={e => setTweetUrl(e.target.value)}
+                        placeholder="https://x.com/yourname/status/..."
+                        className="flex-1 px-3 py-2.5 rounded-xl bg-black/50 border border-white/[0.12] text-white text-xs font-mono placeholder:text-slate-500 focus:border-cyan-500 outline-none"
+                        required
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs disabled:opacity-60 cursor-pointer"
+                      >
+                        {isSubmitting ? 'Submitting...' : 'Claim +10 Credits'}
+                      </button>
+                    </div>
+                    {submitError && <p className="text-[11px] text-rose-300">{submitError}</p>}
+                  </form>
+                )}
+
                 <p className="text-[10px] text-slate-400 text-center sm:pl-8">
-                  *Once clicked, 10 credits are automatically allocated after a 10-hour verification window, with confirmation sent to your email.
+                  *After you submit your post link, 10 credits are added to your account 10 hours later, with confirmation sent to your email.
                 </p>
               </div>
             </div>
@@ -305,7 +330,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
                 <CheckCircle2 className="w-5 h-5 shrink-0" />
                 <div>
                   <h4 className="text-xs sm:text-sm font-bold text-white">
-                    Profile Share Successfully Recorded on X!
+                    {existingReward?.status === 'credited' ? 'Reward Claimed — +10 Credits Added!' : 'Your X Post Has Been Submitted!'}
                   </h4>
                   <p className="text-[11px] text-slate-400">
                     Thank you for promoting MarketX with your official trader card.
@@ -320,7 +345,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
                   <div>
                     <span className="text-slate-400 text-[10px] block">Credit Unlock Countdown</span>
                     <span className="font-mono text-cyan-300 font-bold text-sm">
-                      {timeRemainingStr || '10h 00m 00s'}
+                      {existingReward?.status === 'credited' ? 'Unlocked' : timeRemainingStr || '10h 00m 00s'}
                     </span>
                   </div>
                 </div>

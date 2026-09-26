@@ -17,7 +17,7 @@ interface EditProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   userProfile: UserProfile;
-  onSave: (updated: { displayName: string; username: string; avatarUrl?: string }) => void;
+  onSave: (updated: { displayName: string; username: string; avatarUrl?: string }) => Promise<string | null>;
 }
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({
@@ -28,6 +28,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 }) => {
   const [displayName, setDisplayName] = useState(userProfile.displayName || '');
   const [username, setUsername] = useState(userProfile.username || '');
+  const [isSaving, setIsSaving] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(userProfile.avatarUrl);
   const [dragActive, setDragActive] = useState(false);
   const [pasteSuccess, setPasteSuccess] = useState(false);
@@ -166,7 +167,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -178,11 +179,17 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     const cleanDisplayName = displayName.trim() || 'MarketX Trader';
 
-    onSave({
+    setIsSaving(true);
+    const saveError = await onSave({
       displayName: cleanDisplayName,
       username: cleanUsername,
       avatarUrl: avatarPreview,
     });
+    setIsSaving(false);
+    if (saveError) {
+      setError(saveError);
+      return;
+    }
     onClose();
   };
 
@@ -340,7 +347,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer active:scale-98"
+                disabled={isSaving}
+                className="disabled:opacity-60 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer active:scale-98"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Save Changes</span>

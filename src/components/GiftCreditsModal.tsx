@@ -18,7 +18,7 @@ interface GiftCreditsModalProps {
   onClose: () => void;
   availableCredits: number;
   userProfile: UserProfile;
-  onSendGift: (toUsername: string, amount: number, note?: string) => boolean;
+  onSendGift: (toUsername: string, amount: number, note?: string) => Promise<string | null>;
   recentGifts: CreditGift[];
 }
 
@@ -35,13 +35,13 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
 
   if (!isOpen) return null;
 
   const quickAmounts = [5, 10, 25, 50];
-  const suggestedUsers = ['@satoshi_quant', '@alex_trader', '@institutional_flow', '@crypto_whale'];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -67,8 +67,14 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
       return;
     }
 
-    const success = onSendGift(cleanUsername, amount, note);
-    if (success) {
+    setIsSending(true);
+    const sendError = await onSendGift(cleanUsername, amount, note || undefined);
+    setIsSending(false);
+    if (sendError) {
+      setError(sendError);
+      return;
+    }
+    {
       setSuccessMsg(`Successfully gifted ${amount} AI Credits to @${cleanUsername}!`);
       setRecipient('');
       setNote('');
@@ -136,20 +142,6 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
                 />
               </div>
 
-              {/* Quick suggestions */}
-              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
-                <span className="text-slate-400">Popular:</span>
-                {suggestedUsers.map(u => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => setRecipient(u.replace(/^@/, ''))}
-                    className="px-2 py-0.5 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-indigo-300 font-mono text-[10px] transition-colors"
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Credit Amount Selection */}
@@ -220,7 +212,7 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={availableCredits <= 0 || amount > availableCredits}
+              disabled={isSending || availableCredits <= 0 || amount > availableCredits}
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
