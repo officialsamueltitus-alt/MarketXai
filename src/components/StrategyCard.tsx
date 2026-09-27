@@ -36,7 +36,7 @@ interface StrategyCardProps {
   userProfile?: UserProfile;
 }
 
-export const StrategyCard: React.FC<StrategyCardProps> = ({
+const StrategyCardView: React.FC<StrategyCardProps> = ({
   strategy,
   onFollowUpPrompt,
   onTightenStopLoss,
@@ -569,3 +569,9 @@ Generated via MarketX AI • https://marketx.world`;
     </div>
   );
 };
+
+// Re-render only when the setup or the viewer changes; handlers are read through refs by the caller
+export const StrategyCard = React.memo(
+  StrategyCardView,
+  (prev, next) => prev.strategy === next.strategy && prev.userProfile === next.userProfile
+);

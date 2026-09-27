@@ -103,6 +103,16 @@ export default function App() {
     } catch {}
   }, [applyAccount]);
 
+  const handleToggleEmailActivity = useCallback(
+    (enabled: boolean) => {
+      setUserProfile(prev => ({ ...prev, emailActivity: enabled }));
+      apiFetch<AccountPayload>('/api/account/email-prefs', { method: 'PUT', body: JSON.stringify({ activity: enabled }) })
+        .then(applyAccount)
+        .catch(() => setUserProfile(prev => ({ ...prev, emailActivity: !enabled })));
+    },
+    [applyAccount]
+  );
+
   const refreshNotifications = useCallback(async () => {
     try {
       const data = await apiFetch<{ notifications: AppNotification[] }>('/api/notifications');
@@ -141,11 +151,13 @@ export default function App() {
         setSessions(history.sessions || []);
         setSavedAnalyses(history.analyses || []);
         setNotifications(notif.notifications || []);
+        // Sign-in alerts are written just after the response; pick them up shortly after
+        setTimeout(refreshNotifications, 2000);
       } catch (err: any) {
         setToastNotification({ message: err?.message || 'Could not load your history. Please refresh.', type: 'success' });
       }
     },
-    [applyAccount]
+    [applyAccount, refreshNotifications]
   );
 
   // Startup: read public config, restore the cookie session, and handle email links (?verified / ?reset)
@@ -1039,6 +1051,8 @@ export default function App() {
         abortControllerRef.current = null;
       }
       setIsLoading(false);
+      // The server records the analysis notification right after responding
+      setTimeout(refreshNotifications, 1500);
     }
   };
 
@@ -1107,15 +1121,24 @@ export default function App() {
           setNotifications(prev => prev.filter(n => n.id !== id));
           if (authUser) apiFetch(`/api/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
         }}
+        onMarkRead={markNotificationRead}
         onNotificationAction={(notif) => {
           setIsNotificationCenterOpen(false);
           if (notif.actionPrompt) {
             setCurrentView('chat');
             handleSendMessage(notif.actionPrompt, '4H');
+          } else if (notif.actionType === 'open_pricing') {
+            setIsPricingModalOpen(true);
+          } else if (notif.actionType === 'open_campaign') {
+            setIsShareModalOpen(true);
           } else if (notif.type === 'reward' || notif.type === 'credit') {
+            openAccountTab('credits');
+          } else {
             openAccountTab('profile');
           }
         }}
+        emailActivity={userProfile.emailActivity !== false}
+        onToggleEmailActivity={authUser ? handleToggleEmailActivity : undefined}
       />
 
       {/* Institutional Terms & Privacy Policy Modal */}

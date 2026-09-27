@@ -52,6 +52,9 @@ interface ChatFeedProps {
   onClearTargetMessage?: () => void;
 }
 
+// Markdown only re-parses when its text changes (not on every live-price tick)
+const Markdown = React.memo(({ text }: { text: string }) => <ReactMarkdown>{text}</ReactMarkdown>);
+
 export const ChatFeed: React.FC<ChatFeedProps> = ({
   messages,
   isLoading,
@@ -64,6 +67,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
+  // Latest callback in a ref so memoised cards can hold a stable handler without going stale
+  const onSelectPromptRef = useRef(onSelectPrompt);
+  onSelectPromptRef.current = onSelectPrompt;
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,7 +78,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   const handleTightenStopLoss = (strat: StrategyResult) => {
     const prompt = `Tighten the stop loss for ${strat.symbol} on this setup. Keep the identical entry, take-profit targets, and analysis structure, but recalculate a tighter invalidation stop loss and updated risk-reward ratio.`;
-    onSelectPrompt(prompt, strat.timeframe, 'tight', strat);
+    onSelectPromptRef.current(prompt, strat.timeframe, 'tight', strat);
   };
 
   const handleCopyText = (id: string, text: string) => {
@@ -676,7 +682,7 @@ Rationale: ${strategy.entryZone.rationale}
                         {/* High-Contrast Markdown Synthesis */}
                         <div className="prose prose-invert prose-xs sm:prose-sm max-w-none text-slate-200 leading-relaxed space-y-2 break-words">
                           {message.content && message.content.length > 60 ? (
-                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                            <Markdown text={message.content} />
                           ) : strategy.tradeType === 'NO_SIGNAL' ? (
                             <p>
                               I've analyzed live order books and market depth for <strong className="text-white font-mono">{strategy.symbol}</strong> ({strategy.name}) on the <strong className="text-indigo-300 font-mono">{strategy.timeframe}</strong> timeframe.
@@ -895,7 +901,7 @@ Rationale: ${strategy.entryZone.rationale}
                       <StrategyCard
                         strategy={strategy}
                         onFollowUpPrompt={(prompt, opts) => {
-                          onSelectPrompt(
+                          onSelectPromptRef.current(
                             prompt,
                             strategy.timeframe,
                             opts?.isTightSl ? 'tight' : 'normal',
@@ -935,7 +941,7 @@ Rationale: ${strategy.entryZone.rationale}
                         </button>
                       </div>
                       <div className="prose prose-invert prose-xs sm:prose-sm max-w-none text-slate-200 leading-relaxed break-words">
-                        <ReactMarkdown>{message.content}</ReactMarkdown>
+                        <Markdown text={message.content} />
                       </div>
                     </div>
                   )}

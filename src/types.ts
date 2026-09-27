@@ -225,6 +225,8 @@ export interface UserProfile {
   joinedAt: number;
   isVerified: boolean;
   emailVerified?: boolean;
+  /** Receive activity emails (analyses, profile changes, gifts). Security emails always send. */
+  emailActivity?: boolean;
   subscription: UserSubscription;
 }
 
@@ -257,7 +259,7 @@ export interface XShareReward {
   tweetUrl?: string;
 }
 
-export type NotificationType = 'reward' | 'market' | 'system' | 'credit';
+export type NotificationType = 'reward' | 'market' | 'system' | 'credit' | 'security' | 'analysis';
 
 export interface AppNotification {
   id: string;

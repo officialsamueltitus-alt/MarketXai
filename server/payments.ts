@@ -22,15 +22,59 @@ const PLAN_DURATION_MS: Record<Plan, number> = {
   yearly: 365 * 24 * 60 * 60 * 1000,
 };
 
-// Prices are defined server-side in the currency's minor unit (cents/kobo), never by the browser
+// Plans are priced in USD and charged in the currency the Paystack account supports
+// (NGN for Nigerian merchants, which also unlocks bank transfer and USSD).
+const YEARLY_DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.PRO_YEARLY_DISCOUNT_PERCENT) || 8));
+const PAYMENT_CHANNELS = ['card', 'bank_transfer', 'ussd', 'bank', 'qr', 'mobile_money'];
+
+function usdPrices() {
+  const monthly = Number(process.env.PRO_MONTHLY_PRICE_USD) || 20;
+  const yearly = Math.round(monthly * 12 * (1 - YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
+  return { monthly, yearly };
+}
+
+function chargeCurrency(): string {
+  return (process.env.PAYSTACK_CHARGE_CURRENCY || 'NGN').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) || 'NGN';
+}
+
+// Live USD → charge-currency rate (open.er-api.com, no key), cached and refreshed in the background
+const RATE_TTL_MS = 60 * 60 * 1000;
+let cachedRate: { currency: string; rate: number; at: number } | null = null;
+
+async function refreshRate(): Promise<void> {
+  const currency = chargeCurrency();
+  if (currency === 'USD') return;
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', { signal: AbortSignal.timeout(8000) });
+    const data: any = res.ok ? await res.json() : null;
+    const rate = Number(data?.rates?.[currency]);
+    if (rate > 0) cachedRate = { currency, rate, at: Date.now() };
+  } catch (err: any) {
+    console.warn('[MarketX Payments] exchange rate refresh failed:', err?.message || err);
+  }
+}
+
+function currentRate(): number | null {
+  const currency = chargeCurrency();
+  if (currency === 'USD') return 1;
+  if (cachedRate && cachedRate.currency === currency) {
+    if (Date.now() - cachedRate.at > RATE_TTL_MS) refreshRate();
+    return cachedRate.rate;
+  }
+  refreshRate();
+  // Optional manual fallback, e.g. USD_NGN_RATE=1550, used only until the live rate loads
+  const manual = Number(process.env[`USD_${currency}_RATE`]);
+  return manual > 0 ? manual : null;
+}
+
+// Amounts in the charge currency's minor unit (kobo/cents). Non-USD prices round up to a whole 10 units.
 function getPricing() {
-  const currency = (process.env.PAYSTACK_CURRENCY || 'USD').toUpperCase();
-  return {
-    currency,
-    // Defaults: $20/month, and 12 months less 8% ($220.80) for yearly
-    monthly: Number(process.env.PAYSTACK_MONTHLY_AMOUNT) || 2000,
-    yearly: Number(process.env.PAYSTACK_YEARLY_AMOUNT) || 22080,
-  };
+  const usd = usdPrices();
+  const currency = chargeCurrency();
+  const rate = currentRate();
+  const toMinor = (usdAmount: number) =>
+    rate == null ? null : currency === 'USD' ? Math.round(usdAmount * 100) : Math.ceil((usdAmount * rate) / 10) * 10 * 100;
+  return { usd, currency, rate, monthly: toMinor(usd.monthly), yearly: toMinor(usd.yearly) };
 }
 
 export function getPaymentsPublicConfig() {
@@ -40,9 +84,13 @@ export function getPaymentsPublicConfig() {
   return {
     enabled,
     publicKey: enabled ? publicKey : '',
-    currency: pricing.currency,
-    monthlyAmount: pricing.monthly / 100,
-    yearlyAmount: pricing.yearly / 100,
+    // Display prices (USD) and what Paystack will actually charge
+    currency: 'USD',
+    monthlyAmount: pricing.usd.monthly,
+    yearlyAmount: pricing.usd.yearly,
+    chargeCurrency: pricing.currency,
+    chargeMonthlyAmount: pricing.monthly != null ? pricing.monthly / 100 : null,
+    chargeYearlyAmount: pricing.yearly != null ? pricing.yearly / 100 : null,
     // Plan benefits as enforced by the server, so the UI never over-promises
     benefits: {
       freeDailyAnalyses: FREE_DAILY_LIMIT,
@@ -63,7 +111,18 @@ async function paystackVerify(reference: string): Promise<any | null> {
 }
 
 // Idempotently grants the plan for a verified successful transaction
-async function fulfillPayment(reference: string, tx: any): Promise<{ granted: boolean; uid?: string; plan?: Plan; email?: string; error?: string }> {
+interface FulfillResult {
+  granted: boolean;
+  uid?: string;
+  plan?: Plan;
+  email?: string;
+  error?: string;
+  charged?: string;
+  expiresAt?: number;
+  reference?: string;
+}
+
+async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult> {
   const paymentRef = db().collection('payments').doc(reference);
   return db().runTransaction(async t => {
     const paySnap = await t.get(paymentRef);
@@ -92,7 +151,7 @@ async function fulfillPayment(reference: string, tx: any): Promise<{ granted: bo
         active: true,
         startDate: sub.active ? sub.startDate : now,
         expiresAt: base + PLAN_DURATION_MS[plan],
-        price: Number(payment.amount) / 100,
+        price: Number(payment.usdAmount) || Number(payment.amount) / 100,
         paystackRef: reference,
       },
       'credits.dailyLimit': PRO_DAILY_LIMIT,
@@ -105,19 +164,41 @@ async function fulfillPayment(reference: string, tx: any): Promise<{ granted: bo
       title: `MarketX Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated`,
       message: `Payment confirmed. ${PRO_DAILY_LIMIT} daily analyses and your verified badge are now active.`,
     });
-    return { granted: true, uid: payment.uid, plan, email: loaded.doc.email };
+    return {
+      granted: true,
+      uid: payment.uid,
+      plan,
+      email: loaded.doc.email,
+      charged: `${(Number(payment.amount) / 100).toLocaleString('en-US')} ${payment.currency}`,
+      expiresAt: base + PLAN_DURATION_MS[plan],
+      reference,
+    };
   });
 }
 
-function notifyPaymentEmail(result: { granted: boolean; plan?: Plan; email?: string }) {
+function notifyPaymentEmail(result: FulfillResult) {
   if (!result.granted || !result.plan) return;
-  sendEmail(result.email, `Your MarketX Pro ${result.plan} plan is active`, [
-    'Thank you for your payment. Your Pro plan is now active.',
-    `You now get ${PRO_DAILY_LIMIT} analyses every day and a verified trader badge.`,
-  ]);
+  sendEmail(
+    result.email,
+    `Your MarketX Pro ${result.plan} plan is active`,
+    ['Thank you for your payment. Your Pro plan is now active.', `You now get ${PRO_DAILY_LIMIT} analyses every day and a verified trader badge.`],
+    {
+      rows: [
+        ['Plan', `Pro ${result.plan === 'yearly' ? 'Yearly' : 'Monthly'}`],
+        ['Amount paid', result.charged || '-'],
+        ['Active until', result.expiresAt ? new Date(result.expiresAt).toDateString() : '-'],
+        ['Reference', result.reference || '-'],
+      ],
+      cta: { label: 'Start analysing', url: (process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '') },
+      note: 'Keep this email as your receipt.',
+    }
+  );
 }
 
 export function registerPaymentRoutes(app: Express, limiter: any) {
+  refreshRate();
+  setInterval(refreshRate, RATE_TTL_MS).unref();
+
   // Creates a server-owned payment reference with the server-defined price
   app.post('/api/payments/initialize', limiter, requireAuth, async (req: Request, res: Response) => {
     try {
@@ -127,6 +208,10 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
       }
       const plan: Plan = req.body?.plan === 'yearly' ? 'yearly' : 'monthly';
       const pricing = getPricing();
+      if (pricing.monthly == null || pricing.yearly == null) {
+        await refreshRate();
+        return res.status(503).json({ error: 'RATE_UNAVAILABLE', message: 'Checkout is warming up. Please try again in a few seconds.' });
+      }
       const user = getUser(res);
       const userSnap = await userRef(user.uid).get();
       if (!userSnap.exists) return res.status(404).json({ error: 'NO_ACCOUNT' });
@@ -139,10 +224,20 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
         plan,
         amount,
         currency: pricing.currency,
+        usdAmount: plan === 'yearly' ? pricing.usd.yearly : pricing.usd.monthly,
+        exchangeRate: pricing.rate,
         status: 'pending',
         createdAt: Date.now(),
       });
-      res.json({ success: true, reference, amount, currency: pricing.currency, email: user.email, publicKey: config.publicKey });
+      res.json({
+        success: true,
+        reference,
+        amount,
+        currency: pricing.currency,
+        channels: PAYMENT_CHANNELS,
+        email: user.email,
+        publicKey: config.publicKey,
+      });
     } catch (err: any) {
       console.error('[MarketX Payments] initialize failed:', err?.message || err);
       res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not start checkout. Please try again.' });

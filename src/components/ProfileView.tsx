@@ -3,6 +3,7 @@ import { UserProfile, CreditState, XShareReward } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
 import { MarketXText } from './MarketXText';
 import { EditProfileModal } from './EditProfileModal';
+import { DeleteAccountModal } from './DeleteAccountModal';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
@@ -58,6 +59,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onSignOut,
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -300,6 +302,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           Sign out
         </button>
       )}
+      {onSignOut && (
+        <button
+          type="button"
+          onClick={() => setIsDeleteOpen(true)}
+          className="w-full h-9 rounded-xl text-xs text-slate-500 hover:text-rose-300 transition-colors cursor-pointer"
+        >
+          Delete account
+        </button>
+      )}
+      <DeleteAccountModal
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        email={userProfile.email}
+        onDeleted={() => {
+          setIsDeleteOpen(false);
+          onSignOut?.();
+        }}
+      />
 
       {/* Modals */}
       <EditProfileModal

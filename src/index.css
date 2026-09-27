@@ -247,6 +247,36 @@ header.glass-panel {
   animation: mx-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* Sheets: slide up on phones, slide in from the right on larger screens */
+@keyframes mx-sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes mx-sheet-left {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.mx-sheet {
+  animation: mx-sheet-up 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@media (min-width: 640px) {
+  .mx-sheet {
+    animation-name: mx-sheet-left;
+  }
+}
+
 /* Auto-dismiss countdown line for chat updates */
 @keyframes mx-update-timer {
   from {
@@ -263,22 +293,22 @@ header.glass-panel {
   animation-fill-mode: both;
 }
 
-/* Shimmering text for "thinking" states */
-@keyframes mx-shimmer {
-  from {
-    background-position: 200% 0;
+/* "Thinking" text: a gentle opacity breathe (GPU-composited, unlike a moving gradient) */
+@keyframes mx-breathe {
+  0%,
+  100% {
+    opacity: 1;
   }
-  to {
-    background-position: -200% 0;
+  50% {
+    opacity: 0.55;
   }
 }
 .mx-shimmer {
-  background: linear-gradient(90deg, #71717a 0%, #f4f4f5 50%, #71717a 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: mx-shimmer 2.4s linear infinite;
+  color: #f4f4f5;
+  animation: mx-breathe 1.8s ease-in-out infinite;
+}
+.mx-ping-live {
+  animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 /* Live ticker marquee */
@@ -374,6 +404,15 @@ header.glass-panel {
   padding-top: max(env(safe-area-inset-top, 0px), 8px);
 }
 
+/* Decorative pulses/pings settle after a few cycles instead of animating forever:
+   endless animations keep the GPU redrawing every frame, which drains battery and heats phones.
+   Live indicators that must keep moving use .mx-ping-live / spinners. */
+.animate-pulse,
+.animate-ping,
+.radar-ring {
+  animation-iteration-count: 3;
+}
+
 /* Mobile: drop expensive effects to keep phones cool and smooth */
 @media (max-width: 768px), (pointer: coarse) {
   [class*='backdrop-blur'] {
@@ -386,6 +425,15 @@ header.glass-panel {
   }
   .animate-ticker {
     animation-duration: 90s;
+  }
+  /* Large blurred glows are costly to rasterise and re-composite while scrolling */
+  .blur-3xl[aria-hidden='true'],
+  .blur-xl {
+    display: none;
+  }
+  .mx-card,
+  .mx-composer {
+    box-shadow: none;
   }
   body,
   html {
@@ -401,4 +449,11 @@ header.glass-panel {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

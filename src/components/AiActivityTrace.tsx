@@ -108,7 +108,7 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
       <div className="w-full max-w-2xl" aria-live="polite">
         <div className="flex items-center gap-2.5">
           <span className="relative w-2 h-2 shrink-0" aria-hidden="true">
-            <span className="absolute inset-0 rounded-full bg-indigo-400/60 animate-ping" />
+            <span className="absolute inset-0 rounded-full bg-indigo-400/60 mx-ping-live" />
             <span className="absolute inset-0 rounded-full bg-indigo-300" />
           </span>
           <span className="mx-shimmer text-sm font-medium truncate">{active?.title || 'Thinking'}</span>

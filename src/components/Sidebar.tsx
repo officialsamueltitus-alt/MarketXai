@@ -174,13 +174,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenNotifications();
                   if (window.innerWidth < 1024) onCloseMobile();
                 }}
-                className="relative p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] text-slate-200 hover:text-white border border-white/[0.1] transition-all cursor-pointer flex items-center justify-center shrink-0"
-                title="Notification Center"
-                aria-label="Open Notifications"
+                className="relative w-10 h-10 rounded-full text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                title="Notifications"
+                aria-label="Open notifications"
               >
-                <Bell className="w-4 h-4 text-indigo-300" />
+                <Bell className="w-[18px] h-[18px]" />
                 {unreadNotificationsCount !== undefined && unreadNotificationsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500 text-slate-950 font-mono font-extrabold text-[9px] flex items-center justify-center shadow-md ring-2 ring-slate-950 animate-pulse">
+                  <span className="absolute top-1 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-semibold flex items-center justify-center ring-2 ring-[#0c0c0f]">
                     {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                   </span>
                 )}
