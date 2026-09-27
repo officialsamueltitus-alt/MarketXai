@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { MarketXText } from './MarketXText';
+import React, { useEffect, useRef, useState } from 'react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { UserProfile } from '../types';
 import { isUnlimitedUser } from '../utils/creditManager';
@@ -7,9 +6,6 @@ import { formatMoney, apiFetch, PaymentsPublicConfig, DEFAULT_BENEFITS } from '.
 import {
   X,
   Check,
-  Zap,
-  ShieldCheck,
-  CreditCard,
   ArrowRight,
   RotateCcw,
   CheckCircle2,
@@ -59,6 +55,17 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
+  // Stable listener: the latest onClose is read from a ref, so parent re-renders during the
+  // same key event (e.g. another panel closing on Escape) can't detach it mid-dispatch
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const isUnlimited = isUnlimitedUser(userProfile.email);
@@ -67,7 +74,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const currency = paymentsConfig?.currency || 'USD';
   const monthlyAmount = paymentsConfig?.monthlyAmount ?? 20;
   const yearlyAmount = paymentsConfig?.yearlyAmount ?? 220.8;
-  const monthlyPrice = formatMoney(monthlyAmount, currency);
+  const monthlyPrice = formatMoney(monthlyAmount, currency, true);
   const yearlyDiscountedPrice = formatMoney(yearlyAmount, currency);
   const yearlyMonthlyEquivalent = formatMoney(yearlyAmount / 12, currency);
   const discountPct = Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
@@ -133,229 +140,233 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">
-      <div className="relative w-full max-w-lg my-auto rounded-3xl bg-[var(--mx-bg-2)] border border-white/[0.14] shadow-2xl overflow-hidden max-h-[94vh] flex flex-col">
-        {/* Top Header Background Glow */}
-        <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-indigo-600/25 via-cyan-500/10 to-transparent pointer-events-none" />
+  const sub = userProfile.subscription;
+  const proActive = !!sub?.active && !isUnlimited;
+  const proUntil = proActive && sub.expiresAt ? new Date(sub.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null;
+  const yearly = billingPeriod === 'yearly';
+  const payLabel = yearly ? chargeLabel || yearlyDiscountedPrice : chargeLabel || monthlyPrice;
 
-        {/* Modal Close Button */}
+  const freeFeatures: [string, boolean][] = [
+    [`${benefits.freeDailyAnalyses} AI analyses every day`, true],
+    ['Full trade plans: entry, stop & targets', true],
+    ['Live market prices', true],
+    ['Gift credits & X rewards', true],
+    ['Verified trader badge', false],
+  ];
+  const proFeatures: string[] = [
+    `${benefits.proDailyAnalyses} AI analyses every day`,
+    'Full trade plans: entry, stop & targets',
+    'Live market prices',
+    'Gift credits & X rewards',
+    'Verified trader badge',
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="MarketX Pro pricing">
+      <button type="button" aria-label="Close pricing" onClick={onClose} className="absolute inset-0 bg-black/75 mx-fade-in cursor-default" />
+
+      <div className="mx-pop-in relative w-full sm:max-w-[860px] max-h-[94dvh] overflow-y-auto overscroll-contain rounded-t-[28px] sm:rounded-[32px] bg-[var(--mx-bg-2)] border border-white/[0.08] shadow-[0_32px_100px_-24px_var(--mx-shadow)]">
+        {/* soft top glow */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(60%_100%_at_50%_0%,rgba(139,92,246,0.18),transparent)]" aria-hidden="true" />
+
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-3.5 right-3.5 sm:top-4 sm:right-4 p-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 hover:text-white border border-white/[0.12] transition-all cursor-pointer z-20"
-          title="Close Modal"
+          aria-label="Close"
+          className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.08] inline-flex items-center justify-center transition-colors cursor-pointer"
         >
-          <X className="w-4 h-4 sm:w-5 sm:h-5" />
+          <X className="w-4 h-4" />
         </button>
 
-        <div className="p-4 sm:p-6 space-y-4 relative z-10 overflow-y-auto flex-1">
-          {/* Title and Subtitle */}
-          <div className="text-center space-y-1.5 max-w-xl mx-auto pt-1 sm:pt-2">
-            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center justify-center gap-2">
-              <span>MarketX Pro</span>
+        <div className="relative px-5 sm:px-10 pt-8 sm:pt-10 pb-6 sm:pb-8">
+          {/* Header */}
+          <div className="text-center max-w-md mx-auto">
+            <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-white/[0.05] border border-white/[0.07] text-xs text-slate-300">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-300" /> MarketX Pro
+            </span>
+            <h2 className="mt-4 text-[28px] sm:text-[34px] leading-[1.1] font-semibold tracking-tight text-white">
+              Trade with more <span className="marketx-chroma-x">firepower</span>
             </h2>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              More analyses every day and a verified trader badge.
+            <p className="mt-3 text-sm sm:text-[15px] text-slate-400 leading-relaxed">
+              More analyses every day and a verified trader badge. Pay once per period, with no auto-renewal.
             </p>
           </div>
 
-          {/* Unlimited VIP status banner */}
+          {/* Billing switch */}
+          <div className="mt-6 flex justify-center">
+            <div role="radiogroup" aria-label="Billing period" className="relative grid grid-cols-2 p-1 rounded-full bg-white/[0.04] border border-white/[0.07] w-[260px]">
+              <span
+                aria-hidden="true"
+                className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-full bg-white transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${yearly ? 'translate-x-[calc(100%+0px)]' : 'translate-x-0'}`}
+                style={{ left: 4 }}
+              />
+              {(['monthly', 'yearly'] as const).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  role="radio"
+                  aria-checked={billingPeriod === p}
+                  onClick={() => setBillingPeriod(p)}
+                  className={`relative z-[1] h-9 rounded-full text-[13px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    billingPeriod === p ? 'text-slate-950' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {p === 'monthly' ? 'Monthly' : 'Yearly'}
+                  {p === 'yearly' && discountPct > 0 && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${billingPeriod === p ? 'bg-emerald-500/15 text-emerald-700' : 'bg-emerald-500/15 text-emerald-300'}`}>
+                      −{discountPct}%
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Status banners */}
           {isUnlimited && (
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-cyan-500/20 to-indigo-500/20 border border-cyan-400/40 text-cyan-200 text-xs font-semibold flex items-center justify-between gap-2 shadow-lg">
-              <div className="flex items-center gap-2">
-                <InfinityIcon className="w-5 h-5 text-amber-300 shrink-0" />
-                <div>
-                  <span className="text-white font-bold block">VIP Unlimited Account Active</span>
-                  <span className="text-[11px] text-cyan-200">Unlimited compute credits and institutional quantitative features active.</span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-[10px] font-mono font-bold text-cyan-300">
-                ACTIVE
-              </span>
+            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-amber-500/10 border border-amber-400/20 p-3.5 text-sm">
+              <InfinityIcon className="w-5 h-5 text-amber-300 shrink-0" />
+              <span className="text-amber-100">Your account has unlimited access. There's nothing to buy.</span>
             </div>
           )}
-
-          {/* Plan Interval Toggle: Monthly vs Yearly */}
-          <div className="flex justify-center pt-1">
-            <div className="p-1 rounded-2xl bg-black/60 border border-white/[0.1] inline-flex items-center gap-1.5 relative">
-              <button
-                type="button"
-                onClick={() => setBillingPeriod('monthly')}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  billingPeriod === 'monthly'
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Monthly
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setBillingPeriod('yearly')}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  billingPeriod === 'yearly'
-                    ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md shadow-cyan-600/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>Yearly</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[10px] tracking-tight animate-pulse">
-                  -{discountPct}% OFF
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Success Notification Banner */}
           {paymentSuccess && (
-            <div className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-2 animate-fadeIn">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Payment verified by Paystack. Pro is now active!</span>
+            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-emerald-500/10 border border-emerald-400/20 p-3.5 text-sm" role="status">
+              <CheckCircle2 className="w-5 h-5 text-emerald-300 shrink-0" />
+              <span className="text-emerald-100">Payment confirmed. Pro is now active. Enjoy!</span>
             </div>
           )}
 
-          {/* Active Pricing Card */}
-          <div className={`p-5 sm:p-6 rounded-2xl border transition-all flex flex-col justify-between relative ${
-            billingPeriod === 'yearly'
-              ? 'bg-gradient-to-b from-slate-900/90 to-slate-950/90 border-cyan-500/50 shadow-xl shadow-cyan-950/30'
-              : 'bg-slate-900/80 border-indigo-500/40 shadow-xl shadow-indigo-950/20'
-          }`}>
-            {/* Top Badge for Yearly */}
-            {billingPeriod === 'yearly' && (
-              <div className="absolute -top-3 right-6 px-3 py-1 rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-[10px] font-black uppercase tracking-wider shadow-md">
-                Best Value • Save {discountPct}%
-              </div>
-            )}
+          {/* Plans */}
+          <div className="mt-7 grid md:grid-cols-2 gap-4 items-stretch">
+            {/* Pro (first on phones) */}
+            <div className="relative md:order-2 rounded-[26px] p-[1px] bg-gradient-to-b from-indigo-400/70 via-indigo-500/25 to-cyan-400/30">
+              <div className="h-full rounded-[25px] bg-[var(--mx-surface)] p-6 flex flex-col">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                    Pro <VerifiedBadge size="sm" />
+                  </span>
+                  <span className="h-6 px-2.5 rounded-full bg-indigo-500/15 text-[11px] font-medium text-indigo-200 inline-flex items-center">
+                    {proActive ? 'Your plan' : yearly ? 'Best value' : 'Most popular'}
+                  </span>
+                </div>
 
-            <div className="space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <span>{billingPeriod === 'yearly' ? 'Pro · Yearly' : 'Pro · Monthly'}</span>
-                    {billingPeriod === 'yearly' && <Sparkles className="w-4 h-4 text-amber-300" />}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {billingPeriod === 'yearly' ? 'Full 365-day access with yearly discount' : 'Full 30-day rolling access'}
-                  </p>
-                </div>
-                <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold border font-mono ${
-                  billingPeriod === 'yearly'
-                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
-                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                }`}>
-                  {billingPeriod === 'yearly' ? 'Yearly Plan' : 'Monthly Plan'}
-                </span>
-              </div>
-
-              {/* Price display */}
-              {billingPeriod === 'yearly' ? (
-                <div className="space-y-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl sm:text-4xl font-black text-white font-mono">
-                      {yearlyMonthlyEquivalent}
-                    </span>
-                    <span className="text-xs text-slate-400 font-medium">/ month</span>
-                    <span className="text-xs text-slate-500 line-through font-mono ml-2">
-                      {monthlyPrice}/mo
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-cyan-300">
-                    <span className="font-semibold font-mono">{yearlyDiscountedPrice} billed annually</span>
-                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
-                      -{discountPct}% OFF applied
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-baseline gap-1">
-                  <span className="text-3xl sm:text-4xl font-black text-white font-mono">{monthlyPrice}</span>
-                  <span className="text-xs text-slate-400 font-medium">/ month</span>
-                </div>
-              )}
-
-              {/* Free vs Pro: exactly what the server enforces */}
-              <div className="rounded-2xl border border-white/[0.08] overflow-hidden text-[13px]">
-                <div className="grid grid-cols-[1fr_72px_88px] bg-white/[0.03] text-[11px] font-medium uppercase tracking-wider text-slate-500">
-                  <span className="px-3 py-2">Feature</span>
-                  <span className="px-2 py-2 text-center">Free</span>
-                  <span className="px-2 py-2 text-center text-indigo-300">Pro</span>
-                </div>
-                {[
-                  { label: 'Analyses per day', free: String(benefits.freeDailyAnalyses), pro: String(benefits.proDailyAnalyses) },
-                  { label: 'Verified trader badge', free: false, pro: true },
-                  { label: 'Full AI analysis & trade plans', free: true, pro: true },
-                  { label: 'Live market prices', free: true, pro: true },
-                  { label: 'Gift credits & X rewards', free: true, pro: true },
-                ].map(row => (
-                  <div key={row.label} className="grid grid-cols-[1fr_72px_88px] items-center border-t border-white/[0.05]">
-                    <span className="px-3 py-2.5 text-slate-300">{row.label}</span>
-                    {[row.free, row.pro].map((v, i) => (
-                      <span key={i} className={`px-2 py-2.5 text-center ${i === 1 ? 'text-white font-medium' : 'text-slate-400'}`}>
-                        {v === true ? (
-                          <Check className={`w-4 h-4 mx-auto ${i === 1 ? 'text-emerald-400' : 'text-slate-500'}`} />
-                        ) : v === false ? (
-                          <span className="text-slate-600">—</span>
-                        ) : (
-                          v
-                        )}
+                <div className="mt-5 min-h-[92px]">
+                  <div key={billingPeriod} className="mx-fade-in">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[44px] leading-none font-semibold tracking-tight text-white tabular-nums">
+                        {yearly ? yearlyMonthlyEquivalent : monthlyPrice}
                       </span>
-                    ))}
+                      <span className="text-sm text-slate-400">/ month</span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {yearly ? (
+                        <>
+                          <span className="text-slate-200 font-medium">{yearlyDiscountedPrice}</span> billed yearly ·{' '}
+                          <span className="line-through text-slate-500">{formatMoney(monthlyAmount * 12, currency)}</span>
+                        </>
+                      ) : (
+                        <>Billed monthly · 30 days of Pro per payment</>
+                      )}
+                    </p>
                   </div>
-                ))}
+                </div>
+
+                <ul className="mt-5 space-y-3 text-sm flex-1">
+                  {proFeatures.map(f => (
+                    <li key={f} className="flex items-start gap-3 text-slate-200">
+                      <span className="mt-0.5 w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-200 flex items-center justify-center shrink-0">
+                        <Check className="w-3 h-3" strokeWidth={3} />
+                      </span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                {checkoutError && (
+                  <p className="mt-5 text-xs text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-xl p-2.5" role="alert">
+                    {checkoutError}
+                  </p>
+                )}
+                {proUntil && (
+                  <p className="mt-5 text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2.5">
+                    Pro is active until {proUntil}. Paying again adds the time on top.
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isProcessing || !paymentsEnabled || isUnlimited}
+                  onClick={handlePaystackCheckout}
+                  className="group mt-6 w-full h-12 rounded-2xl bg-white text-slate-950 text-sm font-semibold hover:bg-slate-200 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  {isProcessing ? (
+                    <>
+                      <span className="w-4 h-4 rounded-full border-2 border-slate-400 border-t-slate-950 animate-spin" /> Opening secure checkout…
+                    </>
+                  ) : !paymentsEnabled ? (
+                    'Payments coming soon'
+                  ) : (
+                    <>
+                      {proActive ? 'Extend Pro' : 'Get Pro'} · {payLabel}
+                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                    </>
+                  )}
+                </button>
+                {chargeLabel && (
+                  <p className="mt-2.5 text-[11px] text-slate-500 text-center">
+                    {yearly ? yearlyDiscountedPrice : monthlyPrice} is charged as {chargeLabel} at today's exchange rate.
+                  </p>
+                )}
               </div>
-              <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                <RotateCcw className="w-3 h-3 shrink-0" />
-                Daily analyses renew every 24 hours with no rollover. Pro lasts {billingPeriod === 'yearly' ? '365' : '30'} days per payment.
-              </p>
             </div>
 
-            <div className="pt-5 mt-4 border-t border-white/[0.08] space-y-2">
-              {checkoutError && (
-                <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl p-2.5">{checkoutError}</p>
-              )}
-              <button
-                type="button"
-                disabled={isProcessing || !paymentsEnabled || isUnlimited}
-                onClick={handlePaystackCheckout}
-                className={`w-full py-3.5 px-4 rounded-xl text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50 ${
-                  billingPeriod === 'yearly'
-                    ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 shadow-cyan-600/30'
-                    : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
-                }`}
-              >
-                <CreditCard className="w-4 h-4 shrink-0" />
-                <span>
-                  {isProcessing
-                    ? 'Processing payment...'
-                    : !paymentsEnabled
-                    ? 'Payments coming soon'
-                    : billingPeriod === 'yearly'
-                    ? `Pay ${chargeLabel || yearlyDiscountedPrice} / year`
-                    : `Pay ${chargeLabel || monthlyPrice} / month`}
-                </span>
-                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-              </button>
-              {chargeLabel && (
-                <p className="text-[11px] text-slate-500 text-center">
-                  {billingPeriod === 'yearly' ? yearlyDiscountedPrice : monthlyPrice} is charged as {chargeLabel} ({chargeCurrency}) at
-                  today's exchange rate.
-                </p>
-              )}
+            {/* Free */}
+            <div className="md:order-1 rounded-[26px] border border-white/[0.07] bg-white/[0.02] p-6 flex flex-col">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-white">Free</span>
+                {!proActive && !isUnlimited && (
+                  <span className="h-6 px-2.5 rounded-full bg-white/[0.06] text-[11px] font-medium text-slate-300 inline-flex items-center">Current plan</span>
+                )}
+              </div>
+              <div className="mt-5 min-h-[92px]">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[44px] leading-none font-semibold tracking-tight text-white tabular-nums">{formatMoney(0, currency, true)}</span>
+                  <span className="text-sm text-slate-400">/ month</span>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">Everything you need to get started</p>
+              </div>
+              <ul className="mt-5 space-y-3 text-sm flex-1">
+                {freeFeatures.map(([f, on]) => (
+                  <li key={f} className={`flex items-start gap-3 ${on ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${on ? 'bg-white/[0.07] text-slate-300' : 'bg-white/[0.03] text-slate-600'}`}>
+                      {on ? <Check className="w-3 h-3" strokeWidth={3} /> : <X className="w-3 h-3" strokeWidth={3} />}
+                    </span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-6 h-12 rounded-2xl border border-white/[0.08] text-sm text-slate-400 inline-flex items-center justify-center">
+                {proActive || isUnlimited ? 'Included' : "You're on Free"}
+              </div>
             </div>
           </div>
 
-          {/* Paystack Security Guarantee */}
-          <div className="p-3 rounded-2xl bg-black/60 border border-white/[0.06] flex items-center justify-between gap-3 text-xs text-slate-400">
-            <div className="flex items-center gap-2 min-w-0">
-              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span className="truncate">Secured & encrypted Paystack billing engine</span>
-            </div>
-            <span className="text-[10px] font-mono text-slate-400 shrink-0">
-              Card • Transfer • USSD • Bank
+          {/* Fine print & trust */}
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-emerald-400" /> Secure checkout by Paystack
+            </span>
+            <span className="flex flex-wrap justify-center gap-1.5">
+              {['Card', 'Transfer', 'USSD', 'Bank'].map(m => (
+                <span key={m} className="h-6 px-2.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] text-slate-400 inline-flex items-center">
+                  {m}
+                </span>
+              ))}
             </span>
           </div>
+          <p className="mt-3 text-center text-[11px] text-slate-600 inline-flex w-full items-center justify-center gap-1.5">
+            <RotateCcw className="w-3 h-3" /> Daily analyses renew every 24 hours, with no rollover. Pro lasts {yearly ? '365' : '30'} days per payment.
+          </p>
         </div>
       </div>
     </div>
