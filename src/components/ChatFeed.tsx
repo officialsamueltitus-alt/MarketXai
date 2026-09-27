@@ -11,6 +11,7 @@ import { UserProfile } from '../types';
 import { AiStepProgressIndicator } from './AiStepProgressIndicator';
 import { HighImpactNewsAlert } from './HighImpactNewsAlert';
 import { AiReasoningAccordion } from './AiReasoningAccordion';
+import { Bitcoin, Gem, Activity, Coins } from 'lucide-react';
 import {
   User,
   Sparkles,
@@ -422,74 +423,69 @@ Rationale: ${strategy.entryZone.rationale}
         onScroll={handleScroll}
         onWheel={() => { userHasInteractedRef.current = true; }}
         onTouchMove={() => { userHasInteractedRef.current = true; }}
-        className="flex-1 h-full overflow-y-auto overflow-x-hidden px-2.5 sm:px-6 pt-3 sm:pt-4 pb-32 sm:pb-36 space-y-4 sm:space-y-5 min-w-0 w-full overscroll-contain pb-safe fast-scroll"
+        className="flex-1 h-full overflow-y-auto overflow-x-hidden px-3 sm:px-6 pt-2 sm:pt-4 pb-8 space-y-5 sm:space-y-6 min-w-0 w-full overscroll-contain fast-scroll"
       >
-      {/* Empty State: Dedicated Prompting Interface (Disappears as soon as a message is sent) */}
+      {/* Empty state: greeting + suggestion cards */}
       {messages.length === 0 && !isLoading && (
-        <div className="max-w-2xl mx-auto py-8 sm:py-16 text-center space-y-5 sm:space-y-6 animate-fadeIn px-1">
-          {/* Welcome Greeting without X Icon */}
-          <div className="space-y-2.5">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-sans">
-              {greeting}
-            </h2>
-
-            <p className="text-xs sm:text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
-              Real-time institutional liquidity intelligence at your fingertips. Discover high-conviction order blocks, untapped reaction zones, and precision trade execution across all global markets.
+        <div className="max-w-2xl mx-auto min-h-full flex flex-col justify-center py-10 px-1">
+          <div className="text-center mb-8 mx-rise">
+            <h2 className="text-[1.75rem] leading-tight sm:text-4xl font-semibold tracking-tight text-white">{greeting}</h2>
+            <p className="text-sm sm:text-[15px] text-slate-400 mt-2.5">
+              What market should we analyze today?
             </p>
           </div>
 
-          {/* Quick Prompt Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left max-w-xl mx-auto pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
             {[
               {
-                title: 'Bitcoin Market Structure',
-                desc: 'Assess 4H trend structure, key reaction thresholds, and directional outlook.',
+                icon: Bitcoin,
+                tint: 'text-amber-300 bg-amber-500/10',
+                title: 'Bitcoin structure',
+                desc: '4H trend, key reaction zones and outlook',
                 prompt: 'Analyze BTC/USDT on the 4H timeframe. Provide real-time market structure, critical reaction zones, and directional outlook.',
-                tag: 'Crypto'
               },
               {
-                title: 'Ethereum Reaction Matrix',
-                desc: 'Evaluate key support-resistance pivots, momentum volume, and price targets.',
+                icon: Gem,
+                tint: 'text-indigo-300 bg-indigo-500/10',
+                title: 'Ethereum levels',
+                desc: 'Support, resistance and breakout targets',
                 prompt: 'Analyze ETH/USDT on the 4H timeframe. Map out key price levels, reaction zones, and high-probability breakout targets.',
-                tag: 'Crypto'
               },
               {
-                title: 'Solana Momentum Flow',
-                desc: 'Track trend velocity, continuation levels, and high-probability invalidation boundaries.',
+                icon: Activity,
+                tint: 'text-emerald-300 bg-emerald-500/10',
+                title: 'Solana momentum',
+                desc: 'Trend strength and invalidation levels',
                 prompt: 'Analyze SOL/USDT on the 4H timeframe. Assess momentum strength, key reaction zones, and tactical trade boundaries.',
-                tag: 'Momentum'
               },
               {
-                title: 'Gold Spot (XAU/USD) Macro',
-                desc: 'Analyze macro market structure, key pivot defense, and price expansion targets.',
+                icon: Coins,
+                tint: 'text-yellow-200 bg-yellow-500/10',
+                title: 'Gold (XAU/USD)',
+                desc: 'Macro pivots, risk and targets',
                 prompt: 'Analyze XAU/USD gold spot on the 4H timeframe. Identify major price pivots, risk boundaries, and execution targets.',
-                tag: 'Commodity'
-              }
-            ].map((card, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => onSelectPrompt(card.prompt, '4H')}
-                className="p-3.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.08] hover:border-indigo-500/40 text-left transition-all group shadow-sm flex flex-col justify-between cursor-pointer"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-xs text-white group-hover:text-cyan-300 transition-colors">
-                      {card.title}
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/[0.06] text-slate-400 font-mono">
-                      {card.tag}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-snug">
-                    {card.desc}
-                  </p>
-                </div>
-                <span className="text-[10px] text-indigo-300 font-semibold mt-2.5 flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                  Explore Setup &rarr;
-                </span>
-              </button>
-            ))}
+              },
+            ].map((card, idx) => {
+              const Icon = card.icon;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => onSelectPrompt(card.prompt, '4H')}
+                  className="mx-card mx-rise group flex items-start gap-3 p-3.5 text-left cursor-pointer"
+                  style={{ animationDelay: `${80 + idx * 60}ms` }}
+                >
+                  <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${card.tint}`}>
+                    <Icon className="w-[18px] h-[18px]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-slate-100">{card.title}</span>
+                    <span className="block text-[13px] text-slate-500 mt-0.5 leading-snug">{card.desc}</span>
+                  </span>
+                  <ArrowUpRight className="w-4 h-4 text-slate-600 group-hover:text-slate-200 transition-colors shrink-0 mt-0.5" />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -505,100 +501,51 @@ Rationale: ${strategy.entryZone.rationale}
           <div
             key={message.id}
             id={`chat-msg-${message.id}`}
-            className={`flex gap-2 sm:gap-3 w-full min-w-0 max-w-4xl mx-auto transition-all ${
+            className={`mx-rise flex gap-2 sm:gap-3 w-full min-w-0 max-w-3xl mx-auto ${
               isUser ? 'justify-end' : 'justify-start'
             }`}
           >
             {/* Assistant Avatar */}
             {!isUser && (
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-950/90 border border-cyan-500/30 flex items-center justify-center shrink-0 mt-1 shadow-lg shadow-cyan-950/20 overflow-hidden">
+              <div className="w-7 h-7 rounded-full bg-white/[0.05] ring-1 ring-white/[0.08] flex items-center justify-center shrink-0 mt-0.5 overflow-hidden">
                 <MarketXIcon size="sm" />
               </div>
             )}
 
             {/* Message Body */}
             <div className={`space-y-1.5 min-w-0 ${isUser ? 'max-w-[92%] sm:max-w-[85%] items-end' : 'w-full max-w-full items-start'}`}>
-              {/* User Bubble */}
+              {/* User message bubble */}
               {isUser ? (
-                <div className="space-y-1.5 w-full">
-                  <div className="flex items-center justify-end gap-1.5 text-[11px] font-mono text-slate-400 px-1">
-                    <div className="w-5 h-5 rounded-full overflow-hidden bg-gradient-to-tr from-indigo-600 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-white shrink-0 shadow-sm">
-                      {userProfile?.avatarUrl ? (
-                        <img src={userProfile.avatarUrl} alt={userProfile.username} className="w-full h-full object-cover" />
-                      ) : (
-                        (userProfile?.username || 'T').substring(0, 1).toUpperCase()
-                      )}
-                    </div>
-                    <span className="font-semibold text-slate-200">
-                      @{userProfile?.username || 'trader'}
-                    </span>
-                    {userProfile?.isVerified && <VerifiedBadge size="sm" />}
-                    <span className="text-slate-600">•</span>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                <div className="group flex flex-col items-end gap-1.5 w-full">
+                  {message.chartImage && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewImageModal(message.chartImage || null)}
+                      className="rounded-2xl overflow-hidden ring-1 ring-white/[0.08] hover:ring-white/20 transition max-w-[260px] cursor-zoom-in"
+                      title={message.chartFileName || 'Attached chart'}
+                    >
+                      <img
+                        src={message.chartImage}
+                        alt="Attached chart"
+                        className="w-full max-h-48 object-cover bg-slate-900"
+                        referrerPolicy="no-referrer"
+                      />
+                    </button>
+                  )}
+                  <div className="rounded-3xl rounded-br-lg bg-white/[0.07] px-4 py-2.5 text-[15px] leading-relaxed text-slate-100 whitespace-pre-wrap break-words">
+                    {message.content}
                   </div>
-
-                  {/* Modern Sculpted User Prompt Container */}
-                  <div className="relative rounded-2xl sm:rounded-3xl bg-gradient-to-br from-[#10172a]/95 via-[#0d1424]/90 to-[#090e1c]/95 border border-indigo-500/30 hover:border-indigo-400/50 shadow-lg shadow-black/50 p-4 sm:p-5 text-slate-100 text-xs sm:text-sm leading-relaxed overflow-hidden group fast-chat-item">
-                    <div className="relative z-10 space-y-2.5">
-                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/[0.08]">
-                        <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-indigo-300 font-bold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                          <span>Prompt Directive</span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopyText(message.id, message.content)}
-                          className="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded-md hover:bg-white/[0.06] flex items-center gap-1 text-[11px] font-mono cursor-pointer"
-                          title="Copy prompt"
-                        >
-                          {copiedId === message.id ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-400" />
-                              <span className="text-emerald-300 font-semibold">Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3 text-slate-400" />
-                              <span>Copy</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Uploaded Chart Image Attachment Preview */}
-                      {message.chartImage && (
-                        <div className="mb-2.5 rounded-xl overflow-hidden border border-cyan-500/30 bg-black/50 p-2 max-w-xs sm:max-w-sm">
-                          <div className="flex items-center justify-between text-[11px] font-mono text-slate-300 pb-1.5 px-0.5">
-                            <span className="flex items-center gap-1.5 font-bold text-cyan-300 truncate">
-                              <BarChart2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                              <span className="truncate">{message.chartFileName || 'Uploaded Chart'}</span>
-                            </span>
-                            <span className="text-[9px] text-cyan-300 bg-cyan-950/70 px-1.5 py-0.5 rounded border border-cyan-500/40 shrink-0">
-                              Vision Input
-                            </span>
-                          </div>
-                          <div className="relative group cursor-pointer overflow-hidden rounded-lg">
-                            <img
-                              src={message.chartImage}
-                              alt="Uploaded Market Chart"
-                              className="w-full max-h-56 object-contain rounded-lg bg-slate-950 border border-white/[0.08] transition-transform duration-200 group-hover:scale-[1.02]"
-                              referrerPolicy="no-referrer"
-                              onClick={() => setPreviewImageModal(message.chartImage || null)}
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-mono font-semibold pointer-events-none">
-                              Click to Enlarge
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <p className="whitespace-pre-wrap font-sans text-slate-100 text-xs sm:text-[14px] leading-relaxed break-words font-normal">
-                        {message.content}
-                      </p>
-                    </div>
+                  <div className="flex items-center gap-1 text-[11px] text-slate-500 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(message.id, message.content)}
+                      className="h-6 w-6 rounded-full hover:bg-white/[0.08] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                      title="Copy"
+                      aria-label="Copy message"
+                    >
+                      {copiedId === message.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -995,12 +942,6 @@ Rationale: ${strategy.entryZone.rationale}
               </div>
             </div>
 
-            {/* User Avatar */}
-            {isUser && (
-              <div className="w-8 h-8 rounded-xl bg-white/[0.08] border border-white/[0.1] flex items-center justify-center shrink-0 mt-1">
-                <User className="w-4 h-4 text-slate-300" />
-              </div>
-            )}
           </div>
         );
       })}

@@ -128,7 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {isOpen && (
         <div
           onClick={onCloseMobile}
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-30 lg:hidden transition-opacity"
+          className="fixed inset-0 bg-black/60 z-30 lg:hidden mx-fade-in"
         />
       )}
 
@@ -139,26 +139,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         - Floats on mobile, tablet, and desktop with outer margins and elevation
       */}
       <aside
-        className={`fixed lg:relative z-40 flex flex-col bg-slate-950/92 backdrop-blur-2xl border border-white/[0.14] rounded-2xl sm:rounded-3xl transition-all duration-300 ease-in-out shrink-0 overflow-hidden shadow-2xl shadow-black/80 ring-1 ring-white/[0.06] ${
+        className={`fixed lg:relative inset-y-0 left-0 z-40 flex flex-col bg-[#0c0c0f] border-r border-white/[0.06] rounded-r-2xl lg:rounded-none transition-[width,transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] shrink-0 overflow-hidden h-[100dvh] ${
           isOpen
-            ? 'top-2.5 bottom-2.5 left-2.5 sm:top-3 sm:bottom-3 sm:left-3 h-[calc(100dvh-1.25rem)] sm:h-[calc(100dvh-1.5rem)] w-[88vw] max-w-[340px] sm:w-84 translate-x-0 opacity-100 lg:top-auto lg:bottom-auto lg:left-auto lg:my-3 lg:ml-3 lg:h-[calc(100vh-1.5rem)]'
-            : 'top-2.5 bottom-2.5 left-2.5 h-[calc(100dvh-1.25rem)] w-0 -translate-x-full lg:translate-x-0 lg:w-0 lg:my-3 lg:ml-0 lg:border-0 opacity-0 pointer-events-none'
+            ? 'w-[86vw] max-w-[320px] lg:w-[280px] translate-x-0 opacity-100 shadow-2xl shadow-black/60 lg:shadow-none'
+            : 'w-[86vw] max-w-[320px] -translate-x-full lg:translate-x-0 lg:w-0 lg:border-0 opacity-0 pointer-events-none'
         }`}
       >
         <div className="w-full h-full flex flex-col min-w-0 bg-transparent">
           {/* Top: New Prompt/Analysis Button & Mobile Close X Button */}
-          <div className="p-3 border-b border-white/[0.08] flex items-center justify-between gap-2">
+          <div className="p-3 pt-safe flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={() => {
                 onNewSession();
                 if (window.innerWidth < 1024) onCloseMobile();
               }}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-100 hover:text-white border border-indigo-500/35 font-semibold text-xs transition-all shadow-md active:scale-98 cursor-pointer"
+              className="flex-1 flex items-center gap-2.5 h-10 px-3 rounded-xl hover:bg-white/[0.06] text-slate-200 hover:text-white text-sm font-medium transition-colors active:scale-[0.99] cursor-pointer"
               title="Start New Analysis"
             >
-              <Plus className="w-4 h-4 text-indigo-300" />
-              <span>New Analysis</span>
+              <span className="w-7 h-7 rounded-lg bg-white text-slate-950 flex items-center justify-center"><Plus className="w-4 h-4" /></span>
+              <span>New chat</span>
             </button>
 
             {/* Notification Center button in Side Menu (Mobile / Tablet) */}
@@ -517,10 +517,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={onSignIn}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold transition-colors cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-2 h-10 px-3 rounded-xl bg-white text-slate-950 hover:bg-slate-200 text-sm font-medium transition-colors active:scale-[0.99] cursor-pointer"
               >
                 <User className="w-4 h-4" />
-                Sign in / Create account
+                Sign in or create account
               </button>
               ) : (
               <button

@@ -15,7 +15,7 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
 
   return (
     <div
-      className={`rounded-3xl bg-gradient-to-b from-slate-950/90 via-[#0a0d1a]/95 to-black/90 border border-white/[0.12] p-4 sm:p-6 shadow-2xl relative overflow-hidden ${className}`}
+      className={`rounded-3xl bg-gradient-to-b from-slate-950/90 via-[#0e0e11]/95 to-black/90 border border-white/[0.12] p-4 sm:p-6 shadow-2xl relative overflow-hidden ${className}`}
     >
       {/* Ambient background glow */}
       <div className="absolute top-0 right-1/4 w-72 h-72 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />

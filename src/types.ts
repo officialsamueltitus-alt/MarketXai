@@ -213,6 +213,7 @@ export interface UserProfile {
   avatarUrl?: string;
   joinedAt: number;
   isVerified: boolean;
+  emailVerified?: boolean;
   subscription: UserSubscription;
 }
 

@@ -29,7 +29,7 @@ import {
 // Mini Candlestick Chart graphic component strictly matching image.png sample
 function MiniCandlestickChart({ isBullish }: { isBullish: boolean }) {
   return (
-    <div className="w-16 sm:w-20 h-16 sm:h-20 rounded-2xl bg-[#11131a] border border-white/[0.08] p-2 flex items-center justify-center shrink-0 shadow-inner select-none">
+    <div className="w-16 sm:w-20 h-16 sm:h-20 rounded-2xl bg-[#141417] border border-white/[0.08] p-2 flex items-center justify-center shrink-0 shadow-inner select-none">
       <svg viewBox="0 0 60 50" className="w-full h-full">
         {/* Candle 1: Green */}
         <line x1="8" y1="6" x2="8" y2="44" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" />
@@ -544,7 +544,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           {/* 1. Icon + Symbol Pill + Name */}
           <div className="flex items-center gap-2.5 min-w-0">
             {renderAssetLogo(ticker.symbol)}
-            <span className="px-2.5 py-0.5 rounded-md bg-[#232838] text-white font-mono font-bold text-xs border border-white/[0.08] shrink-0 tracking-wide">
+            <span className="px-2.5 py-0.5 rounded-md bg-[#28282b] text-white font-mono font-bold text-xs border border-white/[0.08] shrink-0 tracking-wide">
               {displaySym}
             </span>
             <span className="text-slate-200 text-xs sm:text-sm font-medium truncate">
@@ -610,56 +610,74 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto px-3 sm:px-6 pt-2 sm:pt-4 pb-28 sm:pb-16 space-y-6 sm:space-y-8 scroll-smooth max-w-7xl mx-auto w-full overscroll-contain pb-safe">
-      {/* Top Hero Banner with MarketX title & Redesigned Sleek CTA Buttons */}
-      <div className="text-center space-y-3 sm:space-y-3.5 pt-1 sm:pt-2">
-        <div className="flex justify-center items-center select-none py-1">
-          <MarketXHeroLogo />
+      {/* Hero: headline + ask box + quick prompts */}
+      <section className="max-w-2xl mx-auto text-center pt-6 sm:pt-12 pb-2">
+        <div className="mx-rise inline-flex items-center gap-2 h-7 px-3 rounded-full bg-white/[0.04] border border-white/[0.07] text-xs text-slate-400">
+          <span className="relative flex w-1.5 h-1.5">
+            <span className="radar-ring absolute inline-flex w-full h-full rounded-full bg-emerald-400/60" />
+            <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          </span>
+          Live across crypto, forex, stocks & commodities
         </div>
 
-        <p className="text-sm sm:text-base md:text-lg text-slate-200 max-w-2xl mx-auto leading-relaxed font-medium px-2 flex items-center justify-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-indigo-200 to-cyan-300 font-semibold tracking-wide">
-            The Intelligence Layer for Every Market
-          </span>
+        <h1 className="mx-rise mt-5 text-[2rem] leading-[1.1] sm:text-5xl font-semibold tracking-tight text-white" style={{ animationDelay: '60ms' }}>
+          Market intelligence,
+          <br />
+          <span className="bg-gradient-to-r from-indigo-300 via-indigo-400 to-cyan-300 bg-clip-text text-transparent">one prompt away.</span>
+        </h1>
+        <p className="mx-rise mt-4 text-[15px] text-slate-400 max-w-md mx-auto" style={{ animationDelay: '120ms' }}>
+          Live prices, supply & demand zones and precise entries, stops and targets for any asset.
         </p>
 
-        {/* Sleek CTA buttons placed above the live market pair container */}
-        <div className="pt-1.5 flex flex-wrap items-center justify-center gap-2.5">
-          {/* Ask MarketX: sleek obsidian capsule */}
+        <form
+          className="mx-rise mx-composer mt-7 flex items-center gap-2 p-1.5 pl-4 text-left"
+          style={{ animationDelay: '180ms' }}
+          onSubmit={e => {
+            e.preventDefault();
+            const input = (e.currentTarget.elements.namedItem('heroPrompt') as HTMLInputElement | null);
+            const text = input?.value.trim();
+            if (text) onSelectPrompt(text, '4H');
+            else onAskMarketX();
+          }}
+        >
+          <Sparkles className="w-4 h-4 text-indigo-300 shrink-0" />
+          <input
+            name="heroPrompt"
+            type="text"
+            autoComplete="off"
+            placeholder="e.g. Analyze EUR/USD on the 1H…"
+            className="flex-1 min-w-0 bg-transparent text-[15px] text-white focus:outline-none h-10"
+          />
           <button
-            type="button"
-            onClick={onAskMarketX}
-            className="flex items-center gap-1.5 px-4.5 py-2 rounded-xl bg-gradient-to-r from-[#0e111d] via-[#14182b] to-[#0e111d] hover:from-[#171c33] hover:to-[#1e2544] text-white font-bold text-xs sm:text-sm shadow-md shadow-black/80 hover:shadow-black transition-all hover:scale-[1.03] active:scale-[0.97] border border-white/[0.14] cursor-pointer"
+            type="submit"
+            className="h-10 px-4 rounded-2xl bg-white text-slate-950 text-sm font-medium hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="flex items-center gap-1">
-              <span>Ask</span>
-              <MarketXText className="text-xs sm:text-sm" />
-            </span>
-            <ArrowRight className="w-3 h-3 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            Ask <ArrowRight className="w-4 h-4" />
           </button>
+        </form>
 
-          {/* Scan BTC 4H Setup: sleek glass pill */}
-          <button
-            type="button"
-            onClick={() =>
-              onSelectPrompt(
-                'Analyze BTC/USDT on the 4H timeframe. Provide real-time market structure, critical reaction zones, and directional outlook.',
-                '4H'
-              )
-            }
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] text-slate-200 border border-white/[0.08] hover:border-emerald-500/30 font-medium text-xs transition-all hover:scale-[1.03] active:scale-[0.97] cursor-pointer"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <Activity className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>Scan BTC 4H Setup</span>
-          </button>
+        <div className="mx-rise mt-4 flex flex-wrap items-center justify-center gap-2" style={{ animationDelay: '240ms' }}>
+          {[
+            { label: 'BTC 4H setup', prompt: 'Analyze BTC/USDT on the 4H timeframe. Provide real-time market structure, critical reaction zones, and directional outlook.' },
+            { label: 'Gold outlook', prompt: 'Analyze XAU/USD gold spot on the 4H timeframe. Identify major price pivots, risk boundaries, and execution targets.' },
+            { label: 'EUR/USD 1H', prompt: 'Analyze EUR/USD on the 1H timeframe. Map key reaction zones and give a precise entry, stop and targets.' },
+            { label: 'NVDA daily', prompt: 'Analyze NVDA on the 1D timeframe. Provide market structure, key levels and a trade plan.' },
+          ].map(chip => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={() => onSelectPrompt(chip.prompt, '4H')}
+              className="h-8 px-3.5 rounded-full text-[13px] text-slate-300 bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.07] hover:text-white hover:border-white/[0.14] transition-colors cursor-pointer"
+            >
+              {chip.label}
+            </button>
+          ))}
         </div>
-      </div>
+      </section>
 
       {/* SECTION 1: Live Market Pairs Table with 3-Second Revolving Carousel & Hold-to-Pause (Sector removed) */}
       <div className="w-full space-y-3">
-        <div className="rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-white/[0.08] shadow-2xl bg-[#0c1017]/95 backdrop-blur-xl space-y-3 sm:space-y-4">
+        <div className="rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-white/[0.06] bg-[#111114] space-y-3 sm:space-y-4">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
@@ -686,7 +704,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     onClick={() => setActiveCategory(tab)}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                       activeCategory === tab
-                        ? 'bg-[#1e2330] text-white shadow-xs font-semibold'
+                        ? 'bg-[#252528] text-white shadow-xs font-semibold'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -789,10 +807,10 @@ export const HomePage: React.FC<HomePageProps> = ({
           onMouseLeave={() => setIsFeedHolding(false)}
           className="lg:col-span-6 space-y-4"
         >
-          <div className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/[0.08] shadow-2xl bg-[#0c1017]/95 backdrop-blur-xl space-y-3 sm:space-y-4">
+          <div className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/[0.06] bg-[#111114] space-y-3 sm:space-y-4">
             {/* Upper Floating Card matching image.png */}
             {activeFeed && (
-              <div className="rounded-2xl bg-[#171a23] border border-white/[0.1] shadow-2xl p-4 sm:p-5 space-y-3 transition-all">
+              <div className="rounded-2xl bg-[#1b1b1e] border border-white/[0.1] shadow-2xl p-4 sm:p-5 space-y-3 transition-all">
                 {/* Header Row: 3 circular dots + timestamp + Live Feed indicator */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -900,7 +918,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectPrompt('Analyze Dow Jones Industrial Average (DJI) 4H liquidity confluence zones.', '4H')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#171a23] hover:bg-[#202532] border border-white/[0.08] hover:border-cyan-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1b1b1e] hover:bg-[#27272a] border border-white/[0.08] hover:border-cyan-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
               >
                 <div className="w-5 h-5 rounded-full bg-[#06b6d4] text-slate-950 font-extrabold text-[10px] font-mono flex items-center justify-center shrink-0">
                   30
@@ -913,7 +931,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectPrompt('Analyze S&P 500 (SPX) institutional 0.618 golden pocket and liquidity sweep.', '4H')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#171a23] hover:bg-[#202532] border border-white/[0.08] hover:border-rose-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1b1b1e] hover:bg-[#27272a] border border-white/[0.08] hover:border-rose-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
               >
                 <div className="w-5 h-5 rounded-full bg-[#ef4444] text-white font-extrabold text-[9px] font-mono flex items-center justify-center shrink-0">
                   500
@@ -926,7 +944,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectPrompt('Analyze Nasdaq Composite (IXIC) key institutional order blocks and demand levels.', '4H')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#171a23] hover:bg-[#202532] border border-white/[0.08] hover:border-blue-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1b1b1e] hover:bg-[#27272a] border border-white/[0.08] hover:border-blue-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
               >
                 <div className="w-5 h-5 rounded-full bg-[#0284c7] text-white font-extrabold text-[10px] font-mono flex items-center justify-center shrink-0">
                   <Zap className="w-3 h-3 fill-white" />

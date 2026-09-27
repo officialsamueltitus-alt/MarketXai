@@ -101,7 +101,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="relative w-full max-w-lg max-h-[85vh] flex flex-col bg-[#0b0e18]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
+        className="relative w-full max-w-lg max-h-[85vh] flex flex-col bg-[#0f0f12]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
       >
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between gap-3 bg-gradient-to-b from-white/[0.04] to-transparent shrink-0">
@@ -109,7 +109,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-sm relative">
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-cyan-400 ring-2 ring-[#0b0e18] animate-pulse" />
+                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-cyan-400 ring-2 ring-[#0f0f12] animate-pulse" />
               )}
             </div>
             <div>

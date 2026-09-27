@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from 'express';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
-import { adminAuth, db, isFirebaseConfigured } from './firebase';
+import { db, isFirebaseConfigured } from './firebase';
+import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
 import { sendEmail } from './mailer';
 import type {
   UserProfile,
@@ -53,6 +54,9 @@ export interface UserDoc {
     lastDailyReset: number;
   };
   xShareReward: XShareReward | null;
+  emailVerified?: boolean;
+  // Incremented to invalidate every existing session (e.g. after a password reset)
+  sessionVersion?: number;
 }
 
 // Unlimited access requires a verified email so nobody can claim it by registering the address
@@ -102,6 +106,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     avatarUrl: doc.avatarUrl || undefined,
     joinedAt: doc.joinedAt,
     isVerified: vip || doc.subscription.active,
+    emailVerified: !!doc.emailVerified,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }
       : doc.subscription,
@@ -149,26 +154,28 @@ export async function addNotification(uid: string, n: Omit<AppNotification, 'id'
 // Auth middleware
 // ---------------------------------------------------------------------------
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!isFirebaseConfigured()) {
+  if (!isFirebaseConfigured() || !isSessionConfigured()) {
     return res.status(503).json({ error: 'AUTH_NOT_CONFIGURED', message: 'Accounts are not configured on this server yet.' });
   }
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (!token) {
+  const session = verifySessionToken(readSessionCookie(req) || '');
+  if (!session) {
     return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Please sign in to continue.' });
   }
   try {
-    const decoded = await adminAuth().verifyIdToken(token);
+    const snap = await userRef(session.uid).get();
+    const doc = snap.exists ? (snap.data() as UserDoc) : null;
+    if (!doc || (doc.sessionVersion || 0) !== session.v) {
+      return res.status(401).json({ error: 'AUTH_INVALID', message: 'Your session has expired. Please sign in again.' });
+    }
     res.locals.user = {
-      uid: decoded.uid,
-      email: (decoded.email || '').toLowerCase(),
-      emailVerified: !!decoded.email_verified,
-      name: decoded.name,
-      picture: decoded.picture,
+      uid: session.uid,
+      email: (doc.email || '').toLowerCase(),
+      emailVerified: !!doc.emailVerified,
     } as AuthedUser;
     next();
-  } catch {
-    return res.status(401).json({ error: 'AUTH_INVALID', message: 'Your session has expired. Please sign in again.' });
+  } catch (err: any) {
+    console.error('[MarketX Auth] Session lookup failed:', err?.message || err);
+    return res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not verify your session. Please try again.' });
   }
 }
 
@@ -198,7 +205,7 @@ function saveNormalized(tx: Transaction, loaded: LoadedUser) {
 // ---------------------------------------------------------------------------
 // Account creation
 // ---------------------------------------------------------------------------
-async function createUserIfMissing(user: AuthedUser, requestedUsername?: string, requestedName?: string): Promise<UserDoc> {
+export async function createUserIfMissing(user: AuthedUser, requestedUsername?: string, requestedName?: string): Promise<UserDoc> {
   const base =
     sanitizeUsername(requestedUsername || '') ||
     sanitizeUsername((user.email.split('@')[0] || 'trader').slice(0, 16)) ||
@@ -233,6 +240,8 @@ async function createUserIfMissing(user: AuthedUser, requestedUsername?: string,
             lastDailyReset: now,
           },
           xShareReward: null,
+          emailVerified: user.emailVerified,
+          sessionVersion: 0,
         };
         tx.set(ref, doc);
         tx.set(usernameRef(candidate), { uid: user.uid });
@@ -390,15 +399,6 @@ export function registerAccountRoutes(app: Express, limiter: any) {
         console.error(`[MarketX API] ${req.method} ${req.path} failed:`, err?.message || err);
         if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' });
       });
-
-  // Called after every sign-in: creates the account on first login
-  app.post('/api/account/session', limiter, requireAuth, wrap(async (req, res) => {
-    const user = getUser(res);
-    const { username, displayName } = req.body || {};
-    await createUserIfMissing(user, typeof username === 'string' ? username : undefined, typeof displayName === 'string' ? displayName : undefined);
-    await settleXShareReward(user);
-    res.json({ success: true, ...(await readAccountState(user)) });
-  }));
 
   app.get('/api/account', limiter, requireAuth, wrap(async (req, res) => {
     const user = getUser(res);
@@ -616,4 +616,4 @@ export function registerAccountRoutes(app: Express, limiter: any) {
 }
 
 // Shared helpers for the payments module
-export { userRef, loadUserInTx, saveNormalized, readAccountState, getUser };
+export { userRef, usernameRef, loadUserInTx, saveNormalized, readAccountState, getUser };

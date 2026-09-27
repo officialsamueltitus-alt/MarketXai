@@ -1,5 +1,3 @@
-import { initializeApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
 import { getApiUrl } from './api';
 
 export interface PaymentsPublicConfig {
@@ -11,13 +9,11 @@ export interface PaymentsPublicConfig {
 }
 
 export interface PublicConfig {
-  firebase: { apiKey: string; authDomain: string; projectId: string; appId?: string } | null;
+  auth: { enabled: boolean; googleClientId: string | null };
   payments: PaymentsPublicConfig;
 }
 
 let configPromise: Promise<PublicConfig> | null = null;
-let firebaseApp: FirebaseApp | null = null;
-let authInstance: Auth | null = null;
 
 // Runtime config comes from the server so Render env vars apply without a rebuild
 export function loadPublicConfig(): Promise<PublicConfig> {
@@ -32,15 +28,6 @@ export function loadPublicConfig(): Promise<PublicConfig> {
   return configPromise;
 }
 
-export async function getFirebaseAuth(): Promise<Auth | null> {
-  if (authInstance) return authInstance;
-  const config = await loadPublicConfig();
-  if (!config.firebase) return null;
-  firebaseApp = initializeApp(config.firebase);
-  authInstance = getAuth(firebaseApp);
-  return authInstance;
-}
-
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -51,15 +38,12 @@ export class ApiError extends Error {
   }
 }
 
-// fetch wrapper that attaches the signed-in user's Firebase ID token
+// The session lives in an httpOnly cookie, sent automatically with same-origin requests
 export async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const auth = authInstance;
-  const user = auth?.currentUser;
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  if (user) headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
 
-  const res = await fetch(getApiUrl(path), { ...init, headers });
+  const res = await fetch(getApiUrl(path), { credentials: 'include', ...init, headers });
   let data: any = null;
   try {
     data = await res.json();

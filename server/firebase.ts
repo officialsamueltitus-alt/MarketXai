@@ -1,7 +1,7 @@
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
-import { getAuth, Auth } from 'firebase-admin/auth';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
+// Firestore is used purely as the database (no Firebase Authentication).
 // Firebase Admin is configured from FIREBASE_SERVICE_ACCOUNT: the service-account JSON
 // (raw JSON or base64-encoded) downloaded from Firebase Console → Project settings → Service accounts.
 let app: App | null = null;
@@ -46,27 +46,8 @@ export function firebaseStatus(): string | null {
   return initError;
 }
 
-export function adminAuth(): Auth {
-  const a = ensureApp();
-  if (!a) throw new Error(initError || 'Firebase is not configured');
-  return getAuth(a);
-}
-
 export function db(): Firestore {
   const a = ensureApp();
   if (!a) throw new Error(initError || 'Firebase is not configured');
   return getFirestore(a);
-}
-
-// Public web config served to the browser (these values are not secrets)
-export function getFirebaseWebConfig() {
-  const apiKey = process.env.FIREBASE_WEB_API_KEY;
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  if (!apiKey || !projectId) return null;
-  return {
-    apiKey,
-    projectId,
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
-    appId: process.env.FIREBASE_APP_ID || undefined,
-  };
 }

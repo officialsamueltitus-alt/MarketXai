@@ -31,15 +31,9 @@ import {
   setServerUnlimitedEmail,
 } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
-import { apiFetch, ApiError, getFirebaseAuth, loadPublicConfig, PaymentsPublicConfig } from './utils/firebaseClient';
-import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { apiFetch, ApiError, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift } from 'lucide-react';
-import worldMapBg from './assets/images/world_map_bg_1789305116043.jpg';
-
-// The decorative world-map backdrop is ~700KB and barely visible under its overlays; skip it on phones
-const SHOW_AMBIENT_BACKDROP =
-  typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(min-width: 1024px)').matches;
 
 interface AccountPayload {
   profile: UserProfile;
@@ -52,12 +46,19 @@ interface AccountPayload {
 export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'chat'>('home');
 
-  // Signed-in Firebase user; all account data below is loaded from and saved to the server
-  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  // Signed-in account; all account data below is loaded from and saved to the server
+  // Session is an httpOnly cookie managed by the server; authUser mirrors "signed in as"
+  const [authUser, setAuthUser] = useState<{ uid: string } | null>(null);
   const [authUnavailable, setAuthUnavailable] = useState<string | null>(null);
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const pendingSignupRef = useRef<{ username: string; displayName: string } | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('reset');
+    } catch {
+      return null;
+    }
+  });
   const [paymentsConfig, setPaymentsConfig] = useState<PaymentsPublicConfig | null>(null);
 
   const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_USER_PROFILE);
@@ -121,66 +122,65 @@ export default function App() {
     setServerUnlimitedEmail(null);
   }, []);
 
-  // Firebase auth listener: bootstrap the server account and load history on sign-in
+  // Load history & notifications for the signed-in account
+  const handleAuthenticated = useCallback(
+    async (account: AccountPayload) => {
+      applyAccount(account);
+      setAuthUser({ uid: account.profile.id });
+      try {
+        const [history, notif] = await Promise.all([
+          apiFetch<{ sessions: ChatSession[]; analyses: SavedAnalysis[] }>('/api/history'),
+          apiFetch<{ notifications: AppNotification[] }>('/api/notifications'),
+        ]);
+        syncedSessionsRef.current = new Map((history.sessions || []).map(sess => [sess.id, sess]));
+        syncedAnalysesRef.current = history.analyses || [];
+        historyLoadedRef.current = true;
+        setSessions(history.sessions || []);
+        setSavedAnalyses(history.analyses || []);
+        setNotifications(notif.notifications || []);
+      } catch (err: any) {
+        setToastNotification({ message: err?.message || 'Could not load your history. Please refresh.', type: 'success' });
+      }
+    },
+    [applyAccount]
+  );
+
+  // Startup: read public config, restore the cookie session, and handle email links (?verified / ?reset)
   useEffect(() => {
     let cancelled = false;
-    let unsubscribe: (() => void) | undefined;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('verified')) {
+      setToastNotification({
+        message: params.get('verified') === '1' ? '✅ Email verified. Thank you!' : 'That verification link is invalid or expired.',
+        type: 'success',
+      });
+    }
+    if (params.has('reset')) setIsAuthModalOpen(true);
+    if (params.has('verified') || params.has('reset')) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
 
     loadPublicConfig()
-      .then(cfg => !cancelled && setPaymentsConfig(cfg.payments))
-      .catch(() => {});
-
-    getFirebaseAuth()
-      .then(auth => {
+      .then(cfg => {
         if (cancelled) return;
-        if (!auth) {
+        setPaymentsConfig(cfg.payments);
+        setGoogleClientId(cfg.auth?.googleClientId || null);
+        if (!cfg.auth?.enabled) {
           setAuthUnavailable('Sign-in is not available yet: accounts are not configured on this server.');
-          setAuthReady(true);
           return;
         }
-        unsubscribe = onAuthStateChanged(auth, async user => {
-          setAuthUser(user);
-          if (!user) {
-            resetToSignedOut();
-            setAuthReady(true);
-            return;
-          }
-          try {
-            const signup = pendingSignupRef.current;
-            pendingSignupRef.current = null;
-            const account = await apiFetch<AccountPayload>('/api/account/session', {
-              method: 'POST',
-              body: JSON.stringify(signup || {}),
-            });
-            applyAccount(account);
-            const [history, notif] = await Promise.all([
-              apiFetch<{ sessions: ChatSession[]; analyses: SavedAnalysis[] }>('/api/history'),
-              apiFetch<{ notifications: AppNotification[] }>('/api/notifications'),
-            ]);
-            syncedSessionsRef.current = new Map((history.sessions || []).map(sess => [sess.id, sess]));
-            syncedAnalysesRef.current = history.analyses || [];
-            historyLoadedRef.current = true;
-            setSessions(history.sessions || []);
-            setSavedAnalyses(history.analyses || []);
-            setNotifications(notif.notifications || []);
-          } catch (err: any) {
-            setToastNotification({ message: err?.message || 'Could not load your account. Please refresh.', type: 'success' });
-          } finally {
-            setAuthReady(true);
-          }
-        });
+        return apiFetch<AccountPayload>('/api/account')
+          .then(account => !cancelled && handleAuthenticated(account))
+          .catch(() => {}); // 401 = signed out
       })
       .catch(() => {
-        if (cancelled) return;
-        setAuthUnavailable('Could not reach the MarketX server. Please check your connection and refresh.');
-        setAuthReady(true);
+        if (!cancelled) setAuthUnavailable('Could not reach the MarketX server. Please check your connection and refresh.');
       });
 
     return () => {
       cancelled = true;
-      unsubscribe?.();
     };
-  }, [applyAccount, resetToSignedOut]);
+  }, [handleAuthenticated]);
 
   // Keep credits, rewards and gifts received in sync while the app is open
   useEffect(() => {
@@ -475,11 +475,12 @@ export default function App() {
   }, [currentSessionId]);
 
   const handleSignOut = useCallback(async () => {
-    const auth = await getFirebaseAuth().catch(() => null);
-    if (auth) await signOut(auth);
+    await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    setAuthUser(null);
+    resetToSignedOut();
     setActiveSidebarTab('history');
     setToastNotification({ message: 'Signed out', type: 'success' });
-  }, []);
+  }, [resetToSignedOut]);
 
   // Credits / Profile pop-ups need an account; prompt sign-in otherwise
   const openAccountTab = useCallback(
@@ -948,26 +949,10 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-full overflow-hidden bg-[#020617] text-slate-100 font-sans selection:bg-indigo-500/30 selection:text-white relative">
-      {/* High-Performance Ambient Background (Smooth GPU rasterization without CPU lag) */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute inset-0 bg-[#020617]/90 z-10" />
-        {SHOW_AMBIENT_BACKDROP && (
-          <img
-            src={worldMapBg}
-            alt=""
-            loading="eager"
-            decoding="async"
-            className="w-full h-full object-cover opacity-20 select-none"
-            referrerPolicy="no-referrer"
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/85 via-black/65 to-black/90 pointer-events-none z-20" />
-      </div>
-
+    <div className="mx-backdrop flex h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-full overflow-hidden text-slate-100 font-sans relative">
       {/* Toast Notification Banner */}
       {toastNotification && (
-        <div className="fixed top-4 right-4 z-50 animate-fadeIn flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900/95 border border-indigo-500/40 text-white shadow-2xl backdrop-blur-md max-w-sm">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[#16161a] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.9)] max-w-[92vw] sm:max-w-md">
           {toastNotification.type === 'gift' ? (
             <Gift className="w-4 h-4 text-cyan-400 shrink-0" />
           ) : (
@@ -988,13 +973,16 @@ export default function App() {
         onPaymentVerified={handlePaymentVerified}
       />
 
-      {/* Sign in / Create account (Firebase Authentication) */}
+      {/* Sign in / Create account (server-side auth; Google via Google Identity Services) */}
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onSignedUp={details => {
-          pendingSignupRef.current = details;
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setResetToken(null);
         }}
+        onAuthenticated={handleAuthenticated}
+        googleClientId={googleClientId}
+        resetToken={resetToken}
         unavailableReason={authUnavailable}
       />
 
@@ -1158,65 +1146,58 @@ export default function App() {
         {/* View 2: Dedicated Claude AI-style Prompting Page */}
         {currentView === 'chat' && (
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-            {/* Dedicated Chat Sub-Navigation Bar with curved edges */}
-            <div className="mx-2 sm:mx-3.5 mt-0 mb-2 px-3.5 sm:px-6 py-2 rounded-2xl border border-white/[0.12] flex items-center justify-between text-xs bg-slate-950/75 backdrop-blur-2xl shrink-0 z-10 shadow-md">
+            {/* Chat title row */}
+            <div className="px-3 sm:px-6 h-11 flex items-center justify-between gap-3 text-sm shrink-0">
               <button
                 type="button"
                 onClick={() => setCurrentView('home')}
-                className="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors font-semibold"
-                title="Return to Market Overview"
+                className="group flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors"
+                title="Back to markets"
               >
-                <ArrowLeft className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Market Overview</span>
+                <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+                <span className="hidden sm:inline">Markets</span>
               </button>
 
-              <span className="font-mono text-slate-300 font-medium truncate max-w-[180px] sm:max-w-xs text-center">
-                {currentSession?.title || 'Ask MarketX'}
+              <span className="text-slate-300 font-medium truncate max-w-[55%] text-center text-[13px]">
+                {currentSession?.title || 'New chat'}
               </span>
 
               <button
                 type="button"
                 onClick={handleNewSession}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 hover:text-white border border-white/[0.08] font-semibold transition-colors"
-                title="Start a new chat session"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-full text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"
+                title="Start a new chat"
               >
-                <Plus className="w-3.5 h-3.5 text-cyan-300" />
-                <span className="hidden sm:inline">New Prompt</span>
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline text-[13px]">New chat</span>
               </button>
             </div>
 
-            {/* Chat Body: scrollable feed + pinned afloat input */}
-            <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
-              {/* Central Chat Feed */}
-              <ChatFeed
-                messages={currentMessages}
-                isLoading={isLoading}
-                tickers={tickers}
-                userProfile={userProfile}
-                targetMessageId={targetSignalMessageId}
-                onClearTargetMessage={() => setTargetSignalMessageId(null)}
-                onSelectPrompt={(prompt, tf, sl, base) =>
-                  handleSendMessage(prompt, tf || '4H', sl || 'normal', base)
-                }
-                onSelectTicker={sym => {
-                  handleSendMessage(
-                    `Analyze ${sym} on the 4H timeframe. Calculate key institutional liquidity zones and golden ratio confluence.`,
-                    '4H'
-                  );
-                }}
-              />
+            {/* Chat body: scrollable feed with the composer docked below it */}
+            <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 relative flex flex-col">
+                <ChatFeed
+                  messages={currentMessages}
+                  isLoading={isLoading}
+                  tickers={tickers}
+                  userProfile={userProfile}
+                  targetMessageId={targetSignalMessageId}
+                  onClearTargetMessage={() => setTargetSignalMessageId(null)}
+                  onSelectPrompt={(prompt, tf, sl, base) =>
+                    handleSendMessage(prompt, tf || '4H', sl || 'normal', base)
+                  }
+                  onSelectTicker={sym => {
+                    handleSendMessage(
+                      `Analyze ${sym} on the 4H timeframe. Calculate key institutional liquidity zones and golden ratio confluence.`,
+                      '4H'
+                    );
+                  }}
+                />
+                <div className="absolute inset-x-0 bottom-0 h-8 pointer-events-none bg-gradient-to-t from-[#09090b] to-transparent" aria-hidden="true" />
+              </div>
 
-              {/* Seamless bottom fade: subtle and minimal so chat messages stay 100% crisp and readable above input */}
-              <div
-                className="absolute inset-x-0 bottom-0 h-10 sm:h-12 pointer-events-none z-10 bg-gradient-to-t from-[#020617]/70 via-[#020617]/20 to-transparent"
-                style={{ transform: 'translateZ(0)' }}
-                aria-hidden="true"
-              />
-
-              {/* Pinned Afloat Chat Input Container */}
-              <div className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none flex flex-col items-center justify-end pb-1.5 sm:pb-2 px-3">
-                {/* Input Box Wrapper - reduced by half, centered and sleek */}
-                <div className="w-full max-w-[270px] sm:max-w-[300px] pointer-events-auto">
+              <div className="shrink-0 px-3 sm:px-6 pt-1 pb-safe">
+                <div className="w-full max-w-3xl mx-auto">
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}

@@ -148,7 +148,7 @@ export async function generateProfileShareCard(
   // "MarketX" text beside the icon
   const textStartX = iconX + iconSize + 14;
   ctx.textAlign = 'left';
-  ctx.font = '800 32px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.font = '800 32px "Geist", system-ui, sans-serif';
   ctx.fillStyle = '#ffffff';
   ctx.fillText('Market', textStartX, logoCenterY + 10);
 
@@ -167,7 +167,7 @@ export async function generateProfileShareCard(
 
   // Sleek Tagline Under the Logo: "The Intelligence Layer for Every Market"
   ctx.textAlign = 'center';
-  ctx.font = '600 13px "JetBrains Mono", monospace';
+  ctx.font = '600 13px "Geist Mono", monospace';
   ctx.letterSpacing = '1.8px';
   ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
   ctx.fillText('The Intelligence Layer for Every Market', 600, logoCenterY + 46);
@@ -189,7 +189,7 @@ export async function generateProfileShareCard(
   ctx.textAlign = 'center';
 
   // Line 1: "I Trade with"
-  ctx.font = '600 40px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.font = '600 40px "Geist", system-ui, sans-serif';
   ctx.fillStyle = '#94a3b8';
   ctx.letterSpacing = '0.5px';
   ctx.fillText('I Trade with', 600, 240);
@@ -200,7 +200,7 @@ export async function generateProfileShareCard(
   // Ambient neon glow pass
   ctx.shadowColor = 'rgba(99, 102, 241, 0.4)';
   ctx.shadowBlur = 32;
-  ctx.font = '900 82px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.font = '900 82px "Geist", system-ui, sans-serif';
 
   const titleGrad = ctx.createLinearGradient(350, line2Y - 70, 850, line2Y);
   titleGrad.addColorStop(0, '#ffffff');
@@ -266,7 +266,7 @@ export async function generateProfileShareCard(
   // Avatar Initials
   const initials = (userProfile.username || 'MX').slice(0, 2).toUpperCase();
   ctx.fillStyle = '#ffffff';
-  ctx.font = '800 18px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.font = '800 18px "Geist", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(initials, avCenterX, avCenterY);
@@ -274,7 +274,7 @@ export async function generateProfileShareCard(
   // Username Text
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = '800 24px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.font = '800 24px "Geist", system-ui, sans-serif';
   ctx.fillStyle = '#ffffff';
   ctx.fillText(usernameStr, avCenterX + avRadius + 14, pillY + 38);
 
@@ -297,7 +297,7 @@ export async function generateProfileShareCard(
   // Sub-badge: "VERIFIED TRADER"
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = '700 10.5px "JetBrains Mono", monospace';
+  ctx.font = '700 10.5px "Geist Mono", monospace';
   ctx.fillStyle = '#38bdf8';
   ctx.letterSpacing = '1px';
   ctx.fillText('VERIFIED TRADER', avCenterX + avRadius + 14, pillY + 56);
@@ -334,7 +334,7 @@ export async function generateProfileShareCard(
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '700 15px "JetBrains Mono", monospace';
+  ctx.font = '700 15px "Geist Mono", monospace';
   ctx.fillStyle = '#ffffff';
   ctx.fillText('𝕏  @_MarketXai', twX + twW / 2, chipY + chipH / 2);
 
@@ -352,7 +352,7 @@ export async function generateProfileShareCard(
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '700 15px "JetBrains Mono", monospace';
+  ctx.font = '700 15px "Geist Mono", monospace';
   ctx.fillStyle = '#38bdf8';
   ctx.fillText('marketx.world', webX + webW / 2, chipY + chipH / 2);
 

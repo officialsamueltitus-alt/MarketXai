@@ -125,9 +125,9 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-2xl rounded-3xl bg-[#090b14] border border-indigo-500/30 shadow-2xl shadow-indigo-950/50 overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="relative w-full max-w-2xl rounded-3xl bg-[#0c0c0f] border border-indigo-500/30 shadow-2xl shadow-indigo-950/50 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Top Accent Header */}
-        <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between bg-gradient-to-r from-indigo-950/50 via-slate-900/50 to-[#090b14]">
+        <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between bg-gradient-to-r from-indigo-950/50 via-slate-900/50 to-[#0c0c0f]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-black border border-white/20 flex items-center justify-center text-white font-bold font-mono text-sm">
               𝕏
@@ -235,7 +235,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
               </div>
 
               {/* Step 2: Post on X & Claim Reward */}
-              <div className="p-4 rounded-2xl bg-gradient-to-b from-[#101426] to-[#0a0d18] border border-cyan-500/25 space-y-3 shadow-xl">
+              <div className="p-4 rounded-2xl bg-gradient-to-b from-[#151518] to-[#0e0e11] border border-cyan-500/25 space-y-3 shadow-xl">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-bold flex items-center justify-center shrink-0 border border-cyan-400/30">

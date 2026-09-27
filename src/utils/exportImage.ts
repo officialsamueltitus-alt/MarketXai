@@ -126,7 +126,7 @@ export async function downloadStrategyImage(
   ctx.stroke();
 
   // 2. Top Header: MarketX Branding (Joined together with NO space)
-  ctx.font = '800 38px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '800 38px "Geist Mono", monospace, sans-serif';
   const marketText = 'Market';
   const marketWidth = ctx.measureText(marketText).width;
   ctx.fillStyle = '#ffffff';
@@ -146,12 +146,12 @@ export async function downloadStrategyImage(
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.font = '700 13px "JetBrains Mono", monospace';
+  ctx.font = '700 13px "Geist Mono", monospace';
   ctx.fillStyle = '#38bdf8';
   ctx.fillText('marketx.world', webPillX + 14, webPillY + 19);
 
   // Header Subtitle: The Intelligence Layer for Every Market
-  ctx.font = '600 13.5px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '600 13.5px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = '#94a3b8';
   ctx.fillText('The Intelligence Layer for Every Market', 60, 106);
 
@@ -159,7 +159,7 @@ export async function downloadStrategyImage(
   const traderSig = isVerified ? `@${cleanHandle} ✓ (VERIFIED)` : `@${cleanHandle}`;
 
   // Draw Trader handle badge on the right
-  ctx.font = 'bold 15px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = 'bold 15px "Geist Mono", monospace, sans-serif';
   ctx.textAlign = 'right';
   ctx.fillStyle = isVerified ? '#38bdf8' : '#e2e8f0';
   ctx.fillText(`Analyst: ${traderSig}`, width - 60, 75);
@@ -170,7 +170,7 @@ export async function downloadStrategyImage(
     year: 'numeric',
   }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  ctx.font = '500 13px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '500 13px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = '#94a3b8';
   ctx.fillText(dateStr, width - 60, 102);
   ctx.textAlign = 'left';
@@ -184,7 +184,7 @@ export async function downloadStrategyImage(
   ctx.stroke();
 
   // 3. Asset & Trade Type Headline
-  ctx.font = '800 46px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '800 46px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = '#ffffff';
   ctx.fillText(strategy.symbol, 60, 190);
 
@@ -198,7 +198,7 @@ export async function downloadStrategyImage(
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.font = 'bold 15px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = 'bold 15px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = '#e2e8f0';
   ctx.fillText(`${strategy.timeframe} TF`, 86 + symWidth, 178);
 
@@ -220,7 +220,7 @@ export async function downloadStrategyImage(
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  ctx.font = 'bold 16px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = 'bold 16px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = badgeColor;
   ctx.textAlign = 'center';
   ctx.fillText(actionText, width - 190, 180);
@@ -290,12 +290,12 @@ export async function downloadStrategyImage(
     ctx.fillText(box.title, x + 16, boxY + 34);
 
     // Main Value
-    ctx.font = 'bold 24px "JetBrains Mono", monospace, sans-serif';
+    ctx.font = 'bold 24px "Geist Mono", monospace, sans-serif';
     ctx.fillStyle = box.valColor;
     ctx.fillText(box.val, x + 16, boxY + 84);
 
     // Subtitle
-    ctx.font = '500 13px "JetBrains Mono", monospace, sans-serif';
+    ctx.font = '500 13px "Geist Mono", monospace, sans-serif';
     ctx.fillStyle = '#cbd5e1';
     ctx.fillText(box.sub, x + 16, boxY + 124);
   });
@@ -330,7 +330,7 @@ export async function downloadStrategyImage(
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      ctx.font = 'bold 12px "JetBrains Mono", monospace, sans-serif';
+      ctx.font = 'bold 12px "Geist Mono", monospace, sans-serif';
       ctx.fillStyle = '#6ee7b7';
       ctx.fillText(tpStr, currX + 14, tpY + 30);
     });
@@ -378,11 +378,11 @@ export async function downloadStrategyImage(
 
   // 7. Footer with prominent website URL
   const footY = height - 40;
-  ctx.font = '700 13.5px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '700 13.5px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = '#38bdf8';
   ctx.fillText('marketx.world', 60, footY);
 
-  ctx.font = '500 12.5px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '500 12.5px "Geist Mono", monospace, sans-serif';
   ctx.fillStyle = '#64748b';
   ctx.fillText('  •  The Intelligence Layer for Every Market  •  Algorithmic Institutional Intelligence', 152, footY);
 

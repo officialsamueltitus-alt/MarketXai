@@ -44,7 +44,7 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
         transition={{ duration: 0.2 }}
-        className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#0c101a]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
+        className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#111114]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
       >
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between gap-3 bg-gradient-to-r from-indigo-950/40 via-transparent to-transparent shrink-0">

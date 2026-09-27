@@ -6,7 +6,8 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
-import { getFirebaseWebConfig, isFirebaseConfigured, firebaseStatus } from './server/firebase';
+import { firebaseStatus } from './server/firebase';
+import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { isMailerConfigured } from './server/mailer';
 import { fetchDerivQuote, mapDerivSymbol } from './server/deriv';
 
@@ -1871,23 +1872,25 @@ app.get('/api/health', (req: Request, res: Response) => {
     status: 'ok',
     service: 'MarketX AI Strategy Engine',
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
-    accountsConfigured: isFirebaseConfigured() && !!getFirebaseWebConfig(),
+    accountsConfigured: isAuthConfigured(),
     accountsError: firebaseStatus(),
+    googleSignInConfigured: Boolean(getGoogleClientId()),
     paymentsConfigured: getPaymentsPublicConfig().enabled,
     emailConfigured: isMailerConfigured(),
     supportedAssets: ['Forex', 'Gold (XAU/USD)', 'Synthetic Indices', 'Crypto', 'Stocks'],
   });
 });
 
-// Public runtime config for the browser (Firebase web config & Paystack public key are not secrets)
+// Public runtime config for the browser (Google client ID & Paystack public key are not secrets)
 app.get('/api/public-config', (req: Request, res: Response) => {
   res.json({
-    firebase: isFirebaseConfigured() ? getFirebaseWebConfig() : null,
+    auth: { enabled: isAuthConfigured(), googleClientId: getGoogleClientId() || null },
     payments: getPaymentsPublicConfig(),
   });
 });
 
-// Accounts, credits, history, notifications, gifts, rewards & payments (Firestore-backed)
+// Accounts (own auth, Firestore as storage), credits, history, notifications, gifts, rewards & payments
+registerAuthRoutes(app);
 registerAccountRoutes(app, generalApiRateLimiter);
 registerPaymentRoutes(app, generalApiRateLimiter);
 

@@ -25,7 +25,7 @@ export const RewardEmailNotificationModal: React.FC<RewardEmailNotificationModal
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg rounded-3xl bg-[#090b14] border border-cyan-500/30 shadow-2xl shadow-cyan-950/40 overflow-hidden">
+      <div className="relative w-full max-w-lg rounded-3xl bg-[#0c0c0f] border border-cyan-500/30 shadow-2xl shadow-cyan-950/40 overflow-hidden">
         {/* Email Header Preview Bar */}
         <div className="p-4 bg-slate-900/90 border-b border-white/[0.08] flex items-center justify-between">
           <div className="flex items-center gap-2">

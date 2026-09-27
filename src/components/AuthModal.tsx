@@ -1,58 +1,55 @@
-import React, { useEffect, useState } from 'react';
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-  sendPasswordResetEmail,
-  sendEmailVerification,
-  updateProfile,
-} from 'firebase/auth';
-import { X, Mail, Lock, AtSign, User as UserIcon, Loader2 } from 'lucide-react';
-import { getFirebaseAuth } from '../utils/firebaseClient';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft } from 'lucide-react';
+import { apiFetch } from '../utils/apiClient';
 import { MarketXText } from './MarketXText';
+
+type Mode = 'signin' | 'signup' | 'forgot' | 'reset';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  // Called right after sign-up so the server can reserve the chosen username
-  onSignedUp: (details: { username: string; displayName: string }) => void;
+  // Receives the account payload returned by the server after a successful sign-in
+  onAuthenticated: (account: any) => void;
+  googleClientId?: string | null;
+  // Present when the user opened a password-reset link (?reset=...)
+  resetToken?: string | null;
   unavailableReason?: string | null;
 }
 
-function friendlyAuthError(code: string): string {
-  switch (code) {
-    case 'auth/invalid-email':
-      return 'Please enter a valid email address.';
-    case 'auth/user-disabled':
-      return 'This account has been disabled.';
-    case 'auth/user-not-found':
-    case 'auth/wrong-password':
-    case 'auth/invalid-credential':
-    case 'auth/invalid-login-credentials':
-      return 'Incorrect email or password.';
-    case 'auth/email-already-in-use':
-      return 'An account with this email already exists. Sign in instead.';
-    case 'auth/weak-password':
-      return 'Password must be at least 6 characters.';
-    case 'auth/too-many-requests':
-      return 'Too many attempts. Please wait a moment and try again.';
-    case 'auth/popup-closed-by-user':
-    case 'auth/cancelled-popup-request':
-      return '';
-    case 'auth/popup-blocked':
-      return 'Your browser blocked the Google sign-in window. Allow pop-ups and try again.';
-    case 'auth/unauthorized-domain':
-      return 'This domain is not authorised for sign-in. Add it in Firebase → Authentication → Settings → Authorized domains.';
-    case 'auth/network-request-failed':
-      return 'Network error. Check your connection and try again.';
-    default:
-      return 'Sign-in failed. Please try again.';
+declare global {
+  interface Window {
+    google?: any;
   }
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignedUp, unavailableReason }) => {
-  const [mode, setMode] = useState<'signin' | 'signup' | 'reset'>('signin');
+let gisPromise: Promise<void> | null = null;
+function loadGoogleIdentity(): Promise<void> {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (!gisPromise) {
+    gisPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        gisPromise = null;
+        reject(new Error('Google sign-in could not load'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return gisPromise;
+}
+
+export const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen,
+  onClose,
+  onAuthenticated,
+  googleClientId,
+  resetToken,
+  unavailableReason,
+}) => {
+  const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
@@ -60,17 +57,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignedU
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+  // Parent callbacks are held in refs so parent re-renders (e.g. live price polling) don't reset the form
+  const onAuthenticatedRef = useRef(onAuthenticated);
+  onAuthenticatedRef.current = onAuthenticated;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) return;
+    setMode(resetToken ? 'reset' : 'signin');
     setError(null);
     setInfo(null);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, resetToken]);
+
+  // Render Google's official button (Google Identity Services); the server verifies the token
+  useEffect(() => {
+    if (!isOpen || !googleClientId || unavailableReason || (mode !== 'signin' && mode !== 'signup')) return;
+    let cancelled = false;
+    loadGoogleIdentity()
+      .then(() => {
+        if (cancelled || !googleButtonRef.current || !window.google?.accounts?.id) return;
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (response: { credential: string }) => {
+            setBusy(true);
+            setError(null);
+            try {
+              const account = await apiFetch('/api/auth/google', {
+                method: 'POST',
+                body: JSON.stringify({ credential: response.credential }),
+              });
+              onAuthenticatedRef.current(account);
+              onCloseRef.current();
+            } catch (err: any) {
+              setError(err?.message || 'Google sign-in failed.');
+            } finally {
+              setBusy(false);
+            }
+          },
+        });
+        googleButtonRef.current.innerHTML = '';
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: 'filled_black',
+          size: 'large',
+          shape: 'pill',
+          text: mode === 'signup' ? 'signup_with' : 'continue_with',
+          width: Math.min(360, googleButtonRef.current.clientWidth || 320),
+        });
+      })
+      .catch(() => !cancelled && setError('Google sign-in could not load. Use email instead.'));
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, googleClientId, mode, unavailableReason]);
 
   if (!isOpen) return null;
 
@@ -81,134 +126,134 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignedU
     try {
       await fn();
     } catch (err: any) {
-      const msg = friendlyAuthError(err?.code || '');
-      if (msg) setError(msg);
+      setError(err?.message || 'Something went wrong. Please try again.');
     } finally {
       setBusy(false);
     }
   };
 
-  const requireAuth = async () => {
-    const auth = await getFirebaseAuth();
-    if (!auth) throw Object.assign(new Error('unavailable'), { code: 'unavailable' });
-    return auth;
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim();
-    if (mode === 'reset') {
+
+    if (mode === 'forgot') {
       run(async () => {
-        const auth = await requireAuth();
-        await sendPasswordResetEmail(auth, cleanEmail);
-        setInfo('Password reset email sent. Check your inbox.');
+        const res = await apiFetch<{ message: string }>('/api/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ email: cleanEmail }),
+        });
+        setInfo(res.message);
       });
       return;
     }
+
+    if (mode === 'reset') {
+      run(async () => {
+        const account = await apiFetch('/api/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({ token: resetToken, password }),
+        });
+        onAuthenticated(account);
+        onClose();
+      });
+      return;
+    }
+
     if (mode === 'signup') {
       const cleanUsername = username.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '');
       if (cleanUsername.length < 3) {
         setError('Username must be at least 3 characters (letters, numbers, _).');
         return;
       }
-      const cleanName = displayName.trim() || cleanUsername;
       run(async () => {
-        const auth = await requireAuth();
-        onSignedUp({ username: cleanUsername, displayName: cleanName });
-        const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-        await updateProfile(cred.user, { displayName: cleanName }).catch(() => {});
-        sendEmailVerification(cred.user).catch(() => {});
+        const account = await apiFetch('/api/auth/signup', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+            username: cleanUsername,
+            displayName: displayName.trim() || cleanUsername,
+          }),
+        });
+        onAuthenticated(account);
         onClose();
       });
       return;
     }
+
     run(async () => {
-      const auth = await requireAuth();
-      await signInWithEmailAndPassword(auth, cleanEmail, password);
+      const account = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: cleanEmail, password }),
+      });
+      onAuthenticated(account);
       onClose();
     });
   };
 
-  const handleGoogle = () =>
-    run(async () => {
-      const auth = await requireAuth();
-      await signInWithPopup(auth, new GoogleAuthProvider());
-      onClose();
-    });
+  const title =
+    mode === 'signup' ? 'Create your account' : mode === 'forgot' ? 'Reset your password' : mode === 'reset' ? 'Choose a new password' : 'Welcome back';
+  const subtitle =
+    mode === 'forgot'
+      ? "Enter your email and we'll send you a reset link."
+      : mode === 'reset'
+      ? 'Pick a password with at least 8 characters.'
+      : null;
 
   const inputClass =
-    'w-full pl-9 pr-3 py-2.5 rounded-xl bg-black/40 border border-white/[0.12] focus:border-indigo-400/60 focus:outline-none text-sm text-white placeholder-slate-500';
+    'w-full h-11 pl-10 pr-3 rounded-xl bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.14] focus:border-violet-400/60 focus:bg-white/[0.05] focus:outline-none focus:ring-4 focus:ring-violet-500/10 text-sm text-white placeholder-zinc-500 transition-colors';
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/80 sidebar-detail-fade"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 mx-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Sign in to MarketX"
     >
       <div
-        className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl bg-slate-950 border border-white/[0.14] shadow-2xl shadow-black/80 p-5 pb-safe"
+        className="mx-pop-in relative w-full sm:max-w-[400px] rounded-t-[28px] sm:rounded-[28px] bg-[#0e0e11] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.8)] p-6 pb-safe overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <h2 className="text-lg font-bold text-white">
-              {mode === 'signup' ? 'Create your account' : mode === 'reset' ? 'Reset password' : 'Sign in'}
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {mode === 'reset' ? (
-                "We'll email you a link to reset it."
-              ) : (
-                <>
-                  to continue with <MarketXText className="text-xs" />
-                </>
-              )}
-            </p>
+        <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-72 h-48 rounded-full bg-violet-600/20 blur-3xl" aria-hidden="true" />
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        <div className="relative text-center mb-6 mt-1">
+          <div className="text-lg font-semibold tracking-tight mb-3">
+            <MarketXText className="text-lg" />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white border border-white/[0.12] cursor-pointer"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <h2 className="text-xl font-semibold text-white tracking-tight">{title}</h2>
+          {subtitle && <p className="text-sm text-zinc-400 mt-1">{subtitle}</p>}
         </div>
 
         {unavailableReason ? (
-          <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">{unavailableReason}</p>
+          <p className="relative text-sm text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">{unavailableReason}</p>
         ) : (
-          <>
-            {mode !== 'reset' && (
+          <div className="relative">
+            {(mode === 'signin' || mode === 'signup') && googleClientId && (
               <>
-                <button
-                  type="button"
-                  onClick={handleGoogle}
-                  disabled={busy}
-                  className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-xl bg-white text-slate-900 font-semibold text-sm hover:bg-slate-100 disabled:opacity-60 cursor-pointer"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 48 48" aria-hidden="true">
-                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
-                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-                    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
-                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
-                  </svg>
-                  Continue with Google
-                </button>
-                <div className="flex items-center gap-3 my-4 text-[11px] text-slate-500">
-                  <span className="flex-1 h-px bg-white/[0.08]" />
-                  or with email
-                  <span className="flex-1 h-px bg-white/[0.08]" />
+                <div ref={googleButtonRef} className="flex justify-center min-h-[44px]" />
+                <div className="flex items-center gap-3 my-5 text-[11px] uppercase tracking-wider text-zinc-500">
+                  <span className="flex-1 h-px bg-white/[0.07]" />
+                  or
+                  <span className="flex-1 h-px bg-white/[0.07]" />
                 </div>
               </>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-2.5">
+            <form onSubmit={handleSubmit} className="space-y-3">
               {mode === 'signup' && (
-                <>
+                <div className="grid grid-cols-2 gap-3">
                   <label className="relative block">
-                    <AtSign className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <AtSign className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       className={inputClass}
                       placeholder="Username"
@@ -220,76 +265,88 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignedU
                     />
                   </label>
                   <label className="relative block">
-                    <UserIcon className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <UserIcon className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       className={inputClass}
-                      placeholder="Display name (optional)"
+                      placeholder="Name"
                       value={displayName}
                       onChange={e => setDisplayName(e.target.value)}
                       autoComplete="name"
                       maxLength={40}
                     />
                   </label>
-                </>
+                </div>
               )}
-              <label className="relative block">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  className={inputClass}
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </label>
               {mode !== 'reset' && (
                 <label className="relative block">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    className={inputClass}
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </label>
+              )}
+              {mode !== 'forgot' && (
+                <label className="relative block">
+                  <Lock className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     className={inputClass}
                     type="password"
-                    placeholder="Password"
+                    placeholder={mode === 'reset' ? 'New password' : 'Password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                    minLength={6}
+                    autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                    minLength={mode === 'signin' ? 1 : 8}
                     required
                   />
                 </label>
               )}
 
-              {error && <p className="text-xs text-rose-300">{error}</p>}
-              {info && <p className="text-xs text-emerald-300">{info}</p>}
+              {error && <p className="text-xs text-rose-300 px-1">{error}</p>}
+              {info && <p className="text-xs text-emerald-300 px-1">{info}</p>}
 
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-semibold text-sm disabled:opacity-60 cursor-pointer"
+                className="w-full h-11 flex items-center justify-center gap-2 rounded-xl bg-white text-zinc-950 font-semibold text-sm hover:bg-zinc-200 active:scale-[0.99] disabled:opacity-60 transition cursor-pointer"
               >
                 {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-                {mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in'}
+                {mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : mode === 'reset' ? 'Update password' : 'Sign in'}
               </button>
             </form>
 
-            <div className="mt-4 flex items-center justify-between text-xs">
-              {mode === 'signin' ? (
+            <div className="mt-5 flex items-center justify-center gap-4 text-xs">
+              {mode === 'signin' && (
                 <>
-                  <button type="button" onClick={() => setMode('reset')} className="text-slate-400 hover:text-white cursor-pointer">
+                  <button type="button" onClick={() => setMode('forgot')} className="text-zinc-400 hover:text-white transition-colors cursor-pointer">
                     Forgot password?
                   </button>
-                  <button type="button" onClick={() => setMode('signup')} className="text-indigo-300 hover:text-indigo-200 font-semibold cursor-pointer">
+                  <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                  <button type="button" onClick={() => setMode('signup')} className="text-violet-300 hover:text-violet-200 font-medium transition-colors cursor-pointer">
                     Create account
                   </button>
                 </>
-              ) : (
-                <button type="button" onClick={() => setMode('signin')} className="text-indigo-300 hover:text-indigo-200 font-semibold cursor-pointer">
-                  ← Back to sign in
+              )}
+              {mode === 'signup' && (
+                <span className="text-zinc-400">
+                  Already have an account?{' '}
+                  <button type="button" onClick={() => setMode('signin')} className="text-violet-300 hover:text-violet-200 font-medium cursor-pointer">
+                    Sign in
+                  </button>
+                </span>
+              )}
+              {(mode === 'forgot' || mode === 'reset') && (
+                <button type="button" onClick={() => setMode('signin')} className="inline-flex items-center gap-1 text-zinc-400 hover:text-white cursor-pointer">
+                  <ArrowLeft className="w-3.5 h-3.5" /> Back to sign in
                 </button>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

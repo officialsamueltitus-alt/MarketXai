@@ -389,7 +389,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </div>
 
       {/* Institutional Support Desk */}
-      <div className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-[#0c0e18] to-black border border-white/[0.08] space-y-2">
+      <div className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-[#0f0f12] to-black border border-white/[0.08] space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-1">
           <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
             <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />

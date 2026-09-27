@@ -64,7 +64,7 @@ export const AiStepProgressIndicator: React.FC<AiStepProgressIndicatorProps> = (
 
   return (
     <div id="ai-active-analysis-indicator" className="w-full max-w-2xl py-1 my-1">
-      <div className="relative overflow-hidden rounded-xl bg-[#0b101c]/90 border border-indigo-500/25 shadow-lg shadow-indigo-950/40 p-3 flex flex-col gap-2.5">
+      <div className="relative overflow-hidden rounded-xl bg-[#111114]/90 border border-indigo-500/25 shadow-lg shadow-indigo-950/40 p-3 flex flex-col gap-2.5">
         {/* Main Single-Line Step Bar */}
         <div className="flex items-center justify-between gap-3 min-w-0">
           {/* Left: Mini icon + Current Active Step */}
