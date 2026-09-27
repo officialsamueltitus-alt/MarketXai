@@ -18,7 +18,7 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
 
   return (
     <section
-      className={`relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#111114] p-5 sm:p-7 ${className}`}
+      className={`relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-5 sm:p-7 ${className}`}
       aria-label="Direct institutional desk"
     >
       <div className="pointer-events-none absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl" aria-hidden="true" />

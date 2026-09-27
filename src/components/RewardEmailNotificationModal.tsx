@@ -25,7 +25,7 @@ export const RewardEmailNotificationModal: React.FC<RewardEmailNotificationModal
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg rounded-3xl bg-[#0c0c0f] border border-cyan-500/30 shadow-2xl shadow-cyan-950/40 overflow-hidden">
+      <div className="relative w-full max-w-lg rounded-3xl bg-[var(--mx-bg-2)] border border-cyan-500/30 shadow-2xl shadow-cyan-950/40 overflow-hidden">
         {/* Email Header Preview Bar */}
         <div className="p-4 bg-slate-900/90 border-b border-white/[0.08] flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -107,7 +107,7 @@ export const RewardEmailNotificationModal: React.FC<RewardEmailNotificationModal
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Your 10 credits have been added directly to your account balance. You can use them immediately to run institutional order book and Fibonacci analyses across crypto, forex, commodities, and equities.
+              Your 10 credits have been added directly to your account balance. You can use them immediately to run AI market analyses across crypto, forex, commodities, and equities.
             </p>
 
             <div className="pt-2 border-t border-white/[0.06] space-y-1 text-[11px] text-slate-400">

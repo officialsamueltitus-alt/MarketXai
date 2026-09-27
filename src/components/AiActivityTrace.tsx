@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown, X, Square } from 'lucide-react';
 import { ActivityStep, ReasoningStep } from '../types';
+import { allocateTokens, formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
 
 interface AiActivityTraceProps {
   steps?: ActivityStep[];
@@ -54,11 +55,37 @@ const StepIcon: React.FC<{ status: ActivityStep['status'] }> = ({ status }) => {
   );
 };
 
-const Timeline: React.FC<{ steps: ActivityStep[]; now: number }> = ({ steps, now }) => (
+// Tokens per step. Finished runs use the exact allocation; while running, done steps show their
+// share and the active analysis step counts up towards its budget in real time.
+function stepTokens(steps: ActivityStep[], now: number, running: boolean): Record<string, number> | null {
+  const main = steps.find(s => s.id === 'analyze');
+  if (!main) return null;
+  if (!running) {
+    if (main.status !== 'done') return null; // failed or stopped runs are not charged
+    return allocateTokens(steps.map(s => s.id));
+  }
+  const expected = allocateTokens([...steps.map(s => s.id), 'plan', 'news']);
+  const out: Record<string, number> = {};
+  for (const s of steps) {
+    if (s.id === 'analyze') {
+      const t = Math.max(0, (s.endedAt ?? now) - s.startedAt);
+      out[s.id] = Math.round(expected.analyze * 0.97 * (1 - Math.exp(-t / 9000)));
+    } else if (s.status === 'done') {
+      out[s.id] = expected[s.id] ?? 0;
+    } else if (s.status === 'active') {
+      const t = Math.max(0, now - s.startedAt);
+      out[s.id] = Math.round((expected[s.id] ?? 0) * Math.min(0.95, t / 1500));
+    }
+  }
+  return out;
+}
+
+const Timeline: React.FC<{ steps: ActivityStep[]; now: number; tokens: Record<string, number> | null }> = ({ steps, now, tokens }) => (
   <ol className="relative">
     {steps.map((step, i) => {
       const last = i === steps.length - 1;
       const elapsed = (step.endedAt ?? now) - step.startedAt;
+      const tok = tokens?.[step.id];
       return (
         <li key={step.id} className="mx-rise relative flex gap-3 pb-3 last:pb-0">
           {!last && <span className="absolute left-[7.5px] top-5 bottom-0 w-px bg-white/[0.08]" aria-hidden="true" />}
@@ -70,9 +97,11 @@ const Timeline: React.FC<{ steps: ActivityStep[]; now: number }> = ({ steps, now
               <span className={`text-[13px] leading-5 ${step.status === 'active' ? 'text-slate-100' : step.status === 'error' ? 'text-rose-200' : 'text-slate-300'}`}>
                 {step.title}
               </span>
-              {(step.status === 'active' || elapsed >= 100) && (
-                <span className="text-[11px] font-mono text-slate-500 tabular-nums shrink-0">{formatElapsed(elapsed)}</span>
-              )}
+              <span className="text-[11px] font-mono text-slate-500 tabular-nums shrink-0">
+                {(step.status === 'active' || elapsed >= 100) && formatElapsed(elapsed)}
+                {(step.status === 'active' || elapsed >= 100) && tok ? ' · ' : ''}
+                {tok ? `${formatTokens(tok)} tokens` : ''}
+              </span>
             </div>
             {step.detail && <p className="text-xs text-slate-500 leading-snug mt-0.5 break-words">{step.detail}</p>}
           </div>
@@ -102,6 +131,9 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
           return { id: `legacy-${i}`, title: s.title, detail: s.detail, status: 'done' as const, startedAt: 0, endedAt: ms };
         });
 
+  const tokens = stepTokens(list, now, running);
+  const tokenTotal = tokens ? Object.values(tokens).reduce((a, b) => a + b, 0) : 0;
+
   if (running) {
     const active = [...list].reverse().find(s => s.status === 'active');
     return (
@@ -112,11 +144,14 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
             <span className="absolute inset-0 rounded-full bg-indigo-300" />
           </span>
           <span className="mx-shimmer text-sm font-medium truncate">{active?.title || 'Thinking'}</span>
-          <span className="text-[11px] font-mono text-slate-500 tabular-nums shrink-0">{formatElapsed(now - startedAt)}</span>
+          <span className="text-[11px] font-mono text-slate-500 tabular-nums shrink-0">
+            {formatElapsed(now - startedAt)}
+            {tokenTotal > 0 && ` · ${formatTokens(tokenTotal)} tokens`}
+          </span>
         </div>
         {list.length > 0 && (
           <div className="mt-3 ml-[3px] pl-4 border-l border-white/[0.06]">
-            <Timeline steps={list} now={now} />
+            <Timeline steps={list} now={now} tokens={tokens} />
           </div>
         )}
       </div>
@@ -125,8 +160,10 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
 
   if (!list.length) return null;
   const total = durationSeconds != null ? durationSeconds * 1000 : list.reduce((a, s) => a + ((s.endedAt ?? s.startedAt) - s.startedAt), 0);
-  const failed = list.some(s => s.status === 'error');
-  const stopped = list.some(s => s.status === 'stopped');
+  // The main analysis step decides the outcome (a skipped price check is not a failure)
+  const main = list.find(s => s.id === 'analyze');
+  const failed = main ? main.status === 'error' : list.some(s => s.status === 'error');
+  const stopped = main ? main.status === 'stopped' : false;
 
   return (
     <div className="w-full max-w-2xl">
@@ -143,11 +180,17 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
         <span className="text-slate-500">
           {list.length} step{list.length === 1 ? '' : 's'}
         </span>
+        {tokens && (
+          <>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-500 tabular-nums">{formatTokens(tokenTotal || TOKENS_PER_USAGE)} tokens</span>
+          </>
+        )}
         <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="mx-fade-in mt-2 mb-1 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-          <Timeline steps={list} now={now} />
+          <Timeline steps={list} now={now} tokens={tokens} />
         </div>
       )}
     </div>

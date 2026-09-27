@@ -613,7 +613,7 @@ Rationale: ${strategy.entryZone.rationale}
                               <MarketXText className="text-xs sm:text-sm" /> Institutional Analysis Memo
                             </span>
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 font-semibold hidden sm:inline">
-                              0.618 Pocket Verified
+                              Verified setup
                             </span>
                           </div>
 

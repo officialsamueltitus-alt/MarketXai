@@ -213,7 +213,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       aria-label="Sign in to MarketX"
     >
       <div
-        className="mx-pop-in relative w-full sm:max-w-[400px] rounded-t-[28px] sm:rounded-[28px] bg-[#0e0e11] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.8)] p-6 pb-safe overflow-hidden"
+        className="mx-pop-in relative w-full sm:max-w-[400px] rounded-t-[28px] sm:rounded-[28px] bg-[var(--mx-bg-2)] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.8)] p-6 pb-safe overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-72 h-48 rounded-full bg-violet-600/20 blur-3xl" aria-hidden="true" />

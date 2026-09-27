@@ -4,6 +4,7 @@ import { getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager'
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
+import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
 
 interface CreditsPanelProps {
   userProfile: UserProfile;
@@ -26,7 +27,7 @@ const QuotaRing: React.FC<{ value: number; max: number; unlimited: boolean }> = 
             <stop offset="100%" stopColor="#38bdf8" />
           </linearGradient>
         </defs>
-        <circle cx="40" cy="40" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
+        <circle cx="40" cy="40" r={r} fill="none" className="stroke-white/[0.07]" strokeWidth="7" />
         <circle
           cx="40"
           cy="40"
@@ -41,8 +42,8 @@ const QuotaRing: React.FC<{ value: number; max: number; unlimited: boolean }> = 
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-xl font-semibold text-white font-mono leading-none">{unlimited ? '∞' : value}</span>
-        {!unlimited && <span className="text-[10px] text-slate-500 mt-1">of {max}</span>}
+        <span className="text-lg font-semibold text-white font-mono leading-none">{unlimited ? '∞' : formatTokens(value * TOKENS_PER_USAGE)}</span>
+        {!unlimited && <span className="text-[10px] text-slate-500 mt-1">of {formatTokens(max * TOKENS_PER_USAGE)}</span>}
       </div>
     </div>
   );
@@ -64,7 +65,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
   return (
     <div className="p-4 space-y-3">
       {/* Balance */}
-      <section className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#111114] p-5">
+      <section className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-5">
         <div className="pointer-events-none absolute -top-16 -right-10 w-48 h-48 rounded-full bg-amber-400/10 blur-3xl" aria-hidden="true" />
         <div className="relative flex items-center justify-between">
           <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Balance</span>
@@ -90,14 +91,16 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
       </section>
 
       {/* Daily quota */}
-      <section className="rounded-3xl border border-white/[0.07] bg-[#111114] p-4 flex items-center gap-4">
+      <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-4 flex items-center gap-4">
         <QuotaRing value={creditState.dailyUsageRemaining} max={creditState.dailyUsageLimit} unlimited={unlimited} />
         <div className="min-w-0">
-          <div className="text-sm font-medium text-white">Today's analyses</div>
+          <div className="text-sm font-medium text-white">Today's tokens</div>
           <p className="text-xs text-slate-500 mt-0.5">
             {unlimited
               ? 'No daily limit on your account.'
-              : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} left. ${isPremium ? 'Pro' : 'Free'} plans renew every 24h, with no rollover.`}
+              : `${formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE)} of ${formatTokens(
+                  creditState.dailyUsageLimit * TOKENS_PER_USAGE
+                )} tokens left · ${formatTokens((creditState.dailyUsageLimit - creditState.dailyUsageRemaining) * TOKENS_PER_USAGE)} used. Renews every 24h, no rollover.`}
           </p>
           {!unlimited && (
             <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-white/[0.05] text-[11px] text-slate-300">

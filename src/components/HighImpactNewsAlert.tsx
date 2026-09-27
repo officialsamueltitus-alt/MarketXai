@@ -93,11 +93,11 @@ export const HighImpactNewsAlert: React.FC<HighImpactNewsAlertProps> = ({ news, 
                 </span>
               ) : (
                 <>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#262629] border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-semibold">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--mx-surface-3)] border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-semibold">
                     <Radio className="w-3 h-3 text-cyan-400 animate-pulse" />
                     ForexFactory Live
                   </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#202023] border border-purple-500/40 text-purple-300 text-[10px] font-mono font-semibold">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--mx-surface-3)] border border-purple-500/40 text-purple-300 text-[10px] font-mono font-semibold">
                     MarketWatch / Dow Jones
                   </span>
                 </>

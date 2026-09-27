@@ -131,7 +131,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Notifications">
       <button type="button" aria-label="Close notifications" onClick={onClose} className="absolute inset-0 bg-black/60 mx-fade-in cursor-default" />
 
-      <section className="mx-sheet absolute inset-x-0 bottom-0 max-h-[88dvh] sm:inset-y-3 sm:right-3 sm:left-auto sm:bottom-3 sm:max-h-none sm:w-[420px] flex flex-col rounded-t-3xl sm:rounded-3xl bg-[#101013] border border-white/[0.08] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.9)] overflow-hidden">
+      <section className="mx-sheet absolute inset-x-0 bottom-0 max-h-[88dvh] sm:inset-y-3 sm:right-3 sm:left-auto sm:bottom-3 sm:max-h-none sm:w-[420px] flex flex-col rounded-t-3xl sm:rounded-3xl bg-[var(--mx-bg-2)] border border-white/[0.08] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.9)] overflow-hidden">
         {/* Grab handle (mobile) */}
         <div className="sm:hidden flex justify-center pt-2.5" aria-hidden="true">
           <span className="w-10 h-1 rounded-full bg-white/15" />

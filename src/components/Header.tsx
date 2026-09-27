@@ -144,7 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Bell className="w-[18px] h-[18px]" />
             {unreadNotificationsCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-400 ring-2 ring-[#09090b]" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-400 ring-2 ring-[var(--mx-bg)]" />
             )}
           </button>
         )}

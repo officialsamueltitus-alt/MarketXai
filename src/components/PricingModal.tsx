@@ -135,7 +135,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">
-      <div className="relative w-full max-w-lg my-auto rounded-3xl bg-[#0f0f12] border border-white/[0.14] shadow-2xl overflow-hidden max-h-[94vh] flex flex-col">
+      <div className="relative w-full max-w-lg my-auto rounded-3xl bg-[var(--mx-bg-2)] border border-white/[0.14] shadow-2xl overflow-hidden max-h-[94vh] flex flex-col">
         {/* Top Header Background Glow */}
         <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-indigo-600/25 via-cyan-500/10 to-transparent pointer-events-none" />
 

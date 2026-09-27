@@ -99,7 +99,7 @@ export const CampaignBanner: React.FC<CampaignBannerProps> = ({
 
   return (
     <section
-      className={`relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#111114] ${compact ? 'p-4' : 'p-5 sm:p-6'} ${className}`}
+      className={`relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] ${compact ? 'p-4' : 'p-5 sm:p-6'} ${className}`}
       aria-label="Earn credits on X"
     >
       <div className="pointer-events-none absolute -top-20 -right-16 w-56 h-56 rounded-full bg-indigo-600/15 blur-3xl" aria-hidden="true" />

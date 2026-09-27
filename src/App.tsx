@@ -779,7 +779,7 @@ export default function App() {
       status: 'searching',
       activity: [],
       searchStep: resolvedBaseStrategy
-        ? `Anchoring to verified ${resolvedBaseStrategy.symbol} setup & 15m Supply & Demand structure...`
+        ? `Anchoring to verified ${resolvedBaseStrategy.symbol} setup...`
         : 'Parsing prompt directive & identifying asset target parameters...',
       timestamp: requestStartTime + 1,
     };
@@ -901,7 +901,7 @@ export default function App() {
         : looksLikeAnalysis
           ? chartImage
             ? 'Reading your chart, market structure and key zones'
-            : 'Market structure, supply & demand zones, entry, stop and targets'
+            : 'Market structure, key levels, entry, stop and targets'
           : 'Working out the answer'
     );
 
@@ -1060,7 +1060,7 @@ export default function App() {
     <div className="mx-backdrop flex h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-full overflow-hidden text-slate-100 font-sans relative">
       {/* Toast Notification Banner */}
       {toastNotification && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[#16161a] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.9)] max-w-[92vw] sm:max-w-md">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[var(--mx-surface-2)] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.9)] max-w-[92vw] sm:max-w-md">
           {toastNotification.type === 'gift' ? (
             <Gift className="w-4 h-4 text-cyan-400 shrink-0" />
           ) : (
@@ -1305,12 +1305,12 @@ export default function App() {
                   }
                   onSelectTicker={sym => {
                     handleSendMessage(
-                      `Analyze ${sym} on the 4H timeframe. Calculate key institutional liquidity zones and golden ratio confluence.`,
+                      `Analyze ${sym} on the 4H timeframe. Identify the key levels, entry, stop loss and targets.`,
                       '4H'
                     );
                   }}
                 />
-                <div className="absolute inset-x-0 bottom-0 h-8 pointer-events-none bg-gradient-to-t from-[#09090b] to-transparent" aria-hidden="true" />
+                <div className="absolute inset-x-0 bottom-0 h-8 pointer-events-none bg-gradient-to-t from-[var(--mx-bg)] to-transparent" aria-hidden="true" />
               </div>
 
               <div className="shrink-0 px-3 sm:px-6 pt-1 pb-safe">

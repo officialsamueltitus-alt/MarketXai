@@ -48,7 +48,7 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({ isOpen, 
       <button type="button" aria-label="Cancel" onClick={onClose} className="absolute inset-0 bg-black/70 mx-fade-in cursor-default" />
       <form
         onSubmit={submit}
-        className="mx-pop-in relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-[#111114] border border-white/[0.08] p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+        className="mx-pop-in relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-[var(--mx-surface)] border border-white/[0.08] p-5 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
       >
         <button
           type="button"
