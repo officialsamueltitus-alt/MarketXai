@@ -1,17 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { XShareReward, UserProfile } from '../types';
+import { Check, Clock, ArrowRight, Zap, Gift } from 'lucide-react';
 import {
-  Zap,
-  Sparkles,
-  Download,
-  Clock,
-  CheckCircle2,
-  ArrowRight,
-  ExternalLink,
-  Mail,
-  ShieldCheck,
-  Flame
-} from 'lucide-react';
+  CAMPAIGN_STEPS,
+  CampaignProgress,
+  MARKETX_X_URL,
+  loadCampaignProgress,
+  openExternal,
+  saveCampaignProgress,
+} from '../utils/campaign';
 
 interface CampaignBannerProps {
   userProfile: UserProfile;
@@ -22,200 +19,219 @@ interface CampaignBannerProps {
   compact?: boolean;
 }
 
+const XLogo = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={`${className} fill-current`} viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+  </svg>
+);
+
+export function useCampaignProgress(username: string): [CampaignProgress, (patch: Partial<CampaignProgress>) => void] {
+  const [progress, setProgress] = useState<CampaignProgress>(() => loadCampaignProgress(username));
+  useEffect(() => {
+    setProgress(loadCampaignProgress(username));
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.username === username) setProgress(detail.progress);
+    };
+    window.addEventListener('mx-campaign-progress', onChange);
+    return () => window.removeEventListener('mx-campaign-progress', onChange);
+  }, [username]);
+  const update = (patch: Partial<CampaignProgress>) => {
+    const next = { ...loadCampaignProgress(username), ...patch };
+    saveCampaignProgress(username, next);
+    setProgress(next);
+  };
+  return [progress, update];
+}
+
+export function useCountdown(unlockAt?: number, active?: boolean) {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    if (!active || !unlockAt) return;
+    const tick = () => {
+      const diff = unlockAt - Date.now();
+      if (diff <= 0) return setText('Unlocking…');
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1000);
+      setText(`${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [unlockAt, active]);
+  return text;
+}
+
 export const CampaignBanner: React.FC<CampaignBannerProps> = ({
   userProfile,
   xShareReward,
   onOpenShareModal,
-  onOpenEmailReceipt,
   className = '',
   compact = false,
 }) => {
-  const [countdownText, setCountdownText] = useState('');
-
-  useEffect(() => {
-    if (!xShareReward || xShareReward.status !== 'pending') return;
-
-    const updateCountdown = () => {
-      const diff = xShareReward.unlockAt - Date.now();
-      if (diff <= 0) {
-        setCountdownText('Unlocking +10 Credits...');
-        return;
-      }
-      const h = Math.floor(diff / (1000 * 60 * 60));
-      const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const s = Math.floor((diff % (1000 * 60)) / 1000);
-      setCountdownText(
-        `${h.toString().padStart(2, '0')}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`
-      );
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [xShareReward]);
-
+  const [progress, updateProgress] = useCampaignProgress(userProfile.username);
   const isPending = xShareReward?.status === 'pending';
   const isCredited = xShareReward?.status === 'credited';
+  const countdown = useCountdown(xShareReward?.unlockAt, isPending);
+
+  const doneMap: Record<string, boolean> = {
+    follow: progress.follow || !!xShareReward,
+    engage: progress.engage || !!xShareReward,
+    download: progress.download || !!xShareReward,
+    post: !!xShareReward,
+    reward: isCredited,
+  };
+  const doneCount = CAMPAIGN_STEPS.filter(s => doneMap[s.id]).length;
+  const nextStep = CAMPAIGN_STEPS.find(s => !doneMap[s.id]);
+
+  const stepAction = (id: string) => {
+    if (id === 'follow') {
+      updateProgress({ follow: true });
+      openExternal(MARKETX_X_URL);
+    } else if (id === 'engage') {
+      updateProgress({ engage: true });
+      openExternal(MARKETX_X_URL);
+    } else if (id === 'download' || id === 'post') {
+      onOpenShareModal();
+    }
+  };
 
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-[#101013] via-[#17171a] to-[#0e0e11] ${
-        compact ? 'p-3 sm:p-3.5' : 'p-4 sm:p-5 sm:rounded-3xl'
-      } shadow-xl shadow-indigo-950/40 group ${className}`}
+    <section
+      className={`relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#111114] ${compact ? 'p-4' : 'p-5 sm:p-6'} ${className}`}
+      aria-label="Earn credits on X"
     >
-      {/* Background Cyber Ambient Mesh */}
-      <div className="absolute -right-12 -top-12 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -left-12 -bottom-12 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="pointer-events-none absolute -top-20 -right-16 w-56 h-56 rounded-full bg-indigo-600/15 blur-3xl" aria-hidden="true" />
 
-      {/* Top Header Row */}
-      <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-white/[0.08]">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-black border border-white/20 flex items-center justify-center text-white font-mono font-black text-base shadow-md shrink-0">
-            𝕏
-          </div>
+      {/* Header */}
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-2xl bg-white text-black flex items-center justify-center shrink-0">
+            <XLogo className="w-[18px] h-[18px]" />
+          </span>
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold flex items-center gap-1 whitespace-nowrap">
-                <Flame className="w-2.5 h-2.5 text-rose-400 shrink-0" />
-                <span>Campaign</span>
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1 whitespace-nowrap">
-                <Zap className="w-2.5 h-2.5 fill-emerald-400 shrink-0" />
-                <span>+10 Credits</span>
-              </span>
-            </div>
-            <h3 className="text-xs sm:text-sm font-bold text-white tracking-tight mt-0.5 truncate">
-              Post to 𝕏 & Earn +10 AI Credits
+            <p className="text-[11px] font-medium uppercase tracking-wider text-indigo-300">Campaign</p>
+            <h3 className={`${compact ? 'text-[15px]' : 'text-lg'} font-semibold text-white tracking-tight`}>
+              Earn 10 free credits on X
             </h3>
           </div>
         </div>
-
-        {/* Live Status Indicator */}
-        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
-          {isPending ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/15 border border-cyan-500/35 text-cyan-300 text-[11px] font-mono">
-              <Clock className="w-3 h-3 animate-pulse" />
-              <span className="font-bold">{countdownText || '10h Pending'}</span>
-            </div>
-          ) : isCredited ? (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-[11px] font-semibold">
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Reward Claimed</span>
-            </div>
+        <span
+          className={`shrink-0 h-7 px-2.5 rounded-full text-xs font-medium inline-flex items-center gap-1.5 ${
+            isCredited
+              ? 'bg-emerald-500/10 text-emerald-300'
+              : isPending
+              ? 'bg-cyan-500/10 text-cyan-300'
+              : 'bg-amber-500/10 text-amber-200'
+          }`}
+        >
+          {isCredited ? (
+            <>
+              <Check className="w-3.5 h-3.5" /> Claimed
+            </>
+          ) : isPending ? (
+            <>
+              <Clock className="w-3.5 h-3.5" /> <span className="font-mono">{countdown}</span>
+            </>
           ) : (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.1] text-[10px] font-mono text-slate-300">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-              <span>Live Campaign</span>
-            </div>
+            <>
+              <Zap className="w-3.5 h-3.5 fill-current" /> +10 credits
+            </>
           )}
-        </div>
+        </span>
       </div>
 
-      {/* Main Campaign Body */}
-      <div className="relative z-10 py-2.5 space-y-2.5">
-        <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed font-normal">
-          Share your custom card on 𝕏: <strong className="text-cyan-300 font-semibold">"I Trade with MarketX Ai"</strong>. Download your sleek 16:9 card with your username, post it tagging <strong className="text-white font-mono">@_MarketXai</strong>, and unlock +10 AI credits.
+      {/* Progress */}
+      <div className="relative mt-4 flex items-center gap-3">
+        <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-cyan-300 transition-[width] duration-500"
+            style={{ width: `${(doneCount / CAMPAIGN_STEPS.length) * 100}%` }}
+          />
+        </div>
+        <span className="text-xs font-mono text-slate-400 shrink-0">
+          {doneCount}/{CAMPAIGN_STEPS.length}
+        </span>
+      </div>
+
+      {/* Steps */}
+      <ol className={`relative mt-4 grid gap-2 ${compact ? '' : 'sm:grid-cols-2 lg:grid-cols-5 lg:gap-2.5'}`}>
+        {CAMPAIGN_STEPS.map((step, i) => {
+          const done = doneMap[step.id];
+          const isNext = nextStep?.id === step.id;
+          const clickable = !done && step.id !== 'reward';
+          return (
+            <li key={step.id}>
+              <div
+                className={`h-full flex ${compact ? 'items-center' : 'lg:flex-col lg:items-start'} items-center gap-3 p-3 rounded-2xl border transition-colors ${
+                  done
+                    ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+                    : isNext
+                    ? 'border-indigo-400/30 bg-indigo-500/[0.06]'
+                    : 'border-white/[0.06] bg-white/[0.02]'
+                }`}
+              >
+                <span
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
+                    done ? 'bg-emerald-400 text-slate-950' : isNext ? 'bg-white text-slate-950' : 'bg-white/[0.06] text-slate-400'
+                  }`}
+                >
+                  {done ? <Check className="w-3.5 h-3.5" /> : step.id === 'reward' ? <Gift className="w-3.5 h-3.5" /> : i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-slate-100 leading-snug">
+                    {step.id === 'follow' ? (
+                      <span>
+                        Follow{' '}
+                        <button
+                          type="button"
+                          onClick={() => stepAction('follow')}
+                          className="font-semibold text-white underline decoration-indigo-400/60 underline-offset-4 hover:decoration-indigo-300 cursor-pointer"
+                          title="Open @_MarketXai on X"
+                        >
+                          Market<span className="text-indigo-300">X</span>
+                        </button>
+                      </span>
+                    ) : (
+                      step.title
+                    )}
+                  </div>
+                  {!compact && <p className="text-xs text-slate-500 mt-0.5 leading-snug">{step.detail}</p>}
+                </div>
+                {clickable && step.id !== 'follow' && (
+                  <button
+                    type="button"
+                    onClick={() => stepAction(step.id)}
+                    className={`${compact ? '' : 'lg:hidden'} h-7 px-2.5 rounded-full text-xs font-medium text-slate-200 bg-white/[0.06] hover:bg-white/[0.12] transition-colors shrink-0 cursor-pointer`}
+                  >
+                    {step.id === 'engage' ? 'Open' : 'Go'}
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {/* Footer */}
+      <div className="relative mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <p className="text-xs text-slate-500">
+          {isCredited
+            ? '+10 credits were added to your balance. Thanks for supporting MarketX!'
+            : isPending
+            ? 'Posted! Your credits unlock automatically when the timer ends.'
+            : 'Complete the steps in order. Credits arrive 10 hours after you post.'}
         </p>
-
-        {compact ? (
-          /* Compact 3-step badge path for Profile sidebar view */
-          <div className="grid grid-cols-3 gap-1.5 py-1 text-center">
-            <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-              <span className="text-[9px] font-mono text-indigo-300 font-bold block">1. Download</span>
-              <span className="text-[10px] text-slate-300 block font-medium truncate">HD Card</span>
-            </div>
-            <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-              <span className="text-[9px] font-mono text-cyan-300 font-bold block">2. Post on 𝕏</span>
-              <span className="text-[10px] text-slate-300 block font-medium truncate">Tag MarketX</span>
-            </div>
-            <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-              <span className="text-[9px] font-mono text-emerald-300 font-bold block">3. Reward</span>
-              <span className="text-[10px] text-slate-300 block font-medium truncate">+10 Credits</span>
-            </div>
-          </div>
-        ) : (
-          /* Full 3 Step Visual Path for wide views */
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-1">
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <span className="w-5 h-5 rounded-full bg-indigo-500/30 border border-indigo-400/40 text-indigo-300 flex items-center justify-center text-[10px] shrink-0 font-mono">
-                  1
-                </span>
-                <span>Download Ultra HD Card</span>
-              </div>
-              <p className="text-[11px] text-slate-400 pl-7 leading-snug">
-                Instant 2400×1350 Ultra HD card customized with your verified username.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-1">
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <span className="w-5 h-5 rounded-full bg-cyan-500/30 border border-cyan-400/40 text-cyan-300 flex items-center justify-center text-[10px] shrink-0 font-mono">
-                  2
-                </span>
-                <span>Post to 𝕏 with Tag</span>
-              </div>
-              <p className="text-[11px] text-slate-400 pl-7 leading-snug">
-                Attach the image and tweet with pre-crafted writeup tagging <span className="text-cyan-300">@_MarketXai</span>.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-1">
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <span className="w-5 h-5 rounded-full bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 flex items-center justify-center text-[10px] shrink-0 font-mono">
-                  3
-                </span>
-                <span>+10 Credits Deposited</span>
-              </div>
-              <p className="text-[11px] text-slate-400 pl-7 leading-snug">
-                10 hours automated verification with on-site alert & email confirmation receipt.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Pending / Credited Details Box */}
-        {isPending && (
-          <div className="p-2.5 rounded-xl bg-black/50 border border-cyan-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs text-slate-200">
-              <Clock className="w-4 h-4 text-cyan-400 animate-pulse shrink-0" />
-              <span className="text-[11px]">
-                Verification running: <strong className="font-mono text-cyan-300">{countdownText}</strong>
-              </span>
-            </div>
-          </div>
-        )}
-
-        {isCredited && (
-          <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 text-[11px] text-emerald-300">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
-                +10 Credits added to balance! {xShareReward?.email && <span className="text-white font-mono">Sent to {xShareReward.email}</span>}
-              </span>
-            </div>
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={onOpenShareModal}
+          className="h-10 px-4 rounded-full bg-white text-slate-950 text-sm font-medium hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+        >
+          {isPending ? 'View progress' : isCredited ? 'Share again' : 'Start earning'}
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
-
-      {/* Action Footer Button */}
-      <div className="relative z-10 pt-2 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-white/[0.06]">
-        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono truncate max-w-full">
-          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span className="truncate">Official Initiative • SpiriTech Labs</span>
-        </div>
-
-        <div className="w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={onOpenShareModal}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-indigo-950/60 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
-          >
-            <span>{isPending ? 'View Share Card & Progress' : isCredited ? 'Share Again on 𝕏' : 'Post to 𝕏 & Earn +10 Credits'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
+    </section>
   );
 };

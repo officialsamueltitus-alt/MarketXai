@@ -127,6 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
               : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border border-white/[0.06]'
           }`}
           title={credits >= 99999 ? 'Unlimited credits' : 'Credits'}
+          aria-label={credits >= 99999 ? 'Credits: unlimited' : `Credits: ${credits}`}
         >
           <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300/80" />
           <span className="font-mono">{credits >= 99999 ? '∞' : credits}</span>

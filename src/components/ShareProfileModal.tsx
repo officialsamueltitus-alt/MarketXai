@@ -1,22 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserProfile, XShareReward } from '../types';
 import { generateProfileShareCard, downloadCardImage } from '../utils/generateProfileShareCard';
-import {
-  Download,
-  CheckCircle2,
-  Clock,
-  Sparkles,
-  ArrowRight,
-  ExternalLink,
-  ShieldCheck,
-  X,
-  Mail,
-  Zap,
-  Copy,
-  Check,
-  Flame
-} from 'lucide-react';
-
+import { Download, Check, Copy, X, Clock, Gift, Loader2, ArrowUpRight, Lock } from 'lucide-react';
+import { useCampaignProgress, useCountdown } from './CampaignBanner';
+import { MARKETX_X_URL, openExternal } from '../utils/campaign';
 
 interface ShareProfileModalProps {
   isOpen: boolean;
@@ -36,349 +23,248 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
 }) => {
   const [cardDataUrl, setCardDataUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [hasDownloaded, setHasDownloaded] = useState(false);
-  const [shareStep, setShareStep] = useState<'download' | 'confirm' | 'scheduled'>('download');
-  const [timeRemainingStr, setTimeRemainingStr] = useState<string>('');
-  const [copiedWriteup, setCopiedWriteup] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [isPosting, setIsPosting] = useState(false);
+  const [progress, updateProgress] = useCampaignProgress(userProfile.username);
 
-  // Generate card preview whenever modal opens
+  const isPending = existingReward?.status === 'pending';
+  const isCredited = existingReward?.status === 'credited';
+  const countdown = useCountdown(existingReward?.unlockAt, isOpen && isPending);
+
+  // Render the personal share card when the modal opens (or the profile identity changes)
   useEffect(() => {
     if (!isOpen) return;
-
-    if (existingReward) {
-      setShareStep('scheduled');
-    } else {
-      setShareStep('download');
-      setHasDownloaded(false);
-    }
-
+    let cancelled = false;
     setIsGenerating(true);
     generateProfileShareCard(userProfile)
-      .then(url => {
-        setCardDataUrl(url);
-      })
-      .catch(err => {
-        console.error('Failed to generate card:', err);
-      })
-      .finally(() => {
-        setIsGenerating(false);
-      });
-  }, [isOpen, userProfile, existingReward]);
-
-  // Countdown timer for pending reward (10 hours)
-  useEffect(() => {
-    if (!existingReward || existingReward.status !== 'pending') return;
-
-    const updateRemaining = () => {
-      const diff = existingReward.unlockAt - Date.now();
-      if (diff <= 0) {
-        setTimeRemainingStr('00h 00m 00s (Unlocking...)');
-        return;
-      }
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      setTimeRemainingStr(
-        `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`
-      );
+      .then(url => !cancelled && setCardDataUrl(url))
+      .catch(err => console.error('Failed to generate card:', err))
+      .finally(() => !cancelled && setIsGenerating(false));
+    return () => {
+      cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, userProfile.username, userProfile.displayName, userProfile.avatarUrl, userProfile.isVerified]);
 
-    updateRemaining();
-    const timer = setInterval(updateRemaining, 1000);
-    return () => clearInterval(timer);
-  }, [existingReward]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  // Handle Download button click
+  const xWriteup = `I Trade with @_MarketXai ⚡\n\nTrader: @${userProfile.username || 'trader'}\nWebsite: https://marketx.world\n\n#MarketX #Trading #AI`;
+
+  const done = {
+    follow: progress.follow || !!existingReward,
+    engage: progress.engage || !!existingReward,
+    download: progress.download || !!existingReward,
+    post: !!existingReward,
+    reward: isCredited,
+  };
+  const canPost = done.follow && done.engage && done.download;
+
   const handleDownload = () => {
     if (!cardDataUrl) return;
     downloadCardImage(cardDataUrl, userProfile.username);
-    setHasDownloaded(true);
+    updateProgress({ download: true });
   };
 
-  // Catchy, sleek writeup for X promotion
-  const xWriteup = `I Trade with @_MarketXai ⚡\n\nTrader: @${userProfile.username || 'trader'}\nWebsite: https://marketx.world\n\n#MarketX #Trading #AI`;
-
-  // Open the user's X composer with the post pre-written (no X API needed), then start the reward timer
-  const handleConfirmDownloaded = () => {
+  // Opens the user's X composer with the post pre-written (no X API needed), then starts the server-timed reward
+  const handlePost = () => {
     setShareError(null);
-    const tweetIntentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(xWriteup)}`;
-    // Must run synchronously inside the click so mobile browsers don't block it
-    // (window.open with 'noopener' always returns null, so detach the opener manually instead)
-    const opened = window.open(tweetIntentUrl, '_blank');
-    if (opened) {
-      try {
-        opened.opener = null;
-      } catch {}
-    } else {
-      window.location.href = tweetIntentUrl; // popup blocked: continue to X in this tab
-    }
-
+    openExternal(`https://x.com/intent/tweet?text=${encodeURIComponent(xWriteup)}`);
     if (existingReward) return;
-    onRegisterShareReward().then(error => {
-      if (error) setShareError(error);
-      else setShareStep('scheduled');
-    });
+    setIsPosting(true);
+    onRegisterShareReward()
+      .then(error => error && setShareError(error))
+      .finally(() => setIsPosting(false));
   };
+
+  const StepDot = ({ n, isDone, isActive }: { n: number | React.ReactNode; isDone: boolean; isActive: boolean }) => (
+    <span
+      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 transition-colors ${
+        isDone ? 'bg-emerald-400 text-slate-950' : isActive ? 'bg-white text-slate-950' : 'bg-white/[0.06] text-slate-500'
+      }`}
+    >
+      {isDone ? <Check className="w-3.5 h-3.5" /> : n}
+    </span>
+  );
+
+  const activeId = !done.follow ? 'follow' : !done.engage ? 'engage' : !done.download ? 'download' : !done.post ? 'post' : 'reward';
+  const rowClass = (id: string, isDone: boolean) =>
+    `flex items-start gap-3 p-3.5 rounded-2xl border transition-colors ${
+      isDone ? 'border-emerald-500/15 bg-emerald-500/[0.04]' : activeId === id ? 'border-indigo-400/30 bg-indigo-500/[0.06]' : 'border-white/[0.06] bg-white/[0.02]'
+    }`;
+  const actionBtn =
+    'h-8 px-3 rounded-full text-xs font-medium inline-flex items-center gap-1.5 transition active:scale-[0.97] cursor-pointer shrink-0';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-2xl rounded-3xl bg-[#0c0c0f] border border-indigo-500/30 shadow-2xl shadow-indigo-950/50 overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Top Accent Header */}
-        <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between bg-gradient-to-r from-indigo-950/50 via-slate-900/50 to-[#0c0c0f]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-black border border-white/20 flex items-center justify-center text-white font-bold font-mono text-sm">
-              𝕏
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                <span>Share Profile on X</span>
-                <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono font-semibold border border-cyan-500/30">
-                  +10 Credits Reward
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Official share card: <span className="text-cyan-300 font-semibold">"I Trade with MarketX Ai"</span> for <span className="text-indigo-300 font-mono font-semibold">@{userProfile.username}</span>
-              </p>
-            </div>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/70 mx-fade-in"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Earn credits on X"
+    >
+      <div
+        className="mx-pop-in relative w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] bg-[#0e0e11] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[92dvh]"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-3">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-indigo-300">Campaign · +10 credits</p>
+            <h2 className="text-lg font-semibold text-white tracking-tight">Share MarketX on X</h2>
           </div>
-
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          {/* Card Preview Container */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-300">
-              <span className="font-semibold flex items-center gap-1.5 text-white">
-                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                Generated Trader Card (16:9 Ultra HD)
-              </span>
-              <span className="text-[11px] font-mono text-slate-400">
-                2400 × 1350 px (Ultra HD) • Twitter / X Ready
-              </span>
-            </div>
-
-            <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/60 shadow-xl group aspect-video flex items-center justify-center">
-              {isGenerating ? (
-                <div className="flex flex-col items-center gap-2 text-indigo-300">
-                  <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-                  <span className="text-xs font-mono">Rendering custom trader card...</span>
-                </div>
-              ) : cardDataUrl ? (
-                <>
-                  <img
-                    src={cardDataUrl}
-                    alt="MarketX Trader Card"
-                    className="w-full h-full object-contain select-none"
-                  />
-                  {/* Subtle download overlay on hover */}
-                  <div
-                    onClick={handleDownload}
-                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer backdrop-blur-[2px]"
-                  >
-                    <div className="px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
-                      <Download className="w-4 h-4 text-indigo-600" />
-                      <span>Click to Download</span>
-                    </div>
-                  </div>
-                </>
-              ) : null}
+        <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-2.5 pb-safe">
+          {/* Step 1: Follow */}
+          <div className={rowClass('follow', done.follow)}>
+            <StepDot n={1} isDone={done.follow} isActive={activeId === 'follow'} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-white">
+                Follow{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateProgress({ follow: true });
+                    openExternal(MARKETX_X_URL);
+                  }}
+                  className="font-semibold underline decoration-indigo-400/60 underline-offset-4 hover:decoration-indigo-300 cursor-pointer"
+                  title="Open @_MarketXai on X"
+                >
+                  Market<span className="text-indigo-300">X</span>
+                </button>{' '}
+                on X
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">Tap MarketX to open @_MarketXai and hit Follow.</p>
             </div>
           </div>
 
-          {/* Reward Flow Steps */}
-          {shareStep !== 'scheduled' ? (
-            <div className="space-y-3.5">
-              {/* Step 1: Download Notification */}
-              <div className="p-3.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-indigo-500/30 text-indigo-300 text-[11px] font-bold flex items-center justify-center shrink-0 border border-indigo-400/30">
-                      1
-                    </span>
-                    <span className="text-xs font-bold text-white">
-                      Download Your Official Card (Important)
-                    </span>
-                    {hasDownloaded && (
-                      <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-0.5">
-                        <CheckCircle2 className="w-3 h-3 inline" /> Downloaded!
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-300 pl-7 leading-relaxed">
-                    Save the card image to your device so you can attach it to your post on X.
-                  </p>
-                </div>
+          {/* Step 2: Comment, tag, repost */}
+          <div className={rowClass('engage', done.engage)}>
+            <StepDot n={2} isDone={done.engage} isActive={activeId === 'engage'} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-white">Comment, tag 2 trader friends & repost</div>
+              <p className="text-xs text-slate-500 mt-0.5">On the pinned post at @_MarketXai.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                updateProgress({ engage: true });
+                openExternal(MARKETX_X_URL);
+              }}
+              className={`${actionBtn} bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]`}
+            >
+              Open post <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
+          {/* Step 3: Download card */}
+          <div className={rowClass('download', done.download)}>
+            <StepDot n={3} isDone={done.download} isActive={activeId === 'download'} />
+            <div className="flex-1 min-w-0 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-white">Download your trader card</div>
+                  <p className="text-xs text-slate-500 mt-0.5">HD 16:9 card with @{userProfile.username}.</p>
+                </div>
                 <button
                   type="button"
                   onClick={handleDownload}
-                  className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer shrink-0 active:scale-95 ${
-                    hasDownloaded
-                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
-                      : 'bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white border border-white/20'
-                  }`}
+                  disabled={!cardDataUrl}
+                  className={`${actionBtn} bg-white/[0.06] text-slate-200 hover:bg-white/[0.12] disabled:opacity-50`}
                 >
-                  <Download className="w-4 h-4" />
-                  <span>{hasDownloaded ? 'Download Again' : 'Download Image'}</span>
+                  <Download className="w-3.5 h-3.5" /> {done.download ? 'Again' : 'Download'}
                 </button>
               </div>
-
-              {/* Step 2: Post on X & Claim Reward */}
-              <div className="p-4 rounded-2xl bg-gradient-to-b from-[#151518] to-[#0e0e11] border border-cyan-500/25 space-y-3 shadow-xl">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-bold flex items-center justify-center shrink-0 border border-cyan-400/30">
-                      2
-                    </span>
-                    <span className="text-xs sm:text-sm font-bold text-white">
-                      Post on 𝕏 & Receive +10 AI Credits
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold whitespace-nowrap shrink-0">
-                    +10 Credits
-                  </span>
-                </div>
-
-                <p className="text-xs text-slate-300 sm:pl-8 leading-relaxed">
-                  After downloading your card, click <strong className="text-white">"I have downloaded"</strong> below. You'll be redirected straight to X with your post pre-written. Attach your downloaded card and post it!
-                </p>
-
-                {/* Pre-filled Tweet Preview with Copy Option */}
-                <div className="sm:ml-8 p-3 rounded-xl bg-black/60 border border-white/[0.08] text-xs text-slate-300 font-mono space-y-2">
-                  <div className="flex items-center justify-between text-[11px] pb-1 border-b border-white/[0.06]">
-                    <span className="text-cyan-400 font-bold flex items-center gap-1.5">
-                      <span>𝕏 Post Writeup</span>
-                      <span className="text-slate-500">•</span>
-                      <span className="text-slate-400 font-normal">@_MarketXai</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(xWriteup);
-                        setCopiedWriteup(true);
-                        setTimeout(() => setCopiedWriteup(false), 2000);
-                      }}
-                      className="px-2 py-0.5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white flex items-center gap-1 transition-all cursor-pointer text-[10px]"
-                    >
-                      {copiedWriteup ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      <span>{copiedWriteup ? 'Copied' : 'Copy Text'}</span>
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-200 whitespace-pre-line leading-relaxed font-sans">
-                    {xWriteup}
-                  </p>
-                </div>
-
-                {/* Action CTA: "I have downloaded" */}
-                <div className="pt-1.5 sm:pl-8 flex flex-col sm:flex-row items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleConfirmDownloaded}
-                    className="w-full flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-950/60 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
-                  >
-                    <span>Post on 𝕏 &amp; Claim +10 Credits</span>
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {shareError && <p className="text-[11px] text-rose-300 sm:pl-8">{shareError}</p>}
-
-                <p className="text-[10px] text-slate-400 text-center sm:pl-8">
-                  *Opens X with your post ready to publish. 10 credits are added to your account 10 hours later, with confirmation sent to your email.
-                </p>
+              <div className="relative rounded-xl overflow-hidden ring-1 ring-white/[0.08] bg-black/40 aspect-video flex items-center justify-center">
+                {isGenerating || !cardDataUrl ? (
+                  <Loader2 className="w-5 h-5 text-slate-500 animate-spin" />
+                ) : (
+                  <img src={cardDataUrl} alt="Your MarketX trader card" className="w-full h-full object-cover select-none" />
+                )}
               </div>
             </div>
-          ) : (
-            /* Scheduled Reward Active View */
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-950/40 via-slate-900/60 to-black border border-indigo-500/30 space-y-3.5">
-              <div className="flex items-center gap-2.5 text-emerald-400">
-                <CheckCircle2 className="w-5 h-5 shrink-0" />
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-white">
-                    {existingReward?.status === 'credited' ? 'Reward Claimed — +10 Credits Added!' : 'Thanks for sharing MarketX on X!'}
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    Thank you for promoting MarketX with your official trader card.
-                  </p>
-                </div>
-              </div>
-
-              {/* Countdown Tracker Box */}
-              <div className="p-3 rounded-xl bg-black/50 border border-indigo-500/30 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs">
-                  <Clock className="w-4 h-4 text-cyan-400 animate-pulse shrink-0" />
-                  <div>
-                    <span className="text-slate-400 text-[10px] block">Credit Unlock Countdown</span>
-                    <span className="font-mono text-cyan-300 font-bold text-sm">
-                      {existingReward?.status === 'credited' ? 'Unlocked' : timeRemainingStr || '10h 00m 00s'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 block">Reward Amount</span>
-                  <span className="text-emerald-400 font-mono font-bold text-sm flex items-center gap-1 justify-end">
-                    <Zap className="w-3.5 h-3.5 fill-emerald-400" />
-                    +10 Credits
-                  </span>
-                </div>
-              </div>
-
-              {/* Notification Notice */}
-              <div className="space-y-1 text-xs text-slate-300">
-                <div className="flex items-center gap-2 text-[11px] text-slate-300">
-                  <Mail className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                  <span>
-                    Notification will be delivered to <strong className="text-white font-mono">{userProfile.email || 'your registered email'}</strong>
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-300">
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  <span>
-                    In-app notification and badge will appear on your profile.
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer Actions */}
-        <div className="p-3.5 sm:p-4 border-t border-white/[0.08] bg-black/40 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-3">
-            <a
-              href="https://x.com/_MarketXai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-400 hover:text-white flex items-center gap-1 font-mono transition-colors"
-            >
-              <span>@_MarketXai</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-            <span className="text-slate-600 hidden sm:inline">•</span>
-            <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
-              Built by SpiriTech Labs
-            </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white font-semibold text-xs transition-colors cursor-pointer"
-          >
-            Close
-          </button>
+          {/* Step 4: Post on X */}
+          <div className={rowClass('post', done.post)}>
+            <StepDot n={4} isDone={done.post} isActive={activeId === 'post'} />
+            <div className="flex-1 min-w-0 space-y-3">
+              <div>
+                <div className="text-sm font-medium text-white">Post on X</div>
+                <p className="text-xs text-slate-500 mt-0.5">Opens X with this post ready. Attach your card and publish.</p>
+              </div>
+              <div className="relative rounded-xl bg-black/30 ring-1 ring-white/[0.06] p-3 pr-10 text-[13px] text-slate-300 whitespace-pre-line leading-relaxed">
+                {xWriteup}
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(xWriteup).catch(() => {});
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1800);
+                  }}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] cursor-pointer"
+                  title="Copy text"
+                  aria-label="Copy post text"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handlePost}
+                disabled={!canPost || isPosting}
+                className="w-full h-11 rounded-2xl bg-white text-slate-950 text-sm font-semibold hover:bg-slate-200 active:scale-[0.99] transition inline-flex items-center justify-center gap-2 disabled:bg-white/[0.06] disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {isPosting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : !canPost ? (
+                  <Lock className="w-4 h-4" />
+                ) : (
+                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                  </svg>
+                )}
+                {!canPost ? 'Complete steps 1–3 first' : done.post ? 'Post again on X' : 'Post on X'}
+              </button>
+              {shareError && <p className="text-xs text-rose-300">{shareError}</p>}
+            </div>
+          </div>
+
+          {/* Step 5: Reward */}
+          <div className={rowClass('reward', !!done.reward)}>
+            <StepDot n={<Gift className="w-3.5 h-3.5" />} isDone={!!done.reward} isActive={activeId === 'reward'} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-white">+10 credits</div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isCredited
+                  ? 'Added to your balance. Thank you!'
+                  : isPending
+                  ? 'Unlocks automatically, with an email confirmation.'
+                  : 'Credited 10 hours after you post.'}
+              </p>
+            </div>
+            {isPending && (
+              <span className="h-7 px-2.5 rounded-full bg-cyan-500/10 text-cyan-300 text-xs font-mono inline-flex items-center gap-1.5 shrink-0">
+                <Clock className="w-3.5 h-3.5" /> {countdown}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
