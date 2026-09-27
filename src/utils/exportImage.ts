@@ -10,7 +10,7 @@ export function shareToX(strategy: StrategyResult, username?: string) {
   const cleanHandle = username ? username.replace(/^@/, '') : 'marketx_trader';
 
   const text = `📊 $${strategy.symbol.replace('/', '')} (${strategy.timeframe} TF)
-${actionEmoji} Setup via MarketX
+${actionEmoji} Setup via MarketX (@_MarketXai)
 👤 Trader: @${cleanHandle}
 
 🎯 Entry Zone: $${formatPrice(strategy.entryZone.optimal)} ($${formatPrice(strategy.entryZone.min)} - $${formatPrice(strategy.entryZone.max)})
@@ -18,7 +18,7 @@ ${actionEmoji} Setup via MarketX
 💰 Primary Target (TP1): $${formatPrice(strategy.takeProfits[0]?.price || 0)} (${strategy.takeProfits[0]?.rewardRatio || ''})
 ⚖️ Risk / Reward: ${strategy.riskRewardRatio}
 
-🔗 Trade with AI: https://marketx.world
+🔗 Trade with MarketX AI (@_MarketXai): https://marketx.world
 
 #MarketX #Trading #${strategy.symbol.split('/')[0]} #Crypto #Alpha`;
 

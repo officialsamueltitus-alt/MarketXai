@@ -63,6 +63,10 @@ export interface UserDoc {
   expiryNoticeFor?: number;
 }
 
+export function isUnlimitedEmail(email: string): boolean {
+  return UNLIMITED_EMAILS.has(String(email || '').toLowerCase());
+}
+
 // Unlimited access requires a verified email so nobody can claim it by registering the address
 export function isUnlimited(user: AuthedUser): boolean {
   return user.emailVerified && UNLIMITED_EMAILS.has(user.email.toLowerCase());

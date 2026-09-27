@@ -15,7 +15,17 @@ import {
   notifyActivity,
   describeRequest,
   addNotification,
+  isUnlimitedEmail,
 } from './account';
+import {
+  batchFullMessage,
+  checkPasscode,
+  consumePasscodeInTx,
+  createPendingSignup,
+  PendingSignup,
+  pendingRef,
+  sendPasscodeOnce,
+} from './access';
 import {
   clearSessionCookie,
   hashPassword,
@@ -145,6 +155,39 @@ function signInAlert(req: Request, uid: string, method: string) {
   );
 }
 
+// Emails the one-time pass code (only ever once per sign-up)
+function deliverPasscode(req: Request, email: string) {
+  return sendPasscodeOnce(email, code =>
+    sendEmail(
+      email,
+      'Your MarketX access pass code',
+      [
+        'Welcome to MarketX. A seat has been reserved for you, and this is your personal, one-time pass code:',
+        'Enter it on the pass code page to finish creating your account.',
+      ],
+      {
+        code,
+        cta: { label: 'Enter my pass code', url: `${siteUrl(req)}/access?email=${encodeURIComponent(email)}` },
+        note: 'This code is unique to you, works only once and cannot be reissued, so keep it private. If you did not sign up for MarketX, you can ignore this email.',
+      }
+    )
+  ).catch(err => {
+    console.warn('[MarketX Access] pass code email failed:', err?.message || err);
+    return false;
+  });
+}
+
+function pendingResponse(res: Response, email: string, alreadySent: boolean) {
+  return res.json({
+    success: true,
+    pending: true,
+    email,
+    message: alreadySent
+      ? `Your pass code was already sent to ${email}. Enter it to finish creating your account.`
+      : `We've sent your one-time pass code to ${email}. Enter it to finish creating your account.`,
+  });
+}
+
 export function registerAuthRoutes(app: Express) {
   const wrap =
     (fn: (req: Request, res: Response) => Promise<any>) =>
@@ -165,24 +208,33 @@ export function registerAuthRoutes(app: Express) {
       return res.status(400).json({ error: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_PASSWORD} characters.` });
     }
 
-    const passwordHash = await hashPassword(password);
-    const legacyUid = await findLegacyUid(email);
-    const uid = legacyUid || crypto.randomUUID();
-
-    const created = await db().runTransaction(async tx => {
-      const cred = await tx.get(credentialsRef(email));
-      if (cred.exists) return false;
-      tx.set(credentialsRef(email), { uid, passwordHash, createdAt: Date.now() });
-      return true;
-    });
-    if (!created) {
+    if ((await credentialsRef(email).get()).exists) {
       return res.status(409).json({ error: 'EMAIL_TAKEN', message: 'An account with this email already exists. Sign in instead.' });
     }
+    const cleanUsername = String(username || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+    if (cleanUsername.length >= 3 && (await db().collection('usernames').doc(cleanUsername).get()).exists) {
+      return res.status(409).json({ error: 'USERNAME_TAKEN', message: `@${cleanUsername} is already taken. Try another username.` });
+    }
 
-    await createUserIfMissing({ uid, email, emailVerified: false }, username, displayName);
-    // The confirmation email doubles as the welcome email
-    sendVerificationEmail(req, uid, email).catch(err => console.warn('[MarketX Auth] Verification email failed:', err?.message));
-    res.json({ success: true, ...(await signIn(res, uid)) });
+    // Invite-only: the account is created only after the emailed pass code is entered
+    const passwordHash = await hashPassword(password);
+    const reserved = await createPendingSignup(email, { passwordHash, username: cleanUsername || undefined, displayName });
+    if (reserved.status === 'full') {
+      return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+    }
+    if (reserved.status === 'exists') {
+      // Same person coming back: confirm with their password, never re-issue or resend a sent code
+      if (!reserved.pending.passwordHash || !(await verifyPassword(password, reserved.pending.passwordHash))) {
+        return res.status(409).json({
+          error: 'PENDING_EXISTS',
+          message: 'A pass code has already been sent to this email. Enter it on the pass code page to finish signing up.',
+        });
+      }
+      if (!reserved.pending.codeEmailSentAt) await deliverPasscode(req, email);
+      return pendingResponse(res, email, !!reserved.pending.codeEmailSentAt);
+    }
+    await deliverPasscode(req, email);
+    pendingResponse(res, email, false);
   }));
 
   app.post('/api/auth/login', authLimiter, requireConfigured, wrap(async (req, res) => {
@@ -191,6 +243,15 @@ export function registerAuthRoutes(app: Express) {
     const cred = EMAIL_RE.test(email) ? await credentialsRef(email).get() : null;
     const data = cred?.exists ? cred.data()! : null;
 
+    if (!data && EMAIL_RE.test(email)) {
+      // Signed up but hasn't entered the pass code yet: send them to the pass code page
+      const pending = await pendingRef(email).get();
+      const p = pending.exists ? (pending.data() as PendingSignup) : null;
+      if (p?.passwordHash && (await verifyPassword(password, p.passwordHash))) {
+        if (!p.codeEmailSentAt) await deliverPasscode(req, email);
+        return pendingResponse(res, email, !!p.codeEmailSentAt);
+      }
+    }
     if (data && !data.passwordHash && data.googleSub) {
       return res.status(400).json({ error: 'USE_GOOGLE', message: 'This account uses Google sign-in. Continue with Google, or reset your password to add one.' });
     }
@@ -222,6 +283,15 @@ export function registerAuthRoutes(app: Express) {
     const email = String(payload?.email || '').toLowerCase();
     if (!email || !payload?.email_verified) {
       return res.status(401).json({ error: 'GOOGLE_UNVERIFIED', message: 'Your Google account email is not verified.' });
+    }
+
+    // New Google users go through the same pass code gate (existing accounts and owner emails sign straight in)
+    if (!(await credentialsRef(email).get()).exists && !isUnlimitedEmail(email)) {
+      const reserved = await createPendingSignup(email, { googleSub: payload.sub, name: payload.name, picture: payload.picture });
+      if (reserved.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+      const alreadySent = reserved.status === 'exists' && !!reserved.pending.codeEmailSentAt;
+      if (!alreadySent) await deliverPasscode(req, email);
+      return pendingResponse(res, email, alreadySent);
     }
 
     const legacyUid = await findLegacyUid(email);
@@ -334,6 +404,79 @@ export function registerAuthRoutes(app: Express) {
     if (user.emailVerified) return res.json({ success: true, message: 'Your email is already verified.' });
     await sendVerificationEmail(req, user.uid, user.email);
     res.json({ success: true, message: `Verification email sent to ${user.email}.` });
+  }));
+
+  // Pass code redemption: creates the account, signs the user in and confirms by email
+  app.post('/api/access/redeem', authLimiter, requireConfigured, wrap(async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '');
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'INVALID_EMAIL', message: 'Enter the email you signed up with.' });
+    if (!code.trim()) return res.status(400).json({ error: 'CODE_REQUIRED', message: 'Enter your pass code.' });
+
+    const check = await checkPasscode(email, code);
+    if (check.status === 'no_pending') {
+      const hasAccount = (await credentialsRef(email).get()).exists;
+      return res.status(hasAccount ? 409 : 404).json(
+        hasAccount
+          ? { error: 'ALREADY_ACTIVE', message: 'This account already has access. Sign in to continue.' }
+          : { error: 'NO_PENDING', message: 'No sign-up is waiting for this email. Create an account first.' }
+      );
+    }
+    if (check.status === 'locked') {
+      return res.status(429).json({ error: 'LOCKED', message: `Too many incorrect attempts. Try again in ${check.retryInMin} minutes.` });
+    }
+    if (check.status === 'invalid') {
+      return res.status(400).json({
+        error: 'INVALID_CODE',
+        message: `That pass code doesn't match. ${check.attemptsLeft} attempt${check.attemptsLeft === 1 ? '' : 's'} left.`,
+      });
+    }
+
+    const pending = check.pending;
+    const uid = (await findLegacyUid(email)) || crypto.randomUUID();
+    const created = await db().runTransaction(async tx => {
+      const cred = await tx.get(credentialsRef(email));
+      const still = await tx.get(pendingRef(email));
+      if (cred.exists || !still.exists) return false;
+      tx.set(credentialsRef(email), {
+        uid,
+        ...(pending.passwordHash ? { passwordHash: pending.passwordHash } : {}),
+        ...(pending.googleSub ? { googleSub: pending.googleSub } : {}),
+        createdAt: Date.now(),
+      });
+      consumePasscodeInTx(tx, pending, uid);
+      return true;
+    });
+    if (!created) return res.status(409).json({ error: 'ALREADY_ACTIVE', message: 'This account already has access. Sign in to continue.' });
+
+    // The pass code arrived by email, so the address is proven
+    await createUserIfMissing({ uid, email, emailVerified: true, name: pending.name, picture: pending.picture }, pending.username, pending.displayName);
+    await userRef(uid).update({ emailVerified: true });
+    const state = await signIn(res, uid);
+    res.json({ success: true, accessGranted: true, ...state });
+
+    addNotification(uid, {
+      type: 'security',
+      title: 'Access granted',
+      message: 'Your pass code was accepted and your MarketX account is active.',
+    }).catch(() => {});
+    sendEmail(
+      email,
+      'Access granted: welcome to MarketX',
+      [
+        'Your pass code was accepted and your MarketX account is now active.',
+        'Ask about any market (forex, gold, crypto, stocks or synthetic indices) and get a clear trade plan with entry, stop loss and targets, live.',
+      ],
+      {
+        rows: [
+          ['Account', email],
+          ['Username', `@${state?.profile?.username || pending.username || ''}`],
+          ['Status', 'Access granted'],
+        ],
+        cta: { label: 'Start using MarketX', url: siteUrl(req) },
+        note: 'Your pass code has now expired and cannot be used again.',
+      }
+    );
   }));
 
   // Permanently deletes the account and its data. Password accounts must re-enter their password;

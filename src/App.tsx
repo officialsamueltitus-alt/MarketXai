@@ -26,6 +26,9 @@ import { ShareProfileModal } from './components/ShareProfileModal';
 import { RewardEmailNotificationModal } from './components/RewardEmailNotificationModal';
 import { AuthModal } from './components/AuthModal';
 import { ChatUpdatesBar } from './components/ChatUpdatesBar';
+import { PasscodePage } from './components/PasscodePage';
+import { WelcomeGate } from './components/WelcomeGate';
+import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
 import {
   INITIAL_USER_PROFILE,
@@ -55,6 +58,21 @@ export default function App() {
   const [authUnavailable, setAuthUnavailable] = useState<string | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
+  // Signed-out visitors see the welcome gate once the session check has finished
+  const [authChecked, setAuthChecked] = useState(false);
+  // Invite-only: new sign-ups land on /access to enter their emailed pass code
+  const [onAccessPage, setOnAccessPage] = useState(() => typeof window !== 'undefined' && window.location.pathname === '/access');
+  const [accessEmail, setAccessEmail] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const fromUrl = new URLSearchParams(window.location.search).get('email');
+    if (fromUrl) return fromUrl;
+    try {
+      return sessionStorage.getItem('mx_access_email');
+    } catch {
+      return null;
+    }
+  });
   const [resetToken, setResetToken] = useState<string | null>(() => {
     try {
       return new URLSearchParams(window.location.search).get('reset');
@@ -190,12 +208,29 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) setAuthUnavailable('Could not reach the MarketX server. Please check your connection and refresh.');
+      })
+      .finally(() => {
+        if (!cancelled) setAuthChecked(true);
       });
 
     return () => {
       cancelled = true;
     };
   }, [handleAuthenticated]);
+
+  // Browser back/forward between the app and the pass code page
+  useEffect(() => {
+    const onPop = () => setOnAccessPage(window.location.pathname === '/access');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  // Signed-in users never need the pass code page
+  useEffect(() => {
+    if (authUser && onAccessPage) {
+      window.history.replaceState(null, '', '/');
+      setOnAccessPage(false);
+    }
+  }, [authUser, onAccessPage]);
 
   // Keep credits, rewards and gifts received in sync while the app is open
   useEffect(() => {
@@ -1056,21 +1091,97 @@ export default function App() {
     }
   };
 
+  // --- Invite-only access flow -------------------------------------------------
+  const goToAccessPage = (email?: string | null) => {
+    if (email) {
+      setAccessEmail(email);
+      try {
+        sessionStorage.setItem('mx_access_email', email);
+      } catch {}
+    }
+    window.history.pushState(null, '', `/access${email ? `?email=${encodeURIComponent(email)}` : ''}`);
+    setOnAccessPage(true);
+  };
+  const leaveAccessPage = () => {
+    window.history.replaceState(null, '', '/');
+    setOnAccessPage(false);
+  };
+
+  const authModal = (
+    <AuthModal
+      isOpen={isAuthModalOpen}
+      onClose={() => {
+        setIsAuthModalOpen(false);
+        setResetToken(null);
+      }}
+      onAuthenticated={handleAuthenticated}
+      onPending={email => goToAccessPage(email)}
+      initialMode={authModalMode}
+      googleClientId={googleClientId}
+      resetToken={resetToken}
+      unavailableReason={authUnavailable}
+    />
+  );
+
+  const toastBanner = toastNotification && (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[var(--mx-surface-2)] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_var(--mx-shadow)] max-w-[92vw] sm:max-w-md">
+      {toastNotification.type === 'gift' ? <Gift className="w-4 h-4 text-cyan-400 shrink-0" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+      <span className="text-xs font-medium leading-tight">{toastNotification.message}</span>
+    </div>
+  );
+
+  if (!authUser) {
+    if (onAccessPage) {
+      return (
+        <>
+          {toastBanner}
+          <PasscodePage
+            initialEmail={accessEmail}
+            onBack={leaveAccessPage}
+            onGranted={account => {
+              try {
+                sessionStorage.removeItem('mx_access_email');
+              } catch {}
+              leaveAccessPage();
+              handleAuthenticated(account);
+              setToastNotification({ message: 'Access granted. Welcome to MarketX!', type: 'success' });
+            }}
+          />
+        </>
+      );
+    }
+    return (
+      <>
+        {toastBanner}
+        {authChecked ? (
+          <WelcomeGate
+            notice={authUnavailable}
+            onSignUp={() => {
+              setAuthModalMode('signup');
+              setIsAuthModalOpen(true);
+            }}
+            onSignIn={() => {
+              setAuthModalMode('signin');
+              setIsAuthModalOpen(true);
+            }}
+            onHaveCode={() => goToAccessPage(accessEmail)}
+          />
+        ) : (
+          <div className="mx-backdrop min-h-[100dvh] flex items-center justify-center" aria-busy="true">
+            <span className="mx-shimmer">
+              <MarketXIcon size="lg" />
+            </span>
+          </div>
+        )}
+        {authModal}
+      </>
+    );
+  }
+
   return (
     <div className="mx-backdrop flex h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-full overflow-hidden text-slate-100 font-sans relative">
       {/* Toast Notification Banner */}
-      {toastNotification && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[var(--mx-surface-2)] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.9)] max-w-[92vw] sm:max-w-md">
-          {toastNotification.type === 'gift' ? (
-            <Gift className="w-4 h-4 text-cyan-400 shrink-0" />
-          ) : (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          )}
-          <span className="text-xs font-medium leading-tight">
-            {toastNotification.message}
-          </span>
-        </div>
-      )}
+      {toastBanner}
 
       {/* Paystack Pricing & Subscription Modal */}
       <PricingModal
@@ -1082,17 +1193,7 @@ export default function App() {
       />
 
       {/* Sign in / Create account (server-side auth; Google via Google Identity Services) */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => {
-          setIsAuthModalOpen(false);
-          setResetToken(null);
-        }}
-        onAuthenticated={handleAuthenticated}
-        googleClientId={googleClientId}
-        resetToken={resetToken}
-        unavailableReason={authUnavailable}
-      />
+      {authModal}
 
       {/* Gift AI Credits Modal */}
       <GiftCreditsModal
@@ -1226,7 +1327,7 @@ export default function App() {
           onSwitchView={setCurrentView}
           onNotifyComingSoon={(modelName) => {
             setToastNotification({
-              message: `${modelName} analysis coming soon! Multi-model routing in private preview.`,
+              message: `${modelName} is coming to MarketX soon. Multi-model routing is in private preview.`,
               type: 'gift',
             });
           }}
