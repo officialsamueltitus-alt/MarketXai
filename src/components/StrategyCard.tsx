@@ -82,7 +82,7 @@ const StrategyCardView: React.FC<StrategyCardProps> = ({
   const traderHandle = userProfile?.username ? `@${userProfile.username.replace(/^@/, '')}` : '@trader';
 
   const handleCopy = () => {
-    const summary = `📊 MARKETX QUANT SETUP: ${symbol} (${timeframe})
+    const summary = `📊 MARKETX (@_MarketXai) SETUP: ${symbol} (${timeframe})
 Trader: ${traderHandle}${userProfile?.isVerified ? ' ✓ (Verified)' : ''}
 Action: ${tradeType} | Bias: ${bias} (Confidence: ${confidenceScore}%)
 Current Price: $${formatPrice(currentPrice)} (24h: ${isPositive ? '+' : ''}${change24h}%)
@@ -93,7 +93,7 @@ Current Price: $${formatPrice(currentPrice)} (24h: ${isPositive ? '+' : ''}${cha
 ${(takeProfits || []).map(tp => `   • ${tp.level}: $${formatPrice(tp.price)} (${tp.rewardRatio}, Scale ${tp.exitPercent}%)`).join('\n')}
 ⚖️ Risk / Reward: ${riskRewardRatio}
 --------------------------------------------
-Generated via MarketX AI • https://marketx.world`;
+Generated via MarketX AI (@_MarketXai) • https://marketx.world`;
 
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(summary).then(() => {

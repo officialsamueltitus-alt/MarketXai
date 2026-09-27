@@ -84,14 +84,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const handleCopyText = (id: string, text: string) => {
     const formattedText = text.includes('marketx.world')
       ? text
-      : `${text}\n\n— Analyzed with MarketX AI: https://marketx.world`;
+      : `${text}\n\n— Analyzed with MarketX AI (@_MarketXai) · https://marketx.world`;
     navigator.clipboard.writeText(formattedText);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleCopyTradeSetup = (strategy: any, msgId: string) => {
-    const summary = `📊 MARKETX QUANT SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
+    const summary = `📊 MARKETX (@_MarketXai) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
 Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
 🎯 Optimal Entry: $${strategy.entryZone.optimal}
 🛑 Invalidation Stop Loss: $${strategy.stopLoss.price} (-${strategy.stopLoss.riskPercent}%)
@@ -99,7 +99,7 @@ Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
 ⚖️ Risk / Reward: ${strategy.riskRewardRatio}
 Rationale: ${strategy.entryZone.rationale}
 
-🔗 Trade with AI: https://marketx.world`;
+🔗 Trade with MarketX AI (@_MarketXai): https://marketx.world`;
 
     navigator.clipboard.writeText(summary);
     setCopiedId(`setup-${msgId}`);

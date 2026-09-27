@@ -15,6 +15,10 @@ interface AuthModalProps {
   // Present when the user opened a password-reset link (?reset=...)
   resetToken?: string | null;
   unavailableReason?: string | null;
+  /** Mode to open in (e.g. "signup" from the welcome screen) */
+  initialMode?: 'signin' | 'signup';
+  /** New sign-ups wait for their emailed pass code before the account exists */
+  onPending?: (email: string, message?: string) => void;
 }
 
 declare global {
@@ -49,6 +53,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   googleClientId,
   resetToken,
   unavailableReason,
+  initialMode = 'signin',
+  onPending,
 }) => {
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
@@ -58,24 +64,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [batchFull, setBatchFull] = useState<string | null>(null);
   const googleButtonRef = useRef<HTMLDivElement>(null);
   // Parent callbacks are held in refs so parent re-renders (e.g. live price polling) don't reset the form
   const onAuthenticatedRef = useRef(onAuthenticated);
   onAuthenticatedRef.current = onAuthenticated;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onPendingRef = useRef(onPending);
+  onPendingRef.current = onPending;
+
+  // Signed in, or waiting for a pass code: route accordingly
+  const finish = (account: any) => {
+    if (account?.pending) {
+      onPendingRef.current?.(account.email, account.message);
+      onCloseRef.current();
+      return;
+    }
+    onAuthenticatedRef.current(account);
+    onCloseRef.current();
+  };
 
   useEffect(() => {
     if (!isOpen) return;
-    setMode(resetToken ? 'reset' : 'signin');
+    setMode(resetToken ? 'reset' : initialMode);
     setError(null);
     setInfo(null);
+    setBatchFull(null);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, resetToken]);
+  }, [isOpen, resetToken, initialMode]);
 
   // Render Google's official button (Google Identity Services); the server verifies the token
   useEffect(() => {
@@ -94,10 +115,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 method: 'POST',
                 body: JSON.stringify({ credential: response.credential }),
               });
-              onAuthenticatedRef.current(account);
-              onCloseRef.current();
+              finish(account);
             } catch (err: any) {
-              setError(err?.message || 'Google sign-in failed.');
+              if (err?.code === 'BATCH_FULL') setBatchFull(err.message);
+              else setError(err?.message || 'Google sign-in failed.');
             } finally {
               setBusy(false);
             }
@@ -127,7 +148,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       await fn();
     } catch (err: any) {
-      setError(err?.message || 'Something went wrong. Please try again.');
+      if (err?.code === 'BATCH_FULL') setBatchFull(err.message);
+      else setError(err?.message || 'Something went wrong. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -176,8 +198,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             displayName: displayName.trim() || cleanUsername,
           }),
         });
-        onAuthenticated(account);
-        onClose();
+        finish(account);
       });
       return;
     }
@@ -187,15 +208,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         method: 'POST',
         body: JSON.stringify({ email: cleanEmail, password }),
       });
-      onAuthenticated(account);
-      onClose();
+      finish(account);
     });
   };
 
   const title =
     mode === 'signup' ? 'Create your account' : mode === 'forgot' ? 'Reset your password' : mode === 'reset' ? 'Choose a new password' : 'Welcome back';
   const subtitle =
-    mode === 'forgot'
+    mode === 'signup'
+      ? "MarketX is invite-only. We'll email you a one-time pass code to activate your account."
+      : mode === 'forgot'
       ? "Enter your email and we'll send you a reset link."
       : mode === 'reset'
       ? 'Pick a password with at least 8 characters.'
@@ -232,11 +254,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <MarketXIcon size="lg" />
             <MarketXText className="text-lg" />
           </div>
-          <h2 className="text-xl font-semibold text-white tracking-tight">{title}</h2>
-          {subtitle && <p className="text-sm text-zinc-400 mt-1">{subtitle}</p>}
+          {!batchFull && <h2 className="text-xl font-semibold text-white tracking-tight">{title}</h2>}
+          {subtitle && !batchFull && <p className="text-sm text-zinc-400 mt-1">{subtitle}</p>}
         </div>
 
-        {unavailableReason ? (
+        {batchFull ? (
+          <div className="relative text-center">
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-300 flex items-center justify-center text-xl" aria-hidden="true">
+              ⏳
+            </div>
+            <p className="mt-4 text-[15px] font-semibold text-white">Batch fully allocated</p>
+            <p className="mt-2 text-sm text-zinc-400 leading-relaxed">{batchFull}</p>
+            <a
+              href="https://x.com/_MarketXai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 inline-flex items-center justify-center h-11 px-5 rounded-xl bg-white text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
+            >
+              Follow @_MarketXai for updates
+            </a>
+            <button type="button" onClick={() => setBatchFull(null)} className="mt-3 block mx-auto text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer">
+              Back
+            </button>
+          </div>
+        ) : unavailableReason ? (
           <p className="relative text-sm text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">{unavailableReason}</p>
         ) : (
           <div className="relative">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, AlertCircle, CheckCircle2, ChevronDown } from 'lucide-react';
+import { X, ChevronDown } from 'lucide-react';
+import { MarketXIcon } from './MarketXIcon';
 
 // Official brand marks (sourced from @lobehub/icons-static-svg 1.95.1, Sep 2026)
 export const ClaudeIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -25,218 +26,135 @@ interface ModelSelectorButtonProps {
   onNotifyComingSoon?: (modelName: string) => void;
 }
 
-export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({
-  onNotifyComingSoon,
-}) => {
+const MODELS = [
+  { id: 'claude', name: 'Claude', maker: 'Anthropic', Icon: ClaudeIcon, tint: 'bg-[#D97757]/15' },
+  { id: 'gpt', name: 'GPT', maker: 'OpenAI', Icon: GptIcon, tint: 'bg-emerald-500/10' },
+  { id: 'grok', name: 'Grok', maker: 'xAI', Icon: GrokIcon, tint: 'bg-sky-500/10' },
+];
+
+const PANEL_W = 280;
+
+// Nav "Models" pill: stacked model marks; opens a compact panel with the active engine and upcoming models
+export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({ onNotifyComingSoon }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [comingSoonModel, setComingSoonModel] = useState<string | null>(null);
-  const [activeModelIndex, setActiveModelIndex] = useState(0);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownCoords, setDropdownCoords] = useState<{ top: number; left: number; width: number }>({
-    top: 60,
-    left: 12,
-    width: 160,
-  });
+  const [coords, setCoords] = useState({ top: 60, left: 12 });
 
-  // The 3 frontier AI systems - names only
-  const aiModels = [
-    {
-      id: 'claude',
-      name: 'Claude 3.7',
-      fullName: 'Claude 3.7 Sonnet',
-      icon: <ClaudeIcon className="w-3.5 h-3.5 shrink-0" />,
-      color: 'hover:border-[#D97757]/60',
-    },
-    {
-      id: 'gpt',
-      name: 'GPT-4o',
-      fullName: 'GPT-4o Omnimodal',
-      icon: <GptIcon className="w-3.5 h-3.5 shrink-0" />,
-      color: 'hover:border-[#10A37F]/60',
-    },
-    {
-      id: 'grok',
-      name: 'Grok 3',
-      fullName: 'Grok 3 Reasoning',
-      icon: <GrokIcon className="w-3.5 h-3.5 shrink-0" />,
-      color: 'hover:border-[#38BDF8]/60',
-    },
-  ];
-
-  // Cycling the models logo one after another, changing every 3 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      setActiveModelIndex(prev => (prev + 1) % aiModels.length);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [aiModels.length]);
-
-  // Position directly under the AI models icon button with halved width (160px)
   const updatePosition = () => {
-    if (buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      const targetWidth = 160;
-      
-      let left = rect.left;
-      if (left + targetWidth > window.innerWidth - 10) {
-        left = window.innerWidth - targetWidth - 10;
-      }
-      if (left < 10) {
-        left = 10;
-      }
-
-      setDropdownCoords({
-        top: rect.bottom + 6,
-        left,
-        width: targetWidth,
-      });
-    }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const left = Math.max(10, Math.min(rect.left, window.innerWidth - PANEL_W - 10));
+    setCoords({ top: rect.bottom + 8, left });
   };
 
-  const handleToggle = () => {
-    if (!isOpen) {
-      updatePosition();
-      setComingSoonModel(null);
-    }
-    setIsOpen(prev => !prev);
-  };
-
-  // Keep positioned on resize or orientation change
   useEffect(() => {
     if (!isOpen) return;
-    const handleResize = () => updatePosition();
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
-    };
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('scroll', handleResize, true);
-    window.addEventListener('keydown', handleKeyDown);
+    const onResize = () => updatePosition();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setIsOpen(false);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('scroll', handleResize, true);
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKey);
     };
   }, [isOpen]);
 
-  const handleSelectModel = (model: (typeof aiModels)[0]) => {
-    setComingSoonModel(model.name);
-    onNotifyComingSoon?.(model.fullName);
-    setTimeout(() => {
-      setIsOpen(false);
-      setComingSoonModel(null);
-    }, 1200);
+  const toggle = () => {
+    if (!isOpen) updatePosition();
+    setIsOpen(o => !o);
   };
-
-  const currentModel = aiModels[activeModelIndex];
 
   return (
     <>
-      {/* 
-        Navbar Trigger Button:
-        - Mobile: compact icon showing cycling model logos every 3s
-        - Desktop/Tablet: shows "Analyze" + cycling models logo
-      */}
       <button
         ref={buttonRef}
         type="button"
-        onClick={handleToggle}
-        className="group relative flex items-center gap-1.5 h-8 pl-1.5 pr-2 sm:pl-2 sm:pr-2.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-100 transition-colors cursor-pointer active:scale-95 shrink-0"
-        title={`AI Models Engine (${currentModel.name}) - Click to explore models`}
+        onClick={toggle}
         aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-label="AI models"
+        className="group flex items-center gap-2 h-8 pl-1 pr-2 sm:pr-2.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] transition-colors cursor-pointer active:scale-[0.97] shrink-0"
       >
-        <span className="hidden sm:inline text-[13px] font-medium text-slate-200">
-          Analyze
+        <span className="flex -space-x-1.5" aria-hidden="true">
+          {MODELS.map(({ id, Icon }, i) => (
+            <span
+              key={id}
+              className="w-6 h-6 rounded-full bg-[var(--mx-surface-2)] ring-2 ring-[var(--mx-bg)] flex items-center justify-center transition-transform duration-200 group-hover:translate-x-[calc(var(--i)*2px)]"
+              style={{ zIndex: MODELS.length - i, ['--i' as any]: i }}
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </span>
+          ))}
         </span>
-
-        {/* The models logo showing ONE after another, changing every 3 seconds */}
-        <div className="w-5 h-5 flex items-center justify-center rounded-full bg-black/40 shrink-0 overflow-hidden relative">
-          <div
-            key={currentModel.id}
-            className="animate-in fade-in zoom-in-75 duration-300 flex items-center justify-center"
-          >
-            {currentModel.icon}
-          </div>
-        </div>
-
-        <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <span className="hidden sm:inline text-[13px] font-medium text-slate-200">Models</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* 
-        Portaled Dropdown:
-        - Container reduced by half (~160px width)
-        - Just shows model names and icons, no writeups
-      */}
-      {isOpen && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[9999] pointer-events-auto select-none">
-          {/* Subtle Dim Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-[1px] transition-opacity animate-in fade-in duration-100"
-            onClick={() => setIsOpen(false)}
-            aria-hidden="true"
-          />
-
-          {/* Compact Floating Dropdown Card */}
-          <div
-            className="fixed rounded-xl bg-[var(--mx-bg-2)] border border-white/[0.18] shadow-xl shadow-black/95 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/[0.08]"
-            style={{
-              top: `${dropdownCoords.top}px`,
-              left: `${dropdownCoords.left}px`,
-              width: `${dropdownCoords.width}px`,
-              transform: 'translateZ(0)',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header: Compact AI Models label + Close */}
-            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-white/[0.08] bg-white/[0.03]">
-              <span className="text-[11px] font-bold text-white tracking-tight flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
-                AI Models
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="p-0.5 rounded hover:bg-white/[0.1] text-slate-400 hover:text-white transition-colors cursor-pointer"
-                title="Close"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-
-            {/* Notice when clicked */}
-            {comingSoonModel && (
-              <div className="px-2.5 py-1.5 bg-indigo-950/80 border-b border-indigo-500/30 text-[10px] text-cyan-300 flex items-center gap-1.5 animate-in fade-in duration-100">
-                <CheckCircle2 className="w-3 h-3 text-cyan-400 shrink-0" />
-                <span className="truncate font-medium">{comingSoonModel} selected</span>
-              </div>
-            )}
-
-            {/* List of Models: Just Names and Icons */}
-            <div className="p-1.5 space-y-1">
-              {aiModels.map(model => (
+      {isOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-[9999]">
+            <div className="fixed inset-0" onClick={() => setIsOpen(false)} aria-hidden="true" />
+            <div
+              role="dialog"
+              aria-label="AI models"
+              className="mx-pop-in fixed rounded-2xl bg-[var(--mx-surface)] border border-white/[0.08] shadow-[0_24px_60px_-20px_var(--mx-shadow)] overflow-hidden"
+              style={{ top: coords.top, left: coords.left, width: PANEL_W }}
+            >
+              <div className="px-4 pt-3.5 pb-2 flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">AI engines</span>
                 <button
-                  key={model.id}
                   type="button"
-                  onClick={() => handleSelectModel(model)}
-                  className={`w-full text-left px-2 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] ${model.color} transition-all flex items-center justify-between gap-1.5 group cursor-pointer active:scale-[0.97]`}
+                  onClick={() => setIsOpen(false)}
+                  aria-label="Close"
+                  className="w-6 h-6 -mr-1 rounded-full text-slate-500 hover:text-white hover:bg-white/[0.06] inline-flex items-center justify-center cursor-pointer"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-5 h-5 rounded-md bg-black/60 border border-white/[0.1] flex items-center justify-center shrink-0">
-                      {model.icon}
-                    </div>
-                    <span className="font-semibold text-white text-xs tracking-tight truncate group-hover:text-cyan-300 transition-colors">
-                      {model.name}
-                    </span>
-                  </div>
+                  <X className="w-3.5 h-3.5" />
                 </button>
-              ))}
+              </div>
+
+              {/* Active engine */}
+              <div className="mx-2 p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center gap-3">
+                <span className="w-9 h-9 rounded-xl bg-indigo-500/15 flex items-center justify-center shrink-0">
+                  <MarketXIcon size="sm" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-white">MarketX Engine</span>
+                  <span className="block text-[11px] text-slate-500">Live data + trade planning</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-emerald-500/10 text-[11px] font-medium text-emerald-300 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Active
+                </span>
+              </div>
+
+              <div className="px-4 pt-3 pb-1.5 text-[11px] text-slate-500">Coming to MarketX</div>
+              <ul className="px-2 pb-2">
+                {MODELS.map(({ id, name, maker, Icon, tint }) => (
+                  <li key={id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onNotifyComingSoon?.(name);
+                        setIsOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/[0.05] transition-colors text-left cursor-pointer"
+                    >
+                      <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${tint}`}>
+                        <Icon className="w-[18px] h-[18px]" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-slate-100">{name}</span>
+                        <span className="block text-[11px] text-slate-500">{maker}</span>
+                      </span>
+                      <span className="h-6 px-2 rounded-full bg-white/[0.05] text-[11px] text-slate-400 inline-flex items-center shrink-0">Soon</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 };
-

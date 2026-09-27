@@ -110,3 +110,9 @@ export function newOneTimeToken(): { token: string; hash: string } {
 export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
+
+/** HMAC with the server session secret (used for the admin console's own session cookie). */
+export function signWithServerSecret(data: string): string | null {
+  const secret = getSecret();
+  return secret ? sign(`admin:${data}`, secret) : null;
+}

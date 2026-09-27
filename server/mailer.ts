@@ -31,12 +31,14 @@ export interface EmailOptions {
   rows?: [string, string][];
   /** Small print under the message */
   note?: string;
+  /** A one-time code shown large and monospaced (e.g. an access pass code) */
+  code?: string;
 }
 
-// Fire-and-forget transactional email; failures are logged and never break the request
-export async function sendEmail(to: string | undefined | null, subject: string, lines: string[], options: EmailOptions = {}): Promise<void> {
+// Transactional email; failures are logged and never break the request. Resolves true when sent.
+export async function sendEmail(to: string | undefined | null, subject: string, lines: string[], options: EmailOptions = {}): Promise<boolean> {
   const t = getTransporter();
-  if (!t || !to) return;
+  if (!t || !to) return false;
   const from = process.env.SMTP_FROM || `MarketX <${process.env.SMTP_USER}>`;
   const siteUrl = (process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '');
   const cta = options.cta || { label: 'Open MarketX', url: siteUrl };
@@ -64,6 +66,11 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
       <div style="background:#131316;border:1px solid #27272a;border-radius:20px;padding:28px 24px">
         <h1 style="margin:0 0 16px;color:#fafafa;font-size:20px;line-height:1.35;font-weight:700">${escapeHtml(subject)}</h1>
         ${lines.map(para).join('')}
+        ${
+          options.code
+            ? `<div style="margin:6px 0 20px;padding:18px;border-radius:14px;background:#09090b;border:1px dashed #3f3f46;text-align:center;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:28px;font-weight:700;letter-spacing:4px;color:#fafafa">${escapeHtml(options.code)}</div>`
+            : ''
+        }
         ${rows}
         <a href="${escapeHtml(cta.url)}" style="display:inline-block;margin-top:6px;background:#fafafa;color:#09090b;text-decoration:none;font-weight:600;font-size:14px;padding:12px 22px;border-radius:999px">${escapeHtml(cta.label)}</a>
         ${options.note ? `<p style="margin:20px 0 0;color:#71717a;font-size:12px;line-height:1.5">${escapeHtml(options.note)}</p>` : ''}
@@ -75,6 +82,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
     subject,
     '',
     ...lines,
+    ...(options.code ? ['', `    ${options.code}`, ''] : []),
     ...(options.rows || []).map(([k, v]) => `${k}: ${v}`),
     '',
     `${cta.label}: ${cta.url}`,
@@ -82,7 +90,9 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   ].join('\n');
   try {
     await t.sendMail({ from, to, subject, text, html });
+    return true;
   } catch (err: any) {
     console.warn(`[MarketX Mail] Failed to send "${subject}" to ${to}: ${err?.message || err}`);
+    return false;
   }
 }

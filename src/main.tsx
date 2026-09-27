@@ -1,6 +1,10 @@
-import { StrictMode, Component, ReactNode } from 'react';
+import { StrictMode, Component, ReactNode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+
+// The admin console is its own lazily-loaded bundle, only fetched on /admin
+const AdminApp = lazy(() => import('./admin/AdminApp'));
+const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
 import './index.css';
 
 // Older Safari / Android WebViews lack Object.hasOwn (used when rendering chat markdown)
@@ -40,7 +44,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>
-      <App />
+      {isAdminRoute ? (
+        <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
+          <AdminApp />
+        </Suspense>
+      ) : (
+        <App />
+      )}
     </AppErrorBoundary>
   </StrictMode>,
 );

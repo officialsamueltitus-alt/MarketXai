@@ -3,6 +3,7 @@ import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/fires
 import { db, isFirebaseConfigured } from './firebase';
 import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
 import { sendEmail, EmailOptions } from './mailer';
+import { logActivity, recordUsage } from './tracking';
 import type {
   UserProfile,
   CreditState,
@@ -61,6 +62,33 @@ export interface UserDoc {
   // Expiry timestamps already alerted, so each reminder/notice is sent once per plan period
   expiryReminderFor?: number;
   expiryNoticeFor?: number;
+  // Moderation (set from the admin console)
+  status?: 'active' | 'suspended' | 'banned';
+  statusReason?: string;
+  statusAt?: number;
+  // Activity summary for the admin console
+  lastActiveAt?: number;
+  usageTotal?: number;
+}
+
+export function blockedStatusMessage(status?: string): { code: string; message: string } | null {
+  if (status === 'suspended') {
+    return {
+      code: 'ACCOUNT_SUSPENDED',
+      message: 'Your MarketX account is currently suspended. Contact help.marketx@gmail.com to find out more.',
+    };
+  }
+  if (status === 'banned') {
+    return {
+      code: 'ACCOUNT_BANNED',
+      message: 'This MarketX account has been banned. Contact help.marketx@gmail.com if you believe this is a mistake.',
+    };
+  }
+  return null;
+}
+
+export function isUnlimitedEmail(email: string): boolean {
+  return UNLIMITED_EMAILS.has(String(email || '').toLowerCase());
 }
 
 // Unlimited access requires a verified email so nobody can claim it by registering the address
@@ -226,6 +254,13 @@ const fmtNum = (n: any) => {
 function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: number | null) {
   const left = remaining == null ? [] : ([['Analyses left today', String(remaining)]] as [string, string][]);
   const s = body?.strategy;
+  recordUsage(user.uid, s?.symbol ? 'analysis' : 'chat', s?.symbol || null);
+  logActivity(
+    user.uid,
+    s?.symbol
+      ? { type: 'analysis', title: `Analyzed ${s.symbol} (${s.timeframe || ''})`.replace(' ()', ''), detail: `${s.tradeType || ''} · ${prompt.slice(0, 120)}` }
+      : { type: 'chat', title: 'Asked a question', detail: prompt.slice(0, 160) }
+  );
   if (s && s.symbol) {
     const tp1 = s.takeProfits?.[0]?.price;
     notifyActivity(
@@ -305,6 +340,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!doc || (doc.sessionVersion || 0) !== session.v) {
       return res.status(401).json({ error: 'AUTH_INVALID', message: 'Your session has expired. Please sign in again.' });
     }
+    const blocked = blockedStatusMessage(doc.status);
+    if (blocked) return res.status(403).json({ error: blocked.code, message: blocked.message });
     res.locals.user = {
       uid: session.uid,
       email: (doc.email || '').toLowerCase(),
@@ -665,6 +702,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     if (res.headersSent) return;
     if (profileChanges.length) {
       const summary = profileChanges.join(', ');
+      logActivity(user.uid, { type: 'profile', title: 'Updated profile', detail: summary });
       notifyActivity(
         user.uid,
         { type: 'system', title: 'Profile updated', message: summary.charAt(0).toUpperCase() + summary.slice(1) + '.' },
@@ -832,6 +870,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       [`@${result.senderUsername} just sent you ${amount} AI credits on MarketX.`, ...(note ? [`Their note: "${note}"`] : [])],
       { cta: { label: 'Use your credits', url: siteLink('/') } }
     );
+    logActivity(user.uid, { type: 'gift', title: `Gifted ${amount} credits to @${result.gift.toUsername}`, detail: note || '' }, result.senderUsername);
     notifyActivity(
       user.uid,
       { type: 'credit', title: `You sent ${amount} credits to @${result.gift.toUsername}`, message: note ? `Your note: "${note}"` : 'The credits are already in their balance.' },

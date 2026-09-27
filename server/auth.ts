@@ -15,7 +15,19 @@ import {
   notifyActivity,
   describeRequest,
   addNotification,
+  isUnlimitedEmail,
+  blockedStatusMessage,
 } from './account';
+import { bumpDaily, logActivity, touchUser } from './tracking';
+import {
+  batchFullMessage,
+  checkPasscode,
+  consumePasscodeInTx,
+  createPendingSignup,
+  PendingSignup,
+  pendingRef,
+  sendPasscodeOnce,
+} from './access';
 import {
   clearSessionCookie,
   hashPassword,
@@ -87,6 +99,22 @@ async function findLegacyUid(email: string): Promise<string | null> {
   return snap.docs[0]?.id || null;
 }
 
+// Suspended/banned accounts can't sign in (checked before a session is issued)
+async function blockedFor(uid: string) {
+  const snap = await userRef(uid).get();
+  return snap.exists ? blockedStatusMessage((snap.data() as UserDoc).status) : null;
+}
+
+// Emails banned from the console can't create a new account
+const bannedRef = (email: string) => db().collection('bannedEmails').doc(email.toLowerCase());
+async function isBannedEmail(email: string): Promise<boolean> {
+  return (await bannedRef(email).get()).exists;
+}
+const BANNED_SIGNUP = {
+  error: 'EMAIL_BANNED',
+  message: 'This email cannot be used to create a MarketX account. Contact help.marketx@gmail.com for more information.',
+};
+
 async function signIn(res: Response, uid: string) {
   const snap = await userRef(uid).get();
   const doc = snap.data() as UserDoc;
@@ -125,6 +153,9 @@ async function sendWelcomeEmail(req: Request, email: string) {
 // Security alert on every sign-in (site notification + email)
 function signInAlert(req: Request, uid: string, method: string) {
   const { device, ip, when } = describeRequest(req);
+  logActivity(uid, { type: 'signin', title: `Signed in with ${method}`, detail: `${device} · ${ip}` });
+  bumpDaily('signins');
+  touchUser(uid);
   notifyActivity(
     uid,
     { type: 'security', title: 'New sign-in to your account', message: `${device} · ${method} · ${ip}` },
@@ -143,6 +174,65 @@ function signInAlert(req: Request, uid: string, method: string) {
       security: true,
     }
   );
+}
+
+// Emails the one-time pass code (only ever once per sign-up)
+function deliverPasscode(req: Request, email: string) {
+  return sendPasscodeOnce(email, code =>
+    sendEmail(
+      email,
+      'Your MarketX access pass code',
+      [
+        'Welcome to MarketX. A seat has been reserved for you, and this is your personal, one-time pass code:',
+        'Enter it on the pass code page to finish creating your account.',
+      ],
+      {
+        code,
+        cta: { label: 'Enter my pass code', url: `${siteUrl(req)}/access?email=${encodeURIComponent(email)}` },
+        note: 'This code is unique to you, works only once and cannot be reissued, so keep it private. If you did not sign up for MarketX, you can ignore this email.',
+      }
+    )
+  ).catch(err => {
+    console.warn('[MarketX Access] pass code email failed:', err?.message || err);
+    return false;
+  });
+}
+
+function pendingResponse(res: Response, email: string, alreadySent: boolean) {
+  return res.json({
+    success: true,
+    pending: true,
+    email,
+    message: alreadySent
+      ? `Your pass code was already sent to ${email}. Enter it to finish creating your account.`
+      : `We've sent your one-time pass code to ${email}. Enter it to finish creating your account.`,
+  });
+}
+
+/** Removes an account and its data (used by self-service deletion and the admin console). */
+export async function deleteAccountData(uid: string, email: string): Promise<UserDoc | null> {
+  const snap = await userRef(uid).get();
+  const doc = snap.exists ? (snap.data() as UserDoc) : null;
+  // Log first: the global feed entry survives, the per-user copy is removed with the account
+  await logActivity(uid, { type: 'deleted', title: 'Account deleted', detail: email }, doc?.username);
+  await db().recursiveDelete(userRef(uid));
+  await userRef(uid).delete(); // no-op if already removed
+  if (doc?.usernameLower) {
+    const nameRef = db().collection('usernames').doc(doc.usernameLower);
+    const nameSnap = await nameRef.get();
+    if (nameSnap.exists && nameSnap.data()?.uid === uid) await nameRef.delete();
+  }
+  const credSnap = await credentialsRef(email).get();
+  if (credSnap.exists && credSnap.data()?.uid === uid) await credentialsRef(email).delete();
+  const tokens = await db().collection('authTokens').where('uid', '==', uid).get();
+  await Promise.all(tokens.docs.map(d => d.ref.delete()));
+  return doc;
+}
+
+/** Bans or unbans an email address from creating new accounts. */
+export async function setEmailBanned(email: string, banned: boolean) {
+  if (banned) await bannedRef(email).set({ email: email.toLowerCase(), at: Date.now() });
+  else await bannedRef(email).delete();
 }
 
 export function registerAuthRoutes(app: Express) {
@@ -165,24 +255,34 @@ export function registerAuthRoutes(app: Express) {
       return res.status(400).json({ error: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_PASSWORD} characters.` });
     }
 
-    const passwordHash = await hashPassword(password);
-    const legacyUid = await findLegacyUid(email);
-    const uid = legacyUid || crypto.randomUUID();
-
-    const created = await db().runTransaction(async tx => {
-      const cred = await tx.get(credentialsRef(email));
-      if (cred.exists) return false;
-      tx.set(credentialsRef(email), { uid, passwordHash, createdAt: Date.now() });
-      return true;
-    });
-    if (!created) {
+    if ((await credentialsRef(email).get()).exists) {
       return res.status(409).json({ error: 'EMAIL_TAKEN', message: 'An account with this email already exists. Sign in instead.' });
     }
+    if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
+    const cleanUsername = String(username || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+    if (cleanUsername.length >= 3 && (await db().collection('usernames').doc(cleanUsername).get()).exists) {
+      return res.status(409).json({ error: 'USERNAME_TAKEN', message: `@${cleanUsername} is already taken. Try another username.` });
+    }
 
-    await createUserIfMissing({ uid, email, emailVerified: false }, username, displayName);
-    // The confirmation email doubles as the welcome email
-    sendVerificationEmail(req, uid, email).catch(err => console.warn('[MarketX Auth] Verification email failed:', err?.message));
-    res.json({ success: true, ...(await signIn(res, uid)) });
+    // Invite-only: the account is created only after the emailed pass code is entered
+    const passwordHash = await hashPassword(password);
+    const reserved = await createPendingSignup(email, { passwordHash, username: cleanUsername || undefined, displayName });
+    if (reserved.status === 'full') {
+      return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+    }
+    if (reserved.status === 'exists') {
+      // Same person coming back: confirm with their password, never re-issue or resend a sent code
+      if (!reserved.pending.passwordHash || !(await verifyPassword(password, reserved.pending.passwordHash))) {
+        return res.status(409).json({
+          error: 'PENDING_EXISTS',
+          message: 'A pass code has already been sent to this email. Enter it on the pass code page to finish signing up.',
+        });
+      }
+      if (!reserved.pending.codeEmailSentAt) await deliverPasscode(req, email);
+      return pendingResponse(res, email, !!reserved.pending.codeEmailSentAt);
+    }
+    await deliverPasscode(req, email);
+    pendingResponse(res, email, false);
   }));
 
   app.post('/api/auth/login', authLimiter, requireConfigured, wrap(async (req, res) => {
@@ -191,6 +291,15 @@ export function registerAuthRoutes(app: Express) {
     const cred = EMAIL_RE.test(email) ? await credentialsRef(email).get() : null;
     const data = cred?.exists ? cred.data()! : null;
 
+    if (!data && EMAIL_RE.test(email)) {
+      // Signed up but hasn't entered the pass code yet: send them to the pass code page
+      const pending = await pendingRef(email).get();
+      const p = pending.exists ? (pending.data() as PendingSignup) : null;
+      if (p?.passwordHash && (await verifyPassword(password, p.passwordHash))) {
+        if (!p.codeEmailSentAt) await deliverPasscode(req, email);
+        return pendingResponse(res, email, !!p.codeEmailSentAt);
+      }
+    }
     if (data && !data.passwordHash && data.googleSub) {
       return res.status(400).json({ error: 'USE_GOOGLE', message: 'This account uses Google sign-in. Continue with Google, or reset your password to add one.' });
     }
@@ -200,6 +309,8 @@ export function registerAuthRoutes(app: Express) {
       return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Incorrect email or password.' });
     }
     await createUserIfMissing({ uid: data.uid, email, emailVerified: false });
+    const blocked = await blockedFor(data.uid);
+    if (blocked) return res.status(403).json({ error: blocked.code, message: blocked.message });
     const state = await signIn(res, data.uid);
     signInAlert(req, data.uid, 'Email & password');
     res.json({ success: true, ...state });
@@ -224,6 +335,16 @@ export function registerAuthRoutes(app: Express) {
       return res.status(401).json({ error: 'GOOGLE_UNVERIFIED', message: 'Your Google account email is not verified.' });
     }
 
+    // New Google users go through the same pass code gate (existing accounts and owner emails sign straight in)
+    if (!(await credentialsRef(email).get()).exists && !isUnlimitedEmail(email)) {
+      if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
+      const reserved = await createPendingSignup(email, { googleSub: payload.sub, name: payload.name, picture: payload.picture });
+      if (reserved.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+      const alreadySent = reserved.status === 'exists' && !!reserved.pending.codeEmailSentAt;
+      if (!alreadySent) await deliverPasscode(req, email);
+      return pendingResponse(res, email, alreadySent);
+    }
+
     const legacyUid = await findLegacyUid(email);
     const uid = await db().runTransaction(async tx => {
       const cred = await tx.get(credentialsRef(email));
@@ -241,6 +362,8 @@ export function registerAuthRoutes(app: Express) {
     await createUserIfMissing({ uid, email, emailVerified: true, name: payload.name, picture: payload.picture });
     // Google proves ownership of the address
     await userRef(uid).update({ emailVerified: true });
+    const blockedG = await blockedFor(uid);
+    if (blockedG) return res.status(403).json({ error: blockedG.code, message: blockedG.message });
     const state = await signIn(res, uid);
     if (isNew) sendWelcomeEmail(req, email);
     else signInAlert(req, uid, 'Google');
@@ -287,6 +410,8 @@ export function registerAuthRoutes(app: Express) {
       return data.uid as string;
     });
     if (!uid) return res.status(400).json({ error: 'INVALID_TOKEN', message: 'This reset link is invalid or has expired. Request a new one.' });
+    const blockedR = await blockedFor(uid);
+    if (blockedR) return res.status(403).json({ error: blockedR.code, message: blockedR.message });
     const state = await signIn(res, uid);
     const { device, ip, when } = describeRequest(req);
     notifyActivity(
@@ -336,6 +461,83 @@ export function registerAuthRoutes(app: Express) {
     res.json({ success: true, message: `Verification email sent to ${user.email}.` });
   }));
 
+  // Pass code redemption: creates the account, signs the user in and confirms by email
+  app.post('/api/access/redeem', authLimiter, requireConfigured, wrap(async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '');
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'INVALID_EMAIL', message: 'Enter the email you signed up with.' });
+    if (!code.trim()) return res.status(400).json({ error: 'CODE_REQUIRED', message: 'Enter your pass code.' });
+
+    const check = await checkPasscode(email, code);
+    if (check.status === 'no_pending') {
+      const hasAccount = (await credentialsRef(email).get()).exists;
+      return res.status(hasAccount ? 409 : 404).json(
+        hasAccount
+          ? { error: 'ALREADY_ACTIVE', message: 'This account already has access. Sign in to continue.' }
+          : { error: 'NO_PENDING', message: 'No sign-up is waiting for this email. Create an account first.' }
+      );
+    }
+    if (check.status === 'locked') {
+      return res.status(429).json({ error: 'LOCKED', message: `Too many incorrect attempts. Try again in ${check.retryInMin} minutes.` });
+    }
+    if (check.status === 'invalid') {
+      return res.status(400).json({
+        error: 'INVALID_CODE',
+        message: `That pass code doesn't match. ${check.attemptsLeft} attempt${check.attemptsLeft === 1 ? '' : 's'} left.`,
+      });
+    }
+
+    const pending = check.pending;
+    if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
+    const uid = (await findLegacyUid(email)) || crypto.randomUUID();
+    const created = await db().runTransaction(async tx => {
+      const cred = await tx.get(credentialsRef(email));
+      const still = await tx.get(pendingRef(email));
+      if (cred.exists || !still.exists) return false;
+      tx.set(credentialsRef(email), {
+        uid,
+        ...(pending.passwordHash ? { passwordHash: pending.passwordHash } : {}),
+        ...(pending.googleSub ? { googleSub: pending.googleSub } : {}),
+        createdAt: Date.now(),
+      });
+      consumePasscodeInTx(tx, pending, uid);
+      return true;
+    });
+    if (!created) return res.status(409).json({ error: 'ALREADY_ACTIVE', message: 'This account already has access. Sign in to continue.' });
+
+    // The pass code arrived by email, so the address is proven
+    await createUserIfMissing({ uid, email, emailVerified: true, name: pending.name, picture: pending.picture }, pending.username, pending.displayName);
+    await userRef(uid).update({ emailVerified: true });
+    const state = await signIn(res, uid);
+    res.json({ success: true, accessGranted: true, ...state });
+    logActivity(uid, { type: 'signup', title: 'Joined MarketX with a pass code', detail: `Batch ${pending.batch}` }, state?.profile?.username);
+    bumpDaily('signups');
+    touchUser(uid);
+
+    addNotification(uid, {
+      type: 'security',
+      title: 'Access granted',
+      message: 'Your pass code was accepted and your MarketX account is active.',
+    }).catch(() => {});
+    sendEmail(
+      email,
+      'Access granted: welcome to MarketX',
+      [
+        'Your pass code was accepted and your MarketX account is now active.',
+        'Ask about any market (forex, gold, crypto, stocks or synthetic indices) and get a clear trade plan with entry, stop loss and targets, live.',
+      ],
+      {
+        rows: [
+          ['Account', email],
+          ['Username', `@${state?.profile?.username || pending.username || ''}`],
+          ['Status', 'Access granted'],
+        ],
+        cta: { label: 'Start using MarketX', url: siteUrl(req) },
+        note: 'Your pass code has now expired and cannot be used again.',
+      }
+    );
+  }));
+
   // Permanently deletes the account and its data. Password accounts must re-enter their password;
   // Google-only accounts confirm by typing DELETE. Payment records are kept for accounting.
   app.post('/api/account/delete', authLimiter, requireAuth, wrap(async (req, res) => {
@@ -349,19 +551,7 @@ export function registerAuthRoutes(app: Express) {
       return res.status(401).json({ error: 'INVALID_PASSWORD', message: 'That password is incorrect.' });
     }
 
-    const snap = await userRef(user.uid).get();
-    const doc = snap.exists ? (snap.data() as UserDoc) : null;
-    await db().recursiveDelete(userRef(user.uid));
-    await userRef(user.uid).delete(); // no-op if already removed
-    if (doc?.usernameLower) {
-      const nameRef = db().collection('usernames').doc(doc.usernameLower);
-      const nameSnap = await nameRef.get();
-      if (nameSnap.exists && nameSnap.data()?.uid === user.uid) await nameRef.delete();
-    }
-    if (cred && cred.uid === user.uid) await credentialsRef(user.email).delete();
-    const tokens = await db().collection('authTokens').where('uid', '==', user.uid).get();
-    await Promise.all(tokens.docs.map(d => d.ref.delete()));
-
+    const doc = await deleteAccountData(user.uid, user.email);
     clearSessionCookie(res);
     res.json({ success: true });
 

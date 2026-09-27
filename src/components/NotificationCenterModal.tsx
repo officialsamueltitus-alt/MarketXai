@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppNotification, NotificationType } from '../types';
 import { Bell, CheckCheck, Trash2, X, Sparkles, TrendingUp, ShieldCheck, Gift, LineChart, ChevronRight, Mail } from 'lucide-react';
 
@@ -103,14 +103,16 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
 }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [confirmClear, setConfirmClear] = useState(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) return;
     setConfirmClear(false);
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const unread = notifications.filter(n => !n.read).length;
   const groups = useMemo(() => {
