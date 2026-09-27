@@ -1,51 +1,39 @@
 import React from 'react';
 
 interface MarketXIconProps {
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
   withContainer?: boolean;
 }
 
-export const MarketXIcon: React.FC<MarketXIconProps> = ({
-  size = 'md',
-  className = '',
-  withContainer = false,
-}) => {
-  const fontSizes = {
-    xs: 'text-xs',
-    sm: 'text-sm font-black',
-    md: 'text-base font-black',
-    lg: 'text-2xl font-black',
-  };
+// Official MarketX brand mark (gradient X in a ring), served from /public/brand
+export const MARKETX_LOGO_SRC = '/brand/marketx-logo-128.png';
 
-  const containerSizes = {
-    xs: 'w-6 h-6 rounded-lg',
-    sm: 'w-7 h-7 sm:w-8 sm:h-8 rounded-xl',
-    md: 'w-8 h-8 sm:w-9 sm:h-9 rounded-xl',
-    lg: 'w-12 h-12 rounded-2xl',
-  };
+const PX: Record<NonNullable<MarketXIconProps['size']>, number> = { xs: 16, sm: 20, md: 28, lg: 40, xl: 56 };
 
-  const xElement = (
-    <span
-      className={`marketx-chroma-x inline-block select-none leading-none font-mono ${fontSizes[size]} ${className}`}
-      style={{ letterSpacing: '-0.05em' }}
-    >
-      X
-    </span>
+export const MarketXIcon: React.FC<MarketXIconProps> = ({ size = 'md', className = '', withContainer = false }) => {
+  const px = PX[size];
+  const img = (
+    <img
+      src={size === 'xl' || size === 'lg' ? '/brand/marketx-logo-192.png' : MARKETX_LOGO_SRC}
+      alt="MarketX"
+      width={px}
+      height={px}
+      draggable={false}
+      className={`select-none shrink-0 ${className}`}
+      style={{ width: px, height: px }}
+    />
   );
 
   if (withContainer) {
     return (
-      <div
-        className={`${containerSizes[size]} bg-slate-950/80 border border-white/[0.14] flex items-center justify-center shrink-0 shadow-lg relative overflow-hidden group`}
+      <span
+        className="inline-flex items-center justify-center rounded-full bg-white/[0.04] ring-1 ring-white/[0.08] shrink-0"
+        style={{ width: px + 12, height: px + 12 }}
       >
-        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-indigo-500/10 to-rose-500/10 opacity-75" />
-        <div className="relative z-10 flex items-center justify-center">
-          {xElement}
-        </div>
-      </div>
+        {img}
+      </span>
     );
   }
-
-  return xElement;
+  return img;
 };

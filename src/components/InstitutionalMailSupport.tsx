@@ -1,80 +1,80 @@
 import React from 'react';
-import { Mail, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Mail, ArrowUpRight, Headphones, LineChart, CreditCard, Plug, Clock } from 'lucide-react';
 
 interface InstitutionalMailSupportProps {
   className?: string;
 }
 
-export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> = ({
-  className = '',
-}) => {
+const TOPICS = [
+  { icon: LineChart, label: 'Setups & signals' },
+  { icon: CreditCard, label: 'Billing & plans' },
+  { icon: Plug, label: 'Integrations' },
+];
+
+export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> = ({ className = '' }) => {
   const supportEmail = 'help.marketx@gmail.com';
   const xHandleUrl = 'https://x.com/_MarketXai';
-
-  const mailtoLink = `mailto:${supportEmail}?subject=MarketX%20Institutional%20Support%20Request&body=Hello%20MarketX%20Team%2C%0A%0AMy%20Username%3A%20%0AIssue%20%2F%20Inquiry%20Details%3A%20%0A%0AThank%20you.`;
+  const mailtoLink = `mailto:${supportEmail}?subject=MarketX%20Support%20Request&body=Hello%20MarketX%20Team%2C%0A%0AMy%20username%3A%20%0AHow%20can%20you%20help%3A%20%0A%0AThank%20you.`;
 
   return (
-    <div
-      className={`rounded-3xl bg-gradient-to-b from-slate-950/90 via-[#0e0e11]/95 to-black/90 border border-white/[0.12] p-4 sm:p-6 shadow-2xl relative overflow-hidden ${className}`}
+    <section
+      className={`relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#111114] p-5 sm:p-7 ${className}`}
+      aria-label="Direct institutional desk"
     >
-      {/* Ambient background glow */}
-      <div className="absolute top-0 right-1/4 w-72 h-72 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="pointer-events-none absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none absolute -top-24 right-0 w-72 h-72 rounded-full bg-indigo-600/10 blur-3xl" aria-hidden="true" />
 
-      <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-        {/* Left Info */}
-        <div className="space-y-2 max-w-2xl">
+      <div className="relative flex flex-col md:flex-row md:items-center gap-6 md:gap-10">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] sm:text-xs font-mono font-semibold border border-indigo-500/30 flex items-center gap-1">
-              <Mail className="w-3 h-3 text-cyan-400" />
-              Direct Institutional Desk
+            <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-white/[0.05] text-xs font-medium text-slate-300">
+              <Headphones className="w-3.5 h-3.5 text-indigo-300" /> Direct institutional desk
             </span>
-            <span className="text-[11px] text-slate-400 font-mono">
-              Average response: &lt; 2 hours
+            <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-emerald-500/10 text-xs font-medium text-emerald-300">
+              <Clock className="w-3.5 h-3.5" /> Replies in under 2 hours
             </span>
           </div>
 
-          <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-            Need Support or Have Inquiries?
-          </h3>
-
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            Our algorithmic specialists assist with institutional supply/demand setups, 0.618 golden pocket parameters, account billing, and custom integrations. Click below to message our direct support desk.
+          <h3 className="mt-4 text-xl sm:text-2xl font-semibold text-white tracking-tight">Talk to a real specialist</h3>
+          <p className="mt-2 text-sm text-slate-400 max-w-xl leading-relaxed">
+            Questions about a setup, your account, billing or a custom integration? Our desk answers every message
+            personally.
           </p>
 
-          {/* Institutional badge & X handle (email address hidden) */}
-          <div className="pt-1 flex flex-wrap items-center gap-3">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-slate-300">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Priority Response Channel</span>
-            </div>
-
-            <a
-              href={xHandleUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] text-xs font-mono text-slate-300 hover:text-white transition-all"
-            >
-              <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-              </svg>
-              <span>@_MarketXai</span>
-              <ExternalLink className="w-3 h-3 text-slate-400" />
-            </a>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {TOPICS.map(({ icon: Icon, label }) => (
+              <span
+                key={label}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-white/[0.07] bg-white/[0.02] text-[13px] text-slate-300"
+              >
+                <Icon className="w-3.5 h-3.5 text-slate-500" /> {label}
+              </span>
+            ))}
           </div>
         </div>
 
-        {/* Right CTA Button */}
-        <div className="flex flex-col sm:flex-row md:flex-col gap-2 w-full md:w-auto shrink-0">
+        <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 md:w-60 shrink-0">
           <a
             href={mailtoLink}
-            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-white font-bold text-xs sm:text-sm shadow-xl shadow-indigo-950/80 hover:shadow-indigo-900/90 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-center"
+            className="group h-12 px-5 rounded-2xl bg-white text-slate-950 text-sm font-semibold hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center justify-center gap-2"
           >
             <Mail className="w-4 h-4" />
-            <span>Message Support via Mail</span>
+            Email the desk
+            <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </a>
+          <a
+            href={xHandleUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="h-12 px-5 rounded-2xl border border-white/[0.1] text-slate-200 text-sm font-medium hover:bg-white/[0.05] hover:border-white/[0.18] transition inline-flex items-center justify-center gap-2"
+          >
+            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+            Message @_MarketXai
           </a>
         </div>
       </div>
-    </div>
+    </section>
   );
 };

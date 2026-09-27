@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXText } from './MarketXText';
+import { MarketXIcon } from './MarketXIcon';
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'reset';
 
@@ -227,7 +228,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </button>
 
         <div className="relative text-center mb-6 mt-1">
-          <div className="text-lg font-semibold tracking-tight mb-3">
+          <div className="flex flex-col items-center gap-2 mb-3">
+            <MarketXIcon size="lg" />
             <MarketXText className="text-lg" />
           </div>
           <h2 className="text-xl font-semibold text-white tracking-tight">{title}</h2>

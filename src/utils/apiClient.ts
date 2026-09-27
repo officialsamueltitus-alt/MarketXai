@@ -6,7 +6,35 @@ export interface PaymentsPublicConfig {
   currency: string;
   monthlyAmount: number;
   yearlyAmount: number;
+  benefits?: PlanBenefits;
 }
+
+export interface PlanBenefits {
+  freeDailyAnalyses: number;
+  proDailyAnalyses: number;
+  startingCredits: number;
+}
+
+export function formatMoney(amount: number, currency: string, compact = false): string {
+  const whole = compact && Number.isInteger(amount);
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: whole ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${whole ? amount : amount.toFixed(2)}`;
+  }
+}
+
+// Mirrors the server's plan rules (used until /api/public-config loads)
+export const DEFAULT_BENEFITS: PlanBenefits = {
+  freeDailyAnalyses: 3,
+  proDailyAnalyses: 10,
+  startingCredits: 5,
+};
 
 export interface PublicConfig {
   auth: { enabled: boolean; googleClientId: string | null };

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatSession, SavedAnalysis, UserProfile, CreditState, XShareReward } from '../types';
 import { MarketXText } from './MarketXText';
+import { MarketXIcon } from './MarketXIcon';
 import { VerifiedBadge } from './VerifiedBadge';
-import { CreditRangeVisualizer } from './CreditRangeVisualizer';
+import { CreditsPanel } from './CreditsPanel';
 import { ProfileView } from './ProfileView';
 import { isUnlimitedUser } from '../utils/creditManager';
 import {
@@ -147,7 +148,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div className="w-full h-full flex flex-col min-w-0 bg-transparent">
           {/* Top: New Prompt/Analysis Button & Mobile Close X Button */}
-          <div className="p-3 pt-safe flex items-center justify-between gap-2">
+          <div className="px-4 pt-4 pb-1 flex items-center gap-2.5 select-none">
+            <MarketXIcon size="md" />
+            <MarketXText className="text-[17px]" />
+          </div>
+          <div className="p-3 pt-2 flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={() => {
@@ -479,7 +484,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="block text-[10px] text-slate-400 font-mono truncate">
                         {isUnlimitedUser(userProfile.email)
                           ? 'Unlimited access'
-                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining}/10 daily`}
+                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining}/${creditState.dailyUsageLimit} daily`}
                       </span>
                     </span>
                   </span>
@@ -568,11 +573,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-label={detailView === 'credits' ? 'Credits' : 'Profile'}
           >
             <div
-              className="w-full sm:max-w-md max-h-[88dvh] sm:max-h-[85dvh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-slate-950 border border-white/[0.14] shadow-2xl shadow-black/80 overflow-hidden"
+              className="mx-pop-in w-full sm:max-w-md max-h-[90dvh] sm:max-h-[86dvh] flex flex-col rounded-t-[28px] sm:rounded-[28px] bg-[#0c0c0f] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85)] overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/[0.08] shrink-0">
-                <span className="flex items-center gap-2 text-sm font-bold text-white">
+              <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-1 shrink-0">
+                <span className="flex items-center gap-2 text-base font-semibold text-white tracking-tight">
                   {detailView === 'credits' ? (
                     <Coins className="w-4 h-4 text-amber-300" />
                   ) : (
@@ -583,7 +588,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   type="button"
                   onClick={closeDetail}
-                  className="p-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.14] text-slate-200 hover:text-white border border-white/[0.12] transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
                   aria-label="Close"
                 >
                   <X className="w-4 h-4" />
@@ -592,116 +597,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               <div className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain pb-safe">
                 {detailView === 'credits' ? (
-                  <div className="p-3.5 sm:p-4 space-y-4">
-                    {/* Available Credits Card */}
-                    <div className="p-4 rounded-2xl bg-gradient-to-b from-indigo-950/50 via-slate-900/60 to-black/40 border border-indigo-500/30 shadow-md">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                          <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
-                          Available AI Credits
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                            isUnlimitedUser(userProfile.email)
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                              : isPremium
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                              : 'bg-white/[0.05] text-slate-400 border-white/[0.1]'
-                          }`}
-                        >
-                          {isUnlimitedUser(userProfile.email) ? 'Unlimited VIP' : isPremium ? 'Pro Tier Active' : 'Free Tier'}
-                        </span>
-                      </div>
-      
-                      <div className="flex items-baseline gap-1.5 mt-2">
-                        <span className="text-3xl font-black font-mono text-white">
-                          {isUnlimitedUser(userProfile.email) || creditState.availableCredits >= 99999 ? '∞' : creditState.availableCredits}
-                        </span>
-                        <span className="text-xs font-mono text-slate-400">
-                          {isUnlimitedUser(userProfile.email) ? 'Unlimited Access' : 'Compute Balance'}
-                        </span>
-                      </div>
-      
-                      <div className="flex justify-between items-center text-[10px] text-slate-400 mt-2 pt-2 border-t border-white/[0.06]">
-                        <span>{isUnlimitedUser(userProfile.email) ? 'VIP Unlimited Mode' : 'Cost per prompt: 1 Credit'}</span>
-                        <span className="text-indigo-300 font-medium">{isUnlimitedUser(userProfile.email) ? 'No limits apply' : 'Auto-renewing quota'}</span>
-                      </div>
-                    </div>
-      
-                    {/* Visual Range Visualizer for Day, Month, and Year */}
-                    <CreditRangeVisualizer
-                      creditState={creditState}
-                      userProfile={userProfile}
-                      onOpenPricing={onOpenPricing}
-                    />
-      
-                    {/* Refill Section & Pricing Trigger */}
-                    <div className="space-y-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block px-1">
-                        Refill & Subscription
-                      </span>
-      
-                      <button
-                        type="button"
-                        onClick={onOpenPricing}
-                        className="w-full p-3.5 rounded-xl bg-gradient-to-r from-indigo-600/30 via-cyan-600/20 to-indigo-600/30 hover:from-indigo-600/45 hover:to-cyan-600/35 border border-indigo-500/40 text-left transition-all group flex items-center justify-between shadow-md cursor-pointer"
-                      >
-                        <div className="space-y-0.5">
-                          <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                            <CreditCard className="w-3.5 h-3.5 text-cyan-400" />
-                            <span>Refill Credits & Plans</span>
-                          </div>
-                          <span className="text-[10px] text-slate-300 block">
-                            $18/month • Paystack
-                          </span>
-                        </div>
-                        <span className="px-2 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold font-mono group-hover:scale-105 transition-transform">
-                          Refill &rarr;
-                        </span>
-                      </button>
-      
-                      {/* Gift Credits Button */}
-                      <button
-                        type="button"
-                        onClick={onOpenGiftModal}
-                        className="w-full p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.08] text-left transition-all group flex items-center justify-between shadow-xs cursor-pointer"
-                      >
-                        <div className="space-y-0.5">
-                          <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                            <Gift className="w-3.5 h-3.5 text-cyan-400" />
-                            <span>Gift Credits to User</span>
-                          </div>
-                          <span className="text-[10px] text-slate-400 block">
-                            Transfer credits via @username
-                          </span>
-                        </div>
-                        <span className="text-xs font-mono text-cyan-300 font-semibold group-hover:translate-x-0.5 transition-transform">
-                          Gift &rarr;
-                        </span>
-                      </button>
-                    </div>
-      
-                    {/* Value Proposition Note */}
-                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs space-y-2 text-slate-300">
-                      <span className="font-semibold text-white block text-[11px]">
-                        Included with Pro Tier:
-                      </span>
-                      <div className="space-y-1 text-[11px] text-slate-400">
-                        <div className="flex items-center gap-1.5">
-                          <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
-                          <span>10 daily usage quota renewed every 24h</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <VerifiedBadge size="sm" />
-                          <span>Verified Pro Trader badge on Profile</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Sparkles className="w-3 h-3 text-cyan-400 shrink-0" />
-                          <span>Paystack multi-currency billing integration</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <CreditsPanel
+                    userProfile={userProfile}
+                    creditState={creditState}
+                    onOpenPricing={onOpenPricing}
+                    onOpenGiftModal={onOpenGiftModal}
+                  />
                 ) : (
                   <ProfileView
                     userProfile={userProfile}

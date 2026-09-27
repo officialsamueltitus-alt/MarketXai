@@ -37,8 +37,8 @@ export const INITIAL_USER_PROFILE: UserProfile = {
 
 export const INITIAL_CREDIT_STATE: CreditState = {
   availableCredits: 5,
-  dailyUsageLimit: 5,
-  dailyUsageRemaining: 5,
+  dailyUsageLimit: 3,
+  dailyUsageRemaining: 3,
   lastDailyResetTime: Date.now(),
 };
 
@@ -65,10 +65,10 @@ export function checkAndRefreshDailyQuota(
 
   const now = Date.now();
   const elapsed = now - state.lastDailyResetTime;
-  const targetDailyLimit = hasPremium ? 10 : 5;
+  const targetDailyLimit = hasPremium ? 10 : 3;
 
   if (elapsed >= TWENTY_FOUR_HOURS_MS) {
-    // 24 hours elapsed: restart strictly from the limit (10 for premium, 5 for free), no rollover!
+    // 24 hours elapsed: restart strictly from the limit (10 for premium, 3 for free), no rollover!
     const newState: CreditState = {
       ...state,
       dailyUsageLimit: targetDailyLimit,

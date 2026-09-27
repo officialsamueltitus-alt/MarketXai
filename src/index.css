@@ -247,6 +247,22 @@ header.glass-panel {
   animation: mx-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* Auto-dismiss countdown line for chat updates */
+@keyframes mx-update-timer {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.mx-update-timer {
+  transform-origin: left;
+  animation-name: mx-update-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+
 /* Shimmering text for "thinking" states */
 @keyframes mx-shimmer {
   from {
