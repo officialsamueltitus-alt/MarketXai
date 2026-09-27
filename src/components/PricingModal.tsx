@@ -3,7 +3,7 @@ import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
 import { UserProfile } from '../types';
 import { isUnlimitedUser } from '../utils/creditManager';
-import { apiFetch, PaymentsPublicConfig } from '../utils/firebaseClient';
+import { apiFetch, PaymentsPublicConfig } from '../utils/apiClient';
 import {
   X,
   Check,
