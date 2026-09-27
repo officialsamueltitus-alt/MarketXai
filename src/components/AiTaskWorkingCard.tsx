@@ -123,9 +123,9 @@ export const AiTaskWorkingCard: React.FC<AiTaskWorkingCardProps> = ({
   };
 
   return (
-    <div className="w-full rounded-2xl sm:rounded-3xl bg-[#090d19]/95 backdrop-blur-2xl border border-cyan-500/35 shadow-2xl shadow-indigo-950/60 overflow-hidden ring-1 ring-cyan-400/20 task-beam-active transition-all">
+    <div className="w-full rounded-2xl sm:rounded-3xl bg-[#0e0e11]/95 backdrop-blur-2xl border border-cyan-500/35 shadow-2xl shadow-indigo-950/60 overflow-hidden ring-1 ring-cyan-400/20 task-beam-active transition-all">
       {/* Top Accent Header: AI Identity, Status, and Stopwatch */}
-      <div className="px-3.5 sm:px-5 py-3 border-b border-white/[0.1] bg-gradient-to-r from-slate-900/90 via-[#0c1326]/80 to-slate-900/90 flex flex-wrap items-center justify-between gap-2.5">
+      <div className="px-3.5 sm:px-5 py-3 border-b border-white/[0.1] bg-gradient-to-r from-slate-900/90 via-[#141417]/80 to-slate-900/90 flex flex-wrap items-center justify-between gap-2.5">
         {/* Left: Engine Identity */}
         <div className="flex items-center gap-2.5">
           <div className="relative flex items-center justify-center">

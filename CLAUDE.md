@@ -10,8 +10,10 @@
   list (`modelsToTry`), `getGeminiClient`, and `src/data/prompts.ts`.
 
 ## Architecture
-- Accounts use Firebase Authentication (email/password + Google); the server verifies ID tokens with
-  `firebase-admin` and owns all data in Firestore (`server/account.ts`, `server/payments.ts`).
+- Firestore is storage only (via `firebase-admin` service account). Do NOT use Firebase Authentication.
+- Auth is handled by this server (`server/auth.ts`, `server/session.ts`): email/password (scrypt),
+  Google Identity Services ID tokens verified with `google-auth-library`, signed httpOnly session cookie,
+  email verification + password reset links via Gmail SMTP.
 - Credits, subscriptions, gifts, rewards and payments are only ever changed server-side inside
   Firestore transactions. `firestore.rules` denies all direct client access — keep it that way.
 - Paystack plans are granted only after server verification (verify endpoint or signed webhook).

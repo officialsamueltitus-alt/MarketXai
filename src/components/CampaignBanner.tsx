@@ -59,7 +59,7 @@ export const CampaignBanner: React.FC<CampaignBannerProps> = ({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-[#0c0f1d] via-[#10152b] to-[#0a0d18] ${
+      className={`relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-[#101013] via-[#17171a] to-[#0e0e11] ${
         compact ? 'p-3 sm:p-3.5' : 'p-4 sm:p-5 sm:rounded-3xl'
       } shadow-xl shadow-indigo-950/40 group ${className}`}
     >

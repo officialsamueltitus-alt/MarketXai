@@ -111,7 +111,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(160, textareaRef.current.scrollHeight)}px`;
+      textareaRef.current.style.height = `${Math.min(200, textareaRef.current.scrollHeight)}px`;
     }
   }, [input]);
 
@@ -292,12 +292,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div
-      className="relative w-full max-w-[280px] sm:max-w-[320px] mx-auto"
+      className="relative w-full"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -306,81 +305,30 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         onChange={handleFileChange}
       />
 
-      {/* Uploaded / Pasted Chart Thumbnail Preview Above Input */}
-      {chartImage && (
-        <div className="mb-1.5 p-1.5 rounded-xl bg-slate-950/95 border border-cyan-500/40 shadow-xl backdrop-blur-xl flex items-center justify-between gap-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="relative shrink-0">
-              <img
-                src={chartImage}
-                alt="Uploaded Chart Preview"
-                className="w-8 h-8 rounded-lg object-cover border border-cyan-400/40 shrink-0 bg-slate-900"
-                referrerPolicy="no-referrer"
-              />
-              {isPasted && (
-                <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center text-[8px] font-bold shadow-xs">
-                  📋
-                </span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-cyan-300 font-mono truncate max-w-[140px]">
-                  {chartFileName || (isPasted ? 'Pasted Chart Image' : 'Chart Image')}
-                </span>
-                <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono flex items-center gap-0.5">
-                  <CheckCircle2 className="w-2.5 h-2.5" />
-                  {isPasted ? 'Pasted Ready' : 'Vision Ready'}
-                </span>
-              </div>
-              <span className="text-[9px] text-slate-400 block truncate">
-                AI will inspect candlesticks & POIs
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setChartImage(null);
-              setChartFileName('');
-              setIsPasted(false);
-              if (onClearInitialChart) onClearInitialChart();
-            }}
-            className="w-5 h-5 rounded-md bg-white/[0.08] hover:bg-rose-500/30 text-slate-400 hover:text-rose-300 flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            title="Remove chart"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-
-      {/* Slash-command pop-out, anchored to the top of the input box */}
+      {/* Slash-command pop-out, anchored to the top of the composer */}
       {(isSlashMenuOpen || comingSoonLabel) && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[min(92vw,320px)] z-30 rounded-2xl bg-slate-950 border border-white/[0.14] shadow-2xl shadow-black/80 overflow-hidden">
+        <div className="absolute bottom-full left-0 mb-2 w-full sm:w-80 z-30 rounded-2xl bg-[#16161a] border border-white/[0.1] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.9)] overflow-hidden mx-pop-in">
           {comingSoonLabel ? (
-            <div className="flex items-start gap-2.5 p-3" role="status">
-              <span className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+            <div className="flex items-start gap-3 p-3.5" role="status">
+              <span className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
                 <Lock className="w-4 h-4 text-amber-300" />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-white">{comingSoonLabel}</div>
-                <div className="text-[11px] text-slate-300 mt-0.5">In private test mode. Coming soon.</div>
+                <div className="text-sm font-medium text-white">{comingSoonLabel}</div>
+                <div className="text-xs text-slate-400 mt-0.5">In private test mode. Coming soon.</div>
               </div>
               <button
                 type="button"
                 onClick={() => setComingSoonLabel(null)}
-                className="w-5 h-5 rounded-md bg-white/[0.08] hover:bg-white/[0.16] text-slate-400 hover:text-white flex items-center justify-center shrink-0 cursor-pointer"
+                className="w-6 h-6 rounded-full hover:bg-white/[0.08] text-slate-500 hover:text-white flex items-center justify-center shrink-0 cursor-pointer"
                 aria-label="Dismiss"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
             <div role="listbox" aria-label="Commands" className="p-1.5">
-              <div className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                Commands
-              </div>
+              <div className="px-2.5 pt-1.5 pb-1 text-[11px] font-medium text-slate-500">Commands</div>
               {filteredCommands.map((cmd, i) => {
                 const Icon = cmd.icon;
                 const active = i === slashIndex;
@@ -393,16 +341,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     onMouseDown={e => e.preventDefault()}
                     onMouseEnter={() => setSlashIndex(i)}
                     onClick={() => selectSlashCommand(cmd.label)}
-                    className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left transition-colors cursor-pointer ${
-                      active ? 'bg-indigo-600/25 text-white' : 'text-slate-200 hover:bg-white/[0.06]'
+                    className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
+                      active ? 'bg-white/[0.06] text-white' : 'text-slate-300'
                     }`}
                   >
-                    <span className="w-7 h-7 rounded-lg bg-white/[0.05] border border-white/[0.1] flex items-center justify-center shrink-0">
-                      <Icon className="w-3.5 h-3.5 text-indigo-300" />
+                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${active ? 'bg-indigo-500/20 text-indigo-300' : 'bg-white/[0.04] text-slate-400'}`}>
+                      <Icon className="w-4 h-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-semibold">{cmd.label}</span>
-                      <span className="block text-[10px] text-slate-400 truncate">{cmd.description}</span>
+                      <span className="block text-sm font-medium">/{cmd.label.toLowerCase().replace(/\s+/g, '-')}</span>
+                      <span className="block text-xs text-slate-500 truncate">{cmd.description}</span>
                     </span>
                   </button>
                 );
@@ -412,110 +360,127 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
-      {/* Crisp Animated Running Border Beam Turning Around Input Box */}
-      <div className={`running-rainbow-wrapper transition-all ${isDragging ? 'ring-2 ring-cyan-400 scale-[1.02]' : ''}`}>
-        <div className="border-light-beam" aria-hidden="true" />
-        <form
-          onSubmit={handleSubmit}
-          className="running-rainbow-inner px-2 py-1 relative transition-all flex items-center gap-1 min-h-[34px] sm:min-h-[36px]"
-        >
-          {/* Chart Image Upload / Paste Button */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className={`p-1 rounded font-mono font-semibold transition-all flex items-center justify-center cursor-pointer border shrink-0 ${
-              chartImage
-                ? 'bg-cyan-500/25 text-cyan-300 border-cyan-500/50 shadow-xs'
-                : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:text-white hover:bg-white/[0.08]'
-            }`}
-            title="Upload or paste (Ctrl+V) chart image for AI vision analysis (PNG, JPG, WEBP)"
-          >
-            <ImagePlus className="w-2.5 h-2.5 shrink-0" />
-          </button>
+      <form onSubmit={handleSubmit} className={`mx-composer ${isDragging ? 'is-dragging' : ''}`}>
+        {/* Attached chart preview */}
+        {chartImage && (
+          <div className="px-3 pt-3">
+            <div className="inline-flex items-center gap-2.5 pl-1.5 pr-2 py-1.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] mx-rise">
+              <img
+                src={chartImage}
+                alt="Attached chart"
+                className="w-10 h-10 rounded-xl object-cover bg-slate-900"
+                referrerPolicy="no-referrer"
+              />
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-200 truncate max-w-[180px]">
+                  {chartFileName || (isPasted ? 'Pasted chart' : 'Chart image')}
+                </div>
+                <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Ready for vision analysis
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setChartImage(null);
+                  setChartFileName('');
+                  setIsPasted(false);
+                  if (onClearInitialChart) onClearInitialChart();
+                }}
+                className="ml-1 w-6 h-6 rounded-full hover:bg-white/[0.1] text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="Remove chart"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
-          {/* Main Ultra-Compact Textarea with onPaste listener */}
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={
-              chartImage
-                ? 'Ask about this chart (or press Enter)...'
-                : 'Ask MarketX...'
-            }
-            rows={1}
-            className="flex-1 bg-transparent text-slate-100 placeholder-slate-400 text-xs sm:text-xs resize-none focus:outline-none px-1 py-0.5 max-h-16 leading-tight font-sans min-w-0 self-center"
-          />
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder={chartImage ? 'Ask about this chart…' : 'Ask about any market, or type /'}
+          rows={1}
+          className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px]"
+        />
 
-          {/* Right Controls: Timeframe, Tight SL & Submit in unified single row */}
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Compact Timeframe Cycler */}
+        <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                chartImage ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+              }`}
+              title="Attach a chart screenshot (or paste with Ctrl+V)"
+              aria-label="Attach chart image"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </button>
+
             <button
               type="button"
               onClick={cycleTimeframe}
-              className="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded bg-white/[0.06] hover:bg-white/[0.12] text-indigo-300 border border-white/[0.1] transition-all cursor-pointer"
-              title={`Timeframe: ${timeframe} (Click to switch)`}
+              className="h-8 px-2.5 rounded-full text-xs font-medium font-mono text-slate-300 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              title="Change timeframe"
             >
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
               {timeframe}
             </button>
 
-            {/* Tight SL / Normal SL Toggle Button */}
             <button
               type="button"
-              onClick={() => setSlMode(prev => prev === 'tight' ? 'normal' : 'tight')}
-              className={`p-1 rounded font-mono font-semibold transition-all flex items-center justify-center cursor-pointer border ${
+              onClick={() => setSlMode(prev => (prev === 'tight' ? 'normal' : 'tight'))}
+              className={`h-8 px-2.5 rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border ${
                 slMode === 'tight'
-                  ? 'bg-amber-500/25 text-amber-300 border-amber-500/40 shadow-xs'
-                  : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:text-white'
+                  ? 'text-amber-200 bg-amber-500/10 border-amber-500/30'
+                  : 'text-slate-300 hover:text-white hover:bg-white/[0.06] border-white/[0.08]'
               }`}
-              title={`SL Mode: ${slMode === 'tight' ? 'Tight SL' : 'Normal SL'} (click to toggle)`}
+              title={`Stop-loss mode: ${slMode === 'tight' ? 'Tight' : 'Normal'} (click to toggle)`}
             >
-              {slMode === 'tight' ? (
-                <Crosshair className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-              ) : (
-                <Shield className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-              )}
+              {slMode === 'tight' ? <Crosshair className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5 text-slate-500" />}
+              <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
             </button>
-
-            {/* Submit or Stop Button */}
-            {isLoading ? (
-              <button
-                type="button"
-                onClick={onStopAnalysis}
-                className="w-6 h-6 rounded bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center transition-all shadow-md shadow-rose-950/50 hover:scale-105 active:scale-95 cursor-pointer shrink-0 animate-pulse"
-                title="Stop analysis"
-              >
-                <Square className="w-2.5 h-2.5 fill-current" />
-              </button>
-            ) : credits <= 0 ? (
-              <div className="flex items-center gap-0.5 text-[8px] text-rose-400 font-semibold px-1 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 shrink-0">
-                <AlertCircle className="w-2 h-2" />
-                <span>Refill</span>
-              </div>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim() && !chartImage}
-                className={`w-6 h-6 rounded flex items-center justify-center transition-all shadow-md cursor-pointer shrink-0 ${
-                  input.trim() || chartImage
-                    ? 'bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white shadow-indigo-950/40 hover:scale-105 active:scale-95'
-                    : 'bg-white/[0.04] text-slate-500 cursor-not-allowed border border-white/[0.06]'
-                }`}
-                title="Send (Enter)"
-              >
-                <ArrowUp className="w-3 h-3" />
-              </button>
-            )}
           </div>
-        </form>
-      </div>
 
-      {/* User requested exact writeup below input section */}
-      <div className="flex items-center justify-center gap-1 text-[8px] sm:text-[9px] text-slate-400 mt-1 text-center truncate">
-        <span><MarketXText className="text-[8px] sm:text-[9px]" /> is Ai, do well to re-evaluate feedback</span>
-      </div>
+          {isLoading ? (
+            <button
+              type="button"
+              onClick={onStopAnalysis}
+              className="h-9 w-9 rounded-full bg-white text-slate-950 flex items-center justify-center transition hover:bg-slate-200 active:scale-95 cursor-pointer"
+              title="Stop"
+              aria-label="Stop analysis"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+            </button>
+          ) : credits <= 0 ? (
+            <span className="h-9 px-3 rounded-full text-xs font-medium text-rose-300 bg-rose-500/10 inline-flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" /> Out of credits
+            </span>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim() && !chartImage}
+              className={`h-9 w-9 rounded-full flex items-center justify-center transition active:scale-95 ${
+                input.trim() || chartImage
+                  ? 'bg-white text-slate-950 hover:bg-slate-200 cursor-pointer shadow-[0_0_0_4px_rgba(139,92,246,0.15)]'
+                  : 'bg-white/[0.06] text-slate-500 cursor-not-allowed'
+              }`}
+              title="Send (Enter)"
+              aria-label="Send"
+            >
+              <ArrowUp className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </form>
+
+      <p className="text-center text-[11px] text-slate-500 mt-2">
+        <MarketXText className="text-[11px]" /> is AI and can make mistakes. Always manage your risk.
+      </p>
     </div>
   );
 };

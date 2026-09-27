@@ -2,15 +2,7 @@ import React, { useMemo } from 'react';
 import { MarketQuote } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
 import { ModelSelectorButton } from './ModelSelectorButton';
-import {
-  Menu,
-  Zap,
-  TrendingUp,
-  TrendingDown,
-  RotateCcw,
-  User,
-  Bell
-} from 'lucide-react';
+import { PanelLeft, Zap, Bell, SquarePen } from 'lucide-react';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -51,53 +43,57 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const activeTickers = useMemo(() => tickers.filter(t => t.symbol !== 'SPY'), [tickers]);
 
+  const formatPrice = (p: number) =>
+    p < 10 ? p.toFixed(p < 1 ? 4 : 3) : p.toLocaleString(undefined, { maximumFractionDigits: p < 1000 ? 2 : 0 });
+
   return (
-    <header className="h-14 mx-2 sm:mx-3.5 my-2 sm:my-2.5 rounded-2xl border border-white/[0.14] glass-panel px-2 sm:px-4 flex items-center justify-between gap-1 sm:gap-3 shrink-0 z-30 shadow-lg min-w-0 overflow-hidden">
-      {/* Left: Sidebar Toggle & Page Switcher & Model Selector */}
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0 min-w-0">
+    <header className="h-14 px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-30 min-w-0">
+      {/* Left: sidebar, view switch, model picker */}
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="p-1.5 sm:p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
-          title="Toggle Sidebar"
+          className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
+          title="Toggle sidebar"
+          aria-label="Toggle sidebar"
         >
-          <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
+          <PanelLeft className="w-[18px] h-[18px]" />
         </button>
 
         {onSwitchView && (
-          <div className="flex items-center bg-black/40 rounded-lg p-0.5 border border-white/[0.08] shrink-0">
-            <button
-              type="button"
-              onClick={() => onSwitchView('home')}
-              className={`px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold transition-all ${
-                currentView === 'home'
-                  ? 'bg-indigo-600/40 text-white border border-indigo-500/40 shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+          <div className="relative flex items-center p-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] shrink-0" role="tablist">
+            <span
+              className={`absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-full bg-white/[0.1] transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
+                currentView === 'chat' ? 'translate-x-full' : 'translate-x-0'
               }`}
-            >
-              Overview
-            </button>
-            <button
-              type="button"
-              onClick={() => onSwitchView('chat')}
-              className={`px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold transition-all ${
-                currentView === 'chat'
-                  ? 'bg-indigo-600/40 text-white border border-indigo-500/40 shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Ask AI
-            </button>
+              aria-hidden="true"
+            />
+            {(['home', 'chat'] as const).map(view => (
+              <button
+                key={view}
+                type="button"
+                role="tab"
+                aria-selected={currentView === view}
+                onClick={() => onSwitchView(view)}
+                className={`relative z-10 w-[4.75rem] sm:w-[5.25rem] h-7 rounded-full text-xs sm:text-[13px] font-medium transition-colors ${
+                  currentView === view ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {view === 'home' ? 'Markets' : 'Ask AI'}
+              </button>
+            ))}
           </div>
         )}
 
-        {/* User requested button: Analyze with Claude, GPT, Grok with cycling icons */}
         <ModelSelectorButton onNotifyComingSoon={onNotifyComingSoon} />
       </div>
 
-      {/* Middle: Live Market Moving Repeatedly Ticker Row (Visible on tablet & desktop, keeping mobile nav options clear and complete) */}
-      <div className="hidden md:flex flex-1 items-center overflow-hidden min-w-0 mx-2 sm:mx-3 relative mask-radial">
-        <div className="animate-ticker flex items-center gap-1.5 sm:gap-2 py-1">
+      {/* Middle: live ticker strip (tablet & desktop) */}
+      <div
+        className="hidden md:flex flex-1 items-center overflow-hidden min-w-0"
+        style={{ maskImage: 'linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)', WebkitMaskImage: 'linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)' }}
+      >
+        <div className="animate-ticker flex items-center gap-1">
           {[...activeTickers, ...activeTickers].map((ticker, idx) => {
             const isUp = ticker.change24h >= 0;
             return (
@@ -105,22 +101,12 @@ export const Header: React.FC<HeaderProps> = ({
                 key={`${ticker.symbol}-${idx}`}
                 type="button"
                 onClick={() => onSelectTicker(ticker.symbol)}
-                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.08] text-[11px] sm:text-xs font-mono transition-all hover:scale-105 shrink-0 group shadow-xs"
-                title={`Analyze ${ticker.name} (${ticker.symbol})`}
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full hover:bg-white/[0.06] text-xs transition-colors shrink-0"
+                title={`Analyze ${ticker.name}`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                <span className="font-bold text-slate-200 group-hover:text-cyan-300 transition-colors">
-                  {ticker.symbol.split('/')[0]}
-                </span>
-                <span className="text-slate-300 font-medium">
-                  ${ticker.price < 10 ? ticker.price.toFixed(3) : ticker.price.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                </span>
-                <span
-                  className={`flex items-center text-[10px] font-semibold ${
-                    isUp ? 'text-emerald-400' : 'text-rose-400'
-                  }`}
-                >
-                  {isUp ? <TrendingUp className="w-2.5 h-2.5 inline" /> : <TrendingDown className="w-2.5 h-2.5 inline" />}
+                <span className="font-medium text-slate-300">{ticker.symbol.split('/')[0]}</span>
+                <span className="font-mono text-slate-400">{formatPrice(ticker.price)}</span>
+                <span className={`font-mono ${isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {isUp ? '+' : ''}
                   {ticker.change24h}%
                 </span>
@@ -130,66 +116,34 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Credits Pill & User Profile & Actions */}
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        {/* User Profile Chip */}
-        {onOpenProfile && (
-          <button
-            type="button"
-            onClick={onOpenProfile}
-            className="flex items-center gap-1 sm:gap-1.5 p-1 sm:px-2 sm:py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-200 text-xs transition-all shadow-xs cursor-pointer shrink-0"
-            title="View Profile"
-          >
-            <div className="w-5 h-5 rounded-full overflow-hidden bg-gradient-to-tr from-indigo-600 to-cyan-400 flex items-center justify-center text-[9px] font-bold text-white shrink-0">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={username || 'Trader'} className="w-full h-full object-cover" />
-              ) : (
-                (username || 'T').substring(0, 1).toUpperCase()
-              )}
-            </div>
-            <span className="font-mono text-[11px] hidden sm:inline text-slate-300">
-              @{username || 'trader'}
-            </span>
-            {isVerified && (
-              <span className="hidden sm:inline-flex">
-                <VerifiedBadge size="sm" />
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Credits Pill */}
+      {/* Right: credits, notifications, new chat, profile */}
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
         <button
           type="button"
           onClick={onOpenCredits}
-          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-full border text-xs font-semibold shadow-xs transition-all shrink-0 ${
+          className={`h-8 flex items-center gap-1.5 px-2.5 sm:px-3 rounded-full text-xs font-medium transition-colors shrink-0 ${
             credits >= 99999
-              ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/40 text-amber-300 shadow-amber-500/10'
-              : 'bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/30 text-indigo-300'
+              ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15'
+              : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border border-white/[0.06]'
           }`}
-          title={credits >= 99999 ? 'Unlimited VIP Credits' : 'View or Refill AI Credits'}
+          title={credits >= 99999 ? 'Unlimited credits' : 'Credits'}
         >
-          <Zap className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${credits >= 99999 ? 'text-amber-300 fill-amber-300' : 'text-amber-400 fill-amber-400'}`} />
-          <span className="font-mono text-[11px] sm:text-xs font-bold">
-            {credits >= 99999 ? '∞ Unlimited' : credits}
-          </span>
-          {credits < 99999 && <span className="text-slate-400 text-[10px] hidden sm:inline">Credits</span>}
+          <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300/80" />
+          <span className="font-mono">{credits >= 99999 ? '∞' : credits}</span>
+          <span className="text-slate-500 hidden sm:inline">credits</span>
         </button>
 
-        {/* Notification Center Trigger on Navbar (desktop & tablet) */}
         {onOpenNotifications && (
           <button
             type="button"
             onClick={onOpenNotifications}
-            className="hidden sm:flex relative p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.14] transition-all cursor-pointer shadow-xs shrink-0"
-            title="Notification Center"
-            aria-label="Open Notification Center"
+            className="hidden sm:flex relative h-9 w-9 rounded-full items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
+            title="Notifications"
+            aria-label="Open notifications"
           >
-            <Bell className="w-4 h-4 text-slate-300 hover:text-cyan-300" />
+            <Bell className="w-[18px] h-[18px]" />
             {unreadNotificationsCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500 text-slate-950 font-mono font-extrabold text-[9px] flex items-center justify-center shadow-md ring-2 ring-slate-950 animate-pulse">
-                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
-              </span>
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-400 ring-2 ring-[#09090b]" />
             )}
           </button>
         )}
@@ -197,13 +151,34 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={onResetChat}
-          className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
-          title="Clear Conversation"
+          className="hidden sm:flex h-9 w-9 rounded-full items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
+          title="New chat"
+          aria-label="New chat"
         >
-          <RotateCcw className="w-4 h-4" />
+          <SquarePen className="w-[18px] h-[18px]" />
         </button>
+
+        {onOpenProfile && (
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="relative h-8 w-8 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-xs font-semibold text-white ring-1 ring-white/10 hover:ring-white/30 transition shrink-0 ml-0.5"
+            title={username ? `@${username}` : 'Profile'}
+            aria-label="Open profile"
+          >
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={username || 'Profile'} className="w-full h-full object-cover" />
+            ) : (
+              (username || 'T').substring(0, 1).toUpperCase()
+            )}
+            {isVerified && (
+              <span className="absolute -bottom-0.5 -right-0.5 scale-75">
+                <VerifiedBadge size="sm" />
+              </span>
+            )}
+          </button>
+        )}
       </div>
     </header>
   );
 };
-

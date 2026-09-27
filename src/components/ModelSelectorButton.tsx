@@ -141,16 +141,16 @@ export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="group relative flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.16] hover:border-indigo-400/50 text-slate-100 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+        className="group relative flex items-center gap-1.5 h-8 pl-1.5 pr-2 sm:pl-2 sm:pr-2.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-100 transition-colors cursor-pointer active:scale-95 shrink-0"
         title={`AI Models Engine (${currentModel.name}) - Click to explore models`}
         aria-expanded={isOpen}
       >
-        <span className="hidden sm:inline text-xs font-bold text-white tracking-tight">
+        <span className="hidden sm:inline text-[13px] font-medium text-slate-200">
           Analyze
         </span>
 
         {/* The models logo showing ONE after another, changing every 3 seconds */}
-        <div className="w-5 h-5 flex items-center justify-center rounded-lg bg-black/50 border border-white/[0.12] shrink-0 overflow-hidden relative shadow-inner">
+        <div className="w-5 h-5 flex items-center justify-center rounded-full bg-black/40 shrink-0 overflow-hidden relative">
           <div
             key={currentModel.id}
             className="animate-in fade-in zoom-in-75 duration-300 flex items-center justify-center"
@@ -178,7 +178,7 @@ export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({
 
           {/* Compact Floating Dropdown Card */}
           <div
-            className="fixed rounded-xl bg-[#090d19] border border-white/[0.18] shadow-xl shadow-black/95 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/[0.08]"
+            className="fixed rounded-xl bg-[#0e0e11] border border-white/[0.18] shadow-xl shadow-black/95 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/[0.08]"
             style={{
               top: `${dropdownCoords.top}px`,
               left: `${dropdownCoords.left}px`,
