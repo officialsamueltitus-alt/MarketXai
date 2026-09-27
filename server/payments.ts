@@ -12,6 +12,8 @@ import {
   readAccountState,
   addNotificationInTx,
   PRO_DAILY_LIMIT,
+  FREE_DAILY_LIMIT,
+  STARTING_CREDITS,
 } from './account';
 
 type Plan = 'monthly' | 'yearly';
@@ -42,6 +44,14 @@ export function getPaymentsPublicConfig() {
     currency: pricing.currency,
     monthlyAmount: pricing.monthly / 100,
     yearlyAmount: pricing.yearly / 100,
+    // Plan benefits as enforced by the server, so the UI never over-promises
+    benefits: {
+      freeDailyAnalyses: FREE_DAILY_LIMIT,
+      proDailyAnalyses: PRO_DAILY_LIMIT,
+      startingCredits: STARTING_CREDITS,
+      monthlyBonusCredits: PLAN_BONUS_CREDITS.monthly,
+      yearlyBonusCredits: PLAN_BONUS_CREDITS.yearly,
+    },
   };
 }
 

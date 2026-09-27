@@ -3,6 +3,7 @@ import { UserProfile, CreditState, XShareReward } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
 import { MarketXText } from './MarketXText';
 import { EditProfileModal } from './EditProfileModal';
+import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
 import { RewardEmailNotificationModal } from './RewardEmailNotificationModal';
@@ -243,7 +244,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
         {!isPremium && !isUnlimited && (
-          <p className="mt-2 text-xs text-slate-500">Pro gives 10 daily analyses, bonus credits and a verified badge.</p>
+          <p className="mt-2 text-xs text-slate-500">Pro gives {B.proDailyAnalyses} daily analyses (Free: {B.freeDailyAnalyses}), bonus credits and a verified badge.</p>
         )}
         {isUnlimited && <p className="mt-2 text-xs text-slate-500">Unlimited analyses with no credit deductions.</p>}
       </section>

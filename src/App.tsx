@@ -24,6 +24,7 @@ import { TermsAndPrivacyModal } from './components/TermsAndPrivacyModal';
 import { ShareProfileModal } from './components/ShareProfileModal';
 import { RewardEmailNotificationModal } from './components/RewardEmailNotificationModal';
 import { AuthModal } from './components/AuthModal';
+import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import {
   INITIAL_USER_PROFILE,
   INITIAL_CREDIT_STATE,
@@ -670,6 +671,28 @@ export default function App() {
     });
   };
 
+  // Updates bar: mark a single notification read (locally + server)
+  const markNotificationRead = useCallback(
+    (id: string) => {
+      setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
+      if (authUser) apiFetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' }).catch(() => {});
+    },
+    [authUser]
+  );
+
+  const handleUpdateNotificationAction = (notif: AppNotification) => {
+    markNotificationRead(notif.id);
+    if (notif.actionPrompt) {
+      handleSendMessage(notif.actionPrompt, '4H');
+    } else if (notif.actionType === 'open_campaign') {
+      setIsShareModalOpen(true);
+    } else if (notif.type === 'reward' || notif.type === 'credit') {
+      openAccountTab('credits');
+    } else {
+      setIsNotificationCenterOpen(true);
+    }
+  };
+
   // Send a message and generate institutional strategy
   const handleSendMessage = async (
     promptText: string,
@@ -1198,6 +1221,17 @@ export default function App() {
 
               <div className="shrink-0 px-3 sm:px-6 pt-1 pb-safe">
                 <div className="w-full max-w-3xl mx-auto">
+                  <ChatUpdatesBar
+                    isSignedIn={!!authUser}
+                    userProfile={userProfile}
+                    creditState={creditState}
+                    notifications={notifications}
+                    onOpenPricing={() => setIsPricingModalOpen(true)}
+                    onOpenCampaign={() => setIsShareModalOpen(true)}
+                    onSignIn={() => setIsAuthModalOpen(true)}
+                    onNotificationSeen={markNotificationRead}
+                    onNotificationAction={handleUpdateNotificationAction}
+                  />
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}

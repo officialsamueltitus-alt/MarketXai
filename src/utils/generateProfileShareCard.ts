@@ -204,7 +204,7 @@ function drawChart(ctx: CanvasRenderingContext2D) {
   pill(ctx, x1, entryY + 12, 'ENTRY', { h: 30, padX: 12, font: `600 12px ${MONO}`, fg: '#c4b5fd', bg: 'rgba(139,92,246,0.14)', alignRight: true });
 }
 
-function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null): HTMLCanvasElement {
+function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null, logo: HTMLImageElement | null): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = W * SCALE;
   canvas.height = H * SCALE;
@@ -239,14 +239,17 @@ function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null): 
 
   const L = 72;
 
-  // Brand: logo tile + wordmark
-  roundRect(ctx, L, 64, 48, 48, 14);
-  const tile = ctx.createLinearGradient(L, 64, L + 48, 112);
-  tile.addColorStop(0, '#8b5cf6');
-  tile.addColorStop(1, '#38bdf8');
-  ctx.fillStyle = tile;
-  ctx.fill();
-  drawXLogo(ctx, L + 12, 76, 24, '#ffffff');
+  // Brand: official MarketX logo + wordmark
+  if (logo) {
+    ctx.drawImage(logo, L - 2, 60, 56, 56);
+  } else {
+    roundRect(ctx, L, 64, 48, 48, 24);
+    const tile = ctx.createLinearGradient(L, 64, L + 48, 112);
+    tile.addColorStop(0, '#8b5cf6');
+    tile.addColorStop(1, '#38bdf8');
+    ctx.fillStyle = tile;
+    ctx.fill();
+  }
   ctx.font = `700 30px ${SANS}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -382,12 +385,15 @@ function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null): 
  */
 export async function generateProfileShareCard(userProfile: UserProfile): Promise<string> {
   await ensureFonts();
-  const avatar = userProfile.avatarUrl ? await loadImage(userProfile.avatarUrl) : null;
+  const [avatar, logo] = await Promise.all([
+    userProfile.avatarUrl ? loadImage(userProfile.avatarUrl) : Promise.resolve(null),
+    loadImage('/brand/marketx-logo-256.png'),
+  ]);
   try {
-    return renderCard(userProfile, avatar).toDataURL('image/png');
+    return renderCard(userProfile, avatar, logo).toDataURL('image/png');
   } catch {
     // A cross-origin avatar without CORS taints the canvas; fall back to the initial
-    return renderCard(userProfile, null).toDataURL('image/png');
+    return renderCard(userProfile, null, logo).toDataURL('image/png');
   }
 }
 

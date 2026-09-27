@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatSession, SavedAnalysis, UserProfile, CreditState, XShareReward } from '../types';
 import { MarketXText } from './MarketXText';
+import { MarketXIcon } from './MarketXIcon';
 import { VerifiedBadge } from './VerifiedBadge';
 import { CreditsPanel } from './CreditsPanel';
 import { ProfileView } from './ProfileView';
@@ -147,7 +148,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div className="w-full h-full flex flex-col min-w-0 bg-transparent">
           {/* Top: New Prompt/Analysis Button & Mobile Close X Button */}
-          <div className="p-3 pt-safe flex items-center justify-between gap-2">
+          <div className="px-4 pt-4 pb-1 flex items-center gap-2.5 select-none">
+            <MarketXIcon size="md" />
+            <MarketXText className="text-[17px]" />
+          </div>
+          <div className="p-3 pt-2 flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={() => {
@@ -479,7 +484,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="block text-[10px] text-slate-400 font-mono truncate">
                         {isUnlimitedUser(userProfile.email)
                           ? 'Unlimited access'
-                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining}/10 daily`}
+                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining}/${creditState.dailyUsageLimit} daily`}
                       </span>
                     </span>
                   </span>

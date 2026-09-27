@@ -18,7 +18,7 @@ import type {
 // ---------------------------------------------------------------------------
 export const FREE_DAILY_LIMIT = 5;
 export const PRO_DAILY_LIMIT = 10;
-const STARTING_CREDITS = 5;
+export const STARTING_CREDITS = 5;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const X_SHARE_WAIT_MS = 10 * 60 * 60 * 1000;
 const X_SHARE_CREDITS = 10;
@@ -508,6 +508,15 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     const batch = db().batch();
     snap.docs.forEach(d => batch.update(d.ref, { read: true }));
     await batch.commit();
+    res.json({ success: true });
+  }));
+
+  app.post('/api/notifications/:id/read', limiter, requireAuth, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    const id = String(req.params.id);
+    if (!SAFE_ID.test(id)) return res.status(400).json({ error: 'INVALID_ID' });
+    const ref = notificationsCol(uid).doc(id);
+    if ((await ref.get()).exists) await ref.update({ read: true });
     res.json({ success: true });
   }));
 

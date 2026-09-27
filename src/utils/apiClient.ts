@@ -6,7 +6,25 @@ export interface PaymentsPublicConfig {
   currency: string;
   monthlyAmount: number;
   yearlyAmount: number;
+  benefits?: PlanBenefits;
 }
+
+export interface PlanBenefits {
+  freeDailyAnalyses: number;
+  proDailyAnalyses: number;
+  startingCredits: number;
+  monthlyBonusCredits: number;
+  yearlyBonusCredits: number;
+}
+
+// Mirrors the server's plan rules (used until /api/public-config loads)
+export const DEFAULT_BENEFITS: PlanBenefits = {
+  freeDailyAnalyses: 5,
+  proDailyAnalyses: 10,
+  startingCredits: 5,
+  monthlyBonusCredits: 50,
+  yearlyBonusCredits: 500,
+};
 
 export interface PublicConfig {
   auth: { enabled: boolean; googleClientId: string | null };

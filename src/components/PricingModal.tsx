@@ -3,7 +3,7 @@ import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
 import { UserProfile } from '../types';
 import { isUnlimitedUser } from '../utils/creditManager';
-import { apiFetch, PaymentsPublicConfig } from '../utils/apiClient';
+import { apiFetch, PaymentsPublicConfig, DEFAULT_BENEFITS } from '../utils/apiClient';
 import {
   X,
   Check,
@@ -78,6 +78,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const yearlyMonthlyEquivalent = formatMoney(yearlyAmount / 12, currency);
   const discountPct = Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
   const paymentsEnabled = !!paymentsConfig?.enabled;
+  const benefits = paymentsConfig?.benefits || DEFAULT_BENEFITS;
 
   const handlePaystackCheckout = async () => {
     setCheckoutError(null);
@@ -145,10 +146,10 @@ export const PricingModal: React.FC<PricingModalProps> = ({
           {/* Title and Subtitle */}
           <div className="text-center space-y-1.5 max-w-xl mx-auto pt-1 sm:pt-2">
             <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center justify-center gap-2">
-              <span>Institutional Pro Access</span>
+              <span>MarketX Pro</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Unshackle institutional order flow, 0.618 golden pocket confluence, and daily AI quotas.
+              More analyses every day, bonus credits and a verified trader badge.
             </p>
           </div>
 
@@ -225,7 +226,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <span>{billingPeriod === 'yearly' ? 'Institutional Annual Pro' : 'Monthly Pro'}</span>
+                    <span>{billingPeriod === 'yearly' ? 'Pro · Yearly' : 'Pro · Monthly'}</span>
                     {billingPeriod === 'yearly' && <Sparkles className="w-4 h-4 text-amber-300" />}
                   </h3>
                   <p className="text-xs text-slate-400">
@@ -267,44 +268,45 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                 </div>
               )}
 
-              <div className="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs text-indigo-200 space-y-1">
-                <div className="font-semibold flex items-center gap-1.5 text-white">
-                  <RotateCcw className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
-                  <span>10 Daily AI Usage Quota</span>
+              {/* Free vs Pro: exactly what the server enforces */}
+              <div className="rounded-2xl border border-white/[0.08] overflow-hidden text-[13px]">
+                <div className="grid grid-cols-[1fr_72px_88px] bg-white/[0.03] text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                  <span className="px-3 py-2">Feature</span>
+                  <span className="px-2 py-2 text-center">Free</span>
+                  <span className="px-2 py-2 text-center text-indigo-300">Pro</span>
                 </div>
-                <p className="text-[11px] text-slate-300 leading-snug">
-                  Renews strictly every 24 hours. Starts fresh from 10 after each 24h cycle without rollover.
-                </p>
+                {[
+                  { label: 'Analyses per day', free: String(benefits.freeDailyAnalyses), pro: String(benefits.proDailyAnalyses) },
+                  {
+                    label: 'Credits',
+                    free: `${benefits.startingCredits} to start`,
+                    pro: `+${billingPeriod === 'yearly' ? benefits.yearlyBonusCredits : benefits.monthlyBonusCredits} bonus`,
+                  },
+                  { label: 'Verified trader badge', free: false, pro: true },
+                  { label: 'Full AI analysis & trade plans', free: true, pro: true },
+                  { label: 'Live market prices', free: true, pro: true },
+                  { label: 'Gift credits & X rewards', free: true, pro: true },
+                ].map(row => (
+                  <div key={row.label} className="grid grid-cols-[1fr_72px_88px] items-center border-t border-white/[0.05]">
+                    <span className="px-3 py-2.5 text-slate-300">{row.label}</span>
+                    {[row.free, row.pro].map((v, i) => (
+                      <span key={i} className={`px-2 py-2.5 text-center ${i === 1 ? 'text-white font-medium' : 'text-slate-400'}`}>
+                        {v === true ? (
+                          <Check className={`w-4 h-4 mx-auto ${i === 1 ? 'text-emerald-400' : 'text-slate-500'}`} />
+                        ) : v === false ? (
+                          <span className="text-slate-600">—</span>
+                        ) : (
+                          v
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                ))}
               </div>
-
-              {/* Features List */}
-              <ul className="space-y-2.5 text-xs text-slate-300 pt-1">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{billingPeriod === 'yearly' ? '365 days of full institutional access' : 'Unlimited access for 30 days'}</span>
-                </li>
-                {billingPeriod === 'yearly' && (
-                  <li className="flex items-center gap-2 text-amber-200 font-medium">
-                    <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>+500 bonus compute credits included</span>
-                  </li>
-                )}
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="flex items-center gap-1">
-                    <VerifiedBadge size="sm" />
-                    <span>Verified Trader badge ({billingPeriod === 'yearly' ? '365 days' : '30 days'})</span>
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Institutional liquidity sweeps & Order Blocks</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>0.618 Golden Pocket Fibonacci levels & live tickers</span>
-                </li>
-              </ul>
+              <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                <RotateCcw className="w-3 h-3 shrink-0" />
+                Daily analyses renew every 24 hours with no rollover. Pro lasts {billingPeriod === 'yearly' ? '365' : '30'} days per payment.
+              </p>
             </div>
 
             <div className="pt-5 mt-4 border-t border-white/[0.08] space-y-2">
