@@ -195,7 +195,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">
-      <div className="relative w-full max-w-md my-auto rounded-3xl bg-[#09090b] border border-white/[0.12] shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="relative w-full max-w-md my-auto rounded-3xl bg-[var(--mx-bg)] border border-white/[0.12] shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* Top Header Background Glow */}
         <div className="absolute top-0 inset-x-0 h-28 bg-gradient-to-b from-indigo-600/20 via-cyan-500/10 to-transparent pointer-events-none" />
 

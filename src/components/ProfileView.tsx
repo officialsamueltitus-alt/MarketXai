@@ -3,6 +3,8 @@ import { UserProfile, CreditState, XShareReward } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
 import { MarketXText } from './MarketXText';
 import { EditProfileModal } from './EditProfileModal';
+import { DeleteAccountModal } from './DeleteAccountModal';
+import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
@@ -58,6 +60,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onSignOut,
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -106,12 +109,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ? 'Pro · Yearly'
       : 'Pro · Monthly'
     : 'Free';
-  const dailyLeft = isUnlimited ? '∞' : `${creditState.dailyUsageRemaining}/${creditState.dailyUsageLimit}`;
+  const dailyLeft = isUnlimited ? '∞' : formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE);
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3 overscroll-contain pb-safe">
       {/* Identity card */}
-      <section className="relative rounded-3xl border border-white/[0.07] bg-[#111114] overflow-hidden">
+      <section className="relative rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] overflow-hidden">
         <div className="h-20 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(139,92,246,0.55),transparent_55%),radial-gradient(120%_120%_at_100%_0%,rgba(56,189,248,0.35),transparent_55%)]" />
         <button
           type="button"
@@ -122,7 +125,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </button>
         <div className="px-4 pb-4 -mt-9">
           <div className="relative w-[72px] h-[72px]">
-            <div className="w-full h-full rounded-[22px] overflow-hidden ring-4 ring-[#111114] bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-2xl font-semibold text-white">
+            <div className="w-full h-full rounded-[22px] overflow-hidden ring-4 ring-[var(--mx-surface)] bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-2xl font-semibold text-white">
               {userProfile.avatarUrl ? (
                 <img src={userProfile.avatarUrl} alt={userProfile.username} className="w-full h-full object-cover" />
               ) : (
@@ -195,9 +198,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         {[
           { label: 'Analyses', value: String(completedAnalysesCount) },
           { label: 'Credits', value: isUnlimited || creditState.availableCredits >= 99999 ? '∞' : String(creditState.availableCredits) },
-          { label: 'Today', value: dailyLeft },
+          { label: 'Tokens today', value: dailyLeft },
         ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-white/[0.07] bg-[#111114] px-3 py-3">
+          <div key={stat.label} className="rounded-2xl border border-white/[0.07] bg-[var(--mx-surface)] px-3 py-3">
             <div className="text-lg font-semibold text-white font-mono tracking-tight">{stat.value}</div>
             <div className="text-[11px] text-slate-500 mt-0.5">{stat.label}</div>
           </div>
@@ -205,7 +208,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </div>
 
       {/* Plan */}
-      <section className="rounded-3xl border border-white/[0.07] bg-[#111114] p-4">
+      <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Plan</p>
@@ -300,6 +303,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           Sign out
         </button>
       )}
+      {onSignOut && (
+        <button
+          type="button"
+          onClick={() => setIsDeleteOpen(true)}
+          className="w-full h-9 rounded-xl text-xs text-slate-500 hover:text-rose-300 transition-colors cursor-pointer"
+        >
+          Delete account
+        </button>
+      )}
+      <DeleteAccountModal
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        email={userProfile.email}
+        onDeleted={() => {
+          setIsDeleteOpen(false);
+          onSignOut?.();
+        }}
+      />
 
       {/* Modals */}
       <EditProfileModal

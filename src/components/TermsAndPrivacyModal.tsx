@@ -44,7 +44,7 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
         transition={{ duration: 0.2 }}
-        className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#111114]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
+        className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[var(--mx-surface)]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
       >
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between gap-3 bg-gradient-to-r from-indigo-950/40 via-transparent to-transparent shrink-0">
@@ -110,7 +110,7 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
               <section className="space-y-1.5">
                 <h3 className="font-bold text-white text-sm">1. Platform Scope & Intellectual Property</h3>
                 <p className="text-slate-400">
-                  MarketX provides high-fidelity institutional market intelligence, quantitative order flow mapping, and mathematical Fibonacci confluence engines. All proprietary algorithms, visualizers, software interfaces, and predictive logic are exclusive intellectual property of <strong className="text-slate-200">SpiriTech Labs</strong>.
+                  MarketX provides high-fidelity institutional market intelligence, quantitative order flow mapping, and AI-driven trade planning. All proprietary algorithms, visualizers, software interfaces, and predictive logic are exclusive intellectual property of <strong className="text-slate-200">SpiriTech Labs</strong>.
                 </p>
               </section>
 
@@ -182,7 +182,7 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
               <section className="space-y-1.5">
                 <h3 className="font-bold text-white text-sm">1. Not Financial or Investment Advice</h3>
                 <p className="text-slate-400">
-                  The outputs, confluence zones, Fibonacci pocket calculations, and trade plans provided by MarketX and SpiriTech Labs are purely quantitative research tools intended for educational and analytical purposes. Nothing on this platform constitutes personal investment advice, financial endorsement, or an offer to buy or sell securities.
+                  The outputs, key levels, calculations, and trade plans provided by MarketX and SpiriTech Labs are purely quantitative research tools intended for educational and analytical purposes. Nothing on this platform constitutes personal investment advice, financial endorsement, or an offer to buy or sell securities.
                 </p>
               </section>
 

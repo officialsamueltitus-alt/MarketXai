@@ -12,6 +12,9 @@ import {
   requireAuth,
   getUser,
   userRef,
+  notifyActivity,
+  describeRequest,
+  addNotification,
 } from './account';
 import {
   clearSessionCookie,
@@ -96,11 +99,50 @@ async function sendVerificationEmail(req: Request, uid: string, email: string) {
   const { token, hash } = newOneTimeToken();
   await tokenRef(hash).set({ uid, email, type: 'verify', expiresAt: Date.now() + VERIFY_TTL_MS });
   const link = `${siteUrl(req)}/api/auth/verify-email?token=${token}`;
-  await sendEmail(email, 'Verify your MarketX email', [
-    'Welcome to MarketX! Please confirm your email address to secure your account:',
-    link,
-    'This link expires in 3 days.',
-  ]);
+  await sendEmail(
+    email,
+    'Welcome to MarketX: confirm your email',
+    [
+      'Welcome to MarketX! Your account is ready, with free AI market analyses every day.',
+      'Please confirm your email address to secure your account and unlock everything.',
+    ],
+    { cta: { label: 'Confirm my email', url: link }, note: `This link expires in 3 days. If the button doesn't work, open: ${link}` }
+  );
+}
+
+async function sendWelcomeEmail(req: Request, email: string) {
+  await sendEmail(
+    email,
+    'Welcome to MarketX',
+    [
+      'Your MarketX account is ready. Ask about any market (forex, gold, crypto, stocks or synthetic indices) and get a full trade plan with entry, stop loss and targets.',
+      'Tip: attach a chart screenshot and MarketX will read it for you.',
+    ],
+    { cta: { label: 'Start analysing', url: siteUrl(req) } }
+  );
+}
+
+// Security alert on every sign-in (site notification + email)
+function signInAlert(req: Request, uid: string, method: string) {
+  const { device, ip, when } = describeRequest(req);
+  notifyActivity(
+    uid,
+    { type: 'security', title: 'New sign-in to your account', message: `${device} · ${method} · ${ip}` },
+    {
+      subject: 'New sign-in to your MarketX account',
+      lines: ['Your MarketX account was just signed in to.'],
+      options: {
+        rows: [
+          ['Device', device],
+          ['Method', method],
+          ['IP address', ip],
+          ['Time', when],
+        ],
+        note: "If this was you, there's nothing to do. If not, reset your password right away from the sign-in screen.",
+      },
+      security: true,
+    }
+  );
 }
 
 export function registerAuthRoutes(app: Express) {
@@ -138,6 +180,7 @@ export function registerAuthRoutes(app: Express) {
     }
 
     await createUserIfMissing({ uid, email, emailVerified: false }, username, displayName);
+    // The confirmation email doubles as the welcome email
     sendVerificationEmail(req, uid, email).catch(err => console.warn('[MarketX Auth] Verification email failed:', err?.message));
     res.json({ success: true, ...(await signIn(res, uid)) });
   }));
@@ -157,7 +200,9 @@ export function registerAuthRoutes(app: Express) {
       return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Incorrect email or password.' });
     }
     await createUserIfMissing({ uid: data.uid, email, emailVerified: false });
-    res.json({ success: true, ...(await signIn(res, data.uid)) });
+    const state = await signIn(res, data.uid);
+    signInAlert(req, data.uid, 'Email & password');
+    res.json({ success: true, ...state });
   }));
 
   // Google Identity Services: the browser sends Google's ID token; we verify it ourselves
@@ -192,10 +237,14 @@ export function registerAuthRoutes(app: Express) {
       return newUid;
     });
 
+    const isNew = !(await userRef(uid).get()).exists;
     await createUserIfMissing({ uid, email, emailVerified: true, name: payload.name, picture: payload.picture });
     // Google proves ownership of the address
     await userRef(uid).update({ emailVerified: true });
-    res.json({ success: true, ...(await signIn(res, uid)) });
+    const state = await signIn(res, uid);
+    if (isNew) sendWelcomeEmail(req, email);
+    else signInAlert(req, uid, 'Google');
+    res.json({ success: true, ...state });
   }));
 
   app.post('/api/auth/logout', (req, res) => {
@@ -212,11 +261,11 @@ export function registerAuthRoutes(app: Express) {
     if (!cred.exists) return;
     const { token, hash } = newOneTimeToken();
     await tokenRef(hash).set({ uid: cred.data()!.uid, email, type: 'reset', expiresAt: Date.now() + RESET_TTL_MS });
-    await sendEmail(email, 'Reset your MarketX password', [
-      'We received a request to reset your MarketX password. Open this link to choose a new one:',
-      `${siteUrl(req)}/?reset=${token}`,
-      "This link expires in 1 hour. If you didn't request it, you can ignore this email.",
-    ]);
+    const link = `${siteUrl(req)}/?reset=${token}`;
+    await sendEmail(email, 'Reset your MarketX password', ['We received a request to reset your MarketX password.'], {
+      cta: { label: 'Choose a new password', url: link },
+      note: "This link expires in 1 hour. If you didn't request it, you can ignore this email and your password stays the same.",
+    });
   }));
 
   app.post('/api/auth/reset-password', authLimiter, requireConfigured, wrap(async (req, res) => {
@@ -238,7 +287,26 @@ export function registerAuthRoutes(app: Express) {
       return data.uid as string;
     });
     if (!uid) return res.status(400).json({ error: 'INVALID_TOKEN', message: 'This reset link is invalid or has expired. Request a new one.' });
-    res.json({ success: true, ...(await signIn(res, uid)) });
+    const state = await signIn(res, uid);
+    const { device, ip, when } = describeRequest(req);
+    notifyActivity(
+      uid,
+      { type: 'security', title: 'Your password was changed', message: `${device} · ${ip}. Other devices were signed out.` },
+      {
+        subject: 'Your MarketX password was changed',
+        lines: ['The password for your MarketX account was just changed, and every other device was signed out.'],
+        options: {
+          rows: [
+            ['Device', device],
+            ['IP address', ip],
+            ['Time', when],
+          ],
+          note: "If you didn't do this, reset your password again right away and contact help.marketx@gmail.com.",
+        },
+        security: true,
+      }
+    );
+    res.json({ success: true, ...state });
   }));
 
   app.get('/api/auth/verify-email', wrap(async (req, res) => {
@@ -251,8 +319,13 @@ export function registerAuthRoutes(app: Express) {
       if (!data || data.type !== 'verify' || data.expiresAt < Date.now()) return false;
       tx.delete(ref);
       tx.update(userRef(data.uid), { emailVerified: true });
-      return true;
+      return data.uid as string;
     });
+    if (ok) {
+      addNotification(ok, { type: 'security', title: 'Email verified', message: 'Your email address is confirmed and your account is secured.' }).catch(
+        () => {}
+      );
+    }
     res.redirect(ok ? '/?verified=1' : '/?verified=0');
   }));
 
@@ -261,5 +334,53 @@ export function registerAuthRoutes(app: Express) {
     if (user.emailVerified) return res.json({ success: true, message: 'Your email is already verified.' });
     await sendVerificationEmail(req, user.uid, user.email);
     res.json({ success: true, message: `Verification email sent to ${user.email}.` });
+  }));
+
+  // Permanently deletes the account and its data. Password accounts must re-enter their password;
+  // Google-only accounts confirm by typing DELETE. Payment records are kept for accounting.
+  app.post('/api/account/delete', authLimiter, requireAuth, wrap(async (req, res) => {
+    const user = getUser(res);
+    if (String(req.body?.confirm || '') !== 'DELETE') {
+      return res.status(400).json({ error: 'CONFIRM_REQUIRED', message: 'Type DELETE to confirm.' });
+    }
+    const credSnap = await credentialsRef(user.email).get();
+    const cred = credSnap.exists ? credSnap.data()! : null;
+    if (cred?.passwordHash && !(await verifyPassword(String(req.body?.password || ''), cred.passwordHash))) {
+      return res.status(401).json({ error: 'INVALID_PASSWORD', message: 'That password is incorrect.' });
+    }
+
+    const snap = await userRef(user.uid).get();
+    const doc = snap.exists ? (snap.data() as UserDoc) : null;
+    await db().recursiveDelete(userRef(user.uid));
+    await userRef(user.uid).delete(); // no-op if already removed
+    if (doc?.usernameLower) {
+      const nameRef = db().collection('usernames').doc(doc.usernameLower);
+      const nameSnap = await nameRef.get();
+      if (nameSnap.exists && nameSnap.data()?.uid === user.uid) await nameRef.delete();
+    }
+    if (cred && cred.uid === user.uid) await credentialsRef(user.email).delete();
+    const tokens = await db().collection('authTokens').where('uid', '==', user.uid).get();
+    await Promise.all(tokens.docs.map(d => d.ref.delete()));
+
+    clearSessionCookie(res);
+    res.json({ success: true });
+
+    const { device, when } = describeRequest(req);
+    sendEmail(
+      user.email,
+      'Your MarketX account has been deleted',
+      [
+        `Your MarketX account${doc?.username ? ` (@${doc.username})` : ''} and its data (chat history, saved setups, credits and notifications) have been permanently deleted.`,
+        "We're sorry to see you go. You're welcome back any time. Just sign up again with this email.",
+      ],
+      {
+        rows: [
+          ['Device', device],
+          ['Time', when],
+        ],
+        cta: { label: 'Visit MarketX', url: siteUrl(req) },
+        note: "If you didn't request this, contact help.marketx@gmail.com immediately.",
+      }
+    );
   }));
 }

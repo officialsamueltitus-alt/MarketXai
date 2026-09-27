@@ -29,7 +29,7 @@ import {
 // Mini Candlestick Chart graphic component strictly matching image.png sample
 function MiniCandlestickChart({ isBullish }: { isBullish: boolean }) {
   return (
-    <div className="w-16 sm:w-20 h-16 sm:h-20 rounded-2xl bg-[#141417] border border-white/[0.08] p-2 flex items-center justify-center shrink-0 shadow-inner select-none">
+    <div className="w-16 sm:w-20 h-16 sm:h-20 rounded-2xl bg-[var(--mx-surface)] border border-white/[0.08] p-2 flex items-center justify-center shrink-0 shadow-inner select-none">
       <svg viewBox="0 0 60 50" className="w-full h-full">
         {/* Candle 1: Green */}
         <line x1="8" y1="6" x2="8" y2="44" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" />
@@ -111,14 +111,14 @@ function generateFeedItemForTicker(
           bias: 'BULLISH' as const,
           headline: `BTC Sweeping Highs toward $${highStr}`,
           detail: `Smart money absorbing sell-side liquidity at $${priceStr} (+${absChange}% 24h). Cumulative volume delta confirms spot market buyer aggression.`,
-          prompt: `Analyze BTC/USDT on the 4H timeframe around $${priceStr}. Pinpoint key institutional liquidity targets and calculate 0.618 golden pocket continuation zones.`,
+          prompt: `Analyze BTC/USDT on the 4H timeframe around $${priceStr}. Identify the key levels, momentum and continuation targets.`,
         },
         {
-          badge: '0.618 Pocket Expansion',
+          badge: 'Trend Continuation',
           bias: 'BULLISH' as const,
-          headline: `Golden Pocket Defense at $${priceStr}`,
+          headline: `Buyers Defending $${priceStr}`,
           detail: `Institutional limit bids defended $${lowStr}. Rapid absorption of retail short liquidity pushing price towards $${highStr}.`,
-          prompt: `Analyze BTC/USDT 4H chart at $${priceStr}. Map institutional order blocks, calculate Fibonacci extension levels, and size optimal risk/reward parameters.`,
+          prompt: `Analyze BTC/USDT 4H chart at $${priceStr}. Map key support and resistance, and size optimal risk/reward parameters.`,
         },
       ];
       const v = variants[variationSeed % variants.length];
@@ -126,18 +126,18 @@ function generateFeedItemForTicker(
     } else {
       const variants = [
         {
-          badge: 'Demand Zone Retest',
+          badge: 'Support Retest',
           bias: 'BULLISH' as const,
-          headline: `Institutional Demand Absorption at $${priceStr}`,
-          detail: `Pullback of -${absChange}% testing key institutional demand zone near $${lowStr}. Order book bid-ask imbalance heavily favors accumulating buyers.`,
-          prompt: `Analyze BTC/USDT 4H demand zone around $${priceStr}. Identify invalidation levels below $${lowStr} and map high-probability reversal targets.`,
+          headline: `Buyers Absorbing the Dip at $${priceStr}`,
+          detail: `Pullback of -${absChange}% testing key support near $${lowStr}. Order book bid-ask imbalance heavily favors accumulating buyers.`,
+          prompt: `Analyze BTC/USDT 4H support around $${priceStr}. Identify invalidation levels below $${lowStr} and map high-probability reversal targets.`,
         },
         {
           badge: 'Liquidity Sweep',
           bias: 'BEARISH' as const,
           headline: `Sweep of Local Lows around $${lowStr}`,
           detail: `Retail stop-loss cascade triggered at $${priceStr}. Institutional desks bidding aggressively to establish swing accumulation bases.`,
-          prompt: `Analyze BTC/USDT liquidity sweep at $${priceStr}. Calculate mean reversion targets back toward the 0.5 equilibrium and key resistance levels.`,
+          prompt: `Analyze BTC/USDT liquidity sweep at $${priceStr}. Calculate mean reversion targets back toward key resistance levels.`,
         },
       ];
       const v = variants[variationSeed % variants.length];
@@ -154,11 +154,11 @@ function generateFeedItemForTicker(
         type: ticker.type,
         timeAgo: timeAgoText,
         isNew,
-        badge: 'FVG Retest & Expansion',
+        badge: 'Breakout & Expansion',
         bias: 'BULLISH',
-        headline: `4H Fair Value Gap Mitigation at $${priceStr}`,
+        headline: `4H Breakout Holding at $${priceStr}`,
         detail: `Price cleared resting offers at $${priceStr} (+${absChange}% 24h). Institutional order book depth shows surging bid density pushing toward $${highStr}.`,
-        suggestedPrompt: `Analyze ETH/USDT on the 4H timeframe focusing on Fair Value Gap mitigation around $${priceStr} and next expansion targets.`
+        suggestedPrompt: `Analyze ETH/USDT on the 4H timeframe focusing on the breakout around $${priceStr} and next expansion targets.`
       };
     } else {
       return {
@@ -168,11 +168,11 @@ function generateFeedItemForTicker(
         type: ticker.type,
         timeAgo: timeAgoText,
         isNew,
-        badge: 'Order Block Defense',
+        badge: 'Pullback Support',
         bias: 'BULLISH',
         headline: `Defending $${lowStr} Institutional Base`,
-        detail: `Retracing -${absChange}% to tap unmitigated 4H demand at $${priceStr}. Smart money absorbing sell pressure with defined invalidation.`,
-        suggestedPrompt: `Analyze ETH/USDT 4H institutional order block around $${priceStr}. Calculate optimal risk/reward entry parameters and targets.`
+        detail: `Pulling back -${absChange}% into 4H support at $${priceStr}. Smart money absorbing sell pressure with defined invalidation.`,
+        suggestedPrompt: `Analyze ETH/USDT 4H support around $${priceStr}. Calculate optimal risk/reward entry parameters and targets.`
       };
     }
   }
@@ -264,11 +264,11 @@ function generateFeedItemForTicker(
         type: ticker.type,
         timeAgo: timeAgoText,
         isNew,
-        badge: 'Supply Zone Rejection',
+        badge: 'Resistance Rejection',
         bias: 'BEARISH',
         headline: `Upper Shadow Rejection at ${highStr}`,
-        detail: `Institutional offer blocks rejected upside continuation at ${priceStr}. Downside target liquidity sits at ${lowStr} untested demand.`,
-        suggestedPrompt: `Analyze USD/JPY supply rejection around ${priceStr} and calculate high-probability short confluence parameters.`
+        detail: `Sellers rejected upside continuation at ${priceStr}. The next downside target sits near ${lowStr}.`,
+        suggestedPrompt: `Analyze USD/JPY resistance rejection around ${priceStr} and calculate high-probability short confluence parameters.`
       };
     }
   }
@@ -282,11 +282,11 @@ function generateFeedItemForTicker(
         type: ticker.type,
         timeAgo: timeAgoText,
         isNew,
-        badge: 'Fib Confluence',
+        badge: 'Momentum Rebound',
         bias: 'BULLISH',
         headline: `NVDA Surging toward $${highStr}`,
-        detail: `Rebounded off 0.618 golden pocket with aggressive call sweep. Price trading at $${priceStr} (+${absChange}%).`,
-        suggestedPrompt: `Analyze NVDA 0.618 Fibonacci confluence zone at $${priceStr} and calculate risk/reward continuation targets.`
+        detail: `Rebounded off support with aggressive call buying. Price trading at $${priceStr} (+${absChange}%).`,
+        suggestedPrompt: `Analyze NVDA momentum at $${priceStr} and calculate risk/reward continuation targets.`
       };
     } else {
       return {
@@ -296,7 +296,7 @@ function generateFeedItemForTicker(
         type: ticker.type,
         timeAgo: timeAgoText,
         isNew,
-        badge: 'Demand Retest',
+        badge: 'Support Retest',
         bias: 'BULLISH',
         headline: `NVDA Retesting $${lowStr} Support Shelf`,
         detail: `Pullback of -${absChange}% bringing shares to $${priceStr}. Institutional dark pool accumulation detected at key horizontal support.`,
@@ -318,7 +318,7 @@ function generateFeedItemForTicker(
         bias: 'BULLISH',
         headline: `TSLA Expansion at $${priceStr}`,
         detail: `Heavy call option gamma squeeze driving Tesla to $${priceStr} (+${absChange}%). Overhead target sits at $${highStr}.`,
-        suggestedPrompt: `Analyze Tesla (TSLA) breakout momentum at $${priceStr} and identify institutional order block targets.`
+        suggestedPrompt: `Analyze Tesla (TSLA) breakout momentum at $${priceStr} and identify the next key targets.`
       };
     } else {
       return {
@@ -330,7 +330,7 @@ function generateFeedItemForTicker(
         isNew,
         badge: 'Support Defense',
         bias: 'BULLISH',
-        headline: `Tesla Testing $${lowStr} Demand Base`,
+        headline: `Tesla Testing $${lowStr} Support`,
         detail: `Mean reversion to $${priceStr} (-${absChange}%). Volume delta stabilizing with large block orders absorbing seller liquidity.`,
         suggestedPrompt: `Analyze Tesla (TSLA) support defense at $${priceStr} and calculate optimal risk-reward entry parameters.`
       };
@@ -362,9 +362,9 @@ function generateFeedItemForTicker(
         isNew,
         badge: 'Discount Retest',
         bias: 'BULLISH',
-        headline: `Apple Tapping $${lowStr} Demand Block`,
+        headline: `Apple Tapping $${lowStr} Support`,
         detail: `Consolidation at $${priceStr} (-${absChange}%). Long-term funds defending valuation baseline with low volatility absorption.`,
-        suggestedPrompt: `Analyze Apple (AAPL) 4H demand zone around $${priceStr} and calculate high-probability entry targets.`
+        suggestedPrompt: `Analyze Apple (AAPL) 4H support around $${priceStr} and calculate high-probability entry targets.`
       };
     }
   }
@@ -381,7 +381,7 @@ function generateFeedItemForTicker(
     bias: isUp ? 'BULLISH' : 'BEARISH',
     headline: `${ticker.name} Testing ${priceStr}`,
     detail: `Order flow tracking ${ticker.symbol} at ${priceStr} (${isUp ? '+' : ''}${ticker.change24h}% 24h). Institutional order book depth shows active liquidity positioning.`,
-    suggestedPrompt: `Analyze ${ticker.symbol} at ${priceStr} on the 4H timeframe. Calculate institutional liquidity zones and optimal entry confluence.`
+    suggestedPrompt: `Analyze ${ticker.symbol} at ${priceStr} on the 4H timeframe. Identify the key levels and the optimal entry.`
   };
 }
 
@@ -544,7 +544,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           {/* 1. Icon + Symbol Pill + Name */}
           <div className="flex items-center gap-2.5 min-w-0">
             {renderAssetLogo(ticker.symbol)}
-            <span className="px-2.5 py-0.5 rounded-md bg-[#28282b] text-white font-mono font-bold text-xs border border-white/[0.08] shrink-0 tracking-wide">
+            <span className="px-2.5 py-0.5 rounded-md bg-[var(--mx-surface-3)] text-white font-mono font-bold text-xs border border-white/[0.08] shrink-0 tracking-wide">
               {displaySym}
             </span>
             <span className="text-slate-200 text-xs sm:text-sm font-medium truncate">
@@ -564,7 +564,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
           {/* 3. 24h Change */}
           <div className="font-mono text-xs sm:text-sm font-semibold">
-            <span className={isUp ? 'text-[#34d399]' : 'text-[#f87171]'}>
+            <span className={isUp ? 'text-emerald-400' : 'text-rose-400'}>
               {isUp ? '+' : ''}{ticker.change24h.toFixed(2)}%
             </span>
           </div>
@@ -591,7 +591,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               onClick={e => {
                 e.stopPropagation();
                 onSelectPrompt(
-                  `Analyze ${ticker.name} (${ticker.symbol}) on the 4H timeframe. Identify key institutional liquidity zones, order blocks, and calculate 0.618 golden pocket confluence levels for entry.`,
+                  `Analyze ${ticker.name} (${ticker.symbol}) on the 4H timeframe. Identify the key levels, trend and the best entry, stop loss and targets.`,
                   '4H'
                 );
               }}
@@ -626,7 +626,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           <span className="bg-gradient-to-r from-indigo-300 via-indigo-400 to-cyan-300 bg-clip-text text-transparent">one prompt away.</span>
         </h1>
         <p className="mx-rise mt-4 text-[15px] text-slate-400 max-w-md mx-auto" style={{ animationDelay: '120ms' }}>
-          Live prices, supply & demand zones and precise entries, stops and targets for any asset.
+          Live prices, clear market structure and precise entries, stops and targets for any asset.
         </p>
 
         <form
@@ -677,7 +677,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
       {/* SECTION 1: Live Market Pairs Table with 3-Second Revolving Carousel & Hold-to-Pause (Sector removed) */}
       <div className="w-full space-y-3">
-        <div className="rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-white/[0.06] bg-[#111114] space-y-3 sm:space-y-4">
+        <div className="rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-white/[0.06] bg-[var(--mx-surface)] space-y-3 sm:space-y-4">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
@@ -704,7 +704,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     onClick={() => setActiveCategory(tab)}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
                       activeCategory === tab
-                        ? 'bg-[#252528] text-white shadow-xs font-semibold'
+                        ? 'bg-[var(--mx-surface-3)] text-white shadow-xs font-semibold'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -768,15 +768,15 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              Launch instant quantitative prompts tailored to current institutional liquidity distribution, Fibonacci retracements, and order blocks.
+              Launch instant prompts tailored to today's market conditions, trends and key levels.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {[
-                { label: 'BTC 0.618 Pocket', sym: 'BTC/USDT', desc: 'Scan 4H golden pocket confluence & order blocks', prompt: 'Analyze BTC/USDT 0.618 golden pocket confluence on 4H' },
+                { label: 'BTC Trend Setup', sym: 'BTC/USDT', desc: 'Scan the 4H trend & key levels', prompt: 'Analyze BTC/USDT trend and key levels on 4H' },
                 { label: 'ETH Liquidity Sweeps', sym: 'ETH/USDT', desc: 'Identify equal highs & liquidity sweep zones', prompt: 'Scan ETH/USDT equal highs and liquidity sweep zones' },
-                { label: 'TSLA Valuation & 4H', sym: 'TSLA', desc: 'Confluence zones & trend exhaustion test', prompt: 'Analyze Tesla, Inc. (TSLA) on the 4H timeframe. Identify key institutional liquidity zones and calculate optimal confluence levels for entry.' },
-                { label: 'AAPL Key Demands', sym: 'AAPL', desc: 'Map institutional demand blocks & EMA ribbons', prompt: 'Analyze Apple Inc. (AAPL) on the 4H timeframe. Calculate key institutional liquidity zones and support confluence.' },
+                { label: 'TSLA Valuation & 4H', sym: 'TSLA', desc: 'Key levels & trend exhaustion test', prompt: 'Analyze Tesla, Inc. (TSLA) on the 4H timeframe. Identify the key levels and the optimal entry.' },
+                { label: 'AAPL Key Levels', sym: 'AAPL', desc: 'Map support, resistance & EMA ribbons', prompt: 'Analyze Apple Inc. (AAPL) on the 4H timeframe. Map key support and resistance levels.' },
                 { label: 'SOL Breakout Targets', sym: 'SOL/USDT', desc: 'Momentum targets & risk/reward metrics', prompt: 'Calculate SOL/USDT momentum targets and risk/reward' },
                 { label: 'Gold Spot Invalidation', sym: 'XAU/USD', desc: 'Support levels & stop-run invalidations', prompt: 'Analyze XAU/USD institutional support and invalidation levels' },
               ].map(chip => (
@@ -807,10 +807,10 @@ export const HomePage: React.FC<HomePageProps> = ({
           onMouseLeave={() => setIsFeedHolding(false)}
           className="lg:col-span-6 space-y-4"
         >
-          <div className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/[0.06] bg-[#111114] space-y-3 sm:space-y-4">
+          <div className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/[0.06] bg-[var(--mx-surface)] space-y-3 sm:space-y-4">
             {/* Upper Floating Card matching image.png */}
             {activeFeed && (
-              <div className="rounded-2xl bg-[#1b1b1e] border border-white/[0.1] shadow-2xl p-4 sm:p-5 space-y-3 transition-all">
+              <div className="rounded-2xl bg-[var(--mx-surface-2)] border border-white/[0.1] shadow-2xl p-4 sm:p-5 space-y-3 transition-all">
                 {/* Header Row: 3 circular dots + timestamp + Live Feed indicator */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -918,39 +918,39 @@ export const HomePage: React.FC<HomePageProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectPrompt('Analyze Dow Jones Industrial Average (DJI) 4H liquidity confluence zones.', '4H')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1b1b1e] hover:bg-[#27272a] border border-white/[0.08] hover:border-cyan-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--mx-surface-2)] hover:bg-[var(--mx-surface-3)] border border-white/[0.08] hover:border-cyan-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
               >
                 <div className="w-5 h-5 rounded-full bg-[#06b6d4] text-slate-950 font-extrabold text-[10px] font-mono flex items-center justify-center shrink-0">
                   30
                 </div>
                 <span className="font-mono font-bold text-slate-200 group-hover:text-white">DJI</span>
-                <span className="font-mono font-semibold text-[#34d399] text-xs">+0.03$</span>
+                <span className="font-mono font-semibold text-emerald-400 text-xs">+0.03$</span>
               </button>
 
               {/* Chip 2: Circular red badge with 500 -> SPX -0.51% */}
               <button
                 type="button"
-                onClick={() => onSelectPrompt('Analyze S&P 500 (SPX) institutional 0.618 golden pocket and liquidity sweep.', '4H')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1b1b1e] hover:bg-[#27272a] border border-white/[0.08] hover:border-rose-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
+                onClick={() => onSelectPrompt('Analyze S&P 500 (SPX) trend, key levels and liquidity sweeps.', '4H')}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--mx-surface-2)] hover:bg-[var(--mx-surface-3)] border border-white/[0.08] hover:border-rose-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
               >
                 <div className="w-5 h-5 rounded-full bg-[#ef4444] text-white font-extrabold text-[9px] font-mono flex items-center justify-center shrink-0">
                   500
                 </div>
                 <span className="font-mono font-bold text-slate-200 group-hover:text-white">SPX</span>
-                <span className="font-mono font-semibold text-[#f87171] text-xs">-0.51%</span>
+                <span className="font-mono font-semibold text-rose-400 text-xs">-0.51%</span>
               </button>
 
               {/* Chip 3: Circular blue badge with lightning -> IXIC -0.93% */}
               <button
                 type="button"
-                onClick={() => onSelectPrompt('Analyze Nasdaq Composite (IXIC) key institutional order blocks and demand levels.', '4H')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1b1b1e] hover:bg-[#27272a] border border-white/[0.08] hover:border-blue-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
+                onClick={() => onSelectPrompt('Analyze Nasdaq Composite (IXIC) key support and resistance levels.', '4H')}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--mx-surface-2)] hover:bg-[var(--mx-surface-3)] border border-white/[0.08] hover:border-blue-500/40 transition-all text-xs shrink-0 cursor-pointer shadow-xs group"
               >
                 <div className="w-5 h-5 rounded-full bg-[#0284c7] text-white font-extrabold text-[10px] font-mono flex items-center justify-center shrink-0">
                   <Zap className="w-3 h-3 fill-white" />
                 </div>
                 <span className="font-mono font-bold text-slate-200 group-hover:text-white">IXIC</span>
-                <span className="font-mono font-semibold text-[#f87171] text-xs">-0.93%</span>
+                <span className="font-mono font-semibold text-rose-400 text-xs">-0.93%</span>
               </button>
             </div>
           </div>

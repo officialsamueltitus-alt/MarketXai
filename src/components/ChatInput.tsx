@@ -231,7 +231,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     const promptToSend =
       trimmed ||
-      `Analyze this uploaded chart image: identify key market structure, order blocks, FVG, trend, and high-probability trade setups.`;
+      `Analyze this uploaded chart image: identify key market structure, trend, key levels and high-probability trade setups.`;
 
     onSendMessage(
       promptToSend,
@@ -307,7 +307,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* Slash-command pop-out, anchored to the top of the composer */}
       {(isSlashMenuOpen || comingSoonLabel) && (
-        <div className="absolute bottom-full left-0 mb-2 w-full sm:w-80 z-30 rounded-2xl bg-[#16161a] border border-white/[0.1] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.9)] overflow-hidden mx-pop-in">
+        <div className="absolute bottom-full left-0 mb-2 w-full sm:w-80 z-30 rounded-2xl bg-[var(--mx-surface-2)] border border-white/[0.1] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.9)] overflow-hidden mx-pop-in">
           {comingSoonLabel ? (
             <div className="flex items-start gap-3 p-3.5" role="status">
               <span className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">

@@ -6,6 +6,10 @@ export interface PaymentsPublicConfig {
   currency: string;
   monthlyAmount: number;
   yearlyAmount: number;
+  /** Currency and amounts Paystack actually charges (e.g. NGN equivalent of the USD price) */
+  chargeCurrency?: string;
+  chargeMonthlyAmount?: number | null;
+  chargeYearlyAmount?: number | null;
   benefits?: PlanBenefits;
 }
 
@@ -21,6 +25,7 @@ export function formatMoney(amount: number, currency: string, compact = false): 
     return new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency,
+      currencyDisplay: 'narrowSymbol',
       minimumFractionDigits: whole ? 0 : 2,
       maximumFractionDigits: 2,
     }).format(amount);

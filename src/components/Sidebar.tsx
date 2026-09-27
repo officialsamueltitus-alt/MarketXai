@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
+import { useTheme, ThemePref } from '../utils/theme';
 import { createPortal } from 'react-dom';
 import { ChatSession, SavedAnalysis, UserProfile, CreditState, XShareReward } from '../types';
 import { MarketXText } from './MarketXText';
@@ -28,6 +30,9 @@ import {
   X,
   Bell,
   Settings,
+  Sun,
+  Moon,
+  Monitor,
   ChevronRight,
   ChevronDown
 } from 'lucide-react';
@@ -102,6 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const { pref: themePref, resolved: resolvedTheme, setTheme } = useTheme();
 
   // 'credits' / 'profile' now open as pop-up detail windows; 'history' is the only in-menu view
   const detailView = activeTab === 'credits' || activeTab === 'profile' ? activeTab : null;
@@ -140,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         - Floats on mobile, tablet, and desktop with outer margins and elevation
       */}
       <aside
-        className={`fixed lg:relative inset-y-0 left-0 z-40 flex flex-col bg-[#0c0c0f] border-r border-white/[0.06] rounded-r-2xl lg:rounded-none transition-[width,transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] shrink-0 overflow-hidden h-[100dvh] ${
+        className={`fixed lg:relative inset-y-0 left-0 z-40 flex flex-col bg-[var(--mx-bg-2)] border-r border-white/[0.06] rounded-r-2xl lg:rounded-none transition-[width,transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] shrink-0 overflow-hidden h-[100dvh] ${
           isOpen
             ? 'w-[86vw] max-w-[320px] lg:w-[280px] translate-x-0 opacity-100 shadow-2xl shadow-black/60 lg:shadow-none'
             : 'w-[86vw] max-w-[320px] -translate-x-full lg:translate-x-0 lg:w-0 lg:border-0 opacity-0 pointer-events-none'
@@ -174,13 +180,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenNotifications();
                   if (window.innerWidth < 1024) onCloseMobile();
                 }}
-                className="relative p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] text-slate-200 hover:text-white border border-white/[0.1] transition-all cursor-pointer flex items-center justify-center shrink-0"
-                title="Notification Center"
-                aria-label="Open Notifications"
+                className="relative w-10 h-10 rounded-full text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                title="Notifications"
+                aria-label="Open notifications"
               >
-                <Bell className="w-4 h-4 text-indigo-300" />
+                <Bell className="w-[18px] h-[18px]" />
                 {unreadNotificationsCount !== undefined && unreadNotificationsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500 text-slate-950 font-mono font-extrabold text-[9px] flex items-center justify-center shadow-md ring-2 ring-slate-950 animate-pulse">
+                  <span className="absolute top-1 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-semibold flex items-center justify-center ring-2 ring-[var(--mx-bg-2)]">
                     {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                   </span>
                 )}
@@ -470,6 +476,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="border-t border-white/[0.08] bg-black/40 pb-safe">
             {isSignedIn && isSettingsOpen && (
               <div className="p-2 space-y-1.5 border-b border-white/[0.06]">
+                {/* Appearance */}
+                <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                    <span className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                      {resolvedTheme === 'light' ? <Sun className="w-3.5 h-3.5 text-indigo-300" /> : <Moon className="w-3.5 h-3.5 text-indigo-300" />}
+                    </span>
+                    Appearance
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-1 p-1 rounded-lg bg-black/30" role="radiogroup" aria-label="Theme">
+                    {([
+                      ['light', 'Light', Sun],
+                      ['dark', 'Dark', Moon],
+                      ['system', 'System', Monitor],
+                    ] as [ThemePref, string, React.ElementType][]).map(([value, label, Icon]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={themePref === value}
+                        onClick={() => setTheme(value)}
+                        className={`h-8 rounded-md text-[11px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                          themePref === value ? 'bg-white text-slate-950' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setActiveTab('credits')}
@@ -484,7 +521,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="block text-[10px] text-slate-400 font-mono truncate">
                         {isUnlimitedUser(userProfile.email)
                           ? 'Unlimited access'
-                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining}/${creditState.dailyUsageLimit} daily`}
+                          : `${creditState.availableCredits} credits • ${formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE)} tokens left today`}
                       </span>
                     </span>
                   </span>
@@ -546,6 +583,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
               )}
 
+              {!isSignedIn && (
+                <button
+                  type="button"
+                  onClick={() => setTheme(resolvedTheme === 'light' ? 'dark' : 'light')}
+                  className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/[0.06] shrink-0 cursor-pointer"
+                  title={resolvedTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+                  aria-label={resolvedTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+                >
+                  {resolvedTheme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                </button>
+              )}
               <a
                 href="https://x.com/_MarketXai"
                 target="_blank"
@@ -573,7 +621,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-label={detailView === 'credits' ? 'Credits' : 'Profile'}
           >
             <div
-              className="mx-pop-in w-full sm:max-w-md max-h-[90dvh] sm:max-h-[86dvh] flex flex-col rounded-t-[28px] sm:rounded-[28px] bg-[#0c0c0f] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85)] overflow-hidden"
+              className="mx-pop-in w-full sm:max-w-md max-h-[90dvh] sm:max-h-[86dvh] flex flex-col rounded-t-[28px] sm:rounded-[28px] bg-[var(--mx-bg-2)] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85)] overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-1 shrink-0">

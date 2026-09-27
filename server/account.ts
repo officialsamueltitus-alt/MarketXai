@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
-import { sendEmail } from './mailer';
+import { sendEmail, EmailOptions } from './mailer';
 import type {
   UserProfile,
   CreditState,
@@ -57,6 +57,10 @@ export interface UserDoc {
   emailVerified?: boolean;
   // Incremented to invalidate every existing session (e.g. after a password reset)
   sessionVersion?: number;
+  emailPrefs?: { activity: boolean };
+  // Expiry timestamps already alerted, so each reminder/notice is sent once per plan period
+  expiryReminderFor?: number;
+  expiryNoticeFor?: number;
 }
 
 // Unlimited access requires a verified email so nobody can claim it by registering the address
@@ -107,6 +111,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     joinedAt: doc.joinedAt,
     isVerified: vip || doc.subscription.active,
     emailVerified: !!doc.emailVerified,
+    emailActivity: doc.emailPrefs?.activity !== false,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }
       : doc.subscription,
@@ -148,6 +153,139 @@ export function addNotificationInTx(
 export async function addNotification(uid: string, n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) {
   const id = newId('notif');
   await notificationsCol(uid).doc(id).set({ ...n, id, timestamp: Date.now(), read: false });
+}
+
+// ---------------------------------------------------------------------------
+// Activity alerts: a site notification plus an email.
+// Security emails (sign-in, password, deletion) always send; activity emails respect the user's preference.
+// ---------------------------------------------------------------------------
+type NotificationInput = Omit<AppNotification, 'id' | 'timestamp' | 'read'>;
+export interface ActivityMail {
+  subject: string;
+  lines: string[];
+  options?: EmailOptions;
+  security?: boolean;
+}
+
+export async function notifyActivity(uid: string, n: NotificationInput | null, mail?: ActivityMail): Promise<void> {
+  try {
+    const snap = await userRef(uid).get();
+    if (!snap.exists) return;
+    const doc = snap.data() as UserDoc;
+    if (n) await addNotification(uid, n);
+    if (mail && (mail.security || doc.emailPrefs?.activity !== false)) {
+      await sendEmail(doc.email, mail.subject, mail.lines, mail.options);
+    }
+  } catch (err: any) {
+    console.warn('[MarketX Notify] failed:', err?.message || err);
+  }
+}
+
+export function siteLink(path = ''): string {
+  return `${(process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '')}${path}`;
+}
+
+// "Chrome on Android · 102.89.x.x" style description for security alerts
+export function describeRequest(req: Request): { device: string; ip: string; when: string } {
+  const ua = String(req.headers['user-agent'] || '');
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /Chrome\//.test(ua)
+        ? 'Chrome'
+        : /Firefox\//.test(ua)
+          ? 'Firefox'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : 'a browser';
+  const os = /Android/.test(ua)
+    ? 'Android'
+    : /iPhone|iPad|iPod/.test(ua)
+      ? 'iPhone/iPad'
+      : /Windows/.test(ua)
+        ? 'Windows'
+        : /Mac OS X|Macintosh/.test(ua)
+          ? 'Mac'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : 'an unknown device';
+  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'unknown';
+  const when = new Date().toUTCString().replace(' GMT', ' UTC');
+  return { device: `${browser} on ${os}`, ip, when };
+}
+
+const fmtNum = (n: any) => {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '-';
+  const d = Math.abs(v) >= 1000 ? 2 : Math.abs(v) >= 1 ? 4 : 6;
+  return v.toLocaleString('en-US', { maximumFractionDigits: d });
+};
+
+// Alerts for a completed analysis/chat, derived from the response the analysis route sent
+function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: number | null) {
+  const left = remaining == null ? [] : ([['Analyses left today', String(remaining)]] as [string, string][]);
+  const s = body?.strategy;
+  if (s && s.symbol) {
+    const tp1 = s.takeProfits?.[0]?.price;
+    notifyActivity(
+      user.uid,
+      {
+        type: 'analysis',
+        title: `${s.symbol} ${s.tradeType || ''} setup ready`.replace(/\s+/g, ' ').trim(),
+        message: `Entry ${fmtNum(s.entryZone?.optimal)} · Stop ${fmtNum(s.stopLoss?.price)}${tp1 ? ` · Target ${fmtNum(tp1)}` : ''} (${s.timeframe || ''})`,
+      },
+      {
+        subject: `Your ${s.symbol} analysis is ready`,
+        lines: [`MarketX finished analysing ${s.symbol} on the ${s.timeframe || ''} timeframe. Here's the plan:`],
+        options: {
+          rows: [
+            ['Direction', String(s.tradeType || s.bias || '-')],
+            ['Entry', fmtNum(s.entryZone?.optimal)],
+            ['Stop loss', fmtNum(s.stopLoss?.price)],
+            ...(tp1 ? ([['Target 1', fmtNum(tp1)]] as [string, string][]) : []),
+            ...(s.riskRewardRatio ? ([['Risk / reward', String(s.riskRewardRatio)]] as [string, string][]) : []),
+            ...(s.confidenceScore ? ([['Confidence', `${s.confidenceScore}%`]] as [string, string][]) : []),
+            ...left,
+          ],
+          cta: { label: 'View full analysis', url: siteLink('/') },
+          note: 'Always manage your risk. You can turn off activity emails in MarketX → Notifications.',
+        },
+      }
+    );
+    return;
+  }
+  const answer = String(body?.content || body?.message || '')
+    .replace(/[#*_`>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!answer) return;
+  const q = prompt.trim().replace(/\s+/g, ' ');
+  notifyActivity(
+    user.uid,
+    { type: 'system', title: 'MarketX answered your question', message: `"${q.slice(0, 100)}${q.length > 100 ? '…' : ''}"` },
+    {
+      subject: 'MarketX answered your question',
+      lines: [`You asked: "${q.slice(0, 300)}"`, `${answer.slice(0, 700)}${answer.length > 700 ? '…' : ''}`],
+      options: {
+        rows: left,
+        cta: { label: 'Continue the chat', url: siteLink('/') },
+        note: 'You can turn off activity emails in MarketX → Notifications.',
+      },
+    }
+  );
+}
+
+// Wraps res.json so the alert is built from what the analysis route actually returned
+function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, remaining: number | null) {
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    if (res.statusCode < 400 && body && typeof body === 'object') {
+      const prompt = String(req.body?.prompt || '');
+      setImmediate(() => analysisAlert(user, prompt, body, remaining));
+    }
+    return originalJson(body);
+  }) as Response['json'];
 }
 
 // ---------------------------------------------------------------------------
@@ -285,21 +423,79 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
     return true;
   });
   if (credited) {
-    sendEmail(user.email, `You earned ${X_SHARE_CREDITS} MarketX credits`, [
-      `Thanks for sharing MarketX on X! ${X_SHARE_CREDITS} AI credits have been added to your account.`,
-    ]);
+    sendEmail(
+      user.email,
+      `You earned ${X_SHARE_CREDITS} MarketX credits`,
+      [`Thanks for sharing MarketX on X! ${X_SHARE_CREDITS} AI credits have been added to your account.`],
+      { cta: { label: 'Use your credits', url: siteLink('/') } }
+    );
   }
   return credited;
 }
 
+const EXPIRY_REMINDER_MS = 3 * DAY_MS;
+
 async function readAccountState(user: AuthedUser) {
+  let planAlert: 'reminder' | 'ended' | null = null;
   const doc = await db().runTransaction(async tx => {
+    planAlert = null;
     const loaded = await loadUserInTx(tx, user.uid);
     if (!loaded) return null;
     saveNormalized(tx, loaded);
+    const sub = loaded.doc.subscription;
+    const now = Date.now();
+    if (!isUnlimited(user) && sub.expiresAt > 0) {
+      if (sub.active && sub.expiresAt - now <= EXPIRY_REMINDER_MS && loaded.doc.expiryReminderFor !== sub.expiresAt) {
+        tx.update(loaded.ref, { expiryReminderFor: sub.expiresAt });
+        planAlert = 'reminder';
+      } else if (!sub.active && sub.expiresAt <= now && loaded.doc.expiryNoticeFor !== sub.expiresAt) {
+        tx.update(loaded.ref, { expiryNoticeFor: sub.expiresAt });
+        planAlert = 'ended';
+      }
+    }
     return loaded.doc;
   });
   if (!doc) return null;
+  if (planAlert === 'reminder') {
+    const days = Math.max(1, Math.ceil((doc.subscription.expiresAt - Date.now()) / DAY_MS));
+    notifyActivity(
+      user.uid,
+      {
+        type: 'credit',
+        title: `Your Pro plan ends in ${days} day${days === 1 ? '' : 's'}`,
+        message: 'Renew now to keep 10 daily analyses and your verified badge.',
+        actionType: 'open_pricing',
+      },
+      {
+        subject: `Your MarketX Pro plan ends in ${days} day${days === 1 ? '' : 's'}`,
+        lines: [
+          `Your Pro plan ends on ${new Date(doc.subscription.expiresAt).toDateString()}.`,
+          'Renew to keep your 10 daily analyses and verified trader badge. Renewing early adds the time on top of what you have left.',
+        ],
+        options: { cta: { label: 'Renew Pro', url: siteLink('/') } },
+        security: true,
+      }
+    );
+  } else if (planAlert === 'ended') {
+    notifyActivity(
+      user.uid,
+      {
+        type: 'credit',
+        title: 'Your Pro plan has ended',
+        message: `You're back on Free with ${FREE_DAILY_LIMIT} analyses a day. Upgrade any time to get Pro back.`,
+        actionType: 'open_pricing',
+      },
+      {
+        subject: 'Your MarketX Pro plan has ended',
+        lines: [
+          `Your Pro plan ended on ${new Date(doc.subscription.expiresAt).toDateString()}, so your account is back on the Free plan (${FREE_DAILY_LIMIT} analyses a day).`,
+          'Upgrade again whenever you like to get 10 daily analyses and your verified badge back.',
+        ],
+        options: { cta: { label: 'Get Pro again', url: siteLink('/') } },
+        security: true,
+      }
+    );
+  }
   const giftsSnap = await userRef(user.uid).collection('giftsSent').orderBy('timestamp', 'desc').limit(10).get();
   const recentGifts = giftsSnap.docs.map(d => d.data() as CreditGift);
   return { ...toClientState(doc, user), recentGifts };
@@ -310,7 +506,10 @@ async function readAccountState(user: AuthedUser) {
 // ---------------------------------------------------------------------------
 export async function chargeAnalysisCredit(req: Request, res: Response, next: NextFunction) {
   const user = getUser(res);
-  if (isUnlimited(user)) return next();
+  if (isUnlimited(user)) {
+    attachAnalysisAlerts(req, res, user, null);
+    return next();
+  }
   try {
     const charged = await db().runTransaction(async tx => {
       const loaded = await loadUserInTx(tx, user.uid);
@@ -324,7 +523,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
         'credits.available': c.available - availableDelta,
       });
-      return { ok: true as const, dailyDelta, availableDelta };
+      return { ok: true as const, dailyDelta, availableDelta, remaining: c.dailyRemaining - dailyDelta, limit: c.dailyLimit };
     });
 
     if (!charged.ok) {
@@ -337,9 +536,20 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       });
     }
 
+    attachAnalysisAlerts(req, res, user, charged.remaining);
     // Refund the credit if the analysis request fails
     res.on('finish', () => {
-      if (res.statusCode < 400) return;
+      if (res.statusCode < 400) {
+        if (charged.dailyDelta && charged.remaining === 0) {
+          notifyActivity(user.uid, {
+            type: 'system',
+            title: `You've used today's ${charged.limit} analyses`,
+            message: 'Your daily analyses renew 24 hours after your last reset. Credits or Pro keep you going.',
+            actionType: 'open_pricing',
+          });
+        }
+        return;
+      }
       userRef(user.uid)
         .update({
           'credits.dailyRemaining': FieldValue.increment(charged.dailyDelta),
@@ -423,6 +633,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       return res.status(400).json({ error: 'INVALID', message: 'Profile picture is too large.' });
     }
 
+    let profileChanges: string[] = [];
     await db().runTransaction(async tx => {
       const loaded = await loadUserInTx(tx, user.uid);
       if (!loaded) throw new Error('NO_ACCOUNT');
@@ -439,6 +650,11 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       }
       saveNormalized(tx, loaded);
       tx.update(loaded.ref, { displayName, username, usernameLower: username, avatarUrl });
+      const changes: string[] = [];
+      if (username !== current.usernameLower) changes.push(`username changed from @${current.username} to @${username}`);
+      if (displayName !== current.displayName) changes.push(`display name changed to "${displayName}"`);
+      if ((avatarUrl || null) !== (current.avatarUrl || null)) changes.push('profile picture updated');
+      profileChanges = changes;
     }).catch(err => {
       if (err?.message === 'USERNAME_TAKEN') {
         res.status(409).json({ error: 'USERNAME_TAKEN', message: `@${username} is already taken.` });
@@ -447,6 +663,29 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       throw err;
     });
     if (res.headersSent) return;
+    if (profileChanges.length) {
+      const summary = profileChanges.join(', ');
+      notifyActivity(
+        user.uid,
+        { type: 'system', title: 'Profile updated', message: summary.charAt(0).toUpperCase() + summary.slice(1) + '.' },
+        {
+          subject: 'Your MarketX profile was updated',
+          lines: [
+            `These changes were made to your profile: ${summary}.`,
+            "If this wasn't you, reset your password straight away.",
+          ],
+          security: profileChanges.some(c => c.startsWith('username')),
+        }
+      );
+    }
+    res.json({ success: true, ...(await readAccountState(user)) });
+  }));
+
+  // --- Email preferences (activity emails can be turned off; security emails always send) ---
+  app.put('/api/account/email-prefs', limiter, requireAuth, wrap(async (req, res) => {
+    const user = getUser(res);
+    const activity = req.body?.activity !== false;
+    await userRef(user.uid).update({ emailPrefs: { activity } });
     res.json({ success: true, ...(await readAccountState(user)) });
   }));
 
@@ -587,10 +826,21 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       const status = result.error === 'NOT_FOUND' ? 404 : result.error === 'INSUFFICIENT' ? 402 : 400;
       return res.status(status).json(result);
     }
-    sendEmail(result.recipientEmail, `@${result.senderUsername} gifted you ${amount} MarketX credits`, [
-      `@${result.senderUsername} just sent you ${amount} AI credits on MarketX.`,
-      ...(note ? [`Their note: "${note}"`] : []),
-    ]);
+    sendEmail(
+      result.recipientEmail,
+      `@${result.senderUsername} gifted you ${amount} MarketX credits`,
+      [`@${result.senderUsername} just sent you ${amount} AI credits on MarketX.`, ...(note ? [`Their note: "${note}"`] : [])],
+      { cta: { label: 'Use your credits', url: siteLink('/') } }
+    );
+    notifyActivity(
+      user.uid,
+      { type: 'credit', title: `You sent ${amount} credits to @${result.gift.toUsername}`, message: note ? `Your note: "${note}"` : 'The credits are already in their balance.' },
+      {
+        subject: `You gifted ${amount} MarketX credits to @${result.gift.toUsername}`,
+        lines: [`${amount} AI credits were sent from your account to @${result.gift.toUsername}.`],
+        options: { rows: [['Recipient', `@${result.gift.toUsername}`], ['Amount', `${amount} credits`]] },
+      }
+    );
     res.json({ success: true, gift: result.gift, ...(await readAccountState(user)) });
   }));
 
@@ -620,6 +870,21 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     });
 
     if ('error' in result) return res.status(result.error === 'NO_ACCOUNT' ? 404 : 409).json(result);
+    notifyActivity(
+      user.uid,
+      {
+        type: 'reward',
+        title: `Campaign joined: +${X_SHARE_CREDITS} credits on the way`,
+        message: `Your credits unlock ${new Date(result.reward!.unlockAt).toUTCString().replace(' GMT', ' UTC')}.`,
+      },
+      {
+        subject: `You joined the MarketX X campaign (+${X_SHARE_CREDITS} credits)`,
+        lines: [
+          `Thanks for sharing MarketX on X! Your ${X_SHARE_CREDITS} AI credits unlock 10 hours after you posted.`,
+          "We'll email you again the moment they land in your balance.",
+        ],
+      }
+    );
     res.json({ success: true, ...(await readAccountState(user)) });
   }));
 }

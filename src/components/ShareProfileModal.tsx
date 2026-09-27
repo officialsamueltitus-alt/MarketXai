@@ -111,7 +111,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
       aria-label="Earn credits on X"
     >
       <div
-        className="mx-pop-in relative w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] bg-[#0e0e11] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[92dvh]"
+        className="mx-pop-in relative w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] bg-[var(--mx-bg-2)] border border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[92dvh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

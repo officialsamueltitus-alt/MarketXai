@@ -37,6 +37,7 @@ declare global {
         amount: number; // in lowest currency unit, e.g. cents
         currency?: string;
         ref?: string;
+        channels?: string[];
         callback: (response: { reference: string }) => void;
         onClose: () => void;
       }) => {
@@ -72,6 +73,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const discountPct = Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
   const paymentsEnabled = !!paymentsConfig?.enabled;
   const benefits = paymentsConfig?.benefits || DEFAULT_BENEFITS;
+  // What Paystack charges (e.g. the NGN equivalent), shown next to the USD price
+  const chargeCurrency = paymentsConfig?.chargeCurrency || currency;
+  const chargeAmount = billingPeriod === 'yearly' ? paymentsConfig?.chargeYearlyAmount : paymentsConfig?.chargeMonthlyAmount;
+  const chargeLabel =
+    chargeAmount && chargeCurrency !== currency ? formatMoney(chargeAmount, chargeCurrency, true).replace(/\.00$/, '') : null;
 
   const handlePaystackCheckout = async () => {
     setCheckoutError(null);
@@ -86,7 +92,14 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     setIsProcessing(true);
     try {
       const plan = billingPeriod;
-      const init = await apiFetch<{ reference: string; amount: number; currency: string; email: string; publicKey: string }>(
+      const init = await apiFetch<{
+        reference: string;
+        amount: number;
+        currency: string;
+        channels?: string[];
+        email: string;
+        publicKey: string;
+      }>(
         '/api/payments/initialize',
         { method: 'POST', body: JSON.stringify({ plan }) }
       );
@@ -96,6 +109,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
         amount: init.amount,
         currency: init.currency,
         ref: init.reference,
+        channels: init.channels,
         callback: (response: { reference: string }) => {
           // Only the server's verification with Paystack activates the plan
           apiFetch('/api/payments/verify', {
@@ -121,7 +135,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">
-      <div className="relative w-full max-w-lg my-auto rounded-3xl bg-[#0f0f12] border border-white/[0.14] shadow-2xl overflow-hidden max-h-[94vh] flex flex-col">
+      <div className="relative w-full max-w-lg my-auto rounded-3xl bg-[var(--mx-bg-2)] border border-white/[0.14] shadow-2xl overflow-hidden max-h-[94vh] flex flex-col">
         {/* Top Header Background Glow */}
         <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-indigo-600/25 via-cyan-500/10 to-transparent pointer-events-none" />
 
@@ -318,11 +332,17 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                     : !paymentsEnabled
                     ? 'Payments coming soon'
                     : billingPeriod === 'yearly'
-                    ? `Pay ${yearlyDiscountedPrice} / Year via Paystack`
-                    : `Pay ${monthlyPrice} / Month via Paystack`}
+                    ? `Pay ${chargeLabel || yearlyDiscountedPrice} / year`
+                    : `Pay ${chargeLabel || monthlyPrice} / month`}
                 </span>
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               </button>
+              {chargeLabel && (
+                <p className="text-[11px] text-slate-500 text-center">
+                  {billingPeriod === 'yearly' ? yearlyDiscountedPrice : monthlyPrice} is charged as {chargeLabel} ({chargeCurrency}) at
+                  today's exchange rate.
+                </p>
+              )}
             </div>
           </div>
 
@@ -333,7 +353,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               <span className="truncate">Secured & encrypted Paystack billing engine</span>
             </div>
             <span className="text-[10px] font-mono text-slate-400 shrink-0">
-              Cards • Bank • Apple Pay
+              Card • Transfer • USSD • Bank
             </span>
           </div>
         </div>
