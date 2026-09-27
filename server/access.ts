@@ -12,7 +12,8 @@ import { db } from './firebase';
 // ---------------------------------------------------------------------------
 
 export const ACCESS_BATCH = Math.max(1, Math.floor(Number(process.env.ACCESS_CODE_BATCH) || 1));
-const BATCH_SIZE = 50;
+export const ACCESS_BATCH_SIZE = 50;
+const BATCH_SIZE = ACCESS_BATCH_SIZE;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I lookalikes
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 15 * 60 * 1000;

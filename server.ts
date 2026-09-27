@@ -8,6 +8,7 @@ import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './serv
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
+import { registerAdminRoutes } from './server/admin';
 import { isMailerConfigured } from './server/mailer';
 import { fetchDerivQuote, mapDerivSymbol } from './server/deriv';
 
@@ -1893,6 +1894,7 @@ app.get('/api/public-config', (req: Request, res: Response) => {
 registerAuthRoutes(app);
 registerAccountRoutes(app, generalApiRateLimiter);
 registerPaymentRoutes(app, generalApiRateLimiter);
+registerAdminRoutes(app);
 
 // Live market ticker feed
 app.get('/api/market/tickers', generalApiRateLimiter, async (req: Request, res: Response) => {

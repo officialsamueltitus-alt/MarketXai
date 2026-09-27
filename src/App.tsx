@@ -28,6 +28,7 @@ import { AuthModal } from './components/AuthModal';
 import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
 import { WelcomeGate } from './components/WelcomeGate';
+import { SiteBanner } from './components/SiteBanner';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
 import {
@@ -1153,6 +1154,7 @@ export default function App() {
     return (
       <>
         {toastBanner}
+        <SiteBanner />
         {authChecked ? (
           <WelcomeGate
             notice={authUnavailable}
@@ -1304,6 +1306,7 @@ export default function App() {
 
       {/* Main Workspace Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+        <SiteBanner />
         {/* Top Header Bar */}
         <Header
           onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}

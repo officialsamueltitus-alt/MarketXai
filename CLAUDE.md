@@ -20,6 +20,10 @@
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   When a batch is fully allocated, new sign-ups are refused until `ACCESS_CODE_BATCH` is raised.
+- Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
+  scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
+  Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
+  in `requireAuth` and at sign-in.
 
 ## Deployment
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`

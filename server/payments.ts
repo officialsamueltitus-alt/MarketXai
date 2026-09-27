@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Express, Request, Response } from 'express';
 import { db } from './firebase';
 import { sendEmail } from './mailer';
+import { logActivity } from './tracking';
 import {
   requireAuth,
   getUser,
@@ -178,6 +179,9 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
 
 function notifyPaymentEmail(result: FulfillResult) {
   if (!result.granted || !result.plan) return;
+  if (result.uid) {
+    logActivity(result.uid, { type: 'payment', title: `Paid for Pro ${result.plan === 'yearly' ? 'Yearly' : 'Monthly'}`, detail: result.charged || '' });
+  }
   sendEmail(
     result.email,
     `Your MarketX Pro ${result.plan} plan is active`,
