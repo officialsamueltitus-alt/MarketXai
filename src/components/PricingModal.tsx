@@ -3,7 +3,7 @@ import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
 import { UserProfile } from '../types';
 import { isUnlimitedUser } from '../utils/creditManager';
-import { apiFetch, PaymentsPublicConfig, DEFAULT_BENEFITS } from '../utils/apiClient';
+import { formatMoney, apiFetch, PaymentsPublicConfig, DEFAULT_BENEFITS } from '../utils/apiClient';
 import {
   X,
   Check,
@@ -27,13 +27,6 @@ interface PricingModalProps {
   onPaymentVerified: (account: any, plan: 'monthly' | 'yearly') => void;
 }
 
-function formatMoney(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(2)}`;
-  }
-}
 
 declare global {
   interface Window {
@@ -71,8 +64,8 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   // Prices come from the server (PAYSTACK_* env vars); the browser never decides the amount
   const currency = paymentsConfig?.currency || 'USD';
-  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 18;
-  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 187.92;
+  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 20;
+  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 220.8;
   const monthlyPrice = formatMoney(monthlyAmount, currency);
   const yearlyDiscountedPrice = formatMoney(yearlyAmount, currency);
   const yearlyMonthlyEquivalent = formatMoney(yearlyAmount / 12, currency);
@@ -149,7 +142,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               <span>MarketX Pro</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              More analyses every day, bonus credits and a verified trader badge.
+              More analyses every day and a verified trader badge.
             </p>
           </div>
 
@@ -277,11 +270,6 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                 </div>
                 {[
                   { label: 'Analyses per day', free: String(benefits.freeDailyAnalyses), pro: String(benefits.proDailyAnalyses) },
-                  {
-                    label: 'Credits',
-                    free: `${benefits.startingCredits} to start`,
-                    pro: `+${billingPeriod === 'yearly' ? benefits.yearlyBonusCredits : benefits.monthlyBonusCredits} bonus`,
-                  },
                   { label: 'Verified trader badge', free: false, pro: true },
                   { label: 'Full AI analysis & trade plans', free: true, pro: true },
                   { label: 'Live market prices', free: true, pro: true },

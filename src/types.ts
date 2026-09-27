@@ -126,6 +126,16 @@ export interface ReasoningStep {
   time: string;
 }
 
+// One real, timed step of work shown in the live activity trace
+export interface ActivityStep {
+  id: string;
+  title: string;
+  detail?: string;
+  status: 'active' | 'done' | 'error' | 'stopped';
+  startedAt: number;
+  endedAt?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -136,6 +146,7 @@ export interface ChatMessage {
   searchStep?: string;
   durationSeconds?: number;
   reasoningSteps?: ReasoningStep[];
+  activity?: ActivityStep[];
   chartImage?: string; // base64 Data URL for uploaded chart image
   chartFileName?: string;
   timestamp: number;

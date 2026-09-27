@@ -16,7 +16,7 @@ import type {
 // ---------------------------------------------------------------------------
 // Credit & plan rules (server is the single source of truth)
 // ---------------------------------------------------------------------------
-export const FREE_DAILY_LIMIT = 5;
+export const FREE_DAILY_LIMIT = 3;
 export const PRO_DAILY_LIMIT = 10;
 export const STARTING_CREDITS = 5;
 const DAY_MS = 24 * 60 * 60 * 1000;

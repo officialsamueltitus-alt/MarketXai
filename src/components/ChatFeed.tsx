@@ -8,9 +8,8 @@ import { MarketXIcon } from './MarketXIcon';
 import { VerifiedBadge } from './VerifiedBadge';
 import { downloadStrategyImage, shareToX } from '../utils/exportImage';
 import { UserProfile } from '../types';
-import { AiStepProgressIndicator } from './AiStepProgressIndicator';
+import { AiActivityTrace } from './AiActivityTrace';
 import { HighImpactNewsAlert } from './HighImpactNewsAlert';
-import { AiReasoningAccordion } from './AiReasoningAccordion';
 import { Bitcoin, Gem, Activity, Coins } from 'lucide-react';
 import {
   User,
@@ -67,6 +66,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const prevCountRef = useRef(messages.length);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const loadingStartedAt = useMemo(() => Date.now(), [isLoading]);
   const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
 
   const handleTightenStopLoss = (strat: StrategyResult) => {
@@ -495,7 +496,6 @@ Rationale: ${strategy.entryZone.rationale}
         const isUser = message.role === 'user';
         const strategy = message.strategy;
         const isTargeted = highlightedId === message.id;
-        const priorUserMessage = messages.slice(0, index).reverse().find(m => m.role === 'user');
 
         return (
           <div
@@ -551,12 +551,18 @@ Rationale: ${strategy.entryZone.rationale}
               ) : (
                 <div className="w-full space-y-3 min-w-0">
                   {/* Clean Independent Progressive Step Indicator */}
-                  {message.status === 'searching' && (
-                    <AiStepProgressIndicator
-                      searchStep={message.searchStep}
-                      timestamp={message.timestamp}
-                      promptSnippet={priorUserMessage?.content}
-                    />
+                  {/* Live activity while working; collapses to "Worked for Ns" once done */}
+                  {message.status === 'searching' ? (
+                    <AiActivityTrace running steps={message.activity} startedAt={message.timestamp} />
+                  ) : (
+                    !strategy && (
+                      <AiActivityTrace
+                        running={false}
+                        steps={message.activity}
+                        startedAt={message.timestamp}
+                        durationSeconds={message.durationSeconds}
+                      />
+                    )
                   )}
 
                   {/* Trade Results Shown Directly as Conversational AI Response */}
@@ -576,12 +582,12 @@ Rationale: ${strategy.entryZone.rationale}
                       )}
 
                       {/* Completed Reasoning Accordion: Modern Frontier Thought Process */}
-                      <AiReasoningAccordion
-                        symbol={strategy.symbol}
-                        timeframe={strategy.timeframe}
-                        confidenceScore={strategy.confidenceScore}
+                      <AiActivityTrace
+                        running={false}
+                        steps={message.activity}
+                        legacySteps={message.reasoningSteps}
+                        startedAt={message.timestamp}
                         durationSeconds={message.durationSeconds}
-                        steps={message.reasoningSteps}
                       />
 
                       {/* High Impact News Detected Banner */}
@@ -949,10 +955,7 @@ Rationale: ${strategy.entryZone.rationale}
       {/* Global loading state if an analysis is being computed and no searching message is already in list */}
       {isLoading && !messages.some(m => m.role === 'assistant' && m.status === 'searching') && (
         <div className="w-full max-w-2xl mx-auto animate-fadeIn">
-          <AiStepProgressIndicator
-            searchStep="Querying real-time market data & order books across institutional exchanges..."
-            promptSnippet={messages.length > 0 && messages[messages.length - 1].role === 'user' ? messages[messages.length - 1].content : undefined}
-          />
+          <AiActivityTrace running startedAt={loadingStartedAt} />
         </div>
       )}
 

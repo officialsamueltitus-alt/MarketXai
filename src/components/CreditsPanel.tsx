@@ -132,7 +132,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
             <Sparkles className="w-4 h-4 text-indigo-300" /> What you get with Pro
           </div>
           <ul className="mt-3 space-y-2 text-[13px] text-slate-300">
-            {[`${B.proDailyAnalyses} analyses every day (vs ${B.freeDailyAnalyses} on Free)`, `+${B.monthlyBonusCredits} bonus credits monthly, +${B.yearlyBonusCredits} yearly`, 'Verified trader badge', 'Secure Paystack billing'].map(perk => (
+            {[`${B.proDailyAnalyses} analyses every day (vs ${B.freeDailyAnalyses} on Free)`, 'Verified trader badge', 'Secure Paystack billing'].map(perk => (
               <li key={perk} className="flex items-center gap-2">
                 <span className="w-4 h-4 rounded-full bg-indigo-400/20 text-indigo-200 flex items-center justify-center">
                   <Check className="w-2.5 h-2.5" />

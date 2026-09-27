@@ -244,7 +244,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
         {!isPremium && !isUnlimited && (
-          <p className="mt-2 text-xs text-slate-500">Pro gives {B.proDailyAnalyses} daily analyses (Free: {B.freeDailyAnalyses}), bonus credits and a verified badge.</p>
+          <p className="mt-2 text-xs text-slate-500">Pro gives {B.proDailyAnalyses} daily analyses (Free: {B.freeDailyAnalyses}) and a verified badge.</p>
         )}
         {isUnlimited && <p className="mt-2 text-xs text-slate-500">Unlimited analyses with no credit deductions.</p>}
       </section>

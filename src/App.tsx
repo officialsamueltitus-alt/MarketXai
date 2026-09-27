@@ -11,6 +11,7 @@ import {
   SubscriptionPlan,
   XShareReward,
   AppNotification,
+  ActivityStep,
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -25,6 +26,7 @@ import { ShareProfileModal } from './components/ShareProfileModal';
 import { RewardEmailNotificationModal } from './components/RewardEmailNotificationModal';
 import { AuthModal } from './components/AuthModal';
 import { ChatUpdatesBar } from './components/ChatUpdatesBar';
+import { formatPriceShort } from './components/AiActivityTrace';
 import {
   INITIAL_USER_PROFILE,
   INITIAL_CREDIT_STATE,
@@ -32,7 +34,7 @@ import {
   setServerUnlimitedEmail,
 } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
-import { apiFetch, ApiError, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
+import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift } from 'lucide-react';
 
@@ -238,6 +240,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [savedAnalyses, authUser]);
 
+  const [tickersLive, setTickersLive] = useState(false);
   const [tickers, setTickers] = useState<MarketQuote[]>([
     {
       symbol: 'AAPL',
@@ -380,6 +383,7 @@ export default function App() {
         if (!res.ok) return;
         const data = await res.json();
         if (data.success && Array.isArray(data.tickers) && data.tickers.length > 0 && isMounted) {
+          setTickersLive(true);
           setTickers(prev => {
             // Guard: check if any ticker values actually changed before creating new array reference
             let hasChanged = false;
@@ -461,6 +465,10 @@ export default function App() {
                     content: 'Analysis stopped by user.',
                     status: 'completed' as const,
                     searchStep: undefined,
+                    durationSeconds: parseFloat(((Date.now() - m.timestamp) / 1000).toFixed(1)),
+                    activity: (m.activity || []).map(st =>
+                      st.status === 'active' ? { ...st, status: 'stopped' as const, endedAt: Date.now() } : st
+                    ),
                   }
                 : m
             ),
@@ -757,6 +765,7 @@ export default function App() {
       role: 'assistant',
       content: '',
       status: 'searching',
+      activity: [],
       searchStep: resolvedBaseStrategy
         ? `Anchoring to verified ${resolvedBaseStrategy.symbol} setup & 15m Supply & Demand structure...`
         : 'Parsing prompt directive & identifying asset target parameters...',
@@ -794,29 +803,6 @@ export default function App() {
     abortControllerRef.current = controller;
     setIsLoading(true);
 
-    // 8-stage institutional quantitative scanning pipeline
-    const scanStages = resolvedBaseStrategy
-      ? [
-          `Anchoring to verified ${resolvedBaseStrategy.symbol} setup & 15m supply/demand structure...`,
-          'Calculating micro-rejection wick & compressed invalidation zone...',
-          'Auditing price reaction levels and immediate resting liquidity...',
-          'Locking in identical entry price and multi-tier take-profit targets...',
-          'Cross-referencing order book depth across Binance & Bybit...',
-          'Verifying news risk window and spread volatility tolerances...',
-          'Establishing compressed stop loss and capital preservation boundary...',
-          'Finalizing revised risk-reward ratio matrix & institutional thesis...',
-        ]
-      : [
-          'Parsing prompt directive & identifying asset target parameters...',
-          'Scanning unmitigated institutional supply & demand liquidity zones...',
-          'Scanning multi-exchange depth across Binance, CME & Bybit pools...',
-          'Mapping structural support & high-liquidity reaction zones...',
-          'Calculating mathematical confluence & probability thresholds...',
-          'Screening high-impact macroeconomic news & calendar risk events...',
-          'Formulating micro-invalidation boundary & capital protection rules...',
-          'Synthesizing asymmetric risk/reward targets & institutional thesis...',
-        ];
-
     const updateAssistant = (patch: Partial<ChatMessage>, sessionPatch?: Partial<ChatSession>) => {
       setSessions(prev =>
         prev.map(s =>
@@ -830,6 +816,82 @@ export default function App() {
         )
       );
     };
+
+    // Live activity trace: each step is recorded when the work actually starts and finishes
+    let activity: ActivityStep[] = [];
+    const publishActivity = () => {
+      if (controller.signal.aborted) return;
+      const snapshot = activity.slice();
+      updateAssistant({ activity: snapshot, searchStep: snapshot.filter(st => st.status === 'active').pop()?.title });
+    };
+    const startStep = (id: string, title: string, detail?: string) => {
+      activity = [...activity, { id, title, detail, status: 'active', startedAt: Date.now() }];
+      publishActivity();
+    };
+    const endStep = (id: string, patch: Partial<ActivityStep> = {}) => {
+      activity = activity.map(st => (st.id === id && st.status === 'active' ? { ...st, status: 'done', endedAt: Date.now(), ...patch } : st));
+      publishActivity();
+    };
+    const addDoneStep = (id: string, title: string, detail?: string) => {
+      const t = Date.now();
+      activity = [...activity, { id, title, detail, status: 'done', startedAt: t, endedAt: t }];
+      publishActivity();
+    };
+
+    const looksLikeAnalysis =
+      Boolean(chartImage) ||
+      hasNewAnalysisDirectives ||
+      /\b(eur|gbp|usd|aud|nzd|cad|chf|jpy|xau|xag|gold|silver|oil|btc|bitcoin|eth|ethereum|sol|solana|xrp|bnb|doge|sui|link|nvda|tsla|aapl|googl|volatility|boom|crash|nasdaq|us30|spx)\b/i.test(promptText);
+    const analysisTimeframe = resolvedBaseStrategy?.timeframe || timeframe;
+
+    // Step: understand the request (done on this device, instantly)
+    if (resolvedBaseStrategy) {
+      addDoneStep(
+        'read',
+        'Loaded your previous setup',
+        `${resolvedBaseStrategy.symbol} ${resolvedBaseStrategy.tradeType} · entry ${formatPriceShort(resolvedBaseStrategy.entryZone.optimal)}`
+      );
+    } else if (looksLikeAnalysis) {
+      addDoneStep('read', 'Understood your request', `${assetInfo.name} (${assetInfo.symbol}) · ${analysisTimeframe} timeframe`);
+    } else {
+      addDoneStep('read', 'Understood your question', 'General trading question');
+    }
+    if (chartImage) {
+      addDoneStep('chart', 'Attached your chart', `${chartFileName || 'Chart image'} · ${Math.max(1, Math.round((chartImage.length * 0.75) / 1024))} KB`);
+    }
+
+    // Step: live price check, running alongside the analysis
+    if (looksLikeAnalysis && !resolvedBaseStrategy) {
+      startStep('price', `Checking the live ${assetInfo.symbol} price`);
+      fetch(getApiUrl(`/api/market/quote/${encodeURIComponent(assetInfo.symbol)}`), { signal: controller.signal })
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          const q = data?.quote;
+          if (q && Number(q.price) > 0) {
+            const ch = Number(q.change24h) || 0;
+            endStep('price', { detail: `${formatPriceShort(Number(q.price))} · ${ch >= 0 ? '+' : ''}${ch.toFixed(2)}% today` });
+          } else {
+            endStep('price', { status: 'error', detail: 'Live price unavailable right now' });
+          }
+        })
+        .catch(() => endStep('price', { status: 'error', detail: 'Live price unavailable right now' }));
+    }
+
+    startStep(
+      'analyze',
+      resolvedBaseStrategy
+        ? `Tightening the ${resolvedBaseStrategy.symbol} stop loss`
+        : looksLikeAnalysis
+          ? `Analyzing ${assetInfo.symbol} on ${analysisTimeframe}`
+          : 'Thinking',
+      resolvedBaseStrategy
+        ? 'Recalculating the invalidation level and risk/reward'
+        : looksLikeAnalysis
+          ? chartImage
+            ? 'Reading your chart, market structure and key zones'
+            : 'Market structure, supply & demand zones, entry, stop and targets'
+          : 'Working out the answer'
+    );
 
     try {
       // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
@@ -868,23 +930,19 @@ export default function App() {
           return { kind: 'error', status: 0, code: 'NETWORK', message: 'Could not reach the MarketX server. Check your connection and try again.' };
         });
 
-      // 2. Show pipeline progress only while the real request is running
-      let settled = false;
-      fetchPromise.finally(() => {
-        settled = true;
-      });
-      const stageStarts: number[] = [];
-      for (let i = 0; i < scanStages.length && !settled; i++) {
-        if (controller.signal.aborted) return;
-        stageStarts.push(Date.now());
-        updateAssistant({ searchStep: scanStages[i] });
-        await Promise.race([new Promise(resolve => setTimeout(resolve, 2500)), fetchPromise]);
-      }
-
       const result = await fetchPromise;
       if (!result || controller.signal.aborted) return;
       const requestEndTime = Date.now();
       const actualDuration = parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1));
+      if (result.kind === 'error') {
+        endStep('analyze', { status: 'error', detail: result.message });
+      } else {
+        endStep('analyze');
+      }
+      // A price check still in flight is no longer needed
+      activity = activity.map(st =>
+        st.status === 'active' ? { ...st, status: 'stopped', endedAt: requestEndTime, detail: 'Not needed, the analysis finished first' } : st
+      );
 
       if (result.kind === 'error') {
         if (result.status === 402) setIsPricingModalOpen(true);
@@ -894,14 +952,17 @@ export default function App() {
           status: 'completed',
           searchStep: undefined,
           durationSeconds: actualDuration,
+          activity,
         });
         refreshAccount();
         return;
       }
 
       if (result.kind === 'chat') {
+        const words = result.text.trim().split(/\s+/).length;
+        addDoneStep('answer', 'Wrote the answer', `${words} words`);
         updateAssistant(
-          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration },
+          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity },
           { lastMessage: promptText, updatedAt: Date.now() }
         );
         refreshAccount();
@@ -909,15 +970,24 @@ export default function App() {
       }
 
       const strategy = result.strategy;
-      // Real per-stage timings for the stages the pipeline actually went through
-      const completedReasoningSteps = stageStarts.map((start, i) => {
-        const end = stageStarts[i + 1] ?? requestEndTime;
-        return {
-          title: scanStages[i].replace(/\.{3}$/, ''),
-          detail: `Quantitative execution node for ${strategy.symbol} (${strategy.timeframe} timeframe).`,
-          time: `${((end - start) / 1000).toFixed(1)}s`,
-        };
-      });
+      const tp1 = strategy.takeProfits?.[0]?.price;
+      addDoneStep(
+        'plan',
+        `Built the ${strategy.tradeType} plan`,
+        [
+          `Entry ${formatPriceShort(strategy.entryZone.optimal)}`,
+          `Stop ${formatPriceShort(strategy.stopLoss.price)}`,
+          tp1 ? `Target ${formatPriceShort(tp1)}` : '',
+          strategy.riskRewardRatio ? `R:R ${strategy.riskRewardRatio}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      );
+      if (strategy.highImpactNews?.detected) {
+        addDoneStep('news', 'Flagged upcoming news risk', `${strategy.highImpactNews.title} · ${strategy.highImpactNews.scheduledTime}`);
+      } else {
+        addDoneStep('news', 'Checked the news calendar', 'No high-impact events flagged for this setup');
+      }
 
       updateAssistant(
         {
@@ -926,7 +996,7 @@ export default function App() {
           status: 'completed',
           searchStep: undefined,
           durationSeconds: actualDuration,
-          reasoningSteps: completedReasoningSteps,
+          activity,
         },
         {
           title: `${strategy.symbol} ${strategy.tradeType}`,
@@ -962,7 +1032,8 @@ export default function App() {
         return;
       }
       console.error('Market analysis computation notice:', err);
-      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined });
+      activity = activity.map(st => (st.status === 'active' ? { ...st, status: 'error', endedAt: Date.now() } : st));
+      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity });
     } finally {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
@@ -1226,9 +1297,13 @@ export default function App() {
                     userProfile={userProfile}
                     creditState={creditState}
                     notifications={notifications}
+                    tickers={tickers}
+                    tickersLive={tickersLive}
+                    monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 20, paymentsConfig?.currency || 'USD', true)}
                     onOpenPricing={() => setIsPricingModalOpen(true)}
                     onOpenCampaign={() => setIsShareModalOpen(true)}
                     onSignIn={() => setIsAuthModalOpen(true)}
+                    onAnalyze={prompt => handleSendMessage(prompt)}
                     onNotificationSeen={markNotificationRead}
                     onNotificationAction={handleUpdateNotificationAction}
                   />

@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import type { Express, Request, Response } from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebase';
 import { sendEmail } from './mailer';
 import {
@@ -22,15 +21,15 @@ const PLAN_DURATION_MS: Record<Plan, number> = {
   monthly: 30 * 24 * 60 * 60 * 1000,
   yearly: 365 * 24 * 60 * 60 * 1000,
 };
-const PLAN_BONUS_CREDITS: Record<Plan, number> = { monthly: 50, yearly: 500 };
 
 // Prices are defined server-side in the currency's minor unit (cents/kobo), never by the browser
 function getPricing() {
   const currency = (process.env.PAYSTACK_CURRENCY || 'USD').toUpperCase();
   return {
     currency,
-    monthly: Number(process.env.PAYSTACK_MONTHLY_AMOUNT) || 1800,
-    yearly: Number(process.env.PAYSTACK_YEARLY_AMOUNT) || 18792,
+    // Defaults: $20/month, and 12 months less 8% ($220.80) for yearly
+    monthly: Number(process.env.PAYSTACK_MONTHLY_AMOUNT) || 2000,
+    yearly: Number(process.env.PAYSTACK_YEARLY_AMOUNT) || 22080,
   };
 }
 
@@ -49,8 +48,6 @@ export function getPaymentsPublicConfig() {
       freeDailyAnalyses: FREE_DAILY_LIMIT,
       proDailyAnalyses: PRO_DAILY_LIMIT,
       startingCredits: STARTING_CREDITS,
-      monthlyBonusCredits: PLAN_BONUS_CREDITS.monthly,
-      yearlyBonusCredits: PLAN_BONUS_CREDITS.yearly,
     },
   };
 }
@@ -98,7 +95,6 @@ async function fulfillPayment(reference: string, tx: any): Promise<{ granted: bo
         price: Number(payment.amount) / 100,
         paystackRef: reference,
       },
-      'credits.available': FieldValue.increment(PLAN_BONUS_CREDITS[plan]),
       'credits.dailyLimit': PRO_DAILY_LIMIT,
       'credits.dailyRemaining': PRO_DAILY_LIMIT,
       'credits.lastDailyReset': now,
@@ -107,7 +103,7 @@ async function fulfillPayment(reference: string, tx: any): Promise<{ granted: bo
     addNotificationInTx(t, payment.uid, {
       type: 'credit',
       title: `MarketX Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated`,
-      message: `Payment confirmed. ${PLAN_BONUS_CREDITS[plan]} bonus credits and ${PRO_DAILY_LIMIT} daily analyses are now active.`,
+      message: `Payment confirmed. ${PRO_DAILY_LIMIT} daily analyses and your verified badge are now active.`,
     });
     return { granted: true, uid: payment.uid, plan, email: loaded.doc.email };
   });
@@ -117,7 +113,7 @@ function notifyPaymentEmail(result: { granted: boolean; plan?: Plan; email?: str
   if (!result.granted || !result.plan) return;
   sendEmail(result.email, `Your MarketX Pro ${result.plan} plan is active`, [
     'Thank you for your payment. Your Pro plan is now active.',
-    `You received ${PLAN_BONUS_CREDITS[result.plan]} bonus AI credits and ${PRO_DAILY_LIMIT} daily analyses.`,
+    `You now get ${PRO_DAILY_LIMIT} analyses every day and a verified trader badge.`,
   ]);
 }
 
