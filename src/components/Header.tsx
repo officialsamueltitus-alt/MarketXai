@@ -47,13 +47,13 @@ export const Header: React.FC<HeaderProps> = ({
     p < 10 ? p.toFixed(p < 1 ? 4 : 3) : p.toLocaleString(undefined, { maximumFractionDigits: p < 1000 ? 2 : 0 });
 
   return (
-    <header className="h-14 px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-30 min-w-0">
+    <header className="h-14 px-1.5 min-[400px]:px-2 sm:px-4 flex items-center justify-between gap-1.5 min-[400px]:gap-2 sm:gap-4 shrink-0 z-30 min-w-0">
       {/* Left: sidebar, view switch, model picker */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+      <div className="flex items-center gap-1 min-[400px]:gap-1.5 sm:gap-2 min-w-0">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="h-9 w-9 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
+          className="h-9 w-8 min-[400px]:w-9 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
           title="Toggle sidebar"
           aria-label="Toggle sidebar"
         >
@@ -75,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
                 role="tab"
                 aria-selected={currentView === view}
                 onClick={() => onSwitchView(view)}
-                className={`relative z-10 w-[4.75rem] sm:w-[5.25rem] h-7 rounded-full text-xs sm:text-[13px] font-medium transition-colors ${
+                className={`relative z-10 w-[3.3rem] min-[400px]:w-[4.25rem] sm:w-[5.25rem] h-7 rounded-full text-[11px] min-[400px]:text-xs sm:text-[13px] font-medium whitespace-nowrap transition-colors ${
                   currentView === view ? 'text-white' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -117,11 +117,11 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right: credits, notifications, new chat, profile */}
-      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
         <button
           type="button"
           onClick={onOpenCredits}
-          className={`h-8 flex items-center gap-1.5 px-2.5 sm:px-3 rounded-full text-xs font-medium transition-colors shrink-0 ${
+          className={`h-8 flex items-center gap-1 min-[400px]:gap-1.5 px-2 min-[400px]:px-2.5 sm:px-3 rounded-full text-xs font-medium transition-colors shrink-0 ${
             credits >= 99999
               ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15'
               : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border border-white/[0.06]'
@@ -163,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onOpenProfile}
-            className="relative h-8 w-8 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-xs font-semibold text-white ring-1 ring-white/10 hover:ring-white/30 transition shrink-0 ml-0.5"
+            className="relative h-8 w-8 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-xs font-semibold text-white ring-1 ring-white/10 hover:ring-white/30 transition shrink-0"
             title={username ? `@${username}` : 'Profile'}
             aria-label="Open profile"
           >

@@ -43,7 +43,7 @@ const TONES: Record<Tone, string> = {
   slate: 'bg-white/[0.06] text-slate-300',
 };
 
-const VISIBLE_MS = 60_000; // each update clears itself after 1 minute
+const VISIBLE_MS = 25_000; // each update clears itself after 25 seconds
 const FIRST_DELAY: [number, number] = [15_000, 35_000];
 const GAP_DELAY: [number, number] = [120_000, 300_000];
 const SEEN_KEY = 'mx_seen_updates';
@@ -80,7 +80,7 @@ function notificationItem(n: AppNotification, onAction: () => void): UpdateItem 
 }
 
 // Occasional pop-up above the chat composer: live market moves, promos and new notifications.
-// Appears at random intervals, clears itself after a minute, and can be closed at any time.
+// Appears at random intervals, clears itself after 25 seconds, and can be closed at any time.
 export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
   const { notifications } = props;
   const [current, setCurrent] = useState<UpdateItem | null>(null);

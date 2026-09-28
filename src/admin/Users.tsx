@@ -92,6 +92,16 @@ const UserDetail: React.FC<{ uid: string; onClose: () => void; onChanged: () => 
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, pending]);
 
+  // The page behind the sheet stays put while the sheet scrolls
+  useEffect(() => {
+    const html = document.documentElement;
+    const prev = html.style.overflow;
+    html.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = prev;
+    };
+  }, []);
+
   const run = async () => {
     if (!pending) return;
     setBusy(true);

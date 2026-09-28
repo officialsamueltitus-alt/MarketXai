@@ -97,6 +97,17 @@ const loginFailures = createKeyedThrottle({ windowMs: 15 * 60 * 1000, max: 10 })
 const resetEmails = createKeyedThrottle({ windowMs: 60 * 60 * 1000, max: 3 });
 const verifyEmails = createKeyedThrottle({ windowMs: 60 * 60 * 1000, max: 3 });
 
+const TERMS_REQUIRED = {
+  error: 'TERMS_REQUIRED',
+  message: 'Please tick the box to accept the MarketX Terms of Service and Privacy Policy to continue.',
+};
+const acceptedTerms = (req: Request) => req.body?.acceptTerms === true;
+
+const GOOGLE_NOT_REGISTERED = {
+  error: 'GOOGLE_NOT_REGISTERED',
+  message: 'This email was registered with an email and password, not Google. Sign in with your email and password instead.',
+};
+
 function requireConfigured(req: Request, res: Response, next: NextFunction) {
   if (!isAuthConfigured()) {
     return res.status(503).json({ error: 'AUTH_NOT_CONFIGURED', message: 'Accounts are not configured on this server yet.' });
@@ -267,6 +278,7 @@ export function registerAuthRoutes(app: Express) {
     const username = typeof req.body?.username === 'string' ? req.body.username : undefined;
     const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName : undefined;
 
+    if (!acceptedTerms(req)) return res.status(400).json(TERMS_REQUIRED);
     if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'INVALID_EMAIL', message: 'Please enter a valid email address.' });
     if (password.length < MIN_PASSWORD) {
       return res.status(400).json({ error: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_PASSWORD} characters.` });
@@ -283,7 +295,7 @@ export function registerAuthRoutes(app: Express) {
 
     // Invite-only: the account is created only after the emailed pass code is entered
     const passwordHash = await hashPassword(password);
-    const reserved = await createPendingSignup(email, { passwordHash, username: cleanUsername || undefined, displayName });
+    const reserved = await createPendingSignup(email, { passwordHash, username: cleanUsername || undefined, displayName, termsAcceptedAt: Date.now() });
     if (reserved.status === 'full') {
       return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
     }
@@ -351,6 +363,8 @@ export function registerAuthRoutes(app: Express) {
   app.post('/api/auth/google', authLimiter, requireConfigured, wrap(async (req, res) => {
     const clientId = getGoogleClientId();
     if (!clientId) return res.status(503).json({ error: 'GOOGLE_NOT_CONFIGURED', message: 'Google sign-in is not available yet.' });
+    // Google sign-up and sign-in both require accepting the Terms & Privacy Policy
+    if (!acceptedTerms(req)) return res.status(400).json(TERMS_REQUIRED);
     const credential = String(req.body?.credential || '');
     googleClient ||= new OAuth2Client(clientId);
 
@@ -366,10 +380,21 @@ export function registerAuthRoutes(app: Express) {
       return res.status(401).json({ error: 'GOOGLE_UNVERIFIED', message: 'Your Google account email is not verified.' });
     }
 
+    // Google sign-in only recognises accounts that were registered with Google (the same Google account)
+    const existingCred = await credentialsRef(email).get();
+    if (existingCred.exists) {
+      const sub = existingCred.data()!.googleSub;
+      if (!sub || sub !== payload.sub) return res.status(403).json(GOOGLE_NOT_REGISTERED);
+    }
+
     // New Google users go through the same pass code gate (existing accounts and owner emails sign straight in)
-    if (!(await credentialsRef(email).get()).exists && !isUnlimitedEmail(email)) {
+    if (!existingCred.exists && !isUnlimitedEmail(email)) {
       if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
-      const reserved = await createPendingSignup(email, { googleSub: payload.sub, name: payload.name, picture: payload.picture });
+      const waiting = await pendingRef(email).get();
+      const w = waiting.exists ? (waiting.data() as PendingSignup) : null;
+      // A pending email/password sign-up can't be taken over or finished through Google
+      if (w && !isPendingExpired(w) && w.googleSub !== payload.sub) return res.status(403).json(GOOGLE_NOT_REGISTERED);
+      const reserved = await createPendingSignup(email, { googleSub: payload.sub, name: payload.name, picture: payload.picture, termsAcceptedAt: Date.now() });
       if (reserved.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
       const alreadySent = reserved.status === 'exists' && !!reserved.pending.codeEmailSentAt;
       if (!alreadySent) await deliverPasscode(req, email);
@@ -377,17 +402,24 @@ export function registerAuthRoutes(app: Express) {
     }
 
     const legacyUid = await findLegacyUid(email);
-    const uid = await db().runTransaction(async tx => {
+    const uid = await db()
+      .runTransaction(async tx => {
       const cred = await tx.get(credentialsRef(email));
       if (cred.exists) {
         const data = cred.data()!;
-        if (!data.googleSub) tx.update(credentialsRef(email), { googleSub: payload.sub });
+        if (data.googleSub !== payload.sub) throw Object.assign(new Error('not google'), { code: 'GOOGLE_NOT_REGISTERED' });
+        tx.update(credentialsRef(email), { termsAcceptedAt: Date.now() });
         return data.uid as string;
       }
       const newUid = legacyUid || crypto.randomUUID();
-      tx.set(credentialsRef(email), { uid: newUid, googleSub: payload.sub, createdAt: Date.now() });
+      tx.set(credentialsRef(email), { uid: newUid, googleSub: payload.sub, createdAt: Date.now(), termsAcceptedAt: Date.now() });
       return newUid;
-    });
+    })
+      .catch(err => {
+        if (err?.code === 'GOOGLE_NOT_REGISTERED') return null;
+        throw err;
+      });
+    if (!uid) return res.status(403).json(GOOGLE_NOT_REGISTERED);
 
     const isNew = !(await userRef(uid).get()).exists;
     await createUserIfMissing({ uid, email, emailVerified: true, name: payload.name, picture: payload.picture });
@@ -540,6 +572,7 @@ export function registerAuthRoutes(app: Express) {
         uid,
         ...(pending.passwordHash ? { passwordHash: pending.passwordHash } : {}),
         ...(pending.googleSub ? { googleSub: pending.googleSub } : {}),
+        ...(pending.termsAcceptedAt ? { termsAcceptedAt: pending.termsAcceptedAt } : {}),
         createdAt: Date.now(),
       });
       consumePasscodeInTx(tx, pending, uid);

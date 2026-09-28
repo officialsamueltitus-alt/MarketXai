@@ -33,6 +33,7 @@ export interface PendingSignup {
   displayName?: string;
   name?: string;
   picture?: string;
+  termsAcceptedAt?: number;
   createdAt: number;
   codeEmailSentAt?: number | null;
   codeEmailClaimAt?: number | null;

@@ -22,6 +22,8 @@
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a
   fresh code (hourly sweep + checks at redeem/sign-in/sign-up).
   When a batch is fully allocated, new sign-ups are refused until `ACCESS_CODE_BATCH` is raised.
+- Sign-up (email or Google) and every Google sign-in require `acceptTerms: true` (Terms & Privacy checkbox),
+  enforced server-side. Google sign-in only works for accounts registered with that same Google account.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
   scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
