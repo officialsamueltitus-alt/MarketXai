@@ -587,10 +587,12 @@ export default function App() {
         setToastNotification({ message: '🚀 Thanks for sharing! 10 credits unlock in 10 hours.', type: 'success' });
         return null;
       } catch (err: any) {
+        // Already claimed: reload the account so the campaign shows as completed everywhere
+        if (err?.status === 409 || /already/i.test(String(err?.message || ''))) refreshAccount().catch(() => {});
         return err?.message || 'Could not submit your post. Please try again.';
       }
     },
-    [applyAccount]
+    [applyAccount, refreshAccount]
   );
 
   const handleDismissRewardNotice = useCallback(() => {
@@ -986,6 +988,12 @@ export default function App() {
         .catch(() => endStep('price', { status: 'error', detail: 'Live price unavailable right now' }));
     }
 
+    // Step: today's fundamentals, checked live by the server alongside the analysis
+    if (looksLikeAnalysis || resolvedBaseStrategy) {
+      const newsSymbol = resolvedBaseStrategy?.symbol || assetInfo.symbol;
+      startStep('news', `Checking today's news for ${newsSymbol}`, 'Economic calendar and live market wires, for today only');
+    }
+
     startStep(
       'analyze',
       resolvedBaseStrategy
@@ -1019,6 +1027,14 @@ export default function App() {
           baseStrategy: resolvedBaseStrategy,
           action: isTightenPrompt ? 'tighten_sl' : undefined,
           chartImage,
+          // Decides which calendar day "today's news" belongs to
+          timeZone: (() => {
+            try {
+              return Intl.DateTimeFormat().resolvedOptions().timeZone;
+            } catch {
+              return undefined;
+            }
+          })(),
         }),
         signal: controller.signal,
       })
@@ -1049,10 +1065,19 @@ export default function App() {
       } else {
         endStep('analyze');
       }
-      // A price check still in flight is no longer needed
+      // A price check still in flight is no longer needed; the news step is settled from the result below
       activity = activity.map(st =>
-        st.status === 'active' ? { ...st, status: 'stopped', endedAt: requestEndTime, detail: 'Not needed, the analysis finished first' } : st
+        st.status === 'active' && st.id !== 'news'
+          ? { ...st, status: 'stopped', endedAt: requestEndTime, detail: 'Not needed, the analysis finished first' }
+          : st
       );
+      if (result.kind === 'chat') {
+        activity = activity.filter(st => st.id !== 'news'); // a plain answer has no market news
+      } else if (result.kind === 'error') {
+        activity = activity.map(st =>
+          st.id === 'news' && st.status === 'active' ? { ...st, status: 'stopped', endedAt: requestEndTime, detail: 'Skipped, the analysis did not finish' } : st
+        );
+      }
 
       if (result.kind === 'error') {
         if (result.status === 402) setIsPricingModalOpen(true);
@@ -1080,6 +1105,46 @@ export default function App() {
       }
 
       const strategy = result.strategy;
+      if (strategy.timeframe && !resolvedBaseStrategy) {
+        activity = activity.map(st =>
+          st.id === 'analyze' ? { ...st, title: `Analyzed ${strategy.symbol} on ${strategy.timeframe}` } : st
+        );
+      }
+      // Today's news: what the server found for this asset on the reader's day
+      const brief = strategy.newsBrief && Date.now() < strategy.newsBrief.expiresAt ? strategy.newsBrief : null;
+      const newsCount = brief ? brief.events.length + brief.headlines.length : 0;
+      const localTime = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      const newsDetail = (b: NonNullable<typeof brief>) => {
+        const now = Date.now();
+        const next = b.events.find(e => e.impact === 'HIGH' && e.at != null && e.at > now);
+        const released = b.events.filter(e => e.impact === 'HIGH' && e.at != null && e.at <= now).length;
+        const holidays = b.events.filter(e => e.impact === 'HOLIDAY');
+        return [
+          next ? `Next: ${next.title} (${next.currency}) at ${localTime(next.at!)}` : '',
+          released ? `${released} released today` : '',
+          holidays.length ? holidays.map(h => `${h.currency} bank holiday`).join(', ') : '',
+          b.headlines.length ? `${b.headlines.length} headline${b.headlines.length === 1 ? '' : 's'}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+      };
+      const newsPatch: Partial<ActivityStep> = brief
+        ? {
+            title: `Found ${newsCount} news item${newsCount === 1 ? '' : 's'} for today`,
+            detail: newsDetail(brief),
+            tokenWeight: 1 + Math.min(8, newsCount) * 0.35,
+          }
+        : {
+            title: "Checked today's news",
+            detail: `Nothing on today's calendar or wires that could move ${strategy.symbol}`,
+            tokenWeight: 0.6,
+          };
+      if (activity.some(st => st.id === 'news')) {
+        activity = activity.map(st => (st.id === 'news' ? { ...st, status: 'done' as const, endedAt: st.endedAt ?? requestEndTime, ...newsPatch } : st));
+      } else {
+        addDoneStep('news', newsPatch.title!, newsPatch.detail);
+        activity = activity.map(st => (st.id === 'news' ? { ...st, tokenWeight: newsPatch.tokenWeight } : st));
+      }
       const tp1 = strategy.takeProfits?.[0]?.price;
       addDoneStep(
         'plan',
@@ -1093,11 +1158,6 @@ export default function App() {
           .filter(Boolean)
           .join(' · ')
       );
-      if (strategy.highImpactNews?.detected) {
-        addDoneStep('news', 'Flagged upcoming news risk', `${strategy.highImpactNews.title} · ${strategy.highImpactNews.scheduledTime}`);
-      } else {
-        addDoneStep('news', 'Checked the news calendar', 'No high-impact events flagged for this setup');
-      }
 
       updateAssistant(
         {

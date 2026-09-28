@@ -240,7 +240,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                   </svg>
                 )}
-                {!canPost ? 'Complete steps 1–3 first' : done.post ? 'Post again on X' : 'Post on X'}
+                {!canPost ? 'Complete steps 1 to 3 first' : done.post ? 'Post again on X (no extra credits)' : 'Post on X'}
               </button>
               {shareError && <p className="text-xs text-rose-300">{shareError}</p>}
             </div>
@@ -253,7 +253,9 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
               <div className="text-sm font-medium text-white">+10 credits</div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {isCredited
-                  ? 'Added to your balance. Thank you!'
+                  ? existingReward?.previouslyClaimed
+                    ? 'Already claimed with your email. The campaign can only be claimed once per person.'
+                    : 'Added to your balance. Claimed once, thank you!'
                   : isPending
                   ? 'Unlocks automatically, with an email confirmation.'
                   : 'Credited 10 hours after you post.'}

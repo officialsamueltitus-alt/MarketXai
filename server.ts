@@ -5,6 +5,16 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { hideEngineInResponses } from './server/brand';
+import {
+  refreshNewsFeeds,
+  refreshNewsFeedsWithin,
+  buildDailyNewsBrief,
+  newsBriefToAlert,
+  newsBriefPromptBlock,
+  resolveTimeZone,
+  getCalendar,
+  type NewsBrief,
+} from './server/news';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { firebaseStatus } from './server/firebase';
@@ -946,287 +956,10 @@ function extractAssetInfo(prompt: string, defaultSymbol?: string) {
 }
 
 // =========================================================================
-// VERIFIED FOREXFACTORY & MARKETWATCH ECONOMIC NEWS ENGINE
+// LIVE FUNDAMENTALS (today only, on the reader's calendar day): see server/news.ts
 // =========================================================================
-
-interface ForexFactoryEvent {
-  title: string;
-  country: string;
-  dateStr: string; // e.g. "Mon, Sep 21, 2026"
-  timeStr: string; // e.g. "02:00 PM EDT (18:00 UTC)"
-  impact: 'CRITICAL' | 'HIGH' | 'Holiday';
-  forecast: string;
-  previous: string;
-  detail: string;
-  isoDate: string; // ISO date string for accurate chronological comparison
-}
-
-// Active and upcoming verified economic calendar entries aligned with current date
-// Populated exclusively from the live ForexFactory weekly feed (refreshed on startup and every 30 minutes)
-const VERIFIED_FOREXFACTORY_CALENDAR: ForexFactoryEvent[] = [];
-let lastCalendarFetchTime = 0;
-
-// Live MarketWatch / Dow Jones Breaking Wire Cache
-// Filled only from the live MarketWatch RSS feed
-let cachedMarketWatchHeadlines: string[] = [];
-let lastNewsFetchTime = 0;
-
-async function refreshMarketNewsFeed() {
-  const now = Date.now();
-  if (now - lastNewsFetchTime < 180000) return; // 3 minute cache
-  lastNewsFetchTime = now;
-
-  // 1. Fetch live MarketWatch / Dow Jones RSS
-  try {
-    const res = await fetch('https://feeds.content.dowjones.io/public/rss/mw_topstories', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (res.ok) {
-      const xml = await res.text();
-      const rawTitles = [...xml.matchAll(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/g)]
-        .map(m => (m[1] || m[2]).trim())
-        .filter(t => t && !t.includes('MarketWatch') && !t.includes('Top Stories'));
-      if (rawTitles.length > 0) {
-        cachedMarketWatchHeadlines = rawTitles.slice(0, 5).map(t =>
-          t.replace(/&#x2019;/g, "'")
-           .replace(/&#x2018;/g, "'")
-           .replace(/&#x201C;/g, '"')
-           .replace(/&#x201D;/g, '"')
-           .replace(/&amp;/g, '&')
-           .replace(/&quot;/g, '"')
-           .replace(/&apos;/g, "'")
-        );
-      }
-    }
-  } catch (err) {
-    // Retain cached headlines
-  }
-
-  // 2. Live ForexFactory weekly calendar (high-impact events & bank holidays); replaces the list wholesale
-  if (now - lastCalendarFetchTime < 30 * 60 * 1000 && VERIFIED_FOREXFACTORY_CALENDAR.length > 0) return;
-  try {
-    const ffRes = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!ffRes.ok) {
-      console.warn(`[MarketX Feed] ForexFactory calendar unavailable: HTTP ${ffRes.status}`);
-      return;
-    }
-    const data = await ffRes.json();
-    if (!Array.isArray(data)) return;
-    const events: ForexFactoryEvent[] = data
-      .filter((item: any) => (item.impact === 'High' || item.impact === 'Holiday') && item.title && item.country && item.date)
-      .map((item: any) => {
-        const eventDate = new Date(item.date);
-        const isHoliday = item.impact === 'Holiday';
-        return {
-          title: item.title,
-          country: item.country,
-          dateStr: eventDate.toUTCString().slice(0, 16),
-          timeStr: isHoliday
-            ? 'All Day'
-            : `${eventDate.toISOString().slice(11, 16)} UTC`,
-          impact: isHoliday ? ('Holiday' as const) : ('HIGH' as const),
-          forecast: item.forecast || 'N/A',
-          previous: item.previous || 'N/A',
-          detail: item.title,
-          isoDate: eventDate.toISOString(),
-        };
-      });
-    VERIFIED_FOREXFACTORY_CALENDAR.length = 0;
-    VERIFIED_FOREXFACTORY_CALENDAR.push(...events);
-    lastCalendarFetchTime = now;
-  } catch (err: any) {
-    console.warn(`[MarketX Feed] ForexFactory calendar unavailable: ${err?.message || err}`);
-  }
-}
-
-// Warm the live news & calendar feeds at startup and keep them fresh
-refreshMarketNewsFeed().catch(() => {});
-setInterval(() => {
-  lastNewsFetchTime = 0;
-  refreshMarketNewsFeed().catch(() => {});
-}, 30 * 60 * 1000).unref();
-
-// Extract relevant national currencies from an asset symbol
-function getCurrenciesForAsset(symbol: string): string[] {
-  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const fiatList = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF', 'CNY'];
-  const matched: string[] = [];
-
-  for (const fiat of fiatList) {
-    if (sym.includes(fiat)) {
-      matched.push(fiat);
-    }
-  }
-
-  // Gold (XAU), Silver (XAG), Crypto (BTC, ETH, SOL) heavily react to USD liquidity
-  if (sym.includes('XAU') || sym.includes('GOLD') || sym.includes('BTC') || sym.includes('ETH') || sym.includes('SOL') || sym.includes('USDT')) {
-    if (!matched.includes('USD')) matched.push('USD');
-  }
-
-  return matched;
-}
-
-// Algorithmic bank holiday detector strictly for that particular day
-function checkBankHoliday(country: string, targetDate: Date = new Date()): { isHoliday: boolean; name: string } {
-  const month = targetDate.getUTCMonth() + 1; // 1-12
-  const day = targetDate.getUTCDate();
-  const dayOfWeek = targetDate.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
-  const targetYear = targetDate.getUTCFullYear();
-
-  // Check verified calendar items strictly on targetDate's calendar day
-  const calendarHoliday = VERIFIED_FOREXFACTORY_CALENDAR.find(item => {
-    if (item.country !== country || item.impact !== 'Holiday') return false;
-    const itemDate = new Date(item.isoDate);
-    return itemDate.getUTCFullYear() === targetYear &&
-           (itemDate.getUTCMonth() + 1) === month &&
-           itemDate.getUTCDate() === day;
-  });
-
-  if (calendarHoliday) {
-    let name = calendarHoliday.title;
-    if (name.toLowerCase() === 'bank holiday') {
-      name = `${country} National Bank Holiday`;
-    }
-    return { isHoliday: true, name };
-  }
-
-  // Japan (JPY) National Holidays
-  if (country === 'JPY') {
-    if (month === 9 && dayOfWeek === 1 && day >= 15 && day <= 21) {
-      return { isHoliday: true, name: 'Respect for the Aged Day (Keirō no Hi)' };
-    }
-    if (month === 9 && (day === 22 || day === 23)) {
-      return { isHoliday: true, name: 'Autumnal Equinox Day (Shūbun no Hi)' };
-    }
-    if (month === 1 && (day === 1 || day === 2 || day === 3)) return { isHoliday: true, name: "New Year's Bank Holiday" };
-    if (month === 4 && day === 29) return { isHoliday: true, name: 'Showa Day' };
-    if (month === 5 && (day === 3 || day === 4 || day === 5)) return { isHoliday: true, name: 'Golden Week Holiday' };
-    if (month === 8 && day === 11) return { isHoliday: true, name: 'Mountain Day' };
-    if (month === 11 && (day === 3 || day === 23)) return { isHoliday: true, name: 'Labor Thanksgiving Day' };
-  }
-
-  // United States (USD) Federal Holidays
-  if (country === 'USD') {
-    if (month === 1 && day === 1) return { isHoliday: true, name: "New Year's Day" };
-    if (month === 7 && day === 4) return { isHoliday: true, name: 'Independence Day' };
-    if (month === 9 && dayOfWeek === 1 && day <= 7) return { isHoliday: true, name: 'Labor Day' };
-    if (month === 11 && day === 11) return { isHoliday: true, name: 'Veterans Day' };
-    if (month === 11 && dayOfWeek === 4 && day >= 22 && day <= 28) return { isHoliday: true, name: 'Thanksgiving Day' };
-    if (month === 12 && day === 25) return { isHoliday: true, name: 'Christmas Day' };
-  }
-
-  // United Kingdom (GBP) Bank Holidays
-  if (country === 'GBP') {
-    if (month === 1 && day === 1) return { isHoliday: true, name: "New Year's Bank Holiday" };
-    if (month === 5 && dayOfWeek === 1 && day <= 7) return { isHoliday: true, name: 'Early May Bank Holiday' };
-    if (month === 5 && dayOfWeek === 1 && day >= 25) return { isHoliday: true, name: 'Spring Bank Holiday' };
-    if (month === 8 && dayOfWeek === 1 && day >= 25) return { isHoliday: true, name: 'Summer Bank Holiday' };
-    if (month === 12 && (day === 25 || day === 26)) return { isHoliday: true, name: 'Christmas / Boxing Day' };
-  }
-
-  // Eurozone (EUR)
-  if (country === 'EUR') {
-    if (month === 1 && day === 1) return { isHoliday: true, name: "New Year's Day" };
-    if (month === 5 && day === 1) return { isHoliday: true, name: 'Labour Day' };
-    if (month === 12 && (day === 25 || day === 26)) return { isHoliday: true, name: 'Christmas Holiday' };
-  }
-
-  return { isHoliday: false, name: '' };
-}
-
-// High Impact Economic & Market News Detector:
-// - Strictly in real time: ONLY events on that particular current calendar day
-// - If no news that day, returns null (no previous news, no future news)
-function detectHighImpactNews(symbol: string, timeframe: string = '4H') {
-  refreshMarketNewsFeed().catch(() => {});
-
-  const now = new Date();
-  const currencies = getCurrenciesForAsset(symbol);
-
-  // If no national currencies apply (e.g. purely synthetic volatility indices), return null
-  if (currencies.length === 0) {
-    return null;
-  }
-
-  // 1. Check for active Bank Holiday strictly for TODAY (that particular day)
-  for (const c of currencies) {
-    const holidayCheck = checkBankHoliday(c, now);
-    if (holidayCheck.isHoliday) {
-      return {
-        detected: true,
-        title: `Bank Holiday - ${holidayCheck.name} [${c}]`,
-        impactLevel: 'BANK_HOLIDAY' as const,
-        category: 'BANK_HOLIDAY' as const,
-        scheduledTime: 'Today • Bank Holiday (All Day)',
-        date: 'Today',
-        time: 'All Day',
-        timeHorizon: 'BANK HOLIDAY' as const,
-        affectedCurrency: `${c} Pairs • ${symbol}`,
-        forecast: 'N/A',
-        previous: 'N/A',
-        source: 'Official Interbank Banking Calendar',
-        secondarySource: 'ForexFactory Calendar Live',
-        volatilityWarning: `Bank Holiday in effect for ${c} today. National commercial banks and interbank clearing houses are closed. Anticipate subdued trading volume, thinner order book depth, and potential erratic spread expansion on ${symbol}.`,
-        executionGuidance: `Exercise caution and consider reduced sizing. With domestic market makers offline, avoid market orders and utilize limit orders with wider buffers at key institutional support and resistance zones.`,
-      };
-    }
-  }
-
-  // 2. Strictly check for High-Impact news occurring on THAT PARTICULAR DAY (today)
-  // No previous news (past days) and no future news (tomorrow or beyond)
-  const nowYear = now.getUTCFullYear();
-  const nowMonth = now.getUTCMonth();
-  const nowDate = now.getUTCDate();
-
-  const validTodayEvents = VERIFIED_FOREXFACTORY_CALENDAR.filter(ev => {
-    if (ev.impact === 'Holiday') return false; // Handled above
-    if (!currencies.includes(ev.country)) return false;
-
-    const eventDate = new Date(ev.isoDate);
-    // Must strictly occur on today's calendar date (same year, month, date)
-    const isToday =
-      eventDate.getUTCFullYear() === nowYear &&
-      eventDate.getUTCMonth() === nowMonth &&
-      eventDate.getUTCDate() === nowDate;
-
-    return isToday;
-  });
-
-  // If there is no high-impact news on that particular day, strictly return null
-  if (validTodayEvents.length === 0) {
-    return null;
-  }
-
-  // Sort by earliest event today
-  validTodayEvents.sort((a, b) => new Date(a.isoDate).getTime() - new Date(b.isoDate).getTime());
-  const matchedEvent = validTodayEvents[0];
-
-  const breakingHeadline = cachedMarketWatchHeadlines[0] || 'Central bank officials evaluate cross-market liquidity and policy balance sheets.';
-  const scheduledTimeDisplay = `Today • ${matchedEvent.timeStr}`;
-
-  return {
-    detected: true,
-    title: `${matchedEvent.title} [${matchedEvent.country}]`,
-    impactLevel: (matchedEvent.impact === 'CRITICAL' ? 'CRITICAL' : 'HIGH') as 'HIGH' | 'CRITICAL',
-    category: 'MACRO_ECONOMIC' as const,
-    scheduledTime: scheduledTimeDisplay,
-    date: 'Today',
-    time: matchedEvent.timeStr,
-    timeHorizon: 'TODAY (Real-Time)' as const,
-    affectedCurrency: `${matchedEvent.country} Pairs • ${symbol}`,
-    forecast: matchedEvent.forecast,
-    previous: matchedEvent.previous,
-    source: 'ForexFactory (Verified Economic Calendar)',
-    secondarySource: 'MarketWatch / Dow Jones Financial Wire',
-    breakingHeadline,
-    volatilityWarning: `Anticipate aggressive institutional liquidity sweep for ${symbol} today. Interbank spreads may expand during release.`,
-    executionGuidance: `Strictly avoid executing market orders into the announcement. Allow initial volatility candle to sweep resting liquidity, then enter via limit orders positioned at 0.618 golden pocket confluence.`,
-  };
-}
+refreshNewsFeeds().catch(() => {});
+setInterval(() => refreshNewsFeeds(true).catch(() => {}), 30 * 60 * 1000).unref();
 
 // Pre-Signal Crosscheck: before any setup is shown, confirm it has not already played out.
 // LONG: stop < entry <= price < TP1 < TP2 < TP3. SHORT: stop > entry >= price > TP1 > TP2 > TP3.
@@ -1319,10 +1052,11 @@ function generateAlgorithmicStrategy(
   timeframe: string,
   userPrompt: string = '',
   slMode: string = 'normal',
-  chartImage?: string
+  chartImage?: string,
+  newsBrief: NewsBrief | null = null
 ) {
   const currentPrice = currentTicker.price;
-  const newsAlert = detectHighImpactNews(asset.symbol, timeframe);
+  const newsAlert = newsBriefToAlert(newsBrief, asset.symbol);
   const isJpyPair = asset.symbol.includes('JPY') || currentTicker.currency === 'JPY';
   const priceDecimals = isJpyPair ? 3 : currentPrice < 10 ? 4 : 2;
   const currSym = isJpyPair
@@ -1741,6 +1475,7 @@ ${newsAlert.breakingHeadline ? `- **MarketWatch Wire**: "${newsAlert.breakingHea
     uploadedChartAnalyzed: Boolean(chartImage),
     chartImageThumbnail: chartImage || undefined,
     highImpactNews: newsAlert?.detected ? newsAlert : undefined,
+    newsBrief: newsBrief || undefined,
     entryZone: {
       min: Number(formatPrice(entryMin)),
       max: Number(formatPrice(entryMax)),
@@ -1856,7 +1591,7 @@ function sanitizeBaseStrategy(raw: any): any | null {
     swingHigh: num(clean.swingHigh) || undefined,
     swingLow: num(clean.swingLow) || undefined,
     sources: Array.isArray(clean.sources) ? clean.sources.filter((x: any) => /^https?:\/\//i.test(String(x?.uri || ''))).slice(0, 6) : [],
-    highImpactNews: clean.highImpactNews && typeof clean.highImpactNews === 'object' ? clean.highImpactNews : undefined,
+    // Fundamentals are re-checked live by the server, never echoed from the client's copy
     strategyEngine: clean.strategyEngine && typeof clean.strategyEngine === 'object' ? clean.strategyEngine : undefined,
     aiModel: typeof clean.aiModel === 'string' ? clean.aiModel.slice(0, 60) : undefined,
   };
@@ -2576,32 +2311,26 @@ app.get('/api/market/quote/:symbol', generalApiRateLimiter, async (req: Request,
   }
 });
 
-// Live Economic & Market News feed from ForexFactory and MarketWatch
+// Today's fundamentals for a symbol, on the caller's calendar day (?symbol=BTC/USDT&tz=Europe/London)
 app.get('/api/market/news', generalApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    await refreshMarketNewsFeed();
+    await refreshNewsFeedsWithin(3000);
     const rawSymbol = typeof req.query.symbol === 'string' ? req.query.symbol : 'EUR/USD';
     const symbolParam = safeDecodeURIComponent(rawSymbol).slice(0, 32).trim() || 'EUR/USD';
-    const alert = detectHighImpactNews(symbolParam);
+    const tz = resolveTimeZone(req.query.tz);
+    const asset = extractAssetInfo(symbolParam, symbolParam);
+    const brief = buildDailyNewsBrief(asset, tz);
     const now = Date.now();
-
-    // Filter calendar to only current and upcoming events (exclude events older than 1 hour)
-    const currentAndUpcomingCalendar = VERIFIED_FOREXFACTORY_CALENDAR.filter(ev => {
-      const evTime = new Date(ev.isoDate).getTime();
-      const diffHours = (evTime - now) / (1000 * 3600);
-      return diffHours >= -1.0;
-    });
-
     res.json({
       success: true,
       sources: [
         { name: 'ForexFactory', type: 'Economic Calendar Feed (Live Schedule)' },
         { name: 'MarketWatch / Dow Jones', type: 'Live Financial Wire' },
       ],
-      calendar: currentAndUpcomingCalendar,
-      breakingHeadlines: cachedMarketWatchHeadlines,
-      detectedAlert: alert,
-      timestamp: Date.now(),
+      symbol: asset.symbol,
+      brief,
+      calendar: getCalendar().filter(ev => ev.at >= now - 3600e3),
+      timestamp: now,
     });
   } catch (error) {
     console.error('News endpoint error:', error);
@@ -2741,6 +2470,8 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       : '4H';
     const safeSymbol = typeof requestedSymbol === 'string' ? requestedSymbol.slice(0, 32).trim() : undefined;
     const safeSlMode = slMode === 'tight' ? 'tight' : 'normal';
+    // The reader's time zone decides which calendar day "today's news" belongs to
+    const newsTimeZone = resolveTimeZone(req.body?.timeZone);
     // A timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily") wins over the selector
     const analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
 
@@ -2770,6 +2501,12 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     if (wantsTighten) {
       const tightened = await buildTightenedStrategy(baseStrategy);
       if (tightened) {
+        // Today's fundamentals are always re-checked live (never echoed from the client's copy)
+        await refreshNewsFeedsWithin(2000);
+        const tAsset = extractAssetInfo(String(tightened.symbol || ''), String(tightened.symbol || ''));
+        const tBrief = buildDailyNewsBrief(tAsset, newsTimeZone);
+        tightened.newsBrief = tBrief || undefined;
+        tightened.highImpactNews = newsBriefToAlert(tBrief, tAsset.symbol) || undefined;
         console.log(`[MarketX] Tightened stop loss for existing ${tightened.symbol} ${tightened.tradeType} setup (${tightened.timeframe})`);
         return res.json({
           success: true,
@@ -2859,8 +2596,12 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
     const asset = extractAssetInfo(cleanPrompt, safeSymbol);
     // Candles for the requested timeframe load in parallel with the live quote
     const candleWarmup = fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
+    const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
     const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
+    await newsWarmup;
+    // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
+    const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
     const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
     console.log(
       `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
@@ -2870,15 +2611,11 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
 
     // Deterministic strategy from real candles (used when the AI engine is unavailable or unusable)
     const computedFallback = () => {
-      const s = generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode, safeChartImage);
+      const s = generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode, safeChartImage, newsBrief);
       if (structureMap) {
         applyStructureMap(s, structureMap, structureMap.plan?.direction || null);
-        let thesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
-        if (s.highImpactNews) {
-          const n: any = s.highImpactNews;
-          thesis += `\n\n#### High Impact News\n**${n.title}** · ${n.scheduledTime}. ${n.volatilityWarning || ''} ${n.executionGuidance || ''}`;
-        }
-        s.detailedThesis = thesis;
+        // Today's news is shown (and expires) in the process report, not baked into the write-up
+        s.detailedThesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
       }
       return enforcePreSignalCrosscheck(s);
     };
@@ -3045,7 +2782,7 @@ CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g
       { id: 'gemini-flash-latest', label: 'MarketX Adaptive Engine' },
     ];
 
-    const liveNewsAlert = detectHighImpactNews(asset.symbol, safeTimeframe);
+    const liveNewsAlert = newsBriefToAlert(newsBrief, asset.symbol);
 
     let sources: Array<{ title: string; uri: string }> = [
       { title: 'ForexFactory Verified Economic Calendar', uri: 'https://www.forexfactory.com/calendar' },
@@ -3054,17 +2791,7 @@ CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g
       { title: 'Smart Money Market Structure & Fibonacci', uri: 'https://www.tradingview.com' },
     ];
 
-    const newsWatchBlock = liveNewsAlert
-      ? `VERIFIED ECONOMIC NEWS WATCH:
-- Detected Event: ${liveNewsAlert.title}
-- Scheduled Date & Time: ${liveNewsAlert.scheduledTime}
-- Currency / Asset Impact: ${liveNewsAlert.affectedCurrency}
-- Impact Level: ${liveNewsAlert.impactLevel}
-${liveNewsAlert.forecast ? `- Forecast: ${liveNewsAlert.forecast} | Previous: ${liveNewsAlert.previous}\n` : ''}${liveNewsAlert.breakingHeadline ? `- MarketWatch Wire Headline: "${liveNewsAlert.breakingHeadline}"\n` : ''}- Volatility Warning: ${liveNewsAlert.volatilityWarning}
-- Execution Guidance: ${liveNewsAlert.executionGuidance}`
-      : `VERIFIED ECONOMIC NEWS WATCH:
-- Calendar Status: Clean Economic Docket. No high-impact macroeconomic releases or bank holidays scheduled for ${asset.symbol} within the active session.
-- Liquidity Guidance: Standard interbank liquidity conditions without event-driven spread expansion.`;
+    const newsWatchBlock = newsBriefPromptBlock(newsBrief, asset.symbol);
 
     const promptContext = `Perform comprehensive Institutional Supply and Demand + Fibonacci market analysis for ${asset.name} (${asset.symbol}) on the ${analysisTimeframe} timeframe based on user request: "${cleanPrompt}".
 
@@ -3336,6 +3063,7 @@ INSTRUCTIONS:
           { title: 'Real-time Liquidity Map', uri: 'https://www.binance.com' },
         ],
         highImpactNews: liveNewsAlert?.detected ? liveNewsAlert : undefined,
+        newsBrief: newsBrief || undefined,
         aiModel: usedModel,
         aiPowered: true,
         uploadedChartAnalyzed: Boolean(safeChartImage),
@@ -3454,7 +3182,9 @@ INSTRUCTIONS:
       const asset = extractAssetInfo(safePrompt || 'BTC', safeSymbol);
       const tickers = await getLiveMarketTickers();
       const ticker = tickers.find(t => t.symbol === asset.symbol) || tickers[0];
-      const fallback = enforcePreSignalCrosscheck(generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode));
+      const fallback = enforcePreSignalCrosscheck(
+        generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode, undefined, buildDailyNewsBrief(asset, resolveTimeZone(req.body?.timeZone)))
+      );
       return res.json({
         success: true,
         isAnalysis: true,

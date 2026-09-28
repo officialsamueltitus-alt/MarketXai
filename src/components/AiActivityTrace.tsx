@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Check, ChevronDown, X, Square } from 'lucide-react';
-import { ActivityStep, ReasoningStep } from '../types';
+import { Check, ChevronDown, X, Square, Newspaper, CalendarClock, ArrowUpRight, Landmark } from 'lucide-react';
+import { ActivityStep, NewsBrief, ReasoningStep } from '../types';
 import { allocateTokens, formatTokens, promptTokenBudget } from '../utils/tokens';
 
 interface AiActivityTraceProps {
@@ -12,6 +12,8 @@ interface AiActivityTraceProps {
   legacySteps?: ReasoningStep[];
   /** Stable id (message id) that fixes this prompt's random token count */
   seed?: string | number;
+  /** Today's fundamentals for this analysis (shown inside the report while the reader's day lasts) */
+  news?: NewsBrief | null;
 }
 
 export function formatElapsed(ms: number): string {
@@ -62,12 +64,14 @@ const StepIcon: React.FC<{ status: ActivityStep['status'] }> = ({ status }) => {
 function stepTokens(steps: ActivityStep[], now: number, running: boolean, seed: string | number): Record<string, number> | null {
   const main = steps.find(s => s.id === 'analyze');
   if (!main) return null;
+  const weights: Record<string, number> = {};
+  for (const s of steps) if (s.tokenWeight) weights[s.id] = s.tokenWeight;
   const budget = promptTokenBudget(seed);
   if (!running) {
     if (main.status !== 'done') return null; // failed or stopped runs are not charged
-    return allocateTokens(steps.map(s => s.id), budget, seed);
+    return allocateTokens(steps.map(s => s.id), budget, seed, weights);
   }
-  const expected = allocateTokens([...steps.map(s => s.id), 'plan', 'news'], budget, seed);
+  const expected = allocateTokens([...steps.map(s => s.id), 'plan', 'news'], budget, seed, weights);
   const out: Record<string, number> = {};
   for (const s of steps) {
     if (s.id === 'analyze') {
@@ -114,8 +118,108 @@ const Timeline: React.FC<{ steps: ActivityStep[]; now: number; tokens: Record<st
   </ol>
 );
 
+const timeFmt = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const dayFmt = (day: string) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+};
+const untilFmt = (ms: number) => {
+  const min = Math.round(ms / 60000);
+  return min < 60 ? `in ${Math.max(1, min)}m` : `in ${Math.floor(min / 60)}h ${min % 60}m`;
+};
+
+/** A brief is only shown on the reader's day it was made for */
+export const isNewsCurrent = (news?: NewsBrief | null, now = Date.now()): news is NewsBrief =>
+  !!news && Number.isFinite(news.expiresAt) && now < news.expiresAt && (news.events?.length > 0 || news.headlines?.length > 0);
+
+// Today's fundamentals, inside the process report
+const NewsPanel: React.FC<{ news: NewsBrief }> = ({ news }) => {
+  const now = Date.now();
+  const events = news.events || [];
+  const headlines = (news.headlines || []).filter(h => h && h.title);
+  return (
+    <section className="mt-3.5 pt-3.5 border-t border-white/[0.06]" aria-label="Today's news">
+      <div className="flex items-center justify-between gap-3">
+        <span className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-100">
+          <span className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-300 flex items-center justify-center">
+            <Newspaper className="w-3.5 h-3.5" />
+          </span>
+          Today's news · {dayFmt(news.day)}
+        </span>
+        <span className="text-[11px] text-slate-500 shrink-0">Valid until midnight</span>
+      </div>
+
+      {news.guidance && (
+        <p className="mt-2.5 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-100/90 leading-relaxed">{news.guidance}</p>
+      )}
+
+      {events.length > 0 && (
+        <ul className="mt-2.5 space-y-1.5">
+          {events.map((e, i) => {
+            const holiday = e.impact === 'HOLIDAY';
+            const upcoming = e.at != null && e.at > now;
+            return (
+              <li key={`${e.title}-${i}`} className="flex items-start gap-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05] px-3 py-2">
+                <span className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${holiday ? 'bg-sky-500/15 text-sky-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                  {holiday ? <Landmark className="w-3.5 h-3.5" /> : <CalendarClock className="w-3.5 h-3.5" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="text-[13px] text-slate-100 leading-5">{e.title}</span>
+                    <span className="text-[10px] font-semibold tracking-wide px-1.5 h-4 rounded bg-white/[0.06] text-slate-300 inline-flex items-center">{e.currency}</span>
+                    <span className={`text-[10px] font-semibold tracking-wide px-1.5 h-4 rounded inline-flex items-center ${holiday ? 'bg-sky-500/15 text-sky-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                      {holiday ? 'BANK HOLIDAY' : 'HIGH IMPACT'}
+                    </span>
+                  </span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5 tabular-nums">
+                    {e.at == null ? 'All day' : timeFmt(e.at)}
+                    {e.at != null && (upcoming ? ` · ${untilFmt(e.at - now)}` : ' · released')}
+                    {e.forecast ? ` · forecast ${e.forecast}` : ''}
+                    {e.previous ? ` · previous ${e.previous}` : ''}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {headlines.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Headlines today</p>
+          <ul className="space-y-1">
+            {headlines.map((h, i) => {
+              const safe = typeof h.url === 'string' && /^https:\/\//i.test(h.url) ? h.url : null;
+              const body = (
+                <>
+                  <span className="text-[13px] text-slate-200 leading-snug group-hover:text-white">{h.title}</span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5">
+                    {h.source} · {timeFmt(h.publishedAt)}
+                  </span>
+                </>
+              );
+              return (
+                <li key={`${h.title}-${i}`}>
+                  {safe ? (
+                    <a href={safe} target="_blank" rel="noopener noreferrer nofollow" className="group flex items-start gap-2 rounded-lg px-2 py-1.5 -mx-2 hover:bg-white/[0.04] transition-colors">
+                      <span className="min-w-0 flex-1">{body}</span>
+                      <ArrowUpRight className="w-3.5 h-3.5 mt-0.5 text-slate-500 group-hover:text-slate-300 shrink-0" />
+                    </a>
+                  ) : (
+                    <div className="px-2 py-1.5 -mx-2">{body}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+};
+
 // Live, step-by-step view of what MarketX is doing, collapsing to "Worked for Ns" when finished
-export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps, seed }) => {
+export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps, seed, news }) => {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
 
@@ -162,6 +266,10 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
     );
   }
 
+  const currentNews = isNewsCurrent(news) ? news : null;
+  const newsCount = currentNews ? currentNews.events.length + currentNews.headlines.length : 0;
+  const expiredNews = !!news && !currentNews && Number.isFinite(news.expiresAt) && Date.now() >= news.expiresAt;
+
   if (!list.length) return null;
   const total = durationSeconds != null ? durationSeconds * 1000 : list.reduce((a, s) => a + ((s.endedAt ?? s.startedAt) - s.startedAt), 0);
   // The main analysis step decides the outcome (a skipped price check is not a failure)
@@ -191,10 +299,21 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
           </>
         )}
         <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+        {currentNews && (
+          <span className="ml-1 inline-flex items-center gap-1 h-5 px-2 rounded-full bg-amber-500/15 text-[11px] font-medium text-amber-300">
+            <Newspaper className="w-3 h-3" /> {newsCount} news today
+          </span>
+        )}
       </button>
       {open && (
         <div className="mx-fade-in mt-2 mb-1 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3.5">
           <Timeline steps={list} now={now} tokens={tokens} />
+          {currentNews && <NewsPanel news={currentNews} />}
+          {expiredNews && (
+            <p className="mt-3.5 pt-3 border-t border-white/[0.06] text-xs text-slate-500">
+              The news for {dayFmt(news!.day)} has expired. Run a new analysis for today's news.
+            </p>
+          )}
         </div>
       )}
     </div>

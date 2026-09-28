@@ -69,7 +69,7 @@ const DOCS: Record<Tab, Doc> = {
       },
       {
         title: 'Your choices',
-        body: 'You can clear your chat history at any time, change your email preferences, and permanently delete your account and its data from Settings → Profile. For any privacy request, message us from Support chat or by email.',
+        body: 'You can clear your chat history at any time, change your email preferences, and permanently delete your account and its data from Settings → Profile. To keep one-time rewards fair, a one-way hash of your email is kept after deletion so a campaign cannot be claimed twice. For any privacy request, message us from Support chat or by email.',
       },
     ],
   },

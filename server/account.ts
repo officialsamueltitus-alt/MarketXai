@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
@@ -99,6 +100,10 @@ export function isUnlimited(user: AuthedUser): boolean {
 
 const userRef = (uid: string) => db().collection('users').doc(uid);
 const usernameRef = (lower: string) => db().collection('usernames').doc(lower);
+// One X campaign claim per person, ever: keyed by a hash of the email (and the account id), so deleting the
+// account and signing up again with the same email cannot claim the reward a second time
+const campaignClaimRef = (key: string) => db().collection('campaignClaims').doc(key);
+const emailClaimKey = (email: string) => 'e_' + crypto.createHash('sha256').update(String(email || '').trim().toLowerCase()).digest('hex');
 
 export function sanitizeUsername(raw: string): string {
   return (raw || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
@@ -928,9 +933,31 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     const result = await db().runTransaction(async tx => {
       const loaded = await loadUserInTx(tx, user.uid);
       if (!loaded) return { error: 'NO_ACCOUNT', message: 'Account not found.' };
-      if (loaded.doc.xShareReward) return { error: 'ALREADY_CLAIMED', message: 'You have already joined this campaign.' };
+      if (loaded.doc.xShareReward) return { error: 'ALREADY_CLAIMED', message: 'You have already claimed this campaign. It can only be claimed once.' };
+      const emailKey = emailClaimKey(loaded.doc.email);
+      const [byEmail, byUid] = await Promise.all([tx.get(campaignClaimRef(emailKey)), tx.get(campaignClaimRef('u_' + user.uid))]);
 
       const now = Date.now();
+      if (byEmail.exists || byUid.exists) {
+        // Claimed before (e.g. on a deleted account with the same email): mark this account as completed, no credits
+        const previous = (byEmail.data() || byUid.data()) as { at?: number } | undefined;
+        saveNormalized(tx, loaded);
+        tx.update(loaded.ref, {
+          xShareReward: {
+            id: newId('x-share'),
+            username: loaded.doc.username,
+            email: loaded.doc.email,
+            sharedAt: previous?.at || now,
+            unlockAt: previous?.at || now,
+            creditsAwarded: 0,
+            status: 'credited',
+            notifiedOnSite: true,
+            notifiedEmail: true,
+            previouslyClaimed: true,
+          } as XShareReward,
+        });
+        return { error: 'ALREADY_CLAIMED', message: 'This campaign was already claimed with this email. It can only be claimed once per person.' };
+      }
       const reward: XShareReward = {
         id: newId('x-share'),
         username: loaded.doc.username,
@@ -944,6 +971,8 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       };
       saveNormalized(tx, loaded);
       tx.update(loaded.ref, { xShareReward: reward });
+      tx.set(campaignClaimRef(emailKey), { at: now, campaign: 'x-share' });
+      tx.set(campaignClaimRef('u_' + user.uid), { at: now, campaign: 'x-share' });
       return { reward };
     });
 

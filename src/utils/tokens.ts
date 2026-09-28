@@ -35,19 +35,25 @@ const STEP_TOKENS: Record<string, number> = {
   chart: 3_400,
   price: 900,
   plan: 2_600,
-  news: 1_300,
+  news: 1_600, // reading today's calendar and wires; scaled by how many items were found
   answer: 2_800,
 };
 const MAIN_STEP = 'analyze';
 
 /** Token allotment per step id for one prompt; always sums to `total`. Step shares vary a little per prompt. */
-export function allocateTokens(stepIds: string[], total: number = TOKENS_PER_CREDIT, seed: string | number = 0): Record<string, number> {
+export function allocateTokens(
+  stepIds: string[],
+  total: number = TOKENS_PER_CREDIT,
+  seed: string | number = 0,
+  weights: Record<string, number> = {}
+): Record<string, number> {
   const out: Record<string, number> = {};
   let used = 0;
   const jitter = (id: string) => 0.8 + ((hashSeed(`${seed}:${id}`) % 1000) / 1000) * 0.4; // ±20% per step
   for (const id of stepIds) {
     if (id === MAIN_STEP) continue;
-    const t = Math.round((STEP_TOKENS[id] ?? 1_000) * jitter(id));
+    const w = Math.min(4, Math.max(0.25, Number(weights[id]) || 1));
+    const t = Math.round((STEP_TOKENS[id] ?? 1_000) * jitter(id) * w);
     out[id] = t;
     used += t;
   }
