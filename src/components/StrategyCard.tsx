@@ -3,7 +3,6 @@ import { StrategyResult, UserProfile } from '../types';
 import { TechnicalVisualizer } from './TechnicalVisualizer';
 import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
-import { HighImpactNewsAlert } from './HighImpactNewsAlert';
 import { downloadStrategyImage, shareToX } from '../utils/exportImage';
 import { LazyMarkdown } from './LazyMarkdown';
 import {
@@ -264,13 +263,6 @@ Generated via MarketX AI (@_MarketXai) • https://marketx.world`;
           </div>
         </div>
       </div>
-
-      {/* High Impact News Detected Alert Banner */}
-      {strategy.highImpactNews && strategy.highImpactNews.detected && (
-        <div className="px-4 sm:px-5 pt-3 pb-1">
-          <HighImpactNewsAlert news={strategy.highImpactNews} />
-        </div>
-      )}
 
       {/* Uploaded Chart Image Analysis Confirmation */}
       {strategy.uploadedChartAnalyzed && (

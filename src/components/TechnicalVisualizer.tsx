@@ -372,7 +372,7 @@ export const TechnicalVisualizer: React.FC<TechnicalVisualizerProps> = ({ strate
                       <div className={`text-sm font-mono font-bold ${
                         isDemandOrSupport ? 'text-emerald-300' : 'text-rose-300'
                       }`}>
-                        ${formatPrice(poi.min)} — ${formatPrice(poi.max)}
+                        ${formatPrice(poi.min)} to ${formatPrice(poi.max)}
                       </div>
                       <div className="flex items-center sm:justify-end gap-1.5 mt-1">
                         <span className="text-[10px] text-slate-400">Distance:</span>

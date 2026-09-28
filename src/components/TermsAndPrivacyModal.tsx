@@ -23,7 +23,7 @@ const DOCS: Record<Tab, Doc> = {
   terms: {
     tone: 'indigo',
     summary:
-      'MarketX is an AI market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research — not advice.',
+      'MarketX is an AI market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research, not advice.',
     sections: [
       {
         title: 'Using MarketX',
@@ -57,7 +57,7 @@ const DOCS: Record<Tab, Doc> = {
       },
       {
         title: 'How it is stored',
-        body: 'Account data is stored on secure servers (Google Cloud Firestore) and is only accessed through the MarketX server — never directly from your browser. All traffic is encrypted with TLS. Passwords are stored as one-way hashes.',
+        body: 'Account data is stored on secure servers (Google Cloud Firestore) and is only accessed through the MarketX server, never directly from your browser. All traffic is encrypted with TLS. Passwords are stored as one-way hashes.',
       },
       {
         title: 'Cookies',
@@ -69,7 +69,7 @@ const DOCS: Record<Tab, Doc> = {
       },
       {
         title: 'Your choices',
-        body: 'You can clear your chat history at any time, change your email preferences, and permanently delete your account and its data from Settings → Profile. For any privacy request, message us from Support chat or by email.',
+        body: 'You can clear your chat history at any time, change your email preferences, and permanently delete your account and its data from Settings → Profile. To keep one-time rewards fair, a one-way hash of your email is kept after deletion so a campaign cannot be claimed twice. For any privacy request, message us from Support chat or by email.',
       },
     ],
   },

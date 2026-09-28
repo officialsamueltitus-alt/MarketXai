@@ -942,23 +942,23 @@ ${newsAlert.breakingHeadline ? `- **MarketWatch Wire**: "${newsAlert.breakingHea
 #### 1. Market Condition Assessment
 - **Asset**: ${asset.name} (**${asset.symbol}**)
 - **Live Price**: **${curPrefix}${formatPrice(currentPrice)}** (24h Change: ${change >= 0 ? '+' : ''}${change}%)
-- **24h Range**: ${curPrefix}${formatPrice(low24)} — ${curPrefix}${formatPrice(high24)}
+- **24h Range**: ${curPrefix}${formatPrice(low24)} to ${curPrefix}${formatPrice(high24)}
 - **Signal Status**: **No signal opportunity found.**
 
 #### 2. Key Findings & Confluence Gaps
 1. **Neutral Equilibrium Compression**: Current price action is oscillating around the 50.0% equilibrium midpoint (${curPrefix}${formatPrice(equilibriumPrice)}). No institutional displacement or liquidity sweep has taken place.
-2. **Missing Confluence**: Neither the institutional Demand Zone (${curPrefix}${formatPrice(demandLow)} - ${curPrefix}${formatPrice(demandHigh)}) nor the overhead Supply Zone (${curPrefix}${formatPrice(supplyLow)} - ${curPrefix}${formatPrice(supplyHigh)}) has been cleanly mitigated with rejection confirmation.
+2. **Missing Confluence**: Neither the institutional Demand Zone (${curPrefix}${formatPrice(demandLow)} to ${curPrefix}${formatPrice(demandHigh)}) nor the overhead Supply Zone (${curPrefix}${formatPrice(supplyLow)} to ${curPrefix}${formatPrice(supplyHigh)}) has been cleanly mitigated with rejection confirmation.
 3. **Risk-to-Reward Skew**: Initiating a position in this consolidation range results in an unfavorable mathematical expectancy.
 
 #### 3. Institutional POI & Zone Mitigation Status (Untouched vs Tapped)
-- 🟢 **Unmitigated (Untouched) POIs (${unmitigatedZonesCount} detected — Price has not touched yet)**:
-${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} - ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
-- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected — Price has tapped and left already)**:
-${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} - ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- 🟢 **Unmitigated (Untouched) POIs (${unmitigatedZonesCount} detected, Price has not touched yet)**:
+${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} to ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected, Price has tapped and left already)**:
+${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} to ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
 
 #### 4. Recommended Institutional Action
 - **Position**: **Stand Aside (Cash / No Trade)**.
-- **Trigger Required**: Wait for a clean sweep into untouched Demand (${curPrefix}${formatPrice(demandLow)} - ${curPrefix}${formatPrice(demandHigh)}) for a Buy Zone confirmation, or into untouched Supply (${curPrefix}${formatPrice(supplyLow)} - ${curPrefix}${formatPrice(supplyHigh)}) for a Sell Zone rejection.
+- **Trigger Required**: Wait for a clean sweep into untouched Demand (${curPrefix}${formatPrice(demandLow)} to ${curPrefix}${formatPrice(demandHigh)}) for a Buy Zone confirmation, or into untouched Supply (${curPrefix}${formatPrice(supplyLow)} to ${curPrefix}${formatPrice(supplyHigh)}) for a Sell Zone rejection.
 
 ${newsMarkdownSection}`
     : `${chartAnalysisSection}### Market Structure & Execution Thesis Report
@@ -966,18 +966,18 @@ ${newsMarkdownSection}`
 #### 1. Real-Time Market Structure & Institutional Liquidity
 ${asset.name} (**${asset.symbol}**) is displaying clear institutional structure on the **${timeframe}** timeframe.
 - **Current Live Price**: **${curPrefix}${formatPrice(currentPrice)}** (24h Change: ${change >= 0 ? '+' : ''}${change}%)
-- **24h Liquidity Range**: ${curPrefix}${formatPrice(low24)} — ${curPrefix}${formatPrice(high24)}
+- **24h Liquidity Range**: ${curPrefix}${formatPrice(low24)} to ${curPrefix}${formatPrice(high24)}
 - Institutional price action and real-time zone analysis indicate an unmitigated structural imbalance, making ${tradeType === 'LONG' ? 'a **Buy Zone (Buy Limit / Long)** pullback to untouched institutional demand with Fibonacci confluence' : 'a **Sell Zone (Sell Limit / Short)** retest into untouched overhead supply with Fibonacci confluence'} the highest mathematical expectancy setup.
 
 #### 2. Supply & Demand Zone Mapping
-- **Institutional Demand Zone**: **${curPrefix}${formatPrice(demandLow)} - ${curPrefix}${formatPrice(demandHigh)}** (${demandMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Demand — Price has not touched yet' : '⚡ Mitigated Demand — Price tapped & left already'}). High volume node with institutional resting limit bids.
-- **Overhead Supply Zone**: **${curPrefix}${formatPrice(supplyLow)} - ${curPrefix}${formatPrice(supplyHigh)}** (${supplyMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Supply — Price has not touched yet' : '⚡ Mitigated Supply — Price tapped & left already'}). Significant sell-side resting liquidity where sellers defended the previous structural pivot.
+- **Institutional Demand Zone**: **${curPrefix}${formatPrice(demandLow)} to ${curPrefix}${formatPrice(demandHigh)}** (${demandMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Demand, Price has not touched yet' : '⚡ Mitigated Demand, Price tapped & left already'}). High volume node with institutional resting limit bids.
+- **Overhead Supply Zone**: **${curPrefix}${formatPrice(supplyLow)} to ${curPrefix}${formatPrice(supplyHigh)}** (${supplyMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Supply, Price has not touched yet' : '⚡ Mitigated Supply, Price tapped & left already'}). Significant sell-side resting liquidity where sellers defended the previous structural pivot.
 
 #### 3. Institutional POI & Zone Mitigation Breakdown (Untouched vs Tapped)
-- 🟢 **Unmitigated (Untouched) POIs & Zones (${unmitigatedZonesCount} detected — Price has not touched yet)**:
-${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} - ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
-- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected — Price has tapped and left already)**:
-${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} - ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- 🟢 **Unmitigated (Untouched) POIs & Zones (${unmitigatedZonesCount} detected, Price has not touched yet)**:
+${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} to ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected, Price has tapped and left already)**:
+${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** (${curPrefix}${formatPrice(z.min)} to ${curPrefix}${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
 
 #### 4. Fibonacci Retracement Confluence
 - **Swing Low**: ${curPrefix}${formatPrice(swingLow)} | **Swing High**: ${curPrefix}${formatPrice(swingHigh)}
@@ -986,11 +986,11 @@ ${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.n
 
 #### 5. Actionable Execution Plan
 - **Directional Bias**: **${tradeType} (${tradeType === 'LONG' ? 'BUY ZONE / BUY LIMIT' : 'SELL ZONE / SELL LIMIT'})**
-- **Optimal Entry Price**: **${curPrefix}${formatPrice(optimalEntry)}** (Range: ${curPrefix}${formatPrice(entryMin)} - ${curPrefix}${formatPrice(entryMax)})
+- **Optimal Entry Price**: **${curPrefix}${formatPrice(optimalEntry)}** (Range: ${curPrefix}${formatPrice(entryMin)} to ${curPrefix}${formatPrice(entryMax)})
 - **Protective Invalidation Stop Loss**: **${curPrefix}${formatPrice(stopLossPrice)}** (${riskPercent}% risk from entry). Safely protected beyond the structural zone invalidation barrier.
-- **Take Profit 1 (TP1)**: **${curPrefix}${formatPrice(tp1)}** — Scale out 40% position at 50% equilibrium retracement. Move stop loss to breakeven upon fill.
-- **Take Profit 2 (TP2)**: **${curPrefix}${formatPrice(tp2)}** — Harvest 40% profit at the opposing institutional liquidity band.
-- **Take Profit 3 (TP3 / Runner)**: **${curPrefix}${formatPrice(tp3)}** — Retain final 20% position for structural extension.
+- **Take Profit 1 (TP1)**: **${curPrefix}${formatPrice(tp1)}**, Scale out 40% position at 50% equilibrium retracement. Move stop loss to breakeven upon fill.
+- **Take Profit 2 (TP2)**: **${curPrefix}${formatPrice(tp2)}**, Harvest 40% profit at the opposing institutional liquidity band.
+- **Take Profit 3 (TP3 / Runner)**: **${curPrefix}${formatPrice(tp3)}**, Retain final 20% position for structural extension.
 - **Expected Risk-to-Reward**: **${rrRatio}**
 
 #### 6. Invalidation & Risk Management
@@ -1037,7 +1037,7 @@ ${newsMarkdownSection}`;
     swingHigh,
     swingLow,
     detailedThesis: thesisMarkdown,
-    aiModel: 'MarketX Frontier Engine (gemini-3.8-flash)',
+    aiModel: 'MarketX Frontier Engine',
     aiPowered: true,
     highImpactNews: newsAlert?.detected ? newsAlert : undefined,
     timestamp: Date.now(),

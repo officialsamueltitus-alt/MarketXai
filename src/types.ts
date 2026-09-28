@@ -117,6 +117,8 @@ export interface StrategyResult {
   aiModel?: string;
   aiPowered?: boolean;
   highImpactNews?: HighImpactNewsAlert | null;
+  /** Live fundamentals for the reader's day (null/absent = nothing that could move this asset today) */
+  newsBrief?: NewsBrief | null;
   uploadedChartAnalyzed?: boolean;
   chartImageThumbnail?: string;
   timestamp: number;
@@ -136,6 +138,38 @@ export interface ActivityStep {
   status: 'active' | 'done' | 'error' | 'stopped';
   startedAt: number;
   endedAt?: number;
+  /** Relative token weight for this step (1 = its normal share), e.g. more news items cost more */
+  tokenWeight?: number;
+}
+
+export interface NewsBriefEvent {
+  title: string;
+  currency: string;
+  impact: 'HIGH' | 'HOLIDAY';
+  /** Release time (ms); null for all-day items such as bank holidays */
+  at: number | null;
+  forecast?: string;
+  previous?: string;
+}
+
+export interface NewsBriefHeadline {
+  title: string;
+  url?: string;
+  publishedAt: number;
+  source: string;
+}
+
+/** Today's fundamentals for one analysis, valid only on the reader's calendar day */
+export interface NewsBrief {
+  day: string; // YYYY-MM-DD
+  timeZone: string;
+  expiresAt: number;
+  checkedAt: number;
+  symbol: string;
+  events: NewsBriefEvent[];
+  headlines: NewsBriefHeadline[];
+  summary: string;
+  guidance: string;
 }
 
 export interface ChatMessage {
@@ -259,6 +293,8 @@ export interface XShareReward {
   notifiedOnSite: boolean;
   notifiedEmail: boolean;
   tweetUrl?: string;
+  /** This person already claimed the campaign before (e.g. on a deleted account): completed, no credits */
+  previouslyClaimed?: boolean;
 }
 
 export type NotificationType = 'reward' | 'market' | 'system' | 'credit' | 'security' | 'analysis';

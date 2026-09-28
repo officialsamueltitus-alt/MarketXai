@@ -1,8 +1,11 @@
 import React from 'react';
-import { Mail, ArrowUpRight, Headphones, LineChart, CreditCard, Plug, Clock } from 'lucide-react';
+import { Mail, ArrowUpRight, Headphones, LineChart, CreditCard, Plug, Clock, MessageCircle, BookOpen, ArrowRight } from 'lucide-react';
 
 interface InstitutionalMailSupportProps {
   className?: string;
+  /** Opens the in-app support chat (signed-out visitors are asked to sign in first) */
+  onOpenSupport?: () => void;
+  supportUnread?: number;
 }
 
 const TOPICS = [
@@ -11,7 +14,7 @@ const TOPICS = [
   { icon: Plug, label: 'Integrations' },
 ];
 
-export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> = ({ className = '' }) => {
+export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> = ({ className = '', onOpenSupport, supportUnread = 0 }) => {
   const supportEmail = 'help.marketx@gmail.com';
   const xHandleUrl = 'https://x.com/_MarketXai';
   const mailtoLink = `mailto:${supportEmail}?subject=MarketX%20Support%20Request&body=Hello%20MarketX%20Team%2C%0A%0AMy%20username%3A%20%0AHow%20can%20you%20help%3A%20%0A%0AThank%20you.`;
@@ -37,8 +40,8 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
 
           <h3 className="mt-4 text-xl sm:text-2xl font-semibold text-white tracking-tight">Talk to a real specialist</h3>
           <p className="mt-2 text-sm text-slate-400 max-w-xl leading-relaxed">
-            Questions about a setup, your account, billing or a custom integration? Our desk answers every message
-            personally.
+            Questions about a setup, your account, billing or a custom integration? Chat with the desk in the app, or email us.
+            We answer every message personally.
           </p>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -54,6 +57,21 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
         </div>
 
         <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 md:w-60 shrink-0">
+          {onOpenSupport && (
+            <button
+              type="button"
+              onClick={onOpenSupport}
+              className="relative h-12 px-5 rounded-2xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-400 active:scale-[0.98] transition inline-flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Open support chat
+              {supportUnread > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-[11px] font-semibold text-white inline-flex items-center justify-center tabular-nums">
+                  {supportUnread > 9 ? '9+' : supportUnread}
+                </span>
+              )}
+            </button>
+          )}
           <a
             href={mailtoLink}
             className="group h-12 px-5 rounded-2xl bg-white text-slate-950 text-sm font-semibold hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center justify-center gap-2"
@@ -75,6 +93,26 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
           </a>
         </div>
       </div>
+
+      {/* Site guide: opens the full guide as its own page (/blog) */}
+      <a
+        href="/blog"
+        className="group relative mt-6 flex items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 sm:p-5 hover:bg-white/[0.06] hover:border-white/[0.14] transition"
+      >
+        <span className="w-11 h-11 rounded-xl bg-indigo-500/15 flex items-center justify-center shrink-0">
+          <BookOpen className="w-5 h-5 text-indigo-300" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-white">MarketX Site Guide</span>
+          <span className="block mt-0.5 text-[13px] text-slate-400 leading-snug">
+            Everything in one place: getting started, running an analysis, reading results, credits, sharing and support.
+          </span>
+        </span>
+        <span className="hidden sm:inline-flex items-center gap-1.5 text-[13px] font-medium text-indigo-300 shrink-0">
+          Read the guide <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+        </span>
+        <ArrowRight className="sm:hidden w-4 h-4 text-indigo-300 shrink-0" />
+      </a>
     </section>
   );
 };

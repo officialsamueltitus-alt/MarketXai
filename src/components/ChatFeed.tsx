@@ -8,7 +8,6 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { downloadStrategyImage, shareToX } from '../utils/exportImage';
 import { UserProfile } from '../types';
 import { AiActivityTrace } from './AiActivityTrace';
-import { HighImpactNewsAlert } from './HighImpactNewsAlert';
 import { Bitcoin, Gem, Activity, Coins } from 'lucide-react';
 import {
   User,
@@ -83,7 +82,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const handleCopyText = (id: string, text: string) => {
     const formattedText = text.includes('marketx.world')
       ? text
-      : `${text}\n\n— Analyzed with MarketX AI (@_MarketXai) · https://marketx.world`;
+      : `${text}\n\nAnalyzed with MarketX AI (@_MarketXai) · https://marketx.world`;
     navigator.clipboard.writeText(formattedText);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -608,12 +607,8 @@ Rationale: ${strategy.entryZone.rationale}
                         startedAt={message.timestamp}
                         durationSeconds={message.durationSeconds}
                         seed={message.id}
+                        news={strategy.newsBrief}
                       />
-
-                      {/* High Impact News Detected Banner */}
-                      {strategy.highImpactNews && strategy.highImpactNews.detected && (
-                        <HighImpactNewsAlert news={strategy.highImpactNews} />
-                      )}
 
                       {/* Modern AI Conversational Writeup Container */}
                       <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl ai-writeup-container border border-white/[0.12] text-xs sm:text-sm text-slate-100 leading-relaxed font-sans shadow-2xl space-y-3 min-w-0 break-words">
@@ -702,10 +697,10 @@ Rationale: ${strategy.entryZone.rationale}
                               I've analyzed live order books and market depth for <strong className="text-white font-mono">{strategy.symbol}</strong> ({strategy.name}) on the <strong className="text-indigo-300 font-mono">{strategy.timeframe}</strong> timeframe.
                               <span className="text-amber-300 font-semibold block mt-1.5 flex items-center gap-1.5">
                                 <AlertCircle className="w-4 h-4 inline shrink-0" />
-                                {strategy.alreadyMitigated ? 'No signal — already mitigated.' : 'No signal.'}
+                                {strategy.alreadyMitigated ? 'No signal, already mitigated.' : 'No signal.'}
                               </span>
                               {strategy.signalStatus?.details && /^No signal/i.test(strategy.signalStatus.details)
-                                ? strategy.signalStatus.details.replace(/^No signal(?: — already mitigated)?\.\s*/i, '')
+                                ? strategy.signalStatus.details.replace(/^No signal(?:, already mitigated)?\.\s*/i, '')
                                 : 'No fresh, untouched zone offers a clean setup right now. Recommended action: stand aside and wait for a fresh zone to form.'}
                             </p>
                           ) : strategy.tradeType === 'SHORT' ? (
@@ -778,7 +773,7 @@ Rationale: ${strategy.entryZone.rationale}
                               ${strategy.currentPrice < 10 ? strategy.entryZone.optimal.toFixed(4) : strategy.entryZone.optimal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </span>
                             <span className="text-[10px] text-amber-300/80 block mt-0.5 truncate font-mono">
-                              ${strategy.entryZone.min} - ${strategy.entryZone.max}
+                              ${strategy.entryZone.min} to ${strategy.entryZone.max}
                             </span>
                           </div>
 

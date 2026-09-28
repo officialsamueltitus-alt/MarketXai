@@ -772,6 +772,21 @@ html.mx-admin-page body {
   -webkit-user-select: text;
 }
 
+/* Site Guide (/blog): a normal scrolling document where the window scrolls, so sticky headers work
+   (a scroll container on html/body would break position: sticky) */
+html.mx-blog-page,
+html.mx-blog-page body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  overscroll-behavior-y: auto;
+  touch-action: auto;
+}
+html.mx-blog-page body {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

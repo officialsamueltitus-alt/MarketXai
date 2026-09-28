@@ -218,19 +218,27 @@ export const CampaignBanner: React.FC<CampaignBannerProps> = ({
       <div className="relative mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-xs text-slate-500">
           {isCredited
-            ? '+10 credits were added to your balance. Thanks for supporting MarketX!'
+            ? xShareReward?.previouslyClaimed
+              ? 'This campaign was already claimed with your email. It can only be claimed once per person.'
+              : '+10 credits were added to your balance. Campaign completed, it can only be claimed once.'
             : isPending
             ? 'Posted! Your credits unlock automatically when the timer ends.'
             : 'Complete the steps in order. Credits arrive 10 hours after you post.'}
         </p>
-        <button
-          type="button"
-          onClick={onOpenShareModal}
-          className="h-10 px-4 rounded-full bg-white text-slate-950 text-sm font-medium hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-        >
-          {isPending ? 'View progress' : isCredited ? 'Share again' : 'Start earning'}
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        {isCredited ? (
+          <span className="h-10 px-4 rounded-full bg-emerald-500/10 text-emerald-300 text-sm font-medium inline-flex items-center justify-center gap-1.5 shrink-0">
+            <Check className="w-4 h-4" /> Claimed
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenShareModal}
+            className="h-10 px-4 rounded-full bg-white text-slate-950 text-sm font-medium hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+          >
+            {isPending ? 'View progress' : 'Start earning'}
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </section>
   );

@@ -5,10 +5,16 @@ import App from './App.tsx';
 // The admin console is its own lazily-loaded bundle, only fetched on /admin
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
+// The Site Guide is a standalone page at /blog (any letter case, optional trailing slash)
+const BlogPage = lazy(() => import('./blog/BlogPage'));
+const isBlogRoute = /^\/blog\/?$/i.test(window.location.pathname);
+if (isBlogRoute && window.location.pathname !== '/blog') {
+  history.replaceState(null, '', '/blog' + window.location.search + window.location.hash);
+}
 // The app itself is a fixed, full-height shell (body can't scroll). The console is a normal scrolling
 // page, so it gets its own document styles: native window scroll, touch momentum, selectable text.
-if (isAdminRoute) {
-  document.documentElement.classList.add('mx-admin-page');
+if (isAdminRoute || isBlogRoute) {
+  document.documentElement.classList.add(isBlogRoute ? 'mx-blog-page' : 'mx-admin-page');
   document.body.classList.remove('overflow-hidden', 'select-none');
 }
 import './index.css';
@@ -53,6 +59,10 @@ createRoot(document.getElementById('root')!).render(
       {isAdminRoute ? (
         <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
           <AdminApp />
+        </Suspense>
+      ) : isBlogRoute ? (
+        <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
+          <BlogPage />
         </Suspense>
       ) : (
         <App />

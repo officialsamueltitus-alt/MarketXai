@@ -4,6 +4,17 @@ import compression from 'compression';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import { hideEngineInResponses } from './server/brand';
+import {
+  refreshNewsFeeds,
+  refreshNewsFeedsWithin,
+  buildDailyNewsBrief,
+  newsBriefToAlert,
+  newsBriefPromptBlock,
+  resolveTimeZone,
+  getCalendar,
+  type NewsBrief,
+} from './server/news';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { firebaseStatus } from './server/firebase';
@@ -104,6 +115,8 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
   req.rawBody = buf;
 };
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat']);
+// AI-written content never names the underlying model
+app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -943,289 +956,14 @@ function extractAssetInfo(prompt: string, defaultSymbol?: string) {
 }
 
 // =========================================================================
-// VERIFIED FOREXFACTORY & MARKETWATCH ECONOMIC NEWS ENGINE
+// LIVE FUNDAMENTALS (today only, on the reader's calendar day): see server/news.ts
 // =========================================================================
+refreshNewsFeeds().catch(() => {});
+setInterval(() => refreshNewsFeeds(true).catch(() => {}), 30 * 60 * 1000).unref();
 
-interface ForexFactoryEvent {
-  title: string;
-  country: string;
-  dateStr: string; // e.g. "Mon, Sep 21, 2026"
-  timeStr: string; // e.g. "02:00 PM EDT (18:00 UTC)"
-  impact: 'CRITICAL' | 'HIGH' | 'Holiday';
-  forecast: string;
-  previous: string;
-  detail: string;
-  isoDate: string; // ISO date string for accurate chronological comparison
-}
-
-// Active and upcoming verified economic calendar entries aligned with current date
-// Populated exclusively from the live ForexFactory weekly feed (refreshed on startup and every 30 minutes)
-const VERIFIED_FOREXFACTORY_CALENDAR: ForexFactoryEvent[] = [];
-let lastCalendarFetchTime = 0;
-
-// Live MarketWatch / Dow Jones Breaking Wire Cache
-// Filled only from the live MarketWatch RSS feed
-let cachedMarketWatchHeadlines: string[] = [];
-let lastNewsFetchTime = 0;
-
-async function refreshMarketNewsFeed() {
-  const now = Date.now();
-  if (now - lastNewsFetchTime < 180000) return; // 3 minute cache
-  lastNewsFetchTime = now;
-
-  // 1. Fetch live MarketWatch / Dow Jones RSS
-  try {
-    const res = await fetch('https://feeds.content.dowjones.io/public/rss/mw_topstories', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (res.ok) {
-      const xml = await res.text();
-      const rawTitles = [...xml.matchAll(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/g)]
-        .map(m => (m[1] || m[2]).trim())
-        .filter(t => t && !t.includes('MarketWatch') && !t.includes('Top Stories'));
-      if (rawTitles.length > 0) {
-        cachedMarketWatchHeadlines = rawTitles.slice(0, 5).map(t =>
-          t.replace(/&#x2019;/g, "'")
-           .replace(/&#x2018;/g, "'")
-           .replace(/&#x201C;/g, '"')
-           .replace(/&#x201D;/g, '"')
-           .replace(/&amp;/g, '&')
-           .replace(/&quot;/g, '"')
-           .replace(/&apos;/g, "'")
-        );
-      }
-    }
-  } catch (err) {
-    // Retain cached headlines
-  }
-
-  // 2. Live ForexFactory weekly calendar (high-impact events & bank holidays); replaces the list wholesale
-  if (now - lastCalendarFetchTime < 30 * 60 * 1000 && VERIFIED_FOREXFACTORY_CALENDAR.length > 0) return;
-  try {
-    const ffRes = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!ffRes.ok) {
-      console.warn(`[MarketX Feed] ForexFactory calendar unavailable: HTTP ${ffRes.status}`);
-      return;
-    }
-    const data = await ffRes.json();
-    if (!Array.isArray(data)) return;
-    const events: ForexFactoryEvent[] = data
-      .filter((item: any) => (item.impact === 'High' || item.impact === 'Holiday') && item.title && item.country && item.date)
-      .map((item: any) => {
-        const eventDate = new Date(item.date);
-        const isHoliday = item.impact === 'Holiday';
-        return {
-          title: item.title,
-          country: item.country,
-          dateStr: eventDate.toUTCString().slice(0, 16),
-          timeStr: isHoliday
-            ? 'All Day'
-            : `${eventDate.toISOString().slice(11, 16)} UTC`,
-          impact: isHoliday ? ('Holiday' as const) : ('HIGH' as const),
-          forecast: item.forecast || 'N/A',
-          previous: item.previous || 'N/A',
-          detail: item.title,
-          isoDate: eventDate.toISOString(),
-        };
-      });
-    VERIFIED_FOREXFACTORY_CALENDAR.length = 0;
-    VERIFIED_FOREXFACTORY_CALENDAR.push(...events);
-    lastCalendarFetchTime = now;
-  } catch (err: any) {
-    console.warn(`[MarketX Feed] ForexFactory calendar unavailable: ${err?.message || err}`);
-  }
-}
-
-// Warm the live news & calendar feeds at startup and keep them fresh
-refreshMarketNewsFeed().catch(() => {});
-setInterval(() => {
-  lastNewsFetchTime = 0;
-  refreshMarketNewsFeed().catch(() => {});
-}, 30 * 60 * 1000).unref();
-
-// Extract relevant national currencies from an asset symbol
-function getCurrenciesForAsset(symbol: string): string[] {
-  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const fiatList = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF', 'CNY'];
-  const matched: string[] = [];
-
-  for (const fiat of fiatList) {
-    if (sym.includes(fiat)) {
-      matched.push(fiat);
-    }
-  }
-
-  // Gold (XAU), Silver (XAG), Crypto (BTC, ETH, SOL) heavily react to USD liquidity
-  if (sym.includes('XAU') || sym.includes('GOLD') || sym.includes('BTC') || sym.includes('ETH') || sym.includes('SOL') || sym.includes('USDT')) {
-    if (!matched.includes('USD')) matched.push('USD');
-  }
-
-  return matched;
-}
-
-// Algorithmic bank holiday detector strictly for that particular day
-function checkBankHoliday(country: string, targetDate: Date = new Date()): { isHoliday: boolean; name: string } {
-  const month = targetDate.getUTCMonth() + 1; // 1-12
-  const day = targetDate.getUTCDate();
-  const dayOfWeek = targetDate.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
-  const targetYear = targetDate.getUTCFullYear();
-
-  // Check verified calendar items strictly on targetDate's calendar day
-  const calendarHoliday = VERIFIED_FOREXFACTORY_CALENDAR.find(item => {
-    if (item.country !== country || item.impact !== 'Holiday') return false;
-    const itemDate = new Date(item.isoDate);
-    return itemDate.getUTCFullYear() === targetYear &&
-           (itemDate.getUTCMonth() + 1) === month &&
-           itemDate.getUTCDate() === day;
-  });
-
-  if (calendarHoliday) {
-    let name = calendarHoliday.title;
-    if (name.toLowerCase() === 'bank holiday') {
-      name = `${country} National Bank Holiday`;
-    }
-    return { isHoliday: true, name };
-  }
-
-  // Japan (JPY) National Holidays
-  if (country === 'JPY') {
-    if (month === 9 && dayOfWeek === 1 && day >= 15 && day <= 21) {
-      return { isHoliday: true, name: 'Respect for the Aged Day (Keirō no Hi)' };
-    }
-    if (month === 9 && (day === 22 || day === 23)) {
-      return { isHoliday: true, name: 'Autumnal Equinox Day (Shūbun no Hi)' };
-    }
-    if (month === 1 && (day === 1 || day === 2 || day === 3)) return { isHoliday: true, name: "New Year's Bank Holiday" };
-    if (month === 4 && day === 29) return { isHoliday: true, name: 'Showa Day' };
-    if (month === 5 && (day === 3 || day === 4 || day === 5)) return { isHoliday: true, name: 'Golden Week Holiday' };
-    if (month === 8 && day === 11) return { isHoliday: true, name: 'Mountain Day' };
-    if (month === 11 && (day === 3 || day === 23)) return { isHoliday: true, name: 'Labor Thanksgiving Day' };
-  }
-
-  // United States (USD) Federal Holidays
-  if (country === 'USD') {
-    if (month === 1 && day === 1) return { isHoliday: true, name: "New Year's Day" };
-    if (month === 7 && day === 4) return { isHoliday: true, name: 'Independence Day' };
-    if (month === 9 && dayOfWeek === 1 && day <= 7) return { isHoliday: true, name: 'Labor Day' };
-    if (month === 11 && day === 11) return { isHoliday: true, name: 'Veterans Day' };
-    if (month === 11 && dayOfWeek === 4 && day >= 22 && day <= 28) return { isHoliday: true, name: 'Thanksgiving Day' };
-    if (month === 12 && day === 25) return { isHoliday: true, name: 'Christmas Day' };
-  }
-
-  // United Kingdom (GBP) Bank Holidays
-  if (country === 'GBP') {
-    if (month === 1 && day === 1) return { isHoliday: true, name: "New Year's Bank Holiday" };
-    if (month === 5 && dayOfWeek === 1 && day <= 7) return { isHoliday: true, name: 'Early May Bank Holiday' };
-    if (month === 5 && dayOfWeek === 1 && day >= 25) return { isHoliday: true, name: 'Spring Bank Holiday' };
-    if (month === 8 && dayOfWeek === 1 && day >= 25) return { isHoliday: true, name: 'Summer Bank Holiday' };
-    if (month === 12 && (day === 25 || day === 26)) return { isHoliday: true, name: 'Christmas / Boxing Day' };
-  }
-
-  // Eurozone (EUR)
-  if (country === 'EUR') {
-    if (month === 1 && day === 1) return { isHoliday: true, name: "New Year's Day" };
-    if (month === 5 && day === 1) return { isHoliday: true, name: 'Labour Day' };
-    if (month === 12 && (day === 25 || day === 26)) return { isHoliday: true, name: 'Christmas Holiday' };
-  }
-
-  return { isHoliday: false, name: '' };
-}
-
-// High Impact Economic & Market News Detector:
-// - Strictly in real time: ONLY events on that particular current calendar day
-// - If no news that day, returns null (no previous news, no future news)
-function detectHighImpactNews(symbol: string, timeframe: string = '4H') {
-  refreshMarketNewsFeed().catch(() => {});
-
-  const now = new Date();
-  const currencies = getCurrenciesForAsset(symbol);
-
-  // If no national currencies apply (e.g. purely synthetic volatility indices), return null
-  if (currencies.length === 0) {
-    return null;
-  }
-
-  // 1. Check for active Bank Holiday strictly for TODAY (that particular day)
-  for (const c of currencies) {
-    const holidayCheck = checkBankHoliday(c, now);
-    if (holidayCheck.isHoliday) {
-      return {
-        detected: true,
-        title: `Bank Holiday - ${holidayCheck.name} [${c}]`,
-        impactLevel: 'BANK_HOLIDAY' as const,
-        category: 'BANK_HOLIDAY' as const,
-        scheduledTime: 'Today • Bank Holiday (All Day)',
-        date: 'Today',
-        time: 'All Day',
-        timeHorizon: 'BANK HOLIDAY' as const,
-        affectedCurrency: `${c} Pairs • ${symbol}`,
-        forecast: 'N/A',
-        previous: 'N/A',
-        source: 'Official Interbank Banking Calendar',
-        secondarySource: 'ForexFactory Calendar Live',
-        volatilityWarning: `Bank Holiday in effect for ${c} today. National commercial banks and interbank clearing houses are closed. Anticipate subdued trading volume, thinner order book depth, and potential erratic spread expansion on ${symbol}.`,
-        executionGuidance: `Exercise caution and consider reduced sizing. With domestic market makers offline, avoid market orders and utilize limit orders with wider buffers at key institutional support and resistance zones.`,
-      };
-    }
-  }
-
-  // 2. Strictly check for High-Impact news occurring on THAT PARTICULAR DAY (today)
-  // No previous news (past days) and no future news (tomorrow or beyond)
-  const nowYear = now.getUTCFullYear();
-  const nowMonth = now.getUTCMonth();
-  const nowDate = now.getUTCDate();
-
-  const validTodayEvents = VERIFIED_FOREXFACTORY_CALENDAR.filter(ev => {
-    if (ev.impact === 'Holiday') return false; // Handled above
-    if (!currencies.includes(ev.country)) return false;
-
-    const eventDate = new Date(ev.isoDate);
-    // Must strictly occur on today's calendar date (same year, month, date)
-    const isToday =
-      eventDate.getUTCFullYear() === nowYear &&
-      eventDate.getUTCMonth() === nowMonth &&
-      eventDate.getUTCDate() === nowDate;
-
-    return isToday;
-  });
-
-  // If there is no high-impact news on that particular day, strictly return null
-  if (validTodayEvents.length === 0) {
-    return null;
-  }
-
-  // Sort by earliest event today
-  validTodayEvents.sort((a, b) => new Date(a.isoDate).getTime() - new Date(b.isoDate).getTime());
-  const matchedEvent = validTodayEvents[0];
-
-  const breakingHeadline = cachedMarketWatchHeadlines[0] || 'Central bank officials evaluate cross-market liquidity and policy balance sheets.';
-  const scheduledTimeDisplay = `Today • ${matchedEvent.timeStr}`;
-
-  return {
-    detected: true,
-    title: `${matchedEvent.title} [${matchedEvent.country}]`,
-    impactLevel: (matchedEvent.impact === 'CRITICAL' ? 'CRITICAL' : 'HIGH') as 'HIGH' | 'CRITICAL',
-    category: 'MACRO_ECONOMIC' as const,
-    scheduledTime: scheduledTimeDisplay,
-    date: 'Today',
-    time: matchedEvent.timeStr,
-    timeHorizon: 'TODAY (Real-Time)' as const,
-    affectedCurrency: `${matchedEvent.country} Pairs • ${symbol}`,
-    forecast: matchedEvent.forecast,
-    previous: matchedEvent.previous,
-    source: 'ForexFactory (Verified Economic Calendar)',
-    secondarySource: 'MarketWatch / Dow Jones Financial Wire',
-    breakingHeadline,
-    volatilityWarning: `Anticipate aggressive institutional liquidity sweep for ${symbol} today. Interbank spreads may expand during release.`,
-    executionGuidance: `Strictly avoid executing market orders into the announcement. Allow initial volatility candle to sweep resting liquidity, then enter via limit orders positioned at 0.618 golden pocket confluence.`,
-  };
-}
-
-// Pre-Signal Crosscheck Function: Confirms that trade setup targets fresh unmitigated levels
+// Pre-Signal Crosscheck: before any setup is shown, confirm it has not already played out.
+// LONG: stop < entry <= price < TP1 < TP2 < TP3. SHORT: stop > entry >= price > TP1 > TP2 > TP3.
+// Price through the stop, beyond a target, or on the wrong side of the entry means the levels were already reached.
 function evaluateSignalExecutionStatus(
   tradeType: 'LONG' | 'SHORT' | 'WAIT_CONFIRMATION' | 'NO_SIGNAL',
   currentPrice: number,
@@ -1233,24 +971,78 @@ function evaluateSignalExecutionStatus(
   stopLossPrice: number,
   takeProfits: Array<{ level: string; price: number }>
 ): {
-  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION';
+  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE';
   verdict: 'Active Signal (Fresh Untapped Levels)' | 'No Signal Opportunity' | string;
   details: string;
   tpHitLevel?: 'TP1' | 'TP2' | 'TP3' | 'ALL_TPS';
 } {
-  if (tradeType === 'NO_SIGNAL' || tradeType === 'WAIT_CONFIRMATION') {
+  if (tradeType !== 'LONG' && tradeType !== 'SHORT') {
     return {
       state: 'PENDING_CONFIRMATION',
       verdict: 'No Signal Opportunity',
-      details: 'Market is in neutral consolidation. Awaiting structural displacement into fresh unmitigated zones.',
+      details: 'No signal. Market is in neutral consolidation. Awaiting structural displacement into fresh unmitigated zones.',
     };
   }
-
+  const long = tradeType === 'LONG';
+  const price = Number(currentPrice);
+  const entry = Number(optimalEntry);
+  const stop = Number(stopLossPrice);
+  const tps = (Array.isArray(takeProfits) ? takeProfits : []).map(t => Number(t?.price)).filter(p => Number.isFinite(p) && p > 0);
+  const fmt = (p: number) => String(Number(p.toPrecision(8)));
+  const stale = (state: 'TP_SMASHED' | 'SL_TAKEN' | 'MITIGATED_ZONE_STALE', why: string, tpHitLevel?: 'TP1' | 'TP2' | 'TP3' | 'ALL_TPS') => ({
+    state,
+    verdict: 'No Signal, Already Mitigated',
+    details: `No signal, already mitigated. ${why} The setup has already played out; stand aside until a new, untouched zone forms.`,
+    ...(tpHitLevel ? { tpHitLevel } : {}),
+  });
+  if (!(price > 0) || !(entry > 0) || !(stop > 0) || tps.length === 0) {
+    return stale('MITIGATED_ZONE_STALE', 'The setup is missing a valid entry, stop loss or target.');
+  }
+  const beyond = (a: number, b: number) => (long ? a > b : a < b); // a is further in the trade's direction than b
+  // Stop loss must sit on the invalidation side of the entry, and price must not have reached it
+  if (!beyond(entry, stop)) return stale('MITIGATED_ZONE_STALE', `The stop loss ${fmt(stop)} is not ${long ? 'below' : 'above'} the entry ${fmt(entry)}.`);
+  if (!beyond(price, stop)) return stale('SL_TAKEN', `Price ${fmt(price)} has already reached the stop loss ${fmt(stop)}.`);
+  // Targets must be ahead of the entry and still ahead of price
+  const hit = tps.filter(tp => !beyond(tp, price)).length;
+  if (hit > 0) {
+    const lvl = hit >= tps.length ? 'ALL_TPS' : (`TP${hit}` as 'TP1' | 'TP2' | 'TP3');
+    return stale('TP_SMASHED', `Price ${fmt(price)} is already ${hit >= tps.length ? 'beyond every target' : `beyond TP${hit} ${fmt(tps[hit - 1])}`}.`, lvl);
+  }
+  if (tps.some(tp => !beyond(tp, entry))) return stale('MITIGATED_ZONE_STALE', `A target is not ${long ? 'above' : 'below'} the entry ${fmt(entry)}.`);
+  // A limit entry sits in the zone ahead of price; price already on the far side of it means the entry was tapped
+  if (beyond(entry, price) && Math.abs(entry - price) / price > 0.0005) {
+    return stale('MITIGATED_ZONE_STALE', `Price ${fmt(price)} has already traded through the entry ${fmt(entry)}.`);
+  }
   return {
     state: 'ACTIVE',
     verdict: 'Active Signal (Fresh Untapped Levels)',
-    details: 'Fresh trade setup: High-probability limit entry positioned in unmitigated zone. Targets ahead of live price.',
+    details: 'Fresh trade setup: limit entry in an untouched zone, with the stop loss and every target still ahead of live price.',
   };
+}
+
+/**
+ * Runs the pre-signal crosscheck on a finished strategy and, when the setup has already played out,
+ * resets it to NO_SIGNAL ("No signal, already mitigated") so a stale trade is never shown as live.
+ */
+function enforcePreSignalCrosscheck<T extends Record<string, any>>(strategy: T): T {
+  const s: any = strategy;
+  if (!s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT')) {
+    if (s && !s.signalStatus) s.signalStatus = evaluateSignalExecutionStatus('NO_SIGNAL', s.currentPrice, 0, 0, []);
+    return strategy;
+  }
+  const status = evaluateSignalExecutionStatus(s.tradeType, s.currentPrice, s.entryZone?.optimal, s.stopLoss?.price, s.takeProfits || []);
+  s.signalStatus = status;
+  if (status.state === 'ACTIVE') return strategy;
+  console.log(`[MarketX Strategy] Pre-signal crosscheck reset ${s.symbol || ''} ${s.tradeType} to NO_SIGNAL: ${status.state}`);
+  s.tradeType = 'NO_SIGNAL';
+  s.bias = 'NEUTRAL';
+  s.confidenceScore = 50;
+  s.riskRewardRatio = '1 : 0';
+  s.alreadyMitigated = true;
+  if (s.stopLoss) s.stopLoss = { ...s.stopLoss, riskPercent: 0, rationale: 'No position, the setup has already played out' };
+  const note = `#### No signal, already mitigated\n${status.details}\n\n`;
+  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes('No signal, already mitigated')) s.detailedThesis = note + s.detailedThesis;
+  return strategy;
 }
 
 // Generate algorithmic strategy using real-time market data
@@ -1260,10 +1052,11 @@ function generateAlgorithmicStrategy(
   timeframe: string,
   userPrompt: string = '',
   slMode: string = 'normal',
-  chartImage?: string
+  chartImage?: string,
+  newsBrief: NewsBrief | null = null
 ) {
   const currentPrice = currentTicker.price;
-  const newsAlert = detectHighImpactNews(asset.symbol, timeframe);
+  const newsAlert = newsBriefToAlert(newsBrief, asset.symbol);
   const isJpyPair = asset.symbol.includes('JPY') || currentTicker.currency === 'JPY';
   const priceDecimals = isJpyPair ? 3 : currentPrice < 10 ? 4 : 2;
   const currSym = isJpyPair
@@ -1551,40 +1344,40 @@ function generateAlgorithmicStrategy(
 #### 1. Market Condition Assessment
 - **Asset**: ${asset.name} (**${asset.symbol}**)
 - **Live Price**: **$${formatPrice(currentPrice)}** (24h Change: ${change >= 0 ? '+' : ''}${change}%)
-- **24h Range**: $${formatPrice(low24)} — $${formatPrice(high24)}
+- **24h Range**: $${formatPrice(low24)} to $${formatPrice(high24)}
 - **Signal Status**: **No signal opportunity found.**
 
 #### 2. Key Findings & Confluence Gaps
 1. **Neutral Equilibrium Compression**: Current price action is oscillating around the 50.0% equilibrium midpoint ($${formatPrice(equilibriumPrice)}). No institutional displacement or liquidity sweep has taken place.
-2. **Missing Confluence**: Neither the institutional Demand Zone ($${formatPrice(demandLow)} - $${formatPrice(demandHigh)}) nor the overhead Supply Zone ($${formatPrice(supplyLow)} - $${formatPrice(supplyHigh)}) has been cleanly mitigated with rejection confirmation.
+2. **Missing Confluence**: Neither the institutional Demand Zone ($${formatPrice(demandLow)} to $${formatPrice(demandHigh)}) nor the overhead Supply Zone ($${formatPrice(supplyLow)} to $${formatPrice(supplyHigh)}) has been cleanly mitigated with rejection confirmation.
 3. **Risk-to-Reward Skew**: Initiating a position in this consolidation range results in an unfavorable mathematical expectancy.
 
 #### 3. Institutional POI & Zone Mitigation Status (Untouched vs Tapped)
-- 🟢 **Unmitigated (Untouched) POIs (${unmitigatedZonesCount} detected — Price has not touched yet)**:
-${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
-- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected — Price has tapped and left already)**:
-${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- 🟢 **Unmitigated (Untouched) POIs (${unmitigatedZonesCount} detected, Price has not touched yet)**:
+${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected, Price has tapped and left already)**:
+${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
 
 #### 4. Recommended Institutional Action
 - **Position**: **Stand Aside (Cash / No Trade)**.
-- **Trigger Required**: Wait for a clean sweep into untouched Demand ($${formatPrice(demandLow)} - $${formatPrice(demandHigh)}) for a Buy Zone confirmation, or into untouched Supply ($${formatPrice(supplyLow)} - $${formatPrice(supplyHigh)}) for a Sell Zone rejection.`
+- **Trigger Required**: Wait for a clean sweep into untouched Demand ($${formatPrice(demandLow)} to $${formatPrice(demandHigh)}) for a Buy Zone confirmation, or into untouched Supply ($${formatPrice(supplyLow)} to $${formatPrice(supplyHigh)}) for a Sell Zone rejection.`
     : `### Market Structure & Execution Thesis Report
 
 #### 1. Real-Time Market Structure & Institutional Liquidity
 ${asset.name} (**${asset.symbol}**) is displaying clear institutional structure on the **${timeframe}** timeframe.
 - **Current Live Price**: **$${formatPrice(currentPrice)}** (24h Change: ${change >= 0 ? '+' : ''}${change}%)
-- **24h Liquidity Range**: $${formatPrice(low24)} — $${formatPrice(high24)}
+- **24h Liquidity Range**: $${formatPrice(low24)} to $${formatPrice(high24)}
 - Institutional price action and real-time zone analysis indicate an unmitigated structural imbalance, making ${tradeType === 'LONG' ? 'a **Buy Zone (Buy Limit / Long)** pullback to untouched institutional demand with Fibonacci confluence' : 'a **Sell Zone (Sell Limit / Short)** retest into untouched overhead supply with Fibonacci confluence'} the highest mathematical expectancy setup.
 
 #### 2. Supply & Demand Zone Mapping
-- **Institutional Demand Zone**: **$${formatPrice(demandLow)} - $${formatPrice(demandHigh)}** (${demandMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Demand — Price has not touched yet' : '⚡ Mitigated Demand — Price tapped & left already'}). High volume node with institutional resting limit bids.
-- **Overhead Supply Zone**: **$${formatPrice(supplyLow)} - $${formatPrice(supplyHigh)}** (${supplyMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Supply — Price has not touched yet' : '⚡ Mitigated Supply — Price tapped & left already'}). Significant sell-side resting liquidity where sellers defended the previous structural pivot.
+- **Institutional Demand Zone**: **$${formatPrice(demandLow)} to $${formatPrice(demandHigh)}** (${demandMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Demand, Price has not touched yet' : '⚡ Mitigated Demand, Price tapped & left already'}). High volume node with institutional resting limit bids.
+- **Overhead Supply Zone**: **$${formatPrice(supplyLow)} to $${formatPrice(supplyHigh)}** (${supplyMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Supply, Price has not touched yet' : '⚡ Mitigated Supply, Price tapped & left already'}). Significant sell-side resting liquidity where sellers defended the previous structural pivot.
 
 #### 3. Institutional POI & Zone Mitigation Breakdown (Untouched vs Tapped)
-- 🟢 **Unmitigated (Untouched) POIs & Zones (${unmitigatedZonesCount} detected — Price has not touched yet)**:
-${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
-- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected — Price has tapped and left already)**:
-${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- 🟢 **Unmitigated (Untouched) POIs & Zones (${unmitigatedZonesCount} detected, Price has not touched yet)**:
+${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected, Price has tapped and left already)**:
+${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
 
 #### 4. Fibonacci Retracement Confluence
 - **Swing Low**: $${formatPrice(swingLow)} | **Swing High**: $${formatPrice(swingHigh)}
@@ -1593,11 +1386,11 @@ ${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.n
 
 #### 5. Actionable Execution Plan
 - **Directional Bias**: **${tradeType} (${tradeType === 'LONG' ? 'BUY ZONE / BUY LIMIT' : 'SELL ZONE / SELL LIMIT'})**
-- **Optimal Entry Price**: **$${formatPrice(optimalEntry)}** (Range: $${formatPrice(entryMin)} - $${formatPrice(entryMax)})
+- **Optimal Entry Price**: **$${formatPrice(optimalEntry)}** (Range: $${formatPrice(entryMin)} to $${formatPrice(entryMax)})
 - **Protective Invalidation Stop Loss**: **$${formatPrice(stopLossPrice)}** (${riskPercent}% risk from entry). Safely protected beyond the structural zone invalidation barrier.
-- **Take Profit 1 (TP1)**: **$${formatPrice(tp1)}** — Scale out 40% position at 50% equilibrium retracement. Move stop loss to breakeven upon fill.
-- **Take Profit 2 (TP2)**: **$${formatPrice(tp2)}** — Harvest 40% profit at the opposing institutional liquidity band.
-- **Take Profit 3 (TP3 / Runner)**: **$${formatPrice(tp3)}** — Retain final 20% position for structural extension.
+- **Take Profit 1 (TP1)**: **$${formatPrice(tp1)}**, Scale out 40% position at 50% equilibrium retracement. Move stop loss to breakeven upon fill.
+- **Take Profit 2 (TP2)**: **$${formatPrice(tp2)}**, Harvest 40% profit at the opposing institutional liquidity band.
+- **Take Profit 3 (TP3 / Runner)**: **$${formatPrice(tp3)}**, Retain final 20% position for structural extension.
 - **Expected Risk-to-Reward**: **1 : ${rrRatio} R:R**
 
 #### 6. Invalidation & Risk Management
@@ -1682,6 +1475,7 @@ ${newsAlert.breakingHeadline ? `- **MarketWatch Wire**: "${newsAlert.breakingHea
     uploadedChartAnalyzed: Boolean(chartImage),
     chartImageThumbnail: chartImage || undefined,
     highImpactNews: newsAlert?.detected ? newsAlert : undefined,
+    newsBrief: newsBrief || undefined,
     entryZone: {
       min: Number(formatPrice(entryMin)),
       max: Number(formatPrice(entryMax)),
@@ -1797,7 +1591,7 @@ function sanitizeBaseStrategy(raw: any): any | null {
     swingHigh: num(clean.swingHigh) || undefined,
     swingLow: num(clean.swingLow) || undefined,
     sources: Array.isArray(clean.sources) ? clean.sources.filter((x: any) => /^https?:\/\//i.test(String(x?.uri || ''))).slice(0, 6) : [],
-    highImpactNews: clean.highImpactNews && typeof clean.highImpactNews === 'object' ? clean.highImpactNews : undefined,
+    // Fundamentals are re-checked live by the server, never echoed from the client's copy
     strategyEngine: clean.strategyEngine && typeof clean.strategyEngine === 'object' ? clean.strategyEngine : undefined,
     aiModel: typeof clean.aiModel === 'string' ? clean.aiModel.slice(0, 60) : undefined,
   };
@@ -1848,20 +1642,20 @@ async function buildTightenedStrategy(rawBase: any): Promise<any | null> {
   const cut = Math.round((1 - risk / origRisk) * 100);
 
   const rationale = t.tightened
-    ? `Tightened to ${fmt(newStop)} — ${t.basis}; at least half an ATR (${fmt(t.minRisk)}) of the ${tf} timeframe so normal noise doesn't stop the trade out.`
-    : `Kept at ${fmt(newStop)} — ${t.basis} (any closer would sit inside normal ${tf} noise of ${fmt(t.minRisk * 2)} per candle).`;
+    ? `Tightened to ${fmt(newStop)}, ${t.basis}; at least half an ATR (${fmt(t.minRisk)}) of the ${tf} timeframe so normal noise doesn't stop the trade out.`
+    : `Kept at ${fmt(newStop)}, ${t.basis} (any closer would sit inside normal ${tf} noise of ${fmt(t.minRisk * 2)} per candle).`;
 
   const thesis = `### Tightened Stop Loss · ${base.name} (${base.symbol}) · ${tf}
 
-The setup is unchanged — same ${isShort ? 'sell' : 'buy'} zone, Fibonacci entry and targets. Only the stop loss is recalculated for the ${tf} timeframe.
+The setup is unchanged, same ${isShort ? 'sell' : 'buy'} zone, Fibonacci entry and targets. Only the stop loss is recalculated for the ${tf} timeframe.
 
 #### Stop loss
 - **Original:** ~~${fmt(originalStop)}~~ (${origRiskPct}% risk)
 - **${t.tightened ? 'Tightened' : 'Unchanged'}:** **${fmt(newStop)}** (${riskPct}% risk${t.tightened ? `, ${cut}% less risk` : ''})
-- **Why it's valid:** ${t.basis}. The stop stays at least half an ATR (${fmt(t.minRisk)}) away from the entry — ${atrSource === 'estimated' ? `estimated ${tf} volatility` : atrSource} — so ordinary ${tf} candle noise won't trigger it.
+- **Why it's valid:** ${t.basis}. The stop stays at least half an ATR (${fmt(t.minRisk)}) away from the entry, ${atrSource === 'estimated' ? `estimated ${tf} volatility` : atrSource}, so ordinary ${tf} candle noise won't trigger it.
 
 #### Entry & targets (unchanged)
-- **Entry:** ${fmt(base.entryZone.min)} – ${fmt(base.entryZone.max)}, optimal **${fmt(entry)}**
+- **Entry:** ${fmt(base.entryZone.min)} to ${fmt(base.entryZone.max)}, optimal **${fmt(entry)}**
 ${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.rewardRatio})`).join('\n')}
 - **Overall R:R:** 1 : ${finalRR}${base.riskRewardRatio ? ` (was ${base.riskRewardRatio})` : ''}
 
@@ -1891,7 +1685,7 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     service: 'MarketX AI Strategy Engine',
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    aiConfigured: Boolean(process.env.GEMINI_API_KEY),
     accountsConfigured: isAuthConfigured(),
     storageConfigured: !firebaseStatus(),
     googleSignInConfigured: Boolean(getGoogleClientId()),
@@ -2360,7 +2154,8 @@ async function buildStructureMap(
   price: number,
   slMode: 'normal' | 'tight',
   prompt: string,
-  currency?: string
+  currency?: string,
+  quote?: { high24h?: number; low24h?: number }
 ): Promise<MarketMap | null> {
   const candles = await Promise.race([
     fetchCandlesForAsset(asset, tf),
@@ -2371,7 +2166,11 @@ async function buildStructureMap(
   const prefer = /\b(short|sell|bear(ish)?|supply)\b/.test(lower) ? 'SHORT' : /\b(long|buy|bull(ish)?|demand)\b/.test(lower) ? 'LONG' : null;
   const jpy = asset.symbol.toUpperCase().includes('JPY') || currency === 'JPY';
   try {
-    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex' });
+    const session =
+      quote && Number(quote.high24h) > 0 && Number(quote.low24h) > 0
+        ? { high: Number(quote.high24h), low: Number(quote.low24h), since: Date.now() - 24 * 3600e3 }
+        : null;
+    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
   } catch (err: any) {
     console.warn('[MarketX Strategy] map failed:', err?.message || err);
     return null;
@@ -2399,7 +2198,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     reactionSummary: z.priceInside
       ? 'Price is trading inside this zone right now.'
       : z.fresh
-        ? 'Price has not returned since the explosive leg-out — institutional orders are still resting here.'
+        ? 'Price has not returned since the explosive leg-out, institutional orders are still resting here.'
         : `Price has tapped this zone ${z.tapCount}x and it held.`,
   });
   const nearest = (zs: SDZone[]) => [...zs].sort((a, b) => a.distanceAtr - b.distanceAtr)[0];
@@ -2439,7 +2238,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
       min: plan.entry.min,
       max: plan.entry.max,
       optimal: plan.entry.optimal,
-      rationale: `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} – ${r(plan.zone.high)})`,
+      rationale: `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} to ${r(plan.zone.high)})`,
     };
     strategy.stopLoss = {
       price: plan.stopLoss,
@@ -2458,8 +2257,8 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     strategy.confidenceScore = 50;
     if (watch) {
       const long = watch.kind === 'DEMAND';
-      strategy.entryZone = { min: r(watch.low), max: r(watch.high), optimal: r(watch.proximal), rationale: `Watch zone: ${long ? 'demand' : 'supply'} ${r(watch.low)} – ${r(watch.high)}` };
-      strategy.stopLoss = { price: r(watch.distal), riskPercent: 0, rationale: 'No position — wait for a valid setup' };
+      strategy.entryZone = { min: r(watch.low), max: r(watch.high), optimal: r(watch.proximal), rationale: `Watch zone: ${long ? 'demand' : 'supply'} ${r(watch.low)} to ${r(watch.high)}` };
+      strategy.stopLoss = { price: r(watch.distal), riskPercent: 0, rationale: 'No position, wait for a valid setup' };
     }
     strategy.riskRewardRatio = '1 : 0';
     const swingDiff = map.swingHigh - map.swingLow;
@@ -2482,7 +2281,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     const already = !!map.mitigatedSetup;
     strategy.signalStatus = {
       ...strategy.signalStatus,
-      verdict: already ? 'No Signal — Already Mitigated' : 'No Signal Opportunity',
+      verdict: already ? 'No Signal, Already Mitigated' : 'No Signal Opportunity',
       details: map.noSignalReason || strategy.signalStatus?.details,
     };
     strategy.alreadyMitigated = already;
@@ -2512,32 +2311,26 @@ app.get('/api/market/quote/:symbol', generalApiRateLimiter, async (req: Request,
   }
 });
 
-// Live Economic & Market News feed from ForexFactory and MarketWatch
+// Today's fundamentals for a symbol, on the caller's calendar day (?symbol=BTC/USDT&tz=Europe/London)
 app.get('/api/market/news', generalApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    await refreshMarketNewsFeed();
+    await refreshNewsFeedsWithin(3000);
     const rawSymbol = typeof req.query.symbol === 'string' ? req.query.symbol : 'EUR/USD';
     const symbolParam = safeDecodeURIComponent(rawSymbol).slice(0, 32).trim() || 'EUR/USD';
-    const alert = detectHighImpactNews(symbolParam);
+    const tz = resolveTimeZone(req.query.tz);
+    const asset = extractAssetInfo(symbolParam, symbolParam);
+    const brief = buildDailyNewsBrief(asset, tz);
     const now = Date.now();
-
-    // Filter calendar to only current and upcoming events (exclude events older than 1 hour)
-    const currentAndUpcomingCalendar = VERIFIED_FOREXFACTORY_CALENDAR.filter(ev => {
-      const evTime = new Date(ev.isoDate).getTime();
-      const diffHours = (evTime - now) / (1000 * 3600);
-      return diffHours >= -1.0;
-    });
-
     res.json({
       success: true,
       sources: [
         { name: 'ForexFactory', type: 'Economic Calendar Feed (Live Schedule)' },
         { name: 'MarketWatch / Dow Jones', type: 'Live Financial Wire' },
       ],
-      calendar: currentAndUpcomingCalendar,
-      breakingHeadlines: cachedMarketWatchHeadlines,
-      detectedAlert: alert,
-      timestamp: Date.now(),
+      symbol: asset.symbol,
+      brief,
+      calendar: getCalendar().filter(ev => ev.at >= now - 3600e3),
+      timestamp: now,
     });
   } catch (error) {
     console.error('News endpoint error:', error);
@@ -2560,7 +2353,7 @@ function generateFallbackChatResponse(prompt: string): string {
   if (p.includes('golden pocket') || p.includes('0.618') || p.includes('fibonacci')) {
     return `### 📐 The 0.618 Golden Pocket in Institutional Trading
 
-In quantitative technical analysis, the **0.618 (61.8%) Fibonacci Retracement**—commonly referred to as the **Golden Pocket** when bracketed with the **0.65** or **0.705 ratio**—represents a prime mathematical zone of institutional equilibrium.
+In quantitative technical analysis, the **0.618 (61.8%) Fibonacci Retracement**, commonly referred to as the **Golden Pocket** when bracketed with the **0.65** or **0.705 ratio**, represents a prime mathematical zone of institutional equilibrium.
 
 #### Why the 0.618 Golden Pocket Works:
 1. **Discount vs. Premium Accumulation**: Institutional smart money rarely buys at market highs. After an impulsive leg, large funds wait for price to pull back to deep discount pricing (0.618 to 0.786) to absorb limit orders.
@@ -2608,7 +2401,7 @@ In institutional trading, surviving drawdowns and compounding gains is entirely 
   }
 
   if (p.includes('who are you') || p.includes('what are you') || p.includes('what can you do') || p.includes('help')) {
-    return `### 👋 Welcome to MarketX — Your Institutional Quant & Trading Mentor
+    return `### 👋 Welcome to MarketX, your Institutional Quant & Trading Mentor
 
 I am **MarketX**, an AI-powered financial market intelligence assistant built for quantitative traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
 
@@ -2677,6 +2470,8 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       : '4H';
     const safeSymbol = typeof requestedSymbol === 'string' ? requestedSymbol.slice(0, 32).trim() : undefined;
     const safeSlMode = slMode === 'tight' ? 'tight' : 'normal';
+    // The reader's time zone decides which calendar day "today's news" belongs to
+    const newsTimeZone = resolveTimeZone(req.body?.timeZone);
     // A timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily") wins over the selector
     const analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
 
@@ -2706,6 +2501,12 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     if (wantsTighten) {
       const tightened = await buildTightenedStrategy(baseStrategy);
       if (tightened) {
+        // Today's fundamentals are always re-checked live (never echoed from the client's copy)
+        await refreshNewsFeedsWithin(2000);
+        const tAsset = extractAssetInfo(String(tightened.symbol || ''), String(tightened.symbol || ''));
+        const tBrief = buildDailyNewsBrief(tAsset, newsTimeZone);
+        tightened.newsBrief = tBrief || undefined;
+        tightened.highImpactNews = newsBriefToAlert(tBrief, tAsset.symbol) || undefined;
         console.log(`[MarketX] Tightened stop loss for existing ${tightened.symbol} ${tightened.tradeType} setup (${tightened.timeframe})`);
         return res.json({
           success: true,
@@ -2795,9 +2596,13 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
     const asset = extractAssetInfo(cleanPrompt, safeSymbol);
     // Candles for the requested timeframe load in parallel with the live quote
     const candleWarmup = fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
+    const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
     const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
-    const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency);
+    await newsWarmup;
+    // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
+    const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
+    const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
     console.log(
       `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
         structureMap ? `${structureMap.candles} candles, ${structureMap.demandZones.length}D/${structureMap.supplyZones.length}S zones, plan ${structureMap.plan?.direction || 'NO_SIGNAL'}` : 'candles unavailable'
@@ -2806,17 +2611,13 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
 
     // Deterministic strategy from real candles (used when the AI engine is unavailable or unusable)
     const computedFallback = () => {
-      const s = generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode, safeChartImage);
+      const s = generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode, safeChartImage, newsBrief);
       if (structureMap) {
         applyStructureMap(s, structureMap, structureMap.plan?.direction || null);
-        let thesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
-        if (s.highImpactNews) {
-          const n: any = s.highImpactNews;
-          thesis += `\n\n#### High Impact News\n**${n.title}** · ${n.scheduledTime}. ${n.volatilityWarning || ''} ${n.executionGuidance || ''}`;
-        }
-        s.detailedThesis = thesis;
+        // Today's news is shown (and expires) in the process report, not baked into the write-up
+        s.detailedThesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
       }
-      return s;
+      return enforcePreSignalCrosscheck(s);
     };
 
     if (!ai) {
@@ -2847,7 +2648,14 @@ STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
 
 STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
 - Signal only when a strong zone has Fibonacci confluence and the final target pays at least 1:2.5. Otherwise output NO_SIGNAL and name the zones and prices to watch.
-- NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal — already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
+- NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal, already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
+
+ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold):
+1. Spatial placement ahead of price. BUY: the fresh demand POI sits strictly below current price, TP1, TP2 and TP3 sit strictly above current price (into overhead premium liquidity), and the stop loss sits below the demand base (distal line). SELL: the fresh supply POI sits strictly above current price, TP1, TP2 and TP3 sit strictly below current price (into discount liquidity), and the stop loss sits above the supply ceiling (distal line). A zone price is trading inside right now is not a fresh entry.
+2. Tap detection. Cross-check the zone against every candle wick since its displacement and the session's 24h high and low. UNMITIGATED / UNTOUCHED (tapCount 0): price has never re-entered the zone, resting limit orders are unfilled, so it is the primary execution zone for a pending limit order. MITIGATED / TAPPED AND LEFT (tapCount 1 or more): price already wicked in and displaced away, the liquidity is absorbed, never recommend entering there again.
+3. Pre-signal crosscheck. Before presenting any setup, confirm price has not already reached TP1 (or any target), has not wicked through the stop loss (invalidation), and has not already traded through the entry. If it has, the opportunity has played out: output NO_SIGNAL ("No signal, already mitigated") and tell the trader to stand aside until a new unmitigated zone forms.
+4. Confluence. A virgin zone is high-probability only with (a) the 0.618 golden pocket of the swing leg inside the zone or within 0.3% of it, and (b) an unfilled 3-candle fair value gap (FVG) at the zone's doorstep, proving institutional displacement.
+Actionable rule: anchor entries only to unmitigated, virgin POIs with limit execution; never chase a move that has already occurred.
 
 COMPUTED MARKET MAP (MANDATORY WHEN PROVIDED):
 - The request includes a map computed from real ${analysisTimeframe} candles using exactly this strategy. Treat its zones, Fibonacci levels, entry, stop loss and targets as ground truth and copy those numbers exactly into the JSON and the thesis.
@@ -2974,7 +2782,7 @@ CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g
       { id: 'gemini-flash-latest', label: 'MarketX Adaptive Engine' },
     ];
 
-    const liveNewsAlert = detectHighImpactNews(asset.symbol, safeTimeframe);
+    const liveNewsAlert = newsBriefToAlert(newsBrief, asset.symbol);
 
     let sources: Array<{ title: string; uri: string }> = [
       { title: 'ForexFactory Verified Economic Calendar', uri: 'https://www.forexfactory.com/calendar' },
@@ -2983,17 +2791,7 @@ CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g
       { title: 'Smart Money Market Structure & Fibonacci', uri: 'https://www.tradingview.com' },
     ];
 
-    const newsWatchBlock = liveNewsAlert
-      ? `VERIFIED ECONOMIC NEWS WATCH:
-- Detected Event: ${liveNewsAlert.title}
-- Scheduled Date & Time: ${liveNewsAlert.scheduledTime}
-- Currency / Asset Impact: ${liveNewsAlert.affectedCurrency}
-- Impact Level: ${liveNewsAlert.impactLevel}
-${liveNewsAlert.forecast ? `- Forecast: ${liveNewsAlert.forecast} | Previous: ${liveNewsAlert.previous}\n` : ''}${liveNewsAlert.breakingHeadline ? `- MarketWatch Wire Headline: "${liveNewsAlert.breakingHeadline}"\n` : ''}- Volatility Warning: ${liveNewsAlert.volatilityWarning}
-- Execution Guidance: ${liveNewsAlert.executionGuidance}`
-      : `VERIFIED ECONOMIC NEWS WATCH:
-- Calendar Status: Clean Economic Docket. No high-impact macroeconomic releases or bank holidays scheduled for ${asset.symbol} within the active session.
-- Liquidity Guidance: Standard interbank liquidity conditions without event-driven spread expansion.`;
+    const newsWatchBlock = newsBriefPromptBlock(newsBrief, asset.symbol);
 
     const promptContext = `Perform comprehensive Institutional Supply and Demand + Fibonacci market analysis for ${asset.name} (${asset.symbol}) on the ${analysisTimeframe} timeframe based on user request: "${cleanPrompt}".
 
@@ -3265,6 +3063,7 @@ INSTRUCTIONS:
           { title: 'Real-time Liquidity Map', uri: 'https://www.binance.com' },
         ],
         highImpactNews: liveNewsAlert?.detected ? liveNewsAlert : undefined,
+        newsBrief: newsBrief || undefined,
         aiModel: usedModel,
         aiPowered: true,
         uploadedChartAnalyzed: Boolean(safeChartImage),
@@ -3295,6 +3094,18 @@ INSTRUCTIONS:
 ---
 
 ` + fullStrategy.detailedThesis;
+      }
+      // Without a computed map, first crosscheck the model's own levels: if price is already beyond a target or
+      // through the stop, the setup has played out and becomes NO_SIGNAL (never re-projected ahead of price)
+      if (!structureMap && (fullStrategy.tradeType === 'LONG' || fullStrategy.tradeType === 'SHORT')) {
+        const raw = evaluateSignalExecutionStatus(
+          fullStrategy.tradeType,
+          fullStrategy.currentPrice,
+          fullStrategy.entryZone?.optimal,
+          fullStrategy.stopLoss?.price,
+          fullStrategy.takeProfits || []
+        );
+        if (raw.state === 'TP_SMASHED' || raw.state === 'SL_TAKEN') enforcePreSignalCrosscheck(fullStrategy);
       }
       // Validate and calibrate Take Profit targets and Stop Loss ahead of price (only when no computed map)
       if (structureMap) {
@@ -3331,15 +3142,9 @@ INSTRUCTIONS:
         }
       }
 
-      // Pre-Signal Crosscheck execution for AI generated parameters
-      const signalExecutionStatus = evaluateSignalExecutionStatus(
-        fullStrategy.tradeType,
-        fullStrategy.currentPrice,
-        fullStrategy.entryZone.optimal,
-        fullStrategy.stopLoss.price,
-        fullStrategy.takeProfits
-      );
-      (fullStrategy as any).signalStatus = signalExecutionStatus;
+      // Pre-Signal Crosscheck on the final parameters: a setup that already played out becomes NO_SIGNAL.
+      // A computed NO_SIGNAL keeps its specific reason ("No signal" / "No signal, already mitigated").
+      enforcePreSignalCrosscheck(fullStrategy);
 
       return res.json({
         success: true,
@@ -3377,7 +3182,9 @@ INSTRUCTIONS:
       const asset = extractAssetInfo(safePrompt || 'BTC', safeSymbol);
       const tickers = await getLiveMarketTickers();
       const ticker = tickers.find(t => t.symbol === asset.symbol) || tickers[0];
-      const fallback = generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode);
+      const fallback = enforcePreSignalCrosscheck(
+        generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode, undefined, buildDailyNewsBrief(asset, resolveTimeZone(req.body?.timeZone)))
+      );
       return res.json({
         success: true,
         isAnalysis: true,
