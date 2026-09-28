@@ -25,8 +25,11 @@ import {
   checkPasscode,
   consumePasscodeInTx,
   createPendingSignup,
+  isPendingExpired,
+  PASSCODE_TTL_HOURS,
   PendingSignup,
   pendingRef,
+  releaseExpiredPasscodes,
   sendPasscodeOnce,
 } from './access';
 import {
@@ -197,7 +200,7 @@ function deliverPasscode(req: Request, email: string) {
       {
         code,
         cta: { label: 'Enter my pass code', url: `${siteUrl(req)}/access?email=${encodeURIComponent(email)}` },
-        note: 'This code is unique to you, works only once and cannot be reissued, so keep it private. If you did not sign up for MarketX, you can ignore this email.',
+        note: `This code is unique to you and works only once, so keep it private. It expires in ${PASSCODE_TTL_HOURS} hours; after that your reserved seat is released to the next person in line. If you did not sign up for MarketX, you can ignore this email.`,
       }
     )
   ).catch(err => {
@@ -244,6 +247,12 @@ export async function setEmailBanned(email: string, banned: boolean) {
 }
 
 export function registerAuthRoutes(app: Express) {
+  // Unused pass codes expire after 48 hours; sweep hourly so their seats return to the batch
+  if (isAuthConfigured()) {
+    const sweep = () => releaseExpiredPasscodes().catch(err => console.warn('[MarketX Access] expiry sweep failed:', err?.message || err));
+    setTimeout(sweep, 30 * 1000).unref();
+    setInterval(sweep, 60 * 60 * 1000).unref();
+  }
   const wrap =
     (fn: (req: Request, res: Response) => Promise<any>) =>
     (req: Request, res: Response) =>
@@ -308,8 +317,15 @@ export function registerAuthRoutes(app: Express) {
       const pending = await pendingRef(email).get();
       const p = pending.exists ? (pending.data() as PendingSignup) : null;
       if (p?.passwordHash && (await verifyPassword(password, p.passwordHash))) {
-        if (!p.codeEmailSentAt) await deliverPasscode(req, email);
         loginFailures.clear(email);
+        if (isPendingExpired(p)) {
+          // Their 48 hours ran out: retire the old code and reserve a fresh seat if one is free
+          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName });
+          if (again.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+          await deliverPasscode(req, email);
+          return pendingResponse(res, email, false);
+        }
+        if (!p.codeEmailSentAt) await deliverPasscode(req, email);
         return pendingResponse(res, email, !!p.codeEmailSentAt);
       }
     }
@@ -489,6 +505,12 @@ export function registerAuthRoutes(app: Express) {
     if (!code.trim()) return res.status(400).json({ error: 'CODE_REQUIRED', message: 'Enter your pass code.' });
 
     const check = await checkPasscode(email, code);
+    if (check.status === 'expired') {
+      return res.status(410).json({
+        error: 'CODE_EXPIRED',
+        message: `This pass code expired because it wasn't used within ${PASSCODE_TTL_HOURS} hours, and the seat was released. Sign up again to request a new one.`,
+      });
+    }
     if (check.status === 'no_pending') {
       const hasAccount = (await credentialsRef(email).get()).exists;
       return res.status(hasAccount ? 409 : 404).json(

@@ -82,7 +82,7 @@ export const PasscodePage: React.FC<PasscodePageProps> = ({ initialEmail, onGran
               </span>
               <h1 className="mt-4 text-2xl font-semibold text-white tracking-tight">Enter your pass code</h1>
               <p className="mt-1.5 text-sm text-slate-400 leading-relaxed">
-                MarketX is invite-only. Your one-time pass code works once and only for you.
+                MarketX is invite-only. Your one-time pass code works once, only for you, and expires 48 hours after it's sent.
               </p>
 
               {editingEmail ? (
@@ -141,7 +141,7 @@ export const PasscodePage: React.FC<PasscodePageProps> = ({ initialEmail, onGran
               </button>
 
               <p className="mt-4 text-[11px] text-slate-500 leading-relaxed text-center">
-                Can't find it? Check your spam or promotions folder for an email from MarketX. Each code is sent once.
+                Can't find it? Check your spam or promotions folder for an email from MarketX. Each code is sent once. If it expires, sign in or sign up again to request a new one.
               </p>
             </form>
           )}
