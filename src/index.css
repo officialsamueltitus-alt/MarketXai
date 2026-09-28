@@ -429,6 +429,12 @@ header.glass-panel {
 .mx-composer.is-dragging::before {
   opacity: 1;
 }
+/* Phones: a compact one-row composer (half the desktop height) */
+@media (max-width: 639.98px) {
+  .mx-composer {
+    border-radius: 1.4rem;
+  }
+}
 
 /* Light theme touch-ups for hand-written effects */
 :root[data-theme='light'] .mx-backdrop {
@@ -496,6 +502,16 @@ header.glass-panel {
 }
 .mx-pop-in {
   animation: mx-pop 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes mx-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+.mx-shake {
+  animation: mx-shake 0.36s ease-in-out;
 }
 .mx-rise {
   animation: mx-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -693,6 +709,22 @@ header.glass-panel {
   html {
     overscroll-behavior-y: none;
   }
+}
+
+/* Admin console: a normal scrolling document (the main app locks body scroll) */
+html.mx-admin-page,
+html.mx-admin-page body {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+html.mx-admin-page body {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 @media (prefers-reduced-motion: reduce) {

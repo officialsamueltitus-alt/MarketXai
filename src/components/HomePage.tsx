@@ -612,12 +612,12 @@ export const HomePage: React.FC<HomePageProps> = ({
     <div className="flex-1 overflow-y-auto px-3 sm:px-6 pt-2 sm:pt-4 pb-28 sm:pb-16 space-y-6 sm:space-y-8 scroll-smooth max-w-7xl mx-auto w-full overscroll-contain pb-safe">
       {/* Hero: headline + ask box + quick prompts */}
       <section className="max-w-2xl mx-auto text-center pt-6 sm:pt-12 pb-2">
-        <div className="mx-rise inline-flex items-center gap-2 h-7 px-3 rounded-full bg-white/[0.04] border border-white/[0.07] text-xs text-slate-400">
-          <span className="relative flex w-1.5 h-1.5">
+        <div className="mx-rise inline-flex items-center gap-2 h-7 px-3 max-w-full rounded-full bg-white/[0.04] border border-white/[0.07] text-[11px] min-[400px]:text-xs text-slate-400 whitespace-nowrap">
+          <span className="relative flex w-1.5 h-1.5 shrink-0">
             <span className="radar-ring absolute inline-flex w-full h-full rounded-full bg-emerald-400/60" />
             <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400" />
           </span>
-          Live across crypto, forex, stocks & commodities
+          <span className="truncate">Live across crypto, forex, stocks & commodities</span>
         </div>
 
         <h1 className="mx-rise mt-5 text-[2rem] leading-[1.1] sm:text-5xl font-semibold tracking-tight text-white" style={{ animationDelay: '60ms' }}>

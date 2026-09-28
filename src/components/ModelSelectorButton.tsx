@@ -73,21 +73,21 @@ export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({ onNoti
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         aria-label="AI models"
-        className="group flex items-center gap-2 h-8 pl-1 pr-2 sm:pr-2.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] transition-colors cursor-pointer active:scale-[0.97] shrink-0"
+        className="group flex items-center gap-1 min-[400px]:gap-2 h-8 pl-1 pr-1.5 min-[400px]:pr-2 sm:pr-2.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] transition-colors cursor-pointer active:scale-[0.97] shrink-0"
       >
-        <span className="flex -space-x-1.5" aria-hidden="true">
+        <span className="flex -space-x-1 min-[400px]:-space-x-1.5" aria-hidden="true">
           {MODELS.map(({ id, Icon }, i) => (
             <span
               key={id}
-              className="w-6 h-6 rounded-full bg-[var(--mx-surface-2)] ring-2 ring-[var(--mx-bg)] flex items-center justify-center transition-transform duration-200 group-hover:translate-x-[calc(var(--i)*2px)]"
+              className="w-5 h-5 min-[400px]:w-6 min-[400px]:h-6 rounded-full bg-[var(--mx-surface-2)] ring-2 ring-[var(--mx-bg)] flex items-center justify-center transition-transform duration-200 group-hover:translate-x-[calc(var(--i)*2px)]"
               style={{ zIndex: MODELS.length - i, ['--i' as any]: i }}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className="w-3 h-3 min-[400px]:w-3.5 min-[400px]:h-3.5" />
             </span>
           ))}
         </span>
         <span className="hidden sm:inline text-[13px] font-medium text-slate-200">Models</span>
-        <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`max-[359px]:hidden w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen &&

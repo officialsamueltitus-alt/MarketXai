@@ -5,6 +5,12 @@ import App from './App.tsx';
 // The admin console is its own lazily-loaded bundle, only fetched on /admin
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
+// The app itself is a fixed, full-height shell (body can't scroll). The console is a normal scrolling
+// page, so it gets its own document styles: native window scroll, touch momentum, selectable text.
+if (isAdminRoute) {
+  document.documentElement.classList.add('mx-admin-page');
+  document.body.classList.remove('overflow-hidden', 'select-none');
+}
 import './index.css';
 
 // Older Safari / Android WebViews lack Object.hasOwn (used when rendering chat markdown)
