@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Render installs fresh; the lockfile is intentionally not tracked
+package-lock.json
