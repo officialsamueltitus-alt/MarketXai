@@ -44,6 +44,7 @@ import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
 import { WelcomeGate } from './components/WelcomeGate';
 import { SiteBanner } from './components/SiteBanner';
+import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
 import {
@@ -120,6 +121,8 @@ export default function App() {
   const [termsModalTab, setTermsModalTab] = useState<'terms' | 'privacy' | 'risk'>('terms');
   // Support chat (Settings → Support chat)
   const [isSupportOpen, setIsSupportOpen] = useState(false);
+  // Announcement from the MarketX team open in full
+  const [openAnnouncement, setOpenAnnouncement] = useState<AppNotification | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' } | null>(null);
@@ -792,9 +795,29 @@ export default function App() {
     return () => clearInterval(id);
   }, [authUser]);
 
+  // A new announcement pops up once (newest unread, sent in the last 7 days); afterwards it lives in notifications
+  useEffect(() => {
+    if (!authUser || openAnnouncement) return;
+    const fresh = notifications
+      .filter(n => n.type === 'announcement' && !n.read && Date.now() - n.timestamp < 7 * 24 * 3600e3)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    if (!fresh) return;
+    let shown: string[] = [];
+    try {
+      shown = JSON.parse(localStorage.getItem('mx_announcements_shown') || '[]');
+    } catch {}
+    if (shown.includes(fresh.id)) return;
+    try {
+      localStorage.setItem('mx_announcements_shown', JSON.stringify([...shown, fresh.id].slice(-30)));
+    } catch {}
+    setOpenAnnouncement(fresh);
+  }, [notifications, authUser, openAnnouncement]);
+
   const handleUpdateNotificationAction = (notif: AppNotification) => {
     markNotificationRead(notif.id);
-    if (notif.actionPrompt) {
+    if (notif.type === 'announcement') {
+      setOpenAnnouncement(notif);
+    } else if (notif.actionPrompt) {
       handleSendMessage(notif.actionPrompt, '4H');
     } else if (notif.actionType === 'open_support') {
       setIsSupportOpen(true);
@@ -1333,6 +1356,15 @@ export default function App() {
       />
       </Deferred>
 
+      {/* Announcement from the MarketX team (pop-up for new ones, or opened from notifications) */}
+      <AnnouncementModal
+        announcement={openAnnouncement}
+        onClose={() => {
+          if (openAnnouncement && !openAnnouncement.read) markNotificationRead(openAnnouncement.id);
+          setOpenAnnouncement(null);
+        }}
+      />
+
       {/* Notification Center Modal */}
       <Deferred when={isNotificationCenterOpen}>
       <NotificationCenterModal
@@ -1352,6 +1384,7 @@ export default function App() {
           if (authUser) apiFetch(`/api/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
         }}
         onMarkRead={markNotificationRead}
+        onOpenAnnouncement={notif => setOpenAnnouncement(notif)}
         onNotificationAction={(notif) => {
           setIsNotificationCenterOpen(false);
           if (notif.actionPrompt) {

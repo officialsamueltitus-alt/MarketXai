@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppNotification, NotificationType } from '../types';
-import { Bell, CheckCheck, Trash2, X, Sparkles, TrendingUp, ShieldCheck, Gift, LineChart, ChevronRight, Mail } from 'lucide-react';
+import { Bell, CheckCheck, Trash2, X, Sparkles, TrendingUp, ShieldCheck, Gift, LineChart, ChevronRight, Mail, Megaphone } from 'lucide-react';
 
 interface NotificationCenterModalProps {
   isOpen: boolean;
@@ -14,13 +14,16 @@ interface NotificationCenterModalProps {
   /** Activity email preference (security emails always send) */
   emailActivity?: boolean;
   onToggleEmailActivity?: (enabled: boolean) => void;
+  /** Opens an announcement from the MarketX team in full */
+  onOpenAnnouncement?: (notification: AppNotification) => void;
 }
 
-type Filter = 'all' | 'unread' | 'activity' | 'account' | 'rewards';
+type Filter = 'all' | 'unread' | 'updates' | 'activity' | 'account' | 'rewards';
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
+  { id: 'updates', label: 'Updates' },
   { id: 'activity', label: 'Analyses' },
   { id: 'account', label: 'Account' },
   { id: 'rewards', label: 'Rewards' },
@@ -33,12 +36,15 @@ const KIND: Record<NotificationType, { icon: React.ElementType; tone: string }> 
   reward: { icon: Gift, tone: 'bg-emerald-500/15 text-emerald-300' },
   credit: { icon: Sparkles, tone: 'bg-emerald-500/15 text-emerald-300' },
   system: { icon: Bell, tone: 'bg-white/[0.06] text-slate-300' },
+  announcement: { icon: Megaphone, tone: 'bg-indigo-500/20 text-indigo-200' },
 };
 
 function matches(n: AppNotification, f: Filter): boolean {
   switch (f) {
     case 'unread':
       return !n.read;
+    case 'updates':
+      return n.type === 'announcement';
     case 'activity':
       return n.type === 'analysis' || n.type === 'market';
     case 'account':
@@ -100,6 +106,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   onNotificationAction,
   emailActivity = true,
   onToggleEmailActivity,
+  onOpenAnnouncement,
 }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [confirmClear, setConfirmClear] = useState(false);
@@ -208,6 +215,45 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                     const kind = KIND[n.type] || KIND.system;
                     const Icon = kind.icon;
                     const action = actionLabel(n);
+                    if (n.type === 'announcement') {
+                      return (
+                        <li key={n.id} className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!n.read) onMarkRead?.(n.id);
+                              onOpenAnnouncement?.(n);
+                            }}
+                            className={`w-full text-left rounded-2xl border p-3 pr-9 transition-colors cursor-pointer ${
+                              n.read
+                                ? 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                                : 'border-indigo-400/25 bg-gradient-to-br from-indigo-500/[0.12] to-transparent hover:from-indigo-500/[0.16]'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${kind.tone}`}>
+                                <Icon className="w-3.5 h-3.5" />
+                              </span>
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-200">MarketX Team</span>
+                              <span className="ml-auto text-[11px] text-slate-500 tabular-nums">{timeAgo(n.timestamp)}</span>
+                            </span>
+                            <span className={`mt-2 block text-sm leading-snug break-words ${n.read ? 'text-slate-200' : 'text-white font-semibold'}`}>{n.title}</span>
+                            {n.message && <span className="mt-1 block text-xs text-slate-400 leading-relaxed line-clamp-3 break-words">{n.message}</span>}
+                            <span className="mt-2 inline-flex items-center gap-0.5 text-xs font-medium text-indigo-300">
+                              Read announcement <ChevronRight className="w-3 h-3" />
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDismissNotification(n.id)}
+                            aria-label="Dismiss notification"
+                            className="absolute right-1.5 top-2 w-7 h-7 rounded-full text-slate-500 hover:text-white hover:bg-white/[0.08] inline-flex items-center justify-center transition sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </li>
+                      );
+                    }
                     return (
                       <li key={n.id} className="group relative">
                         <button

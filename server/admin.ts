@@ -461,8 +461,13 @@ export function registerAdminRoutes(app: Express) {
     const usage: any = usageSnap.exists ? usageSnap.data() : { byDay: {}, pairs: {}, total: 0 };
     const byDay = usage.byDay || {};
     const count = (n: number) => lastDays(n).reduce((a, d) => a + (byDay[d] || 0), 0);
+    const meta = (u as any).signupMeta;
     res.json({
-      user: publicUser(u),
+      user: {
+        ...publicUser(u),
+        // Where the account was registered from (recorded by the sign-up guard)
+        signup: meta ? { ip: meta.ip || null, userAgent: String(meta.userAgent || '').slice(0, 200), at: meta.at || null } : null,
+      },
       usage: {
         today: count(1),
         week: count(7),
@@ -602,11 +607,13 @@ export function registerAdminRoutes(app: Express) {
 
     const id = `bc-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const lines = message.split(/\n{2,}/).map(l => l.trim()).filter(Boolean);
+    // Optional call-to-action link, https only
+    const rawLink = String(req.body?.link || '').trim();
+    const link = /^https:\/\/[^\s<>"']+$/i.test(rawLink) ? rawLink.slice(0, 300) : null;
 
     if (mode === 'banner') {
       const tone = ['info', 'success', 'warning'].includes(req.body?.tone) ? req.body.tone : 'info';
       const hours = Math.max(0, Math.min(24 * 90, Number(req.body?.durationHours) || 0));
-      const link = /^https?:\/\//.test(String(req.body?.link || '')) ? String(req.body.link).slice(0, 300) : null;
       await bannerRef().set({ id, title, message: message.slice(0, 280), tone, link, active: true, createdAt: Date.now(), expiresAt: hours ? Date.now() + hours * 3600000 : null });
       await db().collection('broadcasts').doc(id).set({ id, mode, title, message, tone, recipients: 'site', sentAt: Date.now() });
       adminLog('banner_set', { id, title });
@@ -622,12 +629,17 @@ export function registerAdminRoutes(app: Express) {
       targets = (await allUsers()).filter(u => u.status !== 'banned');
     }
 
-    await Promise.all(targets.map(u => addNotification(u.uid, { type: 'system', title, message: message.slice(0, 500) }).catch(() => {})));
+    await Promise.all(
+      targets.map(u =>
+        addNotification(u.uid, { type: 'announcement', title, message, ...(link ? { link } : {}) }).catch(() => {})
+      )
+    );
     if (sendMail) {
       for (const u of targets) {
         queueMail(() =>
           sendEmail(u.email, title, [`Hello ${u.displayName || `@${u.username}`},`, ...lines], {
             note: 'You are receiving this message because you have a MarketX account.',
+            ...(link ? { cta: { label: 'Learn more', url: link } } : {}),
           })
         );
       }
@@ -641,6 +653,7 @@ export function registerAdminRoutes(app: Express) {
         title,
         message,
         email: sendMail,
+        link,
         recipients: targets.length,
         target: mode === 'individual' ? `@${targets[0].username} (${targets[0].email})` : 'all users',
         sentAt: Date.now(),

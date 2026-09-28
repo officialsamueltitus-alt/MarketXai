@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { deviceSignals } from '../utils/device';
 import { createPortal } from 'react-dom';
 import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
@@ -128,7 +129,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             try {
               const account = await apiFetch('/api/auth/google', {
                 method: 'POST',
-                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current }),
+                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals() }),
               });
               finish(account);
             } catch (err: any) {
@@ -226,6 +227,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             username: cleanUsername,
             displayName: displayName.trim() || cleanUsername,
             acceptTerms: true,
+            device: await deviceSignals(),
           }),
         });
         finish(account);
@@ -236,7 +238,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     run(async () => {
       const account = await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: cleanEmail, password }),
+        body: JSON.stringify({ email: cleanEmail, password, device: await deviceSignals() }),
       });
       finish(account);
     });

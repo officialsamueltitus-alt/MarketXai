@@ -297,7 +297,7 @@ export interface XShareReward {
   previouslyClaimed?: boolean;
 }
 
-export type NotificationType = 'reward' | 'market' | 'system' | 'credit' | 'security' | 'analysis';
+export type NotificationType = 'reward' | 'market' | 'system' | 'credit' | 'security' | 'analysis' | 'announcement';
 
 export interface AppNotification {
   id: string;
@@ -309,6 +309,8 @@ export interface AppNotification {
   actionPrompt?: string;
   actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support';
   actionPayload?: any;
+  /** Announcements: an optional https link attached by the MarketX team */
+  link?: string;
 }
 
 

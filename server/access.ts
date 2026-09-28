@@ -34,6 +34,10 @@ export interface PendingSignup {
   name?: string;
   picture?: string;
   termsAcceptedAt?: number;
+  /** Where the sign-up came from (IP, user agent, device cookie id) */
+  signupMeta?: { ip: string | null; userAgent: string; deviceId: string; at: number };
+  /** Device/network guard keys bound to this sign-up (made permanent when the code is redeemed) */
+  guardKeys?: Array<{ kind: string; key: string }>;
   createdAt: number;
   codeEmailSentAt?: number | null;
   codeEmailClaimAt?: number | null;

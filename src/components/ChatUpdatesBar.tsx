@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppNotification, CreditState, MarketQuote, UserProfile } from '../types';
-import { Sparkles, Gift, Bell, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown } from 'lucide-react';
+import { Sparkles, Gift, Bell, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown, Megaphone } from 'lucide-react';
 import { getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 
@@ -67,14 +67,15 @@ function formatPrice(q: MarketQuote): string {
 
 function notificationItem(n: AppNotification, onAction: () => void): UpdateItem {
   const reward = n.type === 'credit' || n.type === 'reward';
+  const announcement = n.type === 'announcement';
   return {
     id: `n-${n.id}`,
     notificationId: n.id,
     tone: reward ? 'emerald' : n.type === 'market' ? 'cyan' : 'violet',
-    icon: reward ? Gift : Bell,
-    label: 'Notification',
+    icon: reward ? Gift : announcement ? Megaphone : Bell,
+    label: announcement ? 'Announcement' : 'Notification',
     text: n.title,
-    cta: n.actionPrompt ? 'Analyze' : 'View',
+    cta: n.actionPrompt ? 'Analyze' : announcement ? 'Read' : 'View',
     onAction,
   };
 }
