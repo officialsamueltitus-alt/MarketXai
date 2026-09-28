@@ -10,7 +10,19 @@ import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { registerAdminRoutes } from './server/admin';
 import { isMailerConfigured } from './server/mailer';
-import { fetchDerivQuote, mapDerivSymbol } from './server/deriv';
+import { fetchDerivCandles, fetchDerivQuote, mapDerivSymbol } from './server/deriv';
+import {
+  aggregateCandles,
+  buildMarketMap,
+  Candle,
+  MarketMap,
+  marketMapPromptBlock,
+  SDZone,
+  marketMapThesis,
+  normalizeTimeframe,
+  timeframeFromPrompt,
+  timeframeMinutes,
+} from './server/strategy';
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders } from './server/security';
 
 const app = express();
@@ -1677,7 +1689,7 @@ ${newsAlert.breakingHeadline ? `- **MarketWatch Wire**: "${newsAlert.breakingHea
         : `Structural invalidation placed safely behind the ${isBullish ? 'demand zone low' : 'supply zone high'}`,
     },
     takeProfits: rawTakeProfits,
-    riskRewardRatio: `1 : ${rrRatio}`,
+    riskRewardRatio: rrRatio,
     demandZone: {
       low: Number(formatPrice(demandLow)),
       high: Number(formatPrice(demandHigh)),
@@ -2208,6 +2220,250 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
 }
 
 // Helper to safely decode URI parameters without throwing on malformed percent encoding
+// -------------------------------------------------------------
+// Historical candles for the strategy engine (requested timeframe, ~300 bars)
+// Crypto & gold: Binance klines · FX, metals, energy, stocks & indices: Yahoo Finance · synthetics: Deriv
+// -------------------------------------------------------------
+const candleCache: Record<string, { at: number; candles: Candle[] | null }> = {};
+const CANDLE_TTL_MS = 30000;
+
+const BINANCE_INTERVALS: Record<string, string> = {
+  '1M': '1m', '3M': '3m', '5M': '5m', '15M': '15m', '30M': '30m', '1H': '1h', '2H': '2h',
+  '4H': '4h', '6H': '6h', '8H': '8h', '12H': '12h', '1D': '1d', '1W': '1w',
+};
+// Yahoo: [interval, range, minutes per source bar]; larger timeframes are aggregated from these
+const YAHOO_PLAN: Record<string, [string, string, number]> = {
+  '1M': ['1m', '5d', 1], '3M': ['1m', '5d', 1], '5M': ['5m', '5d', 5], '15M': ['15m', '1mo', 15], '30M': ['30m', '1mo', 30],
+  '1H': ['60m', '3mo', 60], '2H': ['60m', '3mo', 60], '4H': ['60m', '6mo', 60], '6H': ['60m', '6mo', 60], '8H': ['60m', '1y', 60],
+  '12H': ['60m', '1y', 60], '1D': ['1d', '2y', 1440], '1W': ['1wk', '10y', 10080],
+};
+// Deriv: [granularity seconds, bars to aggregate]
+const DERIV_PLAN: Record<string, [number, number]> = {
+  '1M': [60, 1], '3M': [180, 1], '5M': [300, 1], '15M': [900, 1], '30M': [1800, 1], '1H': [3600, 1], '2H': [7200, 1],
+  '4H': [14400, 1], '6H': [7200, 3], '8H': [28800, 1], '12H': [14400, 3], '1D': [86400, 1], '1W': [86400, 7],
+};
+
+async function fetchBinanceCandles(pair: string, tf: string): Promise<Candle[] | null> {
+  const interval = BINANCE_INTERVALS[tf];
+  if (!interval) return null;
+  const rows = await binanceRequest(`/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=${interval}&limit=300`, 5000);
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  return rows.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }));
+}
+
+async function fetchYahooCandles(yahooSym: string, tf: string): Promise<Candle[] | null> {
+  const plan = YAHOO_PLAN[tf];
+  if (!plan) return null;
+  const [interval, rangeParam, baseMinutes] = plan;
+  for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
+    try {
+      const { status, data } = await fetchJsonWithTimeout(
+        `${host}/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${interval}&range=${rangeParam}`,
+        5000
+      );
+      const result = data?.chart?.result?.[0];
+      const q = result?.indicators?.quote?.[0];
+      const ts: number[] = result?.timestamp || [];
+      if (!q || !ts.length) {
+        warnFeed(`Yahoo candles ${host}`, `HTTP ${status} for ${yahooSym}`);
+        continue;
+      }
+      let candles: Candle[] = [];
+      for (let i = 0; i < ts.length; i++) {
+        const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+        if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c });
+      }
+      const want = timeframeMinutes(tf);
+      if (want > baseMinutes) candles = aggregateCandles(candles, want);
+      return candles.slice(-300);
+    } catch (err: any) {
+      warnFeed(`Yahoo candles ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
+    }
+  }
+  return null;
+}
+
+async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] | null> {
+  const plan = DERIV_PLAN[tf];
+  if (!plan) return null;
+  const [gran, agg] = plan;
+  const raw = await fetchDerivCandles(derivSym, gran, 300 * agg);
+  if (!raw || !raw.length) return null;
+  return (agg > 1 ? aggregateCandles(raw, timeframeMinutes(tf)) : raw).slice(-300);
+}
+
+const candleInflight: Record<string, Promise<Candle[] | null>> = {};
+
+/** Real OHLC candles for an asset on a timeframe; null when no feed answers (callers fall back gracefully). */
+function fetchCandlesForAsset(asset: ReturnType<typeof extractAssetInfo>, tf: string): Promise<Candle[] | null> {
+  const key = `${asset.type}:${asset.symbol}:${tf}`;
+  const cached = candleCache[key];
+  if (cached && Date.now() - cached.at < CANDLE_TTL_MS) return Promise.resolve(cached.candles);
+  // Concurrent requests for the same series share one upstream fetch
+  if (!candleInflight[key]) {
+    candleInflight[key] = loadCandles(asset, tf, key).finally(() => delete candleInflight[key]);
+  }
+  return candleInflight[key];
+}
+
+async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: string, key: string): Promise<Candle[] | null> {
+
+  const sym = asset.symbol.toUpperCase();
+  const compact = sym.replace(/[^A-Z0-9]/g, '');
+  let candles: Candle[] | null = null;
+  try {
+    if (asset.type === 'crypto') {
+      const binanceSym = (asset as any).binance || compact;
+      const pair = binanceSym.endsWith('USDT') ? binanceSym : `${binanceSym.replace(/USD$/, '')}USDT`;
+      candles = (await fetchBinanceCandles(pair, tf)) || (await fetchYahooCandles(`${pair.replace(/USDT$/, '')}-USD`, tf));
+    } else if (asset.type === 'forex') {
+      const [base, quote] = sym.split('/').map(s => s.trim());
+      if (base && quote) candles = await fetchYahooCandles(`${base}${quote}=X`, tf);
+    } else if (asset.type === 'commodity') {
+      if (compact === 'XAUUSD') candles = await fetchBinanceCandles('PAXGUSDT', tf);
+      const ySym = YAHOO_SYMBOL_MAP[compact] || YAHOO_SYMBOL_MAP[compact.replace(/USD$/, '')] || (compact === 'WTIUSD' ? 'CL=F' : null);
+      if (!candles && ySym) candles = await fetchYahooCandles(ySym, tf);
+    } else if (asset.type === 'stock') {
+      candles = await fetchYahooCandles(YAHOO_SYMBOL_MAP[compact] || compact, tf);
+    } else if (asset.type === 'synthetic') {
+      const dSym = mapDerivSymbol(asset.name) || mapDerivSymbol(asset.symbol);
+      if (dSym) candles = await fetchDerivSeries(dSym, tf);
+    }
+  } catch (err: any) {
+    warnFeed(`Candles ${asset.symbol}`, String(err?.message || err));
+    candles = null;
+  }
+  candleCache[key] = { at: Date.now(), candles };
+  return candles;
+}
+
+/** Candles → supply/demand + Fibonacci map, bounded so a slow feed never delays an analysis for long. */
+async function buildStructureMap(
+  asset: ReturnType<typeof extractAssetInfo>,
+  tf: string,
+  price: number,
+  slMode: 'normal' | 'tight',
+  prompt: string,
+  currency?: string
+): Promise<MarketMap | null> {
+  const candles = await Promise.race([
+    fetchCandlesForAsset(asset, tf),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), 7000)),
+  ]);
+  if (!candles) return null;
+  const lower = prompt.toLowerCase();
+  const prefer = /\b(short|sell|bear(ish)?|supply)\b/.test(lower) ? 'SHORT' : /\b(long|buy|bull(ish)?|demand)\b/.test(lower) ? 'LONG' : null;
+  const jpy = asset.symbol.toUpperCase().includes('JPY') || currency === 'JPY';
+  try {
+    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex' });
+  } catch (err: any) {
+    console.warn('[MarketX Strategy] map failed:', err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Writes the computed supply/demand + Fibonacci levels into a strategy object (AI or fallback), so every
+ * number shown to the user comes from real candles. `direction` picks the plan; null means NO_SIGNAL.
+ */
+function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'SHORT' | null) {
+  const plan = direction ? (map.plan?.direction === direction ? map.plan : map.alternate?.direction === direction ? map.alternate : null) : null;
+  const dec = map.decimals;
+  const r = (p: number) => Number(p.toFixed(dec));
+  const price = Number(strategy.currentPrice) || map.price;
+  const toZone = (z: SDZone) => ({
+    low: r(z.low),
+    high: r(z.high),
+    strength: z.fresh ? 'FRESH' : z.tapCount === 1 ? 'TESTED' : 'WEAK',
+    timeframe: map.timeframe,
+    description: `${z.pattern === 'DBR' ? 'Drop-Base-Rally' : z.pattern === 'RBR' ? 'Rally-Base-Rally' : z.pattern === 'RBD' ? 'Rally-Base-Drop' : 'Drop-Base-Drop'} ${z.kind === 'DEMAND' ? 'demand' : 'supply'} · proximal ${r(z.proximal)}, distal ${r(z.distal)} · departure ${z.departureAtr.toFixed(1)} ATR${z.brokeStructure ? ' · broke structure' : ''} · score ${z.score}/100`,
+    mitigationStatus: z.tapCount > 0 ? 'MITIGATED' : 'UNMITIGATED',
+    touchStatus: z.tapCount > 0 ? 'TAPPED_AND_LEFT' : 'UNTOUCHED',
+    tapCount: z.tapCount,
+    reactionSummary: z.priceInside
+      ? 'Price is trading inside this zone right now.'
+      : z.fresh
+        ? 'Price has not returned since the explosive leg-out — institutional orders are still resting here.'
+        : `Price has tapped this zone ${z.tapCount}x and it held.`,
+  });
+  const nearest = (zs: SDZone[]) => [...zs].sort((a, b) => a.distanceAtr - b.distanceAtr)[0];
+  const demand = plan?.direction === 'LONG' ? plan.zone : nearest(map.demandZones) || map.demandZones[0];
+  const supply = plan?.direction === 'SHORT' ? plan.zone : nearest(map.supplyZones) || map.supplyZones[0];
+  if (demand) strategy.demandZone = toZone(demand);
+  if (supply) strategy.supplyZone = toZone(supply);
+
+  const all = [...map.demandZones, ...map.supplyZones];
+  strategy.poiZones = all.map(z => ({
+    name: `${map.timeframe} ${z.kind === 'DEMAND' ? 'Demand' : 'Supply'} (${z.pattern})`,
+    type: z.kind,
+    min: r(z.low),
+    max: r(z.high),
+    ...toZone(z),
+    distancePercent: Number(((Math.abs(price - z.proximal) / (price || 1)) * 100).toFixed(1)),
+  }));
+  strategy.unmitigatedZonesCount = all.filter(z => z.tapCount === 0).length;
+  strategy.mitigatedZonesCount = all.filter(z => z.tapCount > 0).length;
+  strategy.swingHigh = map.swingHigh;
+  strategy.swingLow = map.swingLow;
+  strategy.timeframe = map.timeframe;
+  strategy.strategyEngine = { method: 'SUPPLY_DEMAND_FIBONACCI', candles: map.candles, timeframe: map.timeframe, trend: map.trend };
+
+  if (plan) {
+    const long = plan.direction === 'LONG';
+    strategy.tradeType = plan.direction;
+    strategy.bias = long ? 'BULLISH' : 'BEARISH';
+    strategy.confidenceScore = Math.round(map.plan === plan ? map.confidence : Math.max(55, Math.min(90, plan.score)));
+    const confluenceText =
+      plan.confluence === 'GOLDEN_POCKET_IN_ZONE'
+        ? '0.618–0.705 golden pocket inside'
+        : plan.confluence === 'FIB_BAND_OVERLAP'
+          ? '0.5–0.786 retracement overlapping'
+          : 'Fibonacci 100% origin of';
+    strategy.entryZone = {
+      min: plan.entry.min,
+      max: plan.entry.max,
+      optimal: plan.entry.optimal,
+      rationale: `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} – ${r(plan.zone.high)})`,
+    };
+    strategy.stopLoss = {
+      price: plan.stopLoss,
+      riskPercent: Number(((Math.abs(plan.entry.optimal - plan.stopLoss) / plan.entry.optimal) * 100).toFixed(2)),
+      rationale: `Beyond the zone's distal line ${r(plan.zone.distal)} (Fibonacci 100%) with an ATR buffer`,
+    };
+    const exits = [40, 40, 20];
+    strategy.takeProfits = plan.targets.map((t, i) => ({ level: `TP${i + 1} (${t.label})`, price: t.price, rewardRatio: `1:${t.rr.toFixed(1)}`, exitPercent: exits[i] }));
+    strategy.riskRewardRatio = `1 : ${plan.rrFinal.toFixed(1)}`;
+    strategy.fibonacciLevels = plan.fib;
+  } else {
+    // NO_SIGNAL: show the nearest zones as the levels to watch
+    const watch = nearest(all);
+    strategy.tradeType = 'NO_SIGNAL';
+    strategy.bias = 'NEUTRAL';
+    strategy.confidenceScore = 50;
+    if (watch) {
+      const long = watch.kind === 'DEMAND';
+      strategy.entryZone = { min: r(watch.low), max: r(watch.high), optimal: r(watch.proximal), rationale: `Watch zone: ${long ? 'demand' : 'supply'} ${r(watch.low)} – ${r(watch.high)}` };
+      strategy.stopLoss = { price: r(watch.distal), riskPercent: 0, rationale: 'No position — wait for a valid setup' };
+    }
+    strategy.riskRewardRatio = '1 : 0';
+    const swingDiff = map.swingHigh - map.swingLow;
+    strategy.fibonacciLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].map(ratio => ({
+      ratio,
+      label: `${(ratio * 100).toFixed(1)}%`,
+      price: r(map.swingHigh - swingDiff * ratio),
+      isKey: ratio === 0.5 || ratio === 0.618,
+    }));
+  }
+  strategy.signalStatus = evaluateSignalExecutionStatus(
+    strategy.tradeType,
+    price,
+    strategy.entryZone?.optimal ?? price,
+    strategy.stopLoss?.price ?? price,
+    strategy.takeProfits || []
+  );
+  return strategy;
+}
+
 function safeDecodeURIComponent(str: string): string {
   try {
     return decodeURIComponent(str);
@@ -2395,6 +2651,8 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       : '4H';
     const safeSymbol = typeof requestedSymbol === 'string' ? requestedSymbol.slice(0, 32).trim() : undefined;
     const safeSlMode = slMode === 'tight' ? 'tight' : 'normal';
+    // A timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily") wins over the selector
+    const analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
 
     // Validate chartImage: must be valid base64 image data URI under 12MB
     let safeChartImage: string | undefined = undefined;
@@ -2455,7 +2713,7 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       }
 
       const chatSystemInstruction = `You are "MarketX", an elite institutional hedge fund quant analyst and trading mentor.
-You have mastery in Crypto, Forex, Commodities (Gold/XAU), Equities, and Synthetic Indices, specializing in finding unmitigated institutional Supply & Demand Zones in real time, and using Fibonacci Confluence (0.618 Golden Pocket) for entry, Stop loss, and Take profit.
+You have mastery in Crypto, Forex, Commodities (Gold/XAU), Equities, and Synthetic Indices. Your one strategy, on any timeframe: identify high-probability institutional Supply & Demand zones, then time the entry with the Fibonacci retracement tool (0.618–0.705 golden pocket overlapping the zone), with the stop beyond the zone's distal line and targets at swing liquidity and Fibonacci extensions.
 
 The user is asking a conversational or educational question: "${cleanPrompt}".
 Provide a clear, engaging, highly knowledgeable response.
@@ -2508,11 +2766,35 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
     // -------------------------------------------------------------
     console.log(`[MarketX] Detected ANALYSIS PROMPT REQUEST: "${cleanPrompt.slice(0, 50)}" (SL Mode: ${safeSlMode})`);
     const asset = extractAssetInfo(cleanPrompt, safeSymbol);
+    // Candles for the requested timeframe load in parallel with the live quote
+    const candleWarmup = fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
+    await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
+    const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency);
+    console.log(
+      `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
+        structureMap ? `${structureMap.candles} candles, ${structureMap.demandZones.length}D/${structureMap.supplyZones.length}S zones, plan ${structureMap.plan?.direction || 'NO_SIGNAL'}` : 'candles unavailable'
+      }`
+    );
+
+    // Deterministic strategy from real candles (used when the AI engine is unavailable or unusable)
+    const computedFallback = () => {
+      const s = generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode, safeChartImage);
+      if (structureMap) {
+        applyStructureMap(s, structureMap, structureMap.plan?.direction || null);
+        let thesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
+        if (s.highImpactNews) {
+          const n: any = s.highImpactNews;
+          thesis += `\n\n#### High Impact News\n**${n.title}** · ${n.scheduledTime}. ${n.volatilityWarning || ''} ${n.executionGuidance || ''}`;
+        }
+        s.detailedThesis = thesis;
+      }
+      return s;
+    };
 
     if (!ai) {
       console.log('Gemini API key not configured, using algorithmic institutional analysis engine.');
-      const fallbackStrategy = generateAlgorithmicStrategy(asset, currentTicker, safeTimeframe, cleanPrompt, safeSlMode, safeChartImage);
+      const fallbackStrategy = computedFallback();
       return res.json({
         success: true,
         isAnalysis: true,
@@ -2523,10 +2805,25 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
 
     // Call Gemini with Google Search tool grounding
     const systemInstruction = `You are "MarketX", an elite institutional hedge fund quant analyst and trading execution architect.
-Your core expertise is analyzing real-time financial markets exclusively through:
-1. Finding unmitigated institutional Supply and Demand Zones in real time (identifying untouched virgin zones ahead of price for immediate limit execution).
-2. Fibonacci Confluence (0.50 Equilibrium, 0.618 Golden Pocket, 0.786 Invalidation Buffer) to establish high-probability Entry, Stop Loss, and Take Profit targets.
-3. Real-time Price Confluence without market sentiment or order flow bias.
+You trade ONE strategy, applied to whatever timeframe the user asks for (this analysis: ${analysisTimeframe}):
+
+STEP 1 — IDENTIFY HIGH-PROBABILITY INSTITUTIONAL SUPPLY & DEMAND ZONES
+- A zone is the base (1–3 small candles) that price left with an explosive, imbalanced leg-out. Demand: Drop-Base-Rally (reversal) or Rally-Base-Rally (continuation). Supply: Rally-Base-Drop (reversal) or Drop-Base-Drop (continuation).
+- Proximal line = the edge of the base bodies nearest price (entry side). Distal line = the base's wick extreme (invalidation side).
+- Grade every zone: strength of departure, freshness (untouched zones are strongest; one retest weakens a zone; two or more retests mean the orders are absorbed — do not trade it), time spent at the base (fewer candles = stronger imbalance), whether the leg-out broke structure, alignment with the timeframe's trend, and distance from price.
+- Demand must sit below price and supply above price. A zone that price has closed through is invalid.
+
+STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
+- Draw the Fibonacci on the most recent swing leg: swing low (100%) → swing high (0%) for buys; swing high (100%) → swing low (0%) for sells.
+- The highest-probability entry is where the 0.618–0.705 golden pocket overlaps a fresh zone. The 0.5–0.786 band overlapping a zone is acceptable; a zone at the leg's 100% origin is a deeper, lower-probability retest.
+- Entry: limit order inside the zone ∩ Fibonacci overlap. Stop loss: beyond the zone's distal line (the Fibonacci 100% side) with a volatility buffer. Targets: the swing extreme (Fibonacci 0.0 liquidity) or an opposing fresh zone if it comes first, then the -0.272 and -0.618 Fibonacci extensions.
+
+STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
+- Signal only when a strong zone has Fibonacci confluence and the final target pays at least 1:2.5. Otherwise output NO_SIGNAL and name the zones and prices to watch.
+
+COMPUTED MARKET MAP (MANDATORY WHEN PROVIDED):
+- The request includes a map computed from real ${analysisTimeframe} candles using exactly this strategy. Treat its zones, Fibonacci levels, entry, stop loss and targets as ground truth and copy those numbers exactly into the JSON and the thesis.
+- Follow its SELECTED PLAN direction. You may downgrade to NO_SIGNAL (for example ahead of high-impact news), but never invent different levels or flip direction unless you use the map's alternate plan.
 
 CRITICAL INSTRUCTIONS FOR POI & ZONE MITIGATION (MANDATORY INSTITUTIONAL REQUIREMENT):
 - PRIORITIZE ACTUAL FRESH ZONES OVER PAST OPPORTUNITIES: Look for genuine, fresh, upcoming liquidity zones that price has NOT yet mitigated and can act as immediate or near-term actionable entry zones. DO NOT anchor trade setups to levels that have already been broken, invalidated, or where the move has already played out into the past.
@@ -2543,8 +2840,8 @@ CRITICAL INSTRUCTIONS FOR SIGNAL SELECTION:
 - SELL ZONES & BUY ZONES: You MUST detect SELL ZONES (SHORT / SELL LIMIT) as actively as BUY ZONES (LONG / BUY LIMIT). Whenever price is testing overhead supply, showing bearish order block distribution, or sweeping previous highs, identify the high-confluence Sell Zone.
 - STRICT OPPORTUNITY DISCIPLINE: Only identify a trade signal (LONG or SHORT) if genuine institutional opportunity with a minimum 1:2.5+ risk-to-reward ratio exists. If the market is trapped in choppy consolidation, middle-of-the-range equilibrium, or lacking a clear edge, YOU MUST set "tradeType": "NO_SIGNAL", "bias": "NEUTRAL", and clearly state in your thesis: "**No signal opportunity found.**" Explain why traders should stand aside and specify the exact levels needed for a valid setup.
 
-You have access to Google Search to look up current real-time market data, recent highs/lows, macroeconomic drivers, and market volume.
-The user wants an actionable, detailed setup for: ${asset.name} (${asset.symbol}) on timeframe ${timeframe}.
+You are given verified live price data and, when available, a computed market map from real candles. Do not claim to have browsed the web.
+The user wants an actionable, detailed setup for: ${asset.name} (${asset.symbol}) on timeframe ${analysisTimeframe}.
 Current live price snapshot is approx: ${currentTicker.currency || 'USD'} ${currentTicker.price} (24h Change: ${currentTicker.change24h}%, 24h High: ${currentTicker.high24h}, 24h Low: ${currentTicker.low24h}). Ensure all numeric prices (currentPrice, entryZone, stopLoss, takeProfits, demandZone, supplyZone, swingHigh, swingLow) are strictly denominated in the correct base currency (${currentTicker.currency || 'USD'}) matching this live market quote. For JPY pairs (like USD/JPY), use 3 decimal places (e.g. 153.xxx), and for EUR/USD or GBP/USD use 4-5 decimal places (e.g. 1.08xx, 1.29xx).
 
 You MUST format your response in two distinct sections:
@@ -2566,16 +2863,16 @@ FIRST: A valid JSON block inside \`\`\`json ... \`\`\` matching this schema:
     "rationale": string
   },
   "takeProfits": [
-    { "level": "TP1 (0.382 Fib / 50% Eq)", "price": number, "rewardRatio": "1:1.8", "exitPercent": 40 },
-    { "level": "TP2 (Opposing Zone)", "price": number, "rewardRatio": "1:3.2", "exitPercent": 40 },
-    { "level": "TP3 (Runner / Expansion)", "price": number, "rewardRatio": "1:5.0", "exitPercent": 20 }
+    { "level": "TP1 (Swing liquidity / Fib 0.0 or opposing zone)", "price": number, "rewardRatio": "1:2.0", "exitPercent": 40 },
+    { "level": "TP2 (Fib extension -0.272)", "price": number, "rewardRatio": "1:3.0", "exitPercent": 40 },
+    { "level": "TP3 (Fib extension -0.618)", "price": number, "rewardRatio": "1:4.5", "exitPercent": 20 }
   ],
   "riskRewardRatio": string (e.g. "1 : 3.4" or "1 : 0" if NO_SIGNAL),
   "demandZone": {
     "low": number,
     "high": number,
     "strength": "FRESH" | "TESTED" | "WEAK",
-    "timeframe": "${timeframe}",
+    "timeframe": "${analysisTimeframe}",
     "description": string,
     "mitigationStatus": "UNMITIGATED" | "MITIGATED",
     "touchStatus": "UNTOUCHED" | "TAPPED_AND_LEFT",
@@ -2586,7 +2883,7 @@ FIRST: A valid JSON block inside \`\`\`json ... \`\`\` matching this schema:
     "low": number,
     "high": number,
     "strength": "FRESH" | "TESTED" | "WEAK",
-    "timeframe": "${timeframe}",
+    "timeframe": "${analysisTimeframe}",
     "description": string,
     "mitigationStatus": "UNMITIGATED" | "MITIGATED",
     "touchStatus": "UNTOUCHED" | "TAPPED_AND_LEFT",
@@ -2601,7 +2898,7 @@ FIRST: A valid JSON block inside \`\`\`json ... \`\`\` matching this schema:
       "max": number,
       "mitigationStatus": "UNMITIGATED" | "MITIGATED",
       "touchStatus": "UNTOUCHED" | "TAPPED_AND_LEFT",
-      "timeframe": "${timeframe}",
+      "timeframe": "${analysisTimeframe}",
       "description": string,
       "reactionSummary": string,
       "tapCount": number
@@ -2670,7 +2967,7 @@ ${liveNewsAlert.forecast ? `- Forecast: ${liveNewsAlert.forecast} | Previous: ${
 - Calendar Status: Clean Economic Docket. No high-impact macroeconomic releases or bank holidays scheduled for ${asset.symbol} within the active session.
 - Liquidity Guidance: Standard interbank liquidity conditions without event-driven spread expansion.`;
 
-    const promptContext = `Perform comprehensive Institutional Supply and Demand + Fibonacci market analysis for ${asset.name} (${asset.symbol}) on the ${timeframe} timeframe based on user request: "${prompt}".
+    const promptContext = `Perform comprehensive Institutional Supply and Demand + Fibonacci market analysis for ${asset.name} (${asset.symbol}) on the ${analysisTimeframe} timeframe based on user request: "${cleanPrompt}".
 
 REAL-TIME VERIFIED MARKET DATA:
 - Symbol: ${asset.symbol} (${asset.name})
@@ -2682,8 +2979,14 @@ REAL-TIME VERIFIED MARKET DATA:
 - 24h Volume / Liquidity: ${currentTicker.volume24h}
 
 ${newsWatchBlock}
+
 ${
-  chartImage
+  structureMap
+    ? marketMapPromptBlock(structureMap)
+    : `COMPUTED MARKET MAP: unavailable (the candle feed did not respond). Derive zones from the price data provided and say the levels are approximate.`
+}
+${
+  safeChartImage
     ? `\nUPLOADED / PASTED CHART IMAGE DETECTED:
 - You have been provided with the user's uploaded/pasted financial chart image.
 - Perform deep computer-vision analysis of this chart: detect timeframe, trendline direction, candlestick patterns (engulfing, pinbars, rejection wicks), visible Fair Value Gaps (FVG), swing highs/lows, and institutional Order Blocks visible on the chart.
@@ -2692,11 +2995,11 @@ ${
 }
 
 INSTRUCTIONS:
-1. Ground your analysis strictly on these real-time price parameters ($${currentTicker.price}, 24h range $${currentTicker.low24h} - $${currentTicker.high24h})${chartImage ? ' and the visual structures visible on the provided chart screenshot' : ''}.
-2. Find actual FRESH, UNTOUCHED liquidity zones ahead of price (fresh demand below price for Longs, fresh supply above price for Shorts) rather than past opportunities where moves have already occurred or levels have already been mitigated.
-3. Explicitly identify and classify UNMITIGATED (untouched) POIs & zones where price has NOT touched yet, and MITIGATED zones where price has tapped and left already. Prioritize virgin unmitigated zones as primary execution triggers.
-4. Compute exact Fibonacci levels across swing high/low, with heavy emphasis on the 0.5 Equilibrium and 0.618 Golden Pocket confluence.
-5. Define an optimal Entry price with tight buffer, Invalidation Stop Loss, and 3 scaled Take-Profit targets (TP1 at 50% retracement, TP2 at opposing zone, TP3 at expansion) with at least 1:2.5+ risk/reward ratio.
+1. Ground your analysis strictly on these real-time price parameters ($${currentTicker.price}, 24h range $${currentTicker.low24h} - $${currentTicker.high24h}) and the COMPUTED MARKET MAP${safeChartImage ? ', plus the visual structures visible on the provided chart screenshot' : ''}.
+2. STEP 1: Present the high-probability institutional Supply & Demand zones (pattern, proximal/distal lines, freshness, strength) — fresh demand below price for longs, fresh supply above price for shorts.
+3. Classify UNMITIGATED (untouched) zones vs MITIGATED zones (tapped and left). Never trade a zone retested twice or more.
+4. STEP 2: Show the Fibonacci retracement drawn on the current swing leg and where the 0.618–0.705 golden pocket overlaps the chosen zone — that overlap is the entry.
+5. Use the map's Entry, Stop Loss (beyond the zone's distal line) and three Take-Profit targets exactly, with at least 1:2.5 to the final target — or NO_SIGNAL with the zones to watch.
 6. Factor any scheduled news release or bank holiday into your volatility risk and execution timing guidance (or note clean docket if none).
 7. First output the structured JSON codeblock in \`\`\`json ... \`\`\`, followed by the thorough Markdown institutional thesis.`;
 
@@ -2704,8 +3007,8 @@ INSTRUCTIONS:
     const waitDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
     const geminiContents: any[] = [];
-    if (chartImage && typeof chartImage === 'string') {
-      const match = chartImage.match(/^data:([^;]+);base64,(.+)$/);
+    if (safeChartImage) {
+      const match = safeChartImage.match(/^data:([^;]+);base64,(.+)$/);
       if (match) {
         geminiContents.push({
           inlineData: {
@@ -2768,7 +3071,7 @@ INSTRUCTIONS:
       console.log(
         `[Market Engine] Upstream model capacity temporarily constrained; seamlessly serving verified quantitative institutional strategy.`
       );
-      const fallback = generateAlgorithmicStrategy(asset, currentTicker, safeTimeframe, cleanPrompt, safeSlMode, safeChartImage);
+      const fallback = computedFallback();
       return res.json({
         success: true,
         isAnalysis: true,
@@ -2822,7 +3125,7 @@ INSTRUCTIONS:
         rationale: rawEntry.rationale || 'Institutional 0.618 Fib & Demand cluster',
       };
 
-      const isTightSl = slMode === 'tight' || prompt.toLowerCase().includes('tight sl') || prompt.toLowerCase().includes('tight stop');
+      const isTightSl = safeSlMode === 'tight' || cleanPrompt.toLowerCase().includes('tight sl') || cleanPrompt.toLowerCase().includes('tight stop');
       let slPrice = Number(rawSl.price || rawSl.level || currentTicker.price * 0.98);
       let slRiskPercent = Number(rawSl.riskPercent || rawSl.risk_percent || 1.5);
       let slRationale = rawSl.rationale || 'Structural invalidation beyond institutional block';
@@ -2854,11 +3157,15 @@ INSTRUCTIONS:
       const calculatedRR = actualRisk > 0 ? (actualReward / actualRisk).toFixed(1) : (isTightSl ? '6.4' : '2.8');
       const finalRR = isTightSl ? `1 : ${Math.max(4.5, parseFloat(calculatedRR))}` : (parsedJson.riskRewardRatio || `1 : ${calculatedRR}`);
 
-      const fullStrategy = {
+      // Computed once, only if the model left gaps
+      let algoCache: ReturnType<typeof generateAlgorithmicStrategy> | null = null;
+      const algo = () => (algoCache ||= generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode));
+
+      const fullStrategy: any = {
         symbol: asset.symbol,
         name: asset.name,
         assetType: asset.type,
-        timeframe,
+        timeframe: analysisTimeframe,
         currentPrice: parsedJson.currentPrice || parsedJson.current_price || currentTicker.price,
         change24h: currentTicker.change24h,
         high24h: currentTicker.high24h,
@@ -2874,7 +3181,7 @@ INSTRUCTIONS:
           low: currentTicker.low24h * 0.99,
           high: currentTicker.low24h * 1.01,
           strength: 'HIGH',
-          timeframe,
+          timeframe: analysisTimeframe,
           description: 'Institutional Demand Block with 0.618 Fib alignment',
           mitigationStatus: 'UNMITIGATED',
           touchStatus: 'UNTOUCHED',
@@ -2885,7 +3192,7 @@ INSTRUCTIONS:
           low: currentTicker.high24h * 0.99,
           high: currentTicker.high24h * 1.01,
           strength: 'HIGH',
-          timeframe,
+          timeframe: analysisTimeframe,
           description: 'Overhead Distribution Imbalance / Liquidity Pool',
           mitigationStatus: 'UNMITIGATED',
           touchStatus: 'UNTOUCHED',
@@ -2900,22 +3207,22 @@ INSTRUCTIONS:
               max: Number(z.max || z.high || currentTicker.price * 1.02),
               mitigationStatus: z.mitigationStatus === 'MITIGATED' ? 'MITIGATED' : 'UNMITIGATED',
               touchStatus: z.touchStatus === 'TAPPED_AND_LEFT' ? 'TAPPED_AND_LEFT' : (z.mitigationStatus === 'MITIGATED' ? 'TAPPED_AND_LEFT' : 'UNTOUCHED'),
-              timeframe: z.timeframe || timeframe,
+              timeframe: z.timeframe || analysisTimeframe,
               description: z.description || 'Institutional smart money point of interest',
               reactionSummary: z.reactionSummary || (z.mitigationStatus === 'MITIGATED' ? 'Price tapped into level and left with rejection' : 'Price has not touched yet. Virgin untouched liquidity pool'),
               tapCount: Number(z.tapCount ?? (z.mitigationStatus === 'MITIGATED' ? 1 : 0)),
               distancePercent: Number((Math.abs(currentTicker.price - Number(z.min || z.low || currentTicker.price)) / (currentTicker.price || 1) * 100).toFixed(1)),
             }))
-          : generateAlgorithmicStrategy(asset, currentTicker, timeframe, prompt).poiZones,
+          : algo().poiZones,
         unmitigatedZonesCount: parsedJson.poiZones
           ? (parsedJson.poiZones || parsedJson.poi_zones).filter((z: any) => z.mitigationStatus === 'UNMITIGATED' || z.touchStatus === 'UNTOUCHED').length
-          : generateAlgorithmicStrategy(asset, currentTicker, timeframe, prompt).unmitigatedZonesCount,
+          : algo().unmitigatedZonesCount,
         mitigatedZonesCount: parsedJson.poiZones
           ? (parsedJson.poiZones || parsedJson.poi_zones).filter((z: any) => z.mitigationStatus === 'MITIGATED' || z.touchStatus === 'TAPPED_AND_LEFT').length
-          : generateAlgorithmicStrategy(asset, currentTicker, timeframe, prompt).mitigatedZonesCount,
+          : algo().mitigatedZonesCount,
         fibonacciLevels: (parsedJson.fibonacciLevels || parsedJson.fibonacci_levels) && (parsedJson.fibonacciLevels || parsedJson.fibonacci_levels).length > 0
           ? (parsedJson.fibonacciLevels || parsedJson.fibonacci_levels)
-          : generateAlgorithmicStrategy(asset, currentTicker, timeframe, prompt).fibonacciLevels,
+          : algo().fibonacciLevels,
         swingHigh: Number(parsedJson.swingHigh || parsedJson.swing_high || currentTicker.high24h),
         swingLow: Number(parsedJson.swingLow || parsedJson.swing_low || currentTicker.low24h),
         detailedThesis: markdownThesis || 'Analysis generated based on institutional Supply & Demand confluence.',
@@ -2926,12 +3233,27 @@ INSTRUCTIONS:
         highImpactNews: liveNewsAlert?.detected ? liveNewsAlert : undefined,
         aiModel: usedModel,
         aiPowered: true,
-        uploadedChartAnalyzed: Boolean(chartImage),
-        chartImageThumbnail: chartImage || undefined,
+        uploadedChartAnalyzed: Boolean(safeChartImage),
+        chartImageThumbnail: safeChartImage || undefined,
         timestamp: Date.now(),
       };
 
-      if (chartImage && !fullStrategy.detailedThesis.includes('Multimodal Chart Analysis')) {
+      // Every level comes from real candles: the computed Supply & Demand + Fibonacci map is authoritative
+      if (structureMap) {
+        const modelType = String(fullStrategy.tradeType || '').toUpperCase();
+        const computedDir = structureMap.plan?.direction || null;
+        const agrees =
+          modelType === 'NO_SIGNAL' || modelType === computedDir || (!!structureMap.alternate && structureMap.alternate.direction === modelType);
+        const direction = modelType === 'NO_SIGNAL' ? null : agrees ? (modelType as 'LONG' | 'SHORT') : computedDir;
+        applyStructureMap(fullStrategy, structureMap, direction);
+        if (!agrees) {
+          console.log(`[MarketX Strategy] Model proposed ${modelType}; serving the verified ${computedDir || 'NO_SIGNAL'} plan instead.`);
+          fullStrategy.detailedThesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
+        }
+        fullStrategy.structureVerified = true;
+      }
+
+      if (safeChartImage && !fullStrategy.detailedThesis.includes('Multimodal Chart Analysis')) {
         fullStrategy.detailedThesis = `### 📊 Multimodal Chart Analysis Verified
 > **Uploaded Chart Visual Inspection**: Verified candlestick structure, key swing pivots, liquidity sweep levels, and fair value gaps directly from the uploaded chart image.
 > **Chart Integration**: Structure identified in the chart directly aligns with the institutional Supply & Demand levels computed below.
@@ -2940,8 +3262,10 @@ INSTRUCTIONS:
 
 ` + fullStrategy.detailedThesis;
       }
-      // Validate and calibrate Take Profit targets and Stop Loss ahead of price
-      if (fullStrategy.tradeType === 'LONG') {
+      // Validate and calibrate Take Profit targets and Stop Loss ahead of price (only when no computed map)
+      if (structureMap) {
+        // Levels already verified against real candles
+      } else if (fullStrategy.tradeType === 'LONG') {
         const pDec = fullStrategy.currentPrice < 10 ? 4 : 2;
         const step = Math.max(fullStrategy.currentPrice * 0.008, Math.abs(fullStrategy.high24h - fullStrategy.low24h) * 0.22);
         if (!fullStrategy.takeProfits[0]?.price || fullStrategy.takeProfits[0].price <= fullStrategy.currentPrice) {
@@ -2993,7 +3317,7 @@ INSTRUCTIONS:
     }
 
     // If JSON parsing had missing keys, attach Gemini's markdown thesis to algorithmically verified levels
-    const fallback = generateAlgorithmicStrategy(asset, currentTicker, timeframe, prompt);
+    const fallback = computedFallback();
     if (markdownThesis) fallback.detailedThesis = markdownThesis;
     fallback.aiModel = usedModel;
     fallback.aiPowered = true;

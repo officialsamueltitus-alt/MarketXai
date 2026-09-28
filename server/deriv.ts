@@ -82,3 +82,52 @@ export async function fetchDerivQuote(derivSymbol: string): Promise<DerivQuote |
   cache[derivSymbol] = { quote: quote || cached?.quote || null, at: now };
   return quote || cached?.quote || null;
 }
+
+export interface DerivCandle {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+}
+
+const DERIV_GRANULARITIES = [60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400];
+
+/**
+ * Historical candles for a synthetic index. `granularitySec` must be one Deriv supports;
+ * callers aggregate for other timeframes. Resolves null on timeout or error.
+ */
+export async function fetchDerivCandles(derivSymbol: string, granularitySec: number, count = 300): Promise<DerivCandle[] | null> {
+  if (!DERIV_GRANULARITIES.includes(granularitySec)) return null;
+  const WS: any = (globalThis as any).WebSocket;
+  if (!WS) return null;
+  const appId = process.env.DERIV_APP_ID || '1089';
+  return new Promise<DerivCandle[] | null>(resolve => {
+    let settled = false;
+    const done = (v: DerivCandle[] | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch {}
+      resolve(v);
+    };
+    const ws = new WS(`wss://ws.derivws.com/websockets/v3?app_id=${appId}`);
+    const timer = setTimeout(() => done(null), 6000);
+    ws.onopen = () =>
+      ws.send(JSON.stringify({ ticks_history: derivSymbol, style: 'candles', granularity: granularitySec, count: Math.min(5000, count), end: 'latest' }));
+    ws.onmessage = (ev: any) => {
+      try {
+        const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data));
+        if (!Array.isArray(msg?.candles)) return done(null);
+        done(
+          msg.candles.map((c: any) => ({ t: Number(c.epoch) * 1000, o: Number(c.open), h: Number(c.high), l: Number(c.low), c: Number(c.close) }))
+        );
+      } catch {
+        done(null);
+      }
+    };
+    ws.onerror = () => done(null);
+  });
+}

@@ -205,6 +205,25 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     show(notificationItem(fresh, () => propsRef.current.onNotificationAction(fresh)));
   }, [notifications, show]);
 
+  // Publish the notice height so the chat's scroll button can sit above it instead of overlapping
+  const noticeRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = noticeRef.current;
+    if (!current || !el) {
+      root.style.setProperty('--mx-notice-h', '0px');
+      return;
+    }
+    const set = () => root.style.setProperty('--mx-notice-h', `${el.offsetHeight + 8}px`);
+    set();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(set) : null;
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+      root.style.setProperty('--mx-notice-h', '0px');
+    };
+  }, [current]);
+
   if (!current) return null;
   const Icon = current.icon;
 
@@ -212,6 +231,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     <div className="relative h-0">
       <div
         key={current.id}
+        ref={noticeRef}
         className="mx-pop-in absolute inset-x-3 sm:inset-x-5 bottom-2 z-20 overflow-hidden rounded-2xl bg-[var(--mx-surface-2)]/95 backdrop-blur border border-white/[0.09] shadow-[0_16px_40px_-16px_rgba(0,0,0,0.9)]"
         role="status"
         aria-live="polite"
