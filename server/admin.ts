@@ -84,7 +84,7 @@ function clearCookie(res: Response) {
   res.clearCookie(COOKIE, { path: COOKIE_PATH, httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production' });
 }
 
-async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   res.setHeader('Cache-Control', 'no-store');
   if (!isFirebaseConfigured()) return res.status(503).json({ error: 'NOT_CONFIGURED', message: 'The database is not configured.' });
   const token = readToken(req);

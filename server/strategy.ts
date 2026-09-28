@@ -66,6 +66,8 @@ export interface TradePlan {
   targets: Array<{ label: string; price: number; rr: number }>;
   rrFinal: number;
   score: number;
+  /** Why this setup is no longer fresh (empty = clean): zone/entry/stop/target already tapped */
+  mitigation: string[];
 }
 
 export interface MarketMap {
@@ -83,6 +85,8 @@ export interface MarketMap {
   alternate: TradePlan | null; // best plan in the other direction, if valid
   confidence: number;
   noSignalReason?: string;
+  /** Best setup that would have qualified but whose levels were already tapped (reason for "already mitigated") */
+  mitigatedSetup?: TradePlan | null;
   decimals: number;
 }
 
@@ -415,19 +419,20 @@ function currentLeg(candles: Candle[], long: boolean, price: number, lookback = 
 
 function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, opposing: SDZone[], slMode: 'normal' | 'tight', dec: number): TradePlan | null {
   const long = z.kind === 'DEMAND';
-  // A zone retested twice or more has had its resting orders absorbed: list it, but don't trade it
-  if (z.tapCount >= 2) return null;
   // Fibonacci on the current swing leg when the zone sits inside it; otherwise on the impulse the zone created
   const leg = currentLeg(candles, long, price);
   let from: number;
   let to: number;
+  let extIndex: number; // candle of the impulse extreme — the pullback toward the entry starts after it
   if (leg && z.baseIndex >= leg.fromIndex - 2 && (long ? z.distal >= leg.from - atr * 0.5 : z.distal <= leg.from + atr * 0.5)) {
     from = long ? Math.min(leg.from, z.distal) : Math.max(leg.from, z.distal);
     to = leg.to;
+    extIndex = leg.toIndex;
   } else {
     const since = candles.slice(z.legOutIndex);
     from = z.distal;
     to = long ? Math.max(...since.map(c => c.h)) : Math.min(...since.map(c => c.l));
+    extIndex = z.legOutIndex + since.findIndex(c => (long ? c.h : c.l) === to);
   }
   const diff = Math.abs(to - from);
   if (diff < atr * 1.5) return null;
@@ -535,7 +540,34 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
   score += Math.max(0, 6 - z.distanceAtr); // closer = more likely to trigger soon
   score = Math.max(0, Math.min(100, Math.round(score)));
 
+  // Mitigation check: replay the candles for THIS setup. The zone must be untouched since it formed, and since
+  // the impulse extreme (where the pullback to the entry begins) price must not have tapped the entry, the stop
+  // or — after an entry fill — the first target. Any of these means the setup has already played out.
+  const mitigation: string[] = [];
+  const when = (c: Candle) => new Date(c.t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  if (z.tapCount > 0) mitigation.push(`the ${long ? 'demand' : 'supply'} zone was already tapped ${z.tapCount}x since it formed`);
+  let entryTap: Candle | null = null;
+  for (let j = Math.max(extIndex + 1, z.legOutIndex + 1); j < candles.length; j++) {
+    const c = candles[j];
+    if (!entryTap && (long ? c.l <= optimal : c.h >= optimal)) {
+      entryTap = c;
+      mitigation.push(`the entry ${round(optimal)} was already tapped (${when(c)})`);
+    }
+    if (entryTap && (long ? c.h >= targets[0].price : c.l <= targets[0].price) && c.t > entryTap.t) {
+      mitigation.push(`TP1 ${targets[0].price} was then reached (${when(c)})`);
+      break;
+    }
+  }
+  for (let j = z.legOutIndex + 1; j < candles.length; j++) {
+    const c = candles[j];
+    if (long ? c.l <= stop : c.h >= stop) {
+      mitigation.push(`the stop-loss level ${round(stop)} was already hit (${when(c)})`);
+      break;
+    }
+  }
+
   return {
+    mitigation,
     direction: long ? 'LONG' : 'SHORT',
     zone: z,
     impulseFrom: round(from),
@@ -567,14 +599,17 @@ export function buildMarketMap(
   const swingHigh = Math.max(...lookback.map(c => c.h));
   const swingLow = Math.min(...lookback.map(c => c.l));
 
-  const longs = demand.map(z => planForZone(z, clean, price, atr, supply, slMode, dec)).filter(Boolean) as TradePlan[];
-  const shorts = supply.map(z => planForZone(z, clean, price, atr, demand, slMode, dec)).filter(Boolean) as TradePlan[];
+  const allLongs = demand.map(z => planForZone(z, clean, price, atr, supply, slMode, dec)).filter(Boolean) as TradePlan[];
+  const allShorts = supply.map(z => planForZone(z, clean, price, atr, demand, slMode, dec)).filter(Boolean) as TradePlan[];
+  // Only clean setups can become signals: fresh zone, and entry / stop / targets never tapped for this setup
+  const longs = allLongs.filter(p => p.mitigation.length === 0);
+  const shorts = allShorts.filter(p => p.mitigation.length === 0);
   const bestLong = longs.sort((a, b) => b.score - a.score)[0] || null;
   const bestShort = shorts.sort((a, b) => b.score - a.score)[0] || null;
 
   // A signal needs a Fibonacci-confirmed entry, a strong zone within reach and at least 1:2.5 to the final target.
   // A deep retest of the leg's origin (Fib 100%) only counts when the zone is fresh and very strong.
-  const qualifies = (p: TradePlan | null) =>
+  const qualifiesIgnoringMitigation = (p: TradePlan | null) =>
     !!p &&
     p.confluence !== 'ZONE_ONLY' &&
     (p.confluence !== 'LEG_ORIGIN' || (p.zone.fresh && p.score >= 80)) &&
@@ -582,6 +617,7 @@ export function buildMarketMap(
     p.score >= ((trend === 'BULLISH' && p.direction === 'SHORT') || (trend === 'BEARISH' && p.direction === 'LONG') ? 82 : 70) &&
     p.zone.distanceAtr <= 12 &&
     p.rrFinal >= 2.5;
+  const qualifies = (p: TradePlan | null) => qualifiesIgnoringMitigation(p) && p!.mitigation.length === 0;
   let plan: TradePlan | null = null;
   let alternate: TradePlan | null = null;
   const preferred = opts.prefer === 'LONG' ? bestLong : opts.prefer === 'SHORT' ? bestShort : null;
@@ -595,12 +631,28 @@ export function buildMarketMap(
   }
 
   let noSignalReason: string | undefined;
+  let mitigatedSetup: TradePlan | null = null;
   if (!plan) {
-    if (!demand.length && !supply.length) noSignalReason = 'No fresh, unbroken institutional supply or demand zone is in play on this timeframe.';
-    else if ([...demand, ...supply].every(z => z.tapCount >= 2))
-      noSignalReason = 'The only zones left have already been retested several times, so their institutional orders are largely absorbed.';
-    else if (!bestLong && !bestShort) noSignalReason = 'Zones exist, but none leaves room for a Fibonacci entry ahead of price with a valid stop.';
-    else noSignalReason = 'The best zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
+    // The best setup would have qualified, but its levels were already tapped: say so explicitly
+    // Prefer a setup that would otherwise have been a signal, then any Fibonacci-confirmed one, then any tapped setup
+    const mitigated = [...allLongs, ...allShorts].filter(p => p.mitigation.length > 0).sort((a, b) => b.score - a.score);
+    mitigatedSetup =
+      mitigated.find(p => qualifiesIgnoringMitigation(p)) ||
+      mitigated.find(p => p.confluence !== 'ZONE_ONLY' && p.rrFinal >= 2.5) ||
+      mitigated[0] ||
+      null;
+  }
+  if (!plan && mitigatedSetup) {
+    const m = mitigatedSetup;
+    noSignalReason = `No signal — already mitigated. The ${m.direction === 'LONG' ? 'buy' : 'sell'} setup from the ${
+      m.zone.kind === 'DEMAND' ? 'demand' : 'supply'
+    } zone ${m.zone.low.toFixed(dec)} – ${m.zone.high.toFixed(dec)} is no longer fresh: ${m.mitigation.join('; ')}. No other fresh, untouched zone offers a valid setup right now.`;
+  } else if (!plan) {
+    if (!demand.length && !supply.length) noSignalReason = 'No signal. No fresh, unbroken institutional supply or demand zone is in play on this timeframe.';
+    else if ([...demand, ...supply].every(z => z.tapCount >= 1))
+      noSignalReason = 'No signal. Every zone in play has already been tapped since it formed, so none is fresh; wait for a new, untouched zone.';
+    else if (!bestLong && !bestShort) noSignalReason = 'No signal. Fresh zones exist, but none leaves room for a clean Fibonacci entry ahead of price with a valid stop.';
+    else noSignalReason = 'No signal. The fresh zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
   }
 
   return {
@@ -618,6 +670,7 @@ export function buildMarketMap(
     alternate,
     confidence: plan ? Math.max(55, Math.min(92, plan.score)) : 50,
     noSignalReason,
+    mitigatedSetup,
     decimals: dec,
   };
 }
@@ -693,7 +746,12 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
     p.targets.forEach((t, i) => (out += `- **TP${i + 1}:** ${f(t.price)} — ${t.label} (1:${t.rr})\n`));
     out += `\n**Invalidation:** a candle close ${long ? 'below' : 'above'} ${f(p.zone.distal)} breaks the zone; cancel the order if price reaches TP1 before filling.\n\n`;
   } else {
-    out += `#### No signal opportunity found\n${map.noSignalReason} Wait for price to reach one of the zones above and for a fresh impulse to anchor the Fibonacci retracement.\n\n`;
+    const already = !!map.mitigatedSetup;
+    out += `#### ${already ? 'No signal — already mitigated' : 'No signal'}\n${map.noSignalReason} ${
+      already
+        ? 'Signals are only called from fresh zones whose entry, stop loss and targets are still untouched.'
+        : 'Wait for price to form a fresh, untouched zone and a new impulse to anchor the Fibonacci retracement.'
+    }\n\n`;
   }
   out += `#### Risk Management\nRisk no more than 1–2% per trade, scale out at each target, and move the stop to entry after TP1.`;
   return out;

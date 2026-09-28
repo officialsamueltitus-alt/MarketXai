@@ -88,6 +88,8 @@ export interface StrategyResult {
   bias: BiasType;
   tradeType: TradeType;
   signalStatus?: SignalStatusInfo;
+  /** NO_SIGNAL because the best setup's zone / entry / stop / targets were already tapped */
+  alreadyMitigated?: boolean;
   confidenceScore: number;
   entryZone: {
     min: number;
@@ -269,7 +271,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   actionPrompt?: string;
-  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign';
+  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support';
   actionPayload?: any;
 }
 

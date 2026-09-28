@@ -14,6 +14,7 @@ import {
   KeyRound,
   RotateCcw,
   RefreshCw,
+  MessageCircle,
 } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -23,15 +24,17 @@ import { UsersSection } from './Users';
 import { UsageSection } from './Usage';
 import { SubscriptionsSection } from './Subscriptions';
 import { BroadcastSection } from './Broadcast';
+import { SupportSection } from './Support';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'usage' | 'subscriptions' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'usage' | 'subscriptions' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'usage', label: 'Usage', icon: BarChart3 },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+  { id: 'support', label: 'Support', icon: MessageCircle },
   { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
   { id: 'security', label: 'Security', icon: ShieldCheck },
 ];
@@ -426,6 +429,7 @@ export default function AdminApp() {
             )}
             {section === 'usage' && <UsageSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}
+            {section === 'support' && <SupportSection />}
             {section === 'broadcast' && <BroadcastSection initialTarget={messageTarget} />}
             {section === 'security' && <SecuritySection session={session} onChanged={loadSession} />}
           </div>

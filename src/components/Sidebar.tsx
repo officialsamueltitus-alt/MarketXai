@@ -34,7 +34,9 @@ import {
   Moon,
   Monitor,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  MessageCircle,
+  FileText
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -69,6 +71,11 @@ interface SidebarProps {
   isSignedIn?: boolean;
   onSignIn?: () => void;
   onSignOut?: () => void;
+  /** Settings → Support chat */
+  onOpenSupport?: () => void;
+  supportUnread?: number;
+  /** Settings → Terms & Privacy */
+  onOpenTerms?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -103,6 +110,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isSignedIn = false,
   onSignIn,
   onSignOut,
+  onOpenSupport,
+  supportUnread = 0,
+  onOpenTerms,
 }) => {
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
@@ -121,6 +131,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       const cur = escRef.current;
+      // Another window on top (support chat, terms, …) handles its own Escape; don't also close the menu
+      if (!cur.detailView && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (cur.detailView) cur.setActiveTab('history');
       else if (cur.isOpen && window.matchMedia('(max-width: 1023.98px)').matches) cur.onCloseMobile?.();
     };
@@ -152,7 +164,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         - Floats on mobile, tablet, and desktop with outer margins and elevation
       */}
       <aside
-        className={`fixed lg:relative inset-y-0 left-0 z-40 flex flex-col bg-[var(--mx-bg-2)] border-r border-white/[0.06] rounded-r-2xl lg:rounded-none transition-[width,transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] shrink-0 overflow-hidden h-[100dvh] ${
+        className={`mx-safe-sidebar fixed lg:relative inset-y-0 left-0 z-40 flex flex-col bg-[var(--mx-bg-2)] border-r border-white/[0.06] rounded-r-2xl lg:rounded-none transition-[width,transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] shrink-0 overflow-hidden h-[100dvh] ${
           isOpen
             ? 'w-[86vw] max-w-[320px] lg:w-[280px] translate-x-0 opacity-100 shadow-2xl shadow-black/60 lg:shadow-none'
             : 'w-[86vw] max-w-[320px] -translate-x-full lg:translate-x-0 lg:w-0 lg:border-0 opacity-0 pointer-events-none'
@@ -557,6 +569,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                   <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                 </button>
+
+                {onOpenSupport && (
+                  <button
+                    type="button"
+                    onClick={onOpenSupport}
+                    className="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-400/40 text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="relative w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                        <MessageCircle className="w-3.5 h-3.5 text-emerald-300" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-white">Support chat</span>
+                        <span className="block text-[10px] text-slate-400 truncate">
+                          {supportUnread > 0 ? `${supportUnread} new ${supportUnread === 1 ? 'reply' : 'replies'} from the team` : 'Questions? Chat with the MarketX team'}
+                        </span>
+                      </span>
+                    </span>
+                    {supportUnread > 0 ? (
+                      <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-400 text-[10px] font-bold text-slate-950 inline-flex items-center justify-center shrink-0 tabular-nums">
+                        {supportUnread > 9 ? '9+' : supportUnread}
+                      </span>
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                    )}
+                  </button>
+                )}
+
+                {onOpenTerms && (
+                  <button
+                    type="button"
+                    onClick={onOpenTerms}
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-left text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 min-w-0 text-[11px] font-medium">
+                      <FileText className="w-3.5 h-3.5 shrink-0" />
+                      Terms &amp; Privacy
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  </button>
+                )}
               </div>
             )}
 
