@@ -66,6 +66,22 @@ interface AccountPayload {
   unlimited?: boolean;
 }
 
+
+/** The timeframe picked in the composer (kept until changed); 4H before the first pick. */
+function getSavedTimeframe(): string {
+  try {
+    const v = localStorage.getItem('mx_timeframe');
+    if (v && /^\d{1,2}[MHDW]$/.test(v)) return v;
+  } catch {}
+  return '4H';
+}
+
+/** Display form of a timeframe: minutes in lowercase (15m), hours/days/weeks in uppercase (4H, 1D). */
+function formatTimeframe(tf: string | undefined): string {
+  const v = String(tf || '').trim();
+  return /^\d+m$/i.test(v) ? v.toLowerCase() : v.toUpperCase();
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'chat'>('home');
 
@@ -637,9 +653,16 @@ export default function App() {
 
   // Abort controller reference to cancel analysis requests when Stop button is clicked
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Set while a finished answer waits for its loading steps; Stop then shows it at once
+  const skipPacingRef = useRef<(() => void) | null>(null);
 
   // Handler to stop analysis immediately
   const handleStopAnalysis = useCallback(() => {
+    // The answer is already here and paid for (only the loading steps are finishing): show it now instead of discarding it
+    if (skipPacingRef.current) {
+      skipPacingRef.current();
+      return;
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -946,7 +969,7 @@ export default function App() {
   // Send a message and generate institutional strategy
   const handleSendMessage = async (
     promptText: string,
-    timeframe: string = '4H',
+    timeframe: string = getSavedTimeframe(),
     slMode: 'normal' | 'tight' = 'normal',
     baseStrategy?: StrategyResult,
     chartImage?: string,
@@ -1089,7 +1112,8 @@ export default function App() {
       Boolean(chartImage) ||
       hasNewAnalysisDirectives ||
       /\b(eur|gbp|usd|aud|nzd|cad|chf|jpy|xau|xag|gold|silver|oil|btc|bitcoin|eth|ethereum|sol|solana|xrp|bnb|doge|sui|link|nvda|tsla|aapl|googl|volatility|boom|crash|nasdaq|us30|spx)\b/i.test(promptText);
-    const analysisTimeframe = resolvedBaseStrategy?.timeframe || timeframe;
+    // Minutes read as lowercase "m" (15m), so 1M never looks like one month
+    const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframe);
 
     // Step: understand the request (done on this device, instantly)
     if (resolvedBaseStrategy) {
@@ -1194,6 +1218,23 @@ export default function App() {
 
       const result = await fetchPromise;
       if (!result || controller.signal.aborted) return;
+      // Let the work load visibly (reading, live price, news, analysis) instead of jumping straight to the result
+      // when the server answers quickly
+      const minVisibleMs = result.kind === 'error' ? 0 : looksLikeAnalysis || resolvedBaseStrategy ? 4200 : 1600;
+      const remainingMs = minVisibleMs - (Date.now() - requestStartTime);
+      if (remainingMs > 0) {
+        await new Promise<void>(resolve => {
+          const done = () => {
+            clearTimeout(t);
+            skipPacingRef.current = null;
+            resolve();
+          };
+          const t = setTimeout(done, remainingMs);
+          skipPacingRef.current = done;
+          controller.signal.addEventListener('abort', done, { once: true });
+        });
+        if (controller.signal.aborted) return;
+      }
       const requestEndTime = Date.now();
       const actualDuration = parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1));
       if (result.kind === 'error') {
@@ -1240,7 +1281,7 @@ export default function App() {
         return;
       }
 
-      const strategy = result.strategy;
+      const strategy = { ...result.strategy, timeframe: formatTimeframe(result.strategy.timeframe) };
       if (strategy.timeframe && !resolvedBaseStrategy) {
         activity = activity.map(st =>
           st.id === 'analyze' ? { ...st, title: `Analyzed ${strategy.symbol} on ${strategy.timeframe}` } : st
@@ -1642,7 +1683,7 @@ export default function App() {
             }}
             onSelectPrompt={(prompt, tf) => {
               setCurrentView('chat');
-              handleSendMessage(prompt, tf || '4H');
+              handleSendMessage(prompt, tf || getSavedTimeframe());
             }}
             onSelectTicker={sym => {
               setCurrentView('chat');
@@ -1705,7 +1746,7 @@ export default function App() {
                   targetMessageId={targetSignalMessageId}
                   onClearTargetMessage={() => setTargetSignalMessageId(null)}
                   onSelectPrompt={(prompt, tf, sl, base) =>
-                    handleSendMessage(prompt, tf || '4H', sl || 'normal', base)
+                    handleSendMessage(prompt, tf || getSavedTimeframe(), sl || 'normal', base)
                   }
                   onSelectTicker={sym => {
                     handleSendMessage(

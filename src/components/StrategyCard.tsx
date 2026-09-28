@@ -84,7 +84,7 @@ const StrategyCardView: React.FC<StrategyCardProps> = ({
     const summary = `📊 MARKETX (@_MarketXai) SETUP: ${symbol} (${timeframe})
 Trader: ${traderHandle}${userProfile?.isVerified ? ' ✓ (Verified)' : ''}
 Action: ${tradeType} | Bias: ${bias} (Confidence: ${confidenceScore}%)
-Current Price: $${formatPrice(currentPrice)} (24h: ${isPositive ? '+' : ''}${change24h}%)
+Current Price: $${formatPrice(currentPrice)} (24h: ${isPositive ? '+' : ''}${(Number(change24h) || 0).toFixed(2)}%)
 --------------------------------------------
 🎯 Optimal Entry: $${formatPrice(entryZone?.optimal)} ($${formatPrice(entryZone?.min)} - $${formatPrice(entryZone?.max)})
 🛑 Invalidation Stop Loss: $${formatPrice(stopLoss?.price)} (-${stopLoss?.riskPercent || 1.5}%)
@@ -151,7 +151,7 @@ Generated via MarketX AI (@_MarketXai) • https://marketx.world`;
                   }`}
                 >
                   {isPositive ? '+' : ''}
-                  {change24h}%
+                  {(Number(change24h) || 0).toFixed(2)}%
                 </span>
                 <span className="text-[11px] text-slate-400 hidden sm:inline">
                   Range: ${formatPrice(low24h)} - ${formatPrice(high24h)}

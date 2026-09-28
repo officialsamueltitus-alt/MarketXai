@@ -104,11 +104,12 @@ export const Header: React.FC<HeaderProps> = ({
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded-full hover:bg-white/[0.06] text-xs transition-colors shrink-0"
                 title={`Analyze ${ticker.name}`}
               >
-                <span className="font-medium text-slate-300">{ticker.symbol.split('/')[0]}</span>
+                {/* Crypto reads as its coin (BTC); FX and metals keep the full pair so USD/JPY and USD/CAD differ */}
+                <span className="font-medium text-slate-300">{ticker.symbol.endsWith('/USDT') ? ticker.symbol.slice(0, -5) : ticker.symbol}</span>
                 <span className="font-mono text-slate-400">{formatPrice(ticker.price)}</span>
                 <span className={`font-mono ${isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {isUp ? '+' : ''}
-                  {ticker.change24h}%
+                  {(Number(ticker.change24h) || 0).toFixed(2)}%
                 </span>
               </button>
             );

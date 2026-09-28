@@ -984,7 +984,7 @@ Rationale: ${strategy.entryZone.rationale}
       {scrollArrow.visible && (
         <div
           className="pointer-events-none absolute inset-x-0 z-40 px-3 sm:px-6 transition-[bottom] duration-200"
-          style={{ bottom: 'calc(var(--mx-notice-h, 0px) + 6px)' }}
+          style={{ bottom: 'calc(var(--mx-notice-h, 0px) + var(--mx-popover-h, 0px) + 6px)' }}
         >
           <div className="max-w-3xl mx-auto flex justify-end">
             <button

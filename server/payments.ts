@@ -42,17 +42,36 @@ function chargeCurrency(): string {
 const RATE_TTL_MS = 60 * 60 * 1000;
 let cachedRate: { currency: string; rate: number; at: number } | null = null;
 
-async function refreshRate(): Promise<void> {
+// One refresh at a time, and after a failure wait a minute before asking again (no request storm while it's down)
+const RATE_RETRY_MS = 60 * 1000;
+let rateRefresh: Promise<void> | null = null;
+let rateFailedAt = 0;
+
+function refreshRate(): Promise<void> {
   const currency = chargeCurrency();
-  if (currency === 'USD') return;
-  try {
-    const res = await fetch('https://open.er-api.com/v6/latest/USD', { signal: AbortSignal.timeout(8000) });
-    const data: any = res.ok ? await res.json() : null;
-    const rate = Number(data?.rates?.[currency]);
-    if (rate > 0) cachedRate = { currency, rate, at: Date.now() };
-  } catch (err: any) {
-    console.warn('[MarketX Payments] exchange rate refresh failed:', err?.message || err);
-  }
+  if (currency === 'USD') return Promise.resolve();
+  if (rateRefresh) return rateRefresh;
+  if (Date.now() - rateFailedAt < RATE_RETRY_MS) return Promise.resolve();
+  rateRefresh = (async () => {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD', { signal: AbortSignal.timeout(8000) });
+      const data: any = res.ok ? await res.json() : null;
+      const rate = Number(data?.rates?.[currency]);
+      if (rate > 0) {
+        cachedRate = { currency, rate, at: Date.now() };
+        rateFailedAt = 0;
+      } else {
+        rateFailedAt = Date.now();
+        console.warn(`[MarketX Payments] exchange rate refresh failed: HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      rateFailedAt = Date.now();
+      console.warn('[MarketX Payments] exchange rate refresh failed:', err?.message || err);
+    } finally {
+      rateRefresh = null;
+    }
+  })();
+  return rateRefresh;
 }
 
 function currentRate(): number | null {

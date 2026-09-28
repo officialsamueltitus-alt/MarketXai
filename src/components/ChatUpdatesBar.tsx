@@ -106,7 +106,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
 
     // Older unread notifications join the random rotation
     p.notifications
-      .filter(n => !n.read)
+      .filter(n => !n.read && n.type !== 'analysis')
       .slice(0, 3)
       .forEach(n => promo.push(notificationItem(n, () => propsRef.current.onNotificationAction(n))));
 
@@ -198,10 +198,11 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     };
   }, [schedule]);
 
-  // A notification that arrives while the chat is open pops up straight away
+  // A notification that arrives while the chat is open pops up straight away. "Setup ready" is skipped: the
+  // result is already on screen in the chat, so a pop-up over it would only cover the answer.
   const mountedAtRef = useRef(Date.now());
   useEffect(() => {
-    const fresh = notifications.find(n => !n.read && n.timestamp > mountedAtRef.current);
+    const fresh = notifications.find(n => !n.read && n.type !== 'analysis' && n.timestamp > mountedAtRef.current);
     if (!fresh || seenRef.current.has(`n-${fresh.id}`)) return;
     show(notificationItem(fresh, () => propsRef.current.onNotificationAction(fresh)));
   }, [notifications, show]);

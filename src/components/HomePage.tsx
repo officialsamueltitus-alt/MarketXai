@@ -382,7 +382,7 @@ function generateFeedItemForTicker(
     badge: isUp ? 'Volume Surge' : 'Key Support',
     bias: isUp ? 'BULLISH' : 'BEARISH',
     headline: `${ticker.name} Testing ${priceStr}`,
-    detail: `Order flow tracking ${ticker.symbol} at ${priceStr} (${isUp ? '+' : ''}${ticker.change24h}% 24h). Institutional order book depth shows active liquidity positioning.`,
+    detail: `Order flow tracking ${ticker.symbol} at ${priceStr} (${isUp ? '+' : ''}${(Number(ticker.change24h) || 0).toFixed(2)}% 24h). Institutional order book depth shows active liquidity positioning.`,
     suggestedPrompt: `Analyze ${ticker.symbol} at ${priceStr} on the 4H timeframe. Identify the key levels and the optimal entry.`
   };
 }
