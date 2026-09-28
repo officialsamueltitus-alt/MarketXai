@@ -1,3 +1,4 @@
+import { perWorkerAtLeast } from './workers';
 import type { NextFunction, Request, Response } from 'express';
 
 // ===========================================================================
@@ -146,7 +147,9 @@ export function corsAndOriginGuard(req: Request, res: Response, next: NextFuncti
 // ---------------------------------------------------------------------------
 // Per-key throttle (per email, per account) independent of IP addresses
 // ---------------------------------------------------------------------------
-export function createKeyedThrottle(opts: { windowMs: number; max: number }) {
+export function createKeyedThrottle(options: { windowMs: number; max: number }) {
+  // In multi-core mode each worker enforces its share, so the combined limit stays the same
+  const opts = { ...options, max: perWorkerAtLeast(options.max) };
   const hits = new Map<string, number[]>();
   setInterval(() => {
     const now = Date.now();

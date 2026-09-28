@@ -161,8 +161,23 @@ export default function App() {
     [applyAccount]
   );
 
-  const refreshNotifications = useCallback(async () => {
+  // Background polls only fetch what is new since the latest item; opening the center does a full refresh
+  const notificationsRef = useRef<AppNotification[]>([]);
+  notificationsRef.current = notifications;
+  const refreshNotifications = useCallback(async (incremental = false) => {
     try {
+      const newest = notificationsRef.current.reduce((m, n) => Math.max(m, n.timestamp || 0), 0);
+      if (incremental && newest > 0) {
+        const data = await apiFetch<{ notifications: AppNotification[] }>(`/api/notifications?since=${newest}`);
+        const fresh = data.notifications || [];
+        if (fresh.length) {
+          setNotifications(prev => {
+            const ids = new Set(prev.map(n => n.id));
+            return [...fresh.filter(n => !ids.has(n.id)), ...prev].slice(0, 80);
+          });
+        }
+        return;
+      }
       const data = await apiFetch<{ notifications: AppNotification[] }>('/api/notifications');
       setNotifications(data.notifications || []);
     } catch {}
@@ -270,10 +285,15 @@ export default function App() {
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       refreshAccount();
-      refreshNotifications();
+      refreshNotifications(true);
     }, 60000);
     return () => clearInterval(interval);
   }, [authUser, refreshAccount, refreshNotifications]);
+
+  // Opening the notification center always shows the full, up-to-date list (read states from other devices too)
+  useEffect(() => {
+    if (isNotificationCenterOpen && authUser) refreshNotifications();
+  }, [isNotificationCenterOpen, authUser, refreshNotifications]);
 
   // Persist changed chat sessions to the server (debounced; in-flight analyses wait until done)
   useEffect(() => {

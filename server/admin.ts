@@ -4,7 +4,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { hashPassword, signWithServerSecret, verifyPassword } from './session';
 import { sendEmail } from './mailer';
-import { addNotification, UserDoc, userRef, usernameRef } from './account';
+import { perWorkerAtLeast } from './workers';
+import { addNotification, invalidateAuthCache, UserDoc, userRef, usernameRef } from './account';
 import { deleteAccountData, setEmailBanned } from './auth';
 import { ACCESS_BATCH, ACCESS_BATCH_SIZE, allocatedSeats } from './access';
 import { dayKey, logActivity } from './tracking';
@@ -106,9 +107,9 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 // ---------------------------------------------------------------------------
 const failures = new Map<string, { count: number; until: number; first: number }>();
 let globalFails: number[] = [];
-const IP_MAX = 5;
+const IP_MAX = perWorkerAtLeast(5);
 const IP_LOCK_MS = 15 * 60 * 1000;
-const GLOBAL_MAX = 25;
+const GLOBAL_MAX = perWorkerAtLeast(25);
 
 
 function lockState(ip: string): number {
@@ -509,6 +510,7 @@ export function registerAdminRoutes(app: Express) {
         // Suspending or banning signs the user out everywhere
         ...(status !== 'active' ? { sessionVersion: FieldValue.increment(1) } : {}),
       });
+      invalidateAuthCache(uid);
       if (action === 'ban') await setEmailBanned(u.email, true);
       if (action === 'unban') await setEmailBanned(u.email, false);
       logActivity(uid, { type: 'admin', title: `Account ${status === 'active' ? 'reinstated' : status} by admin`, detail: reason }, u.username);
@@ -629,16 +631,20 @@ export function registerAdminRoutes(app: Express) {
       targets = (await allUsers()).filter(u => u.status !== 'banned');
     }
 
-    await Promise.all(
-      targets.map(u =>
-        addNotification(u.uid, { type: 'announcement', title, message, ...(link ? { link } : {}) }).catch(() => {})
-      )
-    );
+    // Fan out in chunks so a broadcast to thousands of users never floods the database with writes at once
+    for (let i = 0; i < targets.length; i += 100) {
+      await Promise.all(
+        targets
+          .slice(i, i + 100)
+          .map(u => addNotification(u.uid, { type: 'announcement', title, message, ...(link ? { link } : {}) }).catch(() => {}))
+      );
+    }
     if (sendMail) {
       for (const u of targets) {
         queueMail(() =>
           sendEmail(u.email, title, [`Hello ${u.displayName || `@${u.username}`},`, ...lines], {
             note: 'You are receiving this message because you have a MarketX account.',
+            priority: 'bulk',
             ...(link ? { cta: { label: 'Learn more', url: link } } : {}),
           })
         );

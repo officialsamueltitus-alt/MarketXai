@@ -1,10 +1,14 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import compression from 'compression';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { hideEngineInResponses } from './server/brand';
+import { readSessionCookie, verifySessionToken } from './server/session';
+import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
+import { WORKERS, perWorker } from './server/workers';
 import {
   refreshNewsFeeds,
   refreshNewsFeedsWithin,
@@ -42,6 +46,21 @@ import {
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
 const app = express();
+
+// Capacity: at most AI_MAX_CONCURRENCY engine calls run at once; others wait up to AI_QUEUE_WAIT_MS, then the
+// request is served the computed (real-candle) analysis instead of an error.
+const AI_MAX_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.AI_MAX_CONCURRENCY) || 24));
+const AI_QUEUE_WAIT_MS = Math.max(1000, Math.floor(Number(process.env.AI_QUEUE_WAIT_MS) || 9000));
+const aiGate = createGate(perWorker(AI_MAX_CONCURRENCY));
+// AI_CACHE_TTL_MS=0 turns reuse off (identical simultaneous requests are still shared)
+const AI_CACHE_TTL_MS = Math.max(0, Number(process.env.AI_CACHE_TTL_MS ?? 45_000) || 0);
+const aiAnalysisCache = new SharedCache<{ text: string; label: string } | null>(AI_CACHE_TTL_MS, 500);
+const chatAnswerCache = new SharedCache<string>(10 * 60_000, 500);
+
+// Never let one stray promise take the whole server down under load
+process.on('unhandledRejection', reason => {
+  console.error('[MarketX] Unhandled rejection:', (reason as any)?.message || reason);
+});
 const PORT = Number(process.env.PORT) || 3000;
 
 // Security hardening: Disable X-Powered-By header to prevent fingerprinting
@@ -67,41 +86,53 @@ setInterval(() => {
   }
 }, 3 * 60 * 1000);
 
-function createRateLimiter(options: { windowMs: number; max: number; message: string }) {
-  return (req: Request, res: Response, next: () => void) => {
-    const ip = clientIp(req);
-    const key = `${req.baseUrl || req.path}:${ip}`;
-    const now = Date.now();
-
+let limiterSeq = 0;
+/**
+ * Fixed-window limiter. Signed-in users are limited per account (so thousands of people behind one mobile
+ * carrier or office IP are not throttled together); every request is also held to a much higher per-IP ceiling
+ * so one address cannot flood the server with many accounts or anonymous calls.
+ */
+function createRateLimiter(options: { windowMs: number; max: number; message: string; ipMultiplier?: number }) {
+  const name = `rl${++limiterSeq}`;
+  const max = perWorker(options.max);
+  const ipMax = perWorker(options.max * (options.ipMultiplier ?? 20));
+  const hit = (key: string, max: number, now: number) => {
     const record = rateLimitMap.get(key);
     if (!record || now > record.resetAt) {
       rateLimitMap.set(key, { count: 1, resetAt: now + options.windowMs });
-      return next();
+      return 0;
     }
-
     record.count++;
-    if (record.count > options.max) {
-      const retryAfter = Math.ceil((record.resetAt - now) / 1000);
-      res.setHeader('Retry-After', retryAfter);
-      return res.status(429).json({
-        error: options.message,
-        retryAfterSeconds: retryAfter,
-      });
+    return record.count > max ? Math.ceil((record.resetAt - now) / 1000) : 0;
+  };
+  return (req: Request, res: Response, next: () => void) => {
+    const now = Date.now();
+    const ip = clientIp(req);
+    const session = verifySessionToken(readSessionCookie(req) || '');
+    const wait = session
+      ? hit(`${name}:u:${session.uid}`, max, now) || hit(`${name}:ip:${ip}`, ipMax, now)
+      : hit(`${name}:ip:${ip}`, max, now);
+    if (wait) {
+      res.setHeader('Retry-After', wait);
+      return res.status(429).json({ error: options.message, retryAfterSeconds: wait });
     }
-
     next();
   };
 }
 
+const envInt = (name: string, fallback: number) => {
+  const v = Math.floor(Number(process.env[name]));
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+};
 const analysisRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 45,
+  max: envInt('RATE_LIMIT_ANALYSIS_PER_MIN', 45),
   message: 'Too many analysis requests. Please wait a moment before sending another prompt.',
 });
 
 const generalApiRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 180,
+  max: envInt('RATE_LIMIT_API_PER_MIN', 180),
   message: 'API rate limit reached. Please slow down requests.',
 });
 
@@ -373,12 +404,24 @@ async function fetchForexQuote(base: string, quote: string): Promise<(LiveQuote 
 }
 
 // Fetch live quotes across key markets
-async function getLiveMarketTickers(): Promise<MarketTicker[]> {
-  const now = Date.now();
-  // Cache for 3.5 seconds
-  if (cachedTickers.length > 0 && now - lastTickerFetch < 3500) {
-    return cachedTickers;
+// Live tickers are shared by every visitor: one refresh at a time (all concurrent callers wait on it), and once
+// prices exist they are answered instantly while a refresh runs in the background (stale-while-revalidate).
+let tickerRefresh: Promise<MarketTicker[]> | null = null;
+function getLiveMarketTickers(): Promise<MarketTicker[]> {
+  const fresh = cachedTickers.length > 0 && Date.now() - lastTickerFetch < 3500;
+  if (fresh) return Promise.resolve(cachedTickers);
+  if (!tickerRefresh) {
+    tickerRefresh = loadLiveMarketTickers().finally(() => {
+      tickerRefresh = null;
+    });
   }
+  // Serve the last known prices (at most a few seconds old) instead of making everyone wait
+  if (cachedTickers.length > 0 && Date.now() - lastTickerFetch < 60_000) return Promise.resolve(cachedTickers);
+  return tickerRefresh;
+}
+
+async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
+  const now = Date.now();
 
   // Baseline market data with current, accurate prices
   const baseList: MarketTicker[] = [
@@ -1843,7 +1886,14 @@ function getDefaultPriceForAsset(sym: string): number {
 }
 
 // Robust, multi-market quote resolver ensuring accurate real-time data for all tradeable assets
-async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
+// Live quotes are shared: requests for the same market within 4s (or at the same moment) use one lookup
+const quoteCache = new SharedCache<MarketTicker>(4_000, 2_000);
+function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
+  const key = extractAssetInfo(query).symbol.toUpperCase();
+  return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(query), q => !!q && q.price > 0);
+}
+
+async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketTicker> {
   const asset = extractAssetInfo(query);
   const cleanSym = asset.symbol;
 
@@ -2550,29 +2600,34 @@ Provide a clear, engaging, highly knowledgeable response.
 - At the conclusion of your explanation, invite them to test the concept on any live asset (e.g., "Would you like me to analyze Bitcoin, Gold, or Solana right now?").
 Do NOT output structured trade card JSON unless specifically asked to analyze a live ticker.`;
 
-      let chatReply = '';
+      const chatKey = cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 400);
+      let chatReply = chatAnswerCache.get(chatKey) || '';
       const chatModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 
-      for (const modelId of chatModels) {
+      for (const modelId of chatReply ? [] : chatModels) {
         try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Chat model request timed out (10s limit)')), 10000)
+          const response: any = await aiGate.run(
+            () =>
+              withTimeout(
+                ai.models.generateContent({
+                  model: modelId,
+                  contents: `User asks: "${cleanPrompt}"`,
+                  config: {
+                    systemInstruction: chatSystemInstruction,
+                  },
+                }),
+                10000,
+                'Chat model request timed out (10s limit)'
+              ),
+            AI_QUEUE_WAIT_MS
           );
-          const response: any = await Promise.race([
-            ai.models.generateContent({
-              model: modelId,
-              contents: `User asks: "${cleanPrompt}"`,
-              config: {
-                systemInstruction: chatSystemInstruction,
-              },
-            }),
-            timeoutPromise,
-          ]);
           if (response?.text && response.text.trim().length > 0) {
             chatReply = response.text.trim();
+            chatAnswerCache.set(chatKey, chatReply);
             break;
           }
         } catch (err: any) {
+          if (err instanceof BusyError) break;
           console.warn(`[MarketX Chat] ${modelId} capacity limit, trying next engine...`);
         }
       }
@@ -2846,51 +2901,77 @@ INSTRUCTIONS:
     }
     geminiContents.push(promptContext);
 
-    for (const candidate of modelsToTry) {
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Analysis model request timed out (12s limit)')), 12000)
-        );
-        const response: any = await Promise.race([
-          ai.models.generateContent({
-            model: candidate.id,
-            contents: geminiContents.length > 1 ? geminiContents : promptContext,
-            config: {
-              systemInstruction,
-            },
-          }),
-          timeoutPromise,
-        ]);
+    const runModels = async (): Promise<{ text: string; label: string } | null> => {
+      for (const candidate of modelsToTry) {
+        try {
+          // Queued behind the engine's concurrency limit; the model call itself keeps its 12s limit
+          const response: any = await aiGate.run(
+            () =>
+              withTimeout(
+                ai.models.generateContent({
+                  model: candidate.id,
+                  contents: geminiContents.length > 1 ? geminiContents : promptContext,
+                  config: {
+                    systemInstruction,
+                  },
+                }),
+                12000,
+                'Analysis model request timed out (12s limit)'
+              ),
+            AI_QUEUE_WAIT_MS
+          );
 
-        if (response?.text && response.text.trim().length > 0) {
-          aiResponseText = response.text;
-          usedModel = candidate.label;
-          console.log(`[Market Engine] Analysis successfully generated with ${candidate.id}`);
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        const errStr = String(err?.message || '').toLowerCase();
-        const isTemporaryCapacity =
-          err?.status === 503 ||
-          err?.status === 429 ||
-          err?.code === 503 ||
-          err?.code === 429 ||
-          errStr.includes('503') ||
-          errStr.includes('429') ||
-          errStr.includes('high demand') ||
-          errStr.includes('quota') ||
-          errStr.includes('resource_exhausted') ||
-          errStr.includes('resourceexhausted') ||
-          errStr.includes('overloaded') ||
-          errStr.includes('rate limit');
+          if (response?.text && response.text.trim().length > 0) {
+            console.log(`[Market Engine] Analysis successfully generated with ${candidate.id}`);
+            return { text: response.text as string, label: candidate.label };
+          }
+        } catch (err: any) {
+          lastError = err;
+          if (err instanceof BusyError) {
+            // Every model shares the same gate: stop here and serve the computed analysis right away
+            console.warn(`[Market Engine] Engine at capacity (${JSON.stringify(aiGate.stats())}); serving the computed analysis.`);
+            break;
+          }
+          const errStr = String(err?.message || '').toLowerCase();
+          const isTemporaryCapacity =
+            err?.status === 503 ||
+            err?.status === 429 ||
+            err?.code === 503 ||
+            err?.code === 429 ||
+            errStr.includes('503') ||
+            errStr.includes('429') ||
+            errStr.includes('high demand') ||
+            errStr.includes('quota') ||
+            errStr.includes('resource_exhausted') ||
+            errStr.includes('resourceexhausted') ||
+            errStr.includes('overloaded') ||
+            errStr.includes('rate limit');
 
-        if (isTemporaryCapacity) {
-          console.warn(`[Market Engine] ${candidate.id} capacity limit (${errStr.slice(0, 80)}), seamlessly trying next engine...`);
-        } else {
-          console.warn(`[Market Engine] ${candidate.id} fallback triggered: ${err?.message || 'timeout'}`);
+          if (isTemporaryCapacity) {
+            console.warn(`[Market Engine] ${candidate.id} capacity limit (${errStr.slice(0, 80)}), seamlessly trying next engine...`);
+          } else {
+            console.warn(`[Market Engine] ${candidate.id} fallback triggered: ${err?.message || 'timeout'}`);
+          }
         }
       }
+      return null;
+    };
+    // Identical analyses requested together (same market, timeframe, stop mode, prompt, levels and news) share one
+    // engine call, and repeats within 45s are answered from memory; chart uploads are always analysed individually.
+    const aiKey = safeChartImage
+      ? null
+      : [
+          asset.symbol,
+          analysisTimeframe,
+          safeSlMode,
+          cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 300),
+          structureMap?.plan ? `${structureMap.plan.direction}:${structureMap.plan.entry.optimal}:${structureMap.plan.stopLoss}` : 'no-plan',
+          newsBrief ? `${newsBrief.day}:${newsBrief.timeZone}:${newsBrief.summary}` : 'no-news',
+        ].join('|');
+    const aiResult = aiKey ? await aiAnalysisCache.getOrCreate(aiKey, runModels, v => !!v) : await runModels();
+    if (aiResult) {
+      aiResponseText = aiResult.text;
+      usedModel = aiResult.label;
     }
 
     if (!aiResponseText) {
@@ -3211,6 +3292,31 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Pre-compressed bundles (built by scripts/precompress.mjs): serve .br/.gz straight from disk, no CPU per request
+    const PRECOMPRESSED_TYPES: Record<string, string> = {
+      '.js': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json; charset=utf-8',
+    };
+    app.use('/assets', (req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      const ext = path.extname(req.path);
+      const type = PRECOMPRESSED_TYPES[ext];
+      if (!type || req.path.includes('..')) return next();
+      const accept = String(req.headers['accept-encoding'] || '');
+      const file = path.join(distPath, 'assets', path.normalize(req.path));
+      if (!file.startsWith(path.join(distPath, 'assets'))) return next();
+      for (const [enc, suffix] of [['br', '.br'], ['gzip', '.gz']] as const) {
+        if (!new RegExp(`\\b${enc}\\b`).test(accept) || !fs.existsSync(file + suffix)) continue;
+        res.setHeader('Content-Encoding', enc);
+        res.setHeader('Content-Type', type);
+        res.setHeader('Vary', 'Accept-Encoding');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.sendFile(file + suffix);
+      }
+      next();
+    });
     app.use(express.static(distPath, {
       maxAge: '1y',
       immutable: true,
@@ -3234,9 +3340,16 @@ async function startServer() {
   app.all('/api/*', apiNotFound);
   app.use(jsonErrorHandler);
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Market AI server active at http://localhost:${PORT}`);
+  // Large accept backlog so a burst of thousands of new connections is queued instead of reset
+  const server = app.listen(PORT, '0.0.0.0', 8192, () => {
+    console.log(`Market AI server active at http://localhost:${PORT}${WORKERS > 1 ? ` (worker ${process.env.MX_WORKER_ID}/${WORKERS})` : ''}`);
   });
+  // Many simultaneous visitors: keep idle connections open longer than the load balancer's idle timeout so it
+  // never reuses a socket we just closed (avoids random 502s), and cap slow requests.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.requestTimeout = 120_000;
+  server.maxRequestsPerSocket = 0;
 }
 
 startServer();

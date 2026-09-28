@@ -208,7 +208,8 @@ export async function notifyActivity(uid: string, n: NotificationInput | null, m
     const doc = snap.data() as UserDoc;
     if (n) await addNotification(uid, n);
     if (mail && (mail.security || doc.emailPrefs?.activity !== false)) {
-      await sendEmail(doc.email, mail.subject, mail.lines, mail.options);
+      // Activity mail is low priority (paced and deduplicated); security mail always goes first
+      await sendEmail(doc.email, mail.subject, mail.lines, { ...mail.options, priority: mail.security ? 'high' : 'low' });
     }
   } catch (err: any) {
     console.warn('[MarketX Notify] failed:', err?.message || err);
@@ -249,11 +250,15 @@ export function describeRequest(req: Request): { device: string; ip: string; whe
   return { device: `${browser} on ${os}`, ip, when };
 }
 
+// Formatters are expensive to create: build one per precision and reuse it
+const NUM_FORMATS = new Map<number, Intl.NumberFormat>();
 const fmtNum = (n: any) => {
   const v = Number(n);
   if (!Number.isFinite(v)) return '-';
   const d = Math.abs(v) >= 1000 ? 2 : Math.abs(v) >= 1 ? 4 : 6;
-  return v.toLocaleString('en-US', { maximumFractionDigits: d });
+  let f = NUM_FORMATS.get(d);
+  if (!f) NUM_FORMATS.set(d, (f = new Intl.NumberFormat('en-US', { maximumFractionDigits: d })));
+  return f.format(v);
 };
 
 // Alerts for a completed analysis/chat, derived from the response the analysis route sent
@@ -332,6 +337,20 @@ function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, rem
 // ---------------------------------------------------------------------------
 // Auth middleware
 // ---------------------------------------------------------------------------
+// Short-lived session check cache: under heavy traffic every authenticated call would otherwise read the user
+// document. Entries live 10 seconds and are dropped immediately when this server bans, suspends, resets a
+// password or deletes an account (invalidateAuthCache), so revocation stays effectively instant.
+const AUTH_CACHE_TTL_MS = 10_000;
+const AUTH_CACHE_MAX = 20_000;
+const authCache = new Map<string, { v: number; status?: string; email: string; emailVerified: boolean; exp: number }>();
+export function invalidateAuthCache(uid: string) {
+  authCache.delete(uid);
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, e] of authCache) if (e.exp <= now) authCache.delete(k);
+}, 30_000).unref();
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!isFirebaseConfigured() || !isSessionConfigured()) {
     return res.status(503).json({ error: 'AUTH_NOT_CONFIGURED', message: 'Accounts are not configured on this server yet.' });
@@ -341,17 +360,33 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Please sign in to continue.' });
   }
   try {
-    const snap = await userRef(session.uid).get();
-    const doc = snap.exists ? (snap.data() as UserDoc) : null;
-    if (!doc || (doc.sessionVersion || 0) !== session.v) {
+    let entry = authCache.get(session.uid);
+    if (!entry || entry.exp <= Date.now()) {
+      const snap = await userRef(session.uid).get();
+      const doc = snap.exists ? (snap.data() as UserDoc) : null;
+      if (!doc) {
+        authCache.delete(session.uid);
+        return res.status(401).json({ error: 'AUTH_INVALID', message: 'Your session has expired. Please sign in again.' });
+      }
+      entry = {
+        v: doc.sessionVersion || 0,
+        status: doc.status,
+        email: (doc.email || '').toLowerCase(),
+        emailVerified: !!doc.emailVerified,
+        exp: Date.now() + AUTH_CACHE_TTL_MS,
+      };
+      if (authCache.size >= AUTH_CACHE_MAX) authCache.delete(authCache.keys().next().value as string);
+      authCache.set(session.uid, entry);
+    }
+    if (entry.v !== session.v) {
       return res.status(401).json({ error: 'AUTH_INVALID', message: 'Your session has expired. Please sign in again.' });
     }
-    const blocked = blockedStatusMessage(doc.status);
+    const blocked = blockedStatusMessage(entry.status as any);
     if (blocked) return res.status(403).json({ error: blocked.code, message: blocked.message });
     res.locals.user = {
       uid: session.uid,
-      email: (doc.email || '').toLowerCase(),
-      emailVerified: !!doc.emailVerified,
+      email: entry.email,
+      emailVerified: entry.emailVerified,
     } as AuthedUser;
     next();
   } catch (err: any) {
@@ -819,6 +854,12 @@ export function registerAccountRoutes(app: Express, limiter: any) {
   // --- Notifications ---
   app.get('/api/notifications', limiter, requireAuth, wrap(async (req, res) => {
     const { uid } = getUser(res);
+    // ?since=<ms>: only newer items (cheap background polling); otherwise the latest 50
+    const since = Number(req.query.since);
+    if (Number.isFinite(since) && since > 0) {
+      const snap = await notificationsCol(uid).where('timestamp', '>', since).orderBy('timestamp', 'desc').limit(50).get();
+      return res.json({ success: true, incremental: true, notifications: snap.docs.map(d => d.data()) });
+    }
     const snap = await notificationsCol(uid).orderBy('timestamp', 'desc').limit(50).get();
     res.json({ success: true, notifications: snap.docs.map(d => d.data()) });
   }));
