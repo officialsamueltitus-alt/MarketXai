@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { MarketQuote } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
 import { ModelSelectorButton } from './ModelSelectorButton';
-import { PanelLeft, Zap, Bell, SquarePen } from 'lucide-react';
+import { PanelLeft, Zap, Bell, SquarePen, Gift } from 'lucide-react';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -12,6 +12,8 @@ interface HeaderProps {
   maxCredits: number;
   /** Local time of the next automatic refill */
   refillLabel?: string;
+  /** Campaign credits left: they keep working after the daily limit */
+  campaignCredits?: number;
   onOpenCredits: () => void;
   onResetChat: () => void;
   onSelectTicker: (symbol: string) => void;
@@ -32,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   credits,
   maxCredits,
   refillLabel = '3:00 AM',
+  campaignCredits = 0,
   onOpenCredits,
   onResetChat,
   onSelectTicker,
@@ -123,29 +126,42 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right: credits, notifications, new chat, profile */}
       <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
-        <button
-          type="button"
-          onClick={onOpenCredits}
-          className={`h-8 flex items-center gap-1 min-[400px]:gap-1.5 px-2 min-[400px]:px-2.5 sm:px-3 rounded-full text-xs font-medium transition-colors shrink-0 ${
-            credits >= 99999
-              ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15'
-              : credits <= 0
-                ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15 border border-amber-500/20'
-                : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border border-white/[0.06]'
-          }`}
-          title={
-            credits >= 99999
-              ? 'Unlimited analyses'
-              : credits <= 0
+        {(() => {
+          const unlimited = credits >= 99999;
+          // After today's analyses, campaign credits carry on until used up (the one exemption)
+          const onCampaign = !unlimited && credits <= 0 && campaignCredits > 0;
+          const paused = !unlimited && credits <= 0 && campaignCredits <= 0;
+          const count = unlimited ? '∞' : onCampaign ? campaignCredits : credits;
+          const label = unlimited ? 'credits' : onCampaign ? 'campaign' : paused ? `until ${refillLabel}` : 'left today';
+          const title = unlimited
+            ? 'Unlimited analyses'
+            : onCampaign
+              ? `Today's analyses are used up. ${campaignCredits} campaign credit${campaignCredits === 1 ? '' : 's'} left; daily analyses refill at ${refillLabel}.`
+              : paused
                 ? `Today's analyses are used up. They refill at ${refillLabel}.`
-                : `${credits} of ${maxCredits} analyses left today. Refills at ${refillLabel}.`
-          }
-          aria-label={credits >= 99999 ? 'Credits: unlimited' : `Credits: ${credits} analyses left today`}
-        >
-          <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300/80" />
-          <span className="font-mono">{credits >= 99999 ? '∞' : credits}</span>
-          <span className="text-slate-500 hidden sm:inline">{credits >= 99999 ? 'credits' : credits <= 0 ? `until ${refillLabel}` : 'left today'}</span>
-        </button>
+                : `${credits} of ${maxCredits} analyses left today${campaignCredits > 0 ? `, plus ${campaignCredits} campaign credits` : ''}. Refills at ${refillLabel}.`;
+          return (
+            <button
+              type="button"
+              onClick={onOpenCredits}
+              className={`h-8 flex items-center gap-1 min-[400px]:gap-1.5 px-2 min-[400px]:px-2.5 sm:px-3 rounded-full text-xs font-medium transition-colors shrink-0 border ${
+                unlimited
+                  ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15 border-transparent'
+                  : onCampaign
+                    ? 'bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15 border-cyan-400/20'
+                    : paused
+                      ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15 border-amber-500/20'
+                      : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border-white/[0.06]'
+              }`}
+              title={title}
+              aria-label={unlimited ? 'Credits: unlimited' : `Credits: ${title}`}
+            >
+              {onCampaign ? <Gift className="w-3.5 h-3.5 text-cyan-300" /> : <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300/80" />}
+              <span className="font-mono">{count}</span>
+              <span className="text-slate-500 hidden sm:inline">{label}</span>
+            </button>
+          );
+        })()}
 
         {onOpenNotifications && (
           <button

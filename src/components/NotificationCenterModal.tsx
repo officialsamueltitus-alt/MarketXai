@@ -147,21 +147,24 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         </div>
 
         {/* Header */}
-        <header className="flex items-center gap-2 px-5 pt-4 sm:pt-5 pb-3">
-          <h2 className="text-lg font-semibold text-white tracking-tight">Notifications</h2>
+        <header className="flex items-center gap-2 px-4 sm:px-5 pt-4 sm:pt-5 pb-3 min-w-0">
+          <h2 className="text-lg font-semibold text-white tracking-tight truncate">Notifications</h2>
           {unread > 0 && (
-            <span className="h-5 min-w-5 px-1.5 rounded-full bg-indigo-500 text-[11px] font-semibold text-white inline-flex items-center justify-center">
+            <span className="h-5 min-w-5 px-1.5 rounded-full bg-indigo-500 text-[11px] font-semibold text-white inline-flex items-center justify-center shrink-0">
               {unread}
             </span>
           )}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={onMarkAllAsRead}
               disabled={!unread}
-              className="h-8 px-2.5 rounded-full text-xs text-slate-300 hover:text-white hover:bg-white/[0.06] disabled:opacity-40 disabled:hover:bg-transparent inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Mark all read"
+              aria-label="Mark all read"
+              className="h-8 px-2.5 rounded-full text-xs text-slate-300 hover:text-white hover:bg-white/[0.06] disabled:opacity-40 disabled:hover:bg-transparent inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
             >
-              <CheckCheck className="w-3.5 h-3.5" /> Mark all read
+              <CheckCheck className="w-3.5 h-3.5" />
+              <span className="max-[400px]:hidden">Mark all read</span>
             </button>
             <button
               type="button"
@@ -175,7 +178,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         </header>
 
         {/* Filters */}
-        <nav className="flex gap-1.5 px-5 pb-3 overflow-x-auto no-scrollbar" aria-label="Filter notifications">
+        <nav className="grid grid-cols-3 gap-1.5 px-4 sm:px-5 pb-3" aria-label="Filter notifications">
           {FILTERS.map(f => {
             const count = f.id === 'all' ? 0 : notifications.filter(n => matches(n, f.id) && !n.read).length;
             const active = filter === f.id;
@@ -185,12 +188,20 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 type="button"
                 onClick={() => setFilter(f.id)}
                 aria-pressed={active}
-                className={`h-8 px-2.5 rounded-full text-xs font-medium whitespace-nowrap inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                className={`h-8 min-w-0 px-2 rounded-full text-xs font-medium whitespace-nowrap inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                   active ? 'bg-white text-slate-950' : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]'
                 }`}
               >
-                {f.label}
-                {count > 0 && <span className={`text-[10px] ${active ? 'text-slate-500' : 'text-slate-500'}`}>{count}</span>}
+                <span className="truncate">{f.label}</span>
+                {count > 0 && (
+                  <span
+                    className={`h-4 min-w-4 px-1 rounded-full text-[10px] leading-none inline-flex items-center justify-center shrink-0 tabular-nums ${
+                      active ? 'bg-slate-950/10 text-slate-700' : 'bg-white/[0.08] text-slate-300'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -301,13 +312,13 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         </div>
 
         {/* Footer: email preference + clear */}
-        <footer className="border-t border-white/[0.06] px-5 py-3 flex items-center gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <footer className="border-t border-white/[0.06] px-4 sm:px-5 py-3 flex items-center gap-2 sm:gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {onToggleEmailActivity && (
             <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer select-none">
               <Mail className="w-4 h-4 text-slate-500 shrink-0" />
               <span className="min-w-0">
                 <span className="block text-xs text-slate-200">Email me about activity</span>
-                <span className="block text-[11px] text-slate-500 truncate">Security alerts are always emailed</span>
+                <span className="block text-[11px] text-slate-500 leading-snug">Security alerts are always emailed</span>
               </span>
               <input
                 type="checkbox"
@@ -330,11 +341,14 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   setConfirmClear(false);
                 } else setConfirmClear(true);
               }}
+              aria-label={confirmClear ? 'Confirm clearing all notifications' : 'Clear all notifications'}
+              title={confirmClear ? 'Confirm' : 'Clear all'}
               className={`h-8 px-3 rounded-full text-xs inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
                 confirmClear ? 'bg-rose-500/15 text-rose-300' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
               }`}
             >
-              <Trash2 className="w-3.5 h-3.5" /> {confirmClear ? 'Confirm' : 'Clear all'}
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className={confirmClear ? '' : 'max-[400px]:hidden'}>{confirmClear ? 'Confirm' : 'Clear all'}</span>
             </button>
           )}
         </footer>

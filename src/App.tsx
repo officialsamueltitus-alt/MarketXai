@@ -47,7 +47,7 @@ import { SiteBanner } from './components/SiteBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
-import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset } from './utils/creditManager';
+import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
@@ -1665,6 +1665,7 @@ export default function App() {
           tickers={tickers}
           credits={creditState.dailyUsageRemaining}
           maxCredits={creditState.dailyUsageLimit}
+          campaignCredits={campaignCreditsLeft(creditState)}
           refillLabel={formatDailyResetTime(creditState)}
           username={userProfile.username}
           avatarUrl={userProfile.avatarUrl}
@@ -1797,7 +1798,7 @@ export default function App() {
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
                     isLoading={isLoading}
-                    credits={isUnlimitedUser(userProfile.email) ? 999999 : creditState.dailyUsageRemaining}
+                    credits={isUnlimitedUser(userProfile.email) ? 999999 : promptsLeft(creditState)}
                     refillLabel={formatDailyResetTime(creditState)}
                     initialChartImage={pendingChartImage}
                     initialChartFileName={pendingChartFileName}

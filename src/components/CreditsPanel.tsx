@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CreditState, UserProfile } from '../types';
-import { formatDailyResetTime, getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
+import { campaignCreditsLeft, formatDailyResetTime, getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
@@ -54,6 +54,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
   const isPremium = userProfile.subscription.active;
   const [reset, setReset] = useState(() => getDailyResetCountdown(creditState));
   const resetAt = formatDailyResetTime(creditState);
+  const campaignLeft = campaignCreditsLeft(creditState);
 
   useEffect(() => {
     setReset(getDailyResetCountdown(creditState));
@@ -112,6 +113,21 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
           )}
         </div>
       </section>
+
+      {/* Campaign credits: the one exemption, still usable after the daily limit */}
+      {!unlimited && campaignLeft > 0 && (
+        <section className="rounded-3xl border border-cyan-400/15 bg-cyan-500/[0.06] p-4 flex items-center gap-3">
+          <span className="w-10 h-10 rounded-2xl bg-cyan-500/15 text-cyan-300 flex items-center justify-center shrink-0">
+            <Gift className="w-5 h-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-white">
+              {campaignLeft} campaign credit{campaignLeft === 1 ? '' : 's'}
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Earned from the X campaign. They keep working after today's limit, until used up.</p>
+          </div>
+        </section>
+      )}
 
       {/* Actions */}
       {!unlimited && (

@@ -56,6 +56,8 @@ export interface UserDoc {
     dailyLimit: number;
     dailyRemaining: number;
     lastDailyReset: number;
+    /** Credits earned from the X campaign (part of `available`): the one exemption, usable after the daily limit */
+    campaign?: number;
   };
   xShareReward: XShareReward | null;
   emailVerified?: boolean;
@@ -120,6 +122,16 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
     changed = true;
   }
 
+  // Campaign credits pool: accounts credited before the pool existed get what is left of their reward
+  if (next.credits.campaign === undefined && next.xShareReward?.status === 'credited' && next.xShareReward.creditsAwarded > 0) {
+    next.credits.campaign = Math.max(0, Math.min(next.credits.available, next.xShareReward.creditsAwarded));
+    changed = true;
+  }
+  if ((next.credits.campaign ?? 0) > next.credits.available) {
+    next.credits.campaign = Math.max(0, next.credits.available);
+    changed = true;
+  }
+
   const targetLimit = next.subscription.active ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
   if (isDailyResetDue(next.credits.lastDailyReset, now)) {
     next.credits.dailyLimit = targetLimit;
@@ -167,6 +179,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
         lastDailyResetTime: doc.credits.lastDailyReset,
         nextDailyResetAt: nextDailyReset(),
         resetTimeZone: CREDIT_RESET_TZ,
+        campaignCredits: Math.max(0, doc.credits.campaign ?? 0),
       };
   return { profile, credits, xShareReward: doc.xShareReward || null, unlimited: vip };
 }
@@ -496,6 +509,8 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
     if (!reward || reward.status !== 'pending' || Date.now() < reward.unlockAt) return false;
     tx.update(loaded.ref, {
       'credits.available': FieldValue.increment(reward.creditsAwarded),
+      // Kept in their own pool too: campaign credits still work after the daily limit, until used up
+      'credits.campaign': Math.max(0, loaded.doc.credits.campaign ?? 0) + reward.creditsAwarded,
       xShareReward: { ...reward, status: 'credited', notifiedOnSite: true, notifiedEmail: true },
     });
     addNotificationInTx(tx, user.uid, {
@@ -599,15 +614,36 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       if (!loaded) return { ok: false as const, reason: 'NO_ACCOUNT' };
       const c = loaded.doc.credits;
       saveNormalized(tx, loaded);
-      // The daily limit is a hard stop: no analyses until the 3:00 AM refill, whatever the credit balance
-      if (c.dailyRemaining <= 0) return { ok: false as const, reason: 'DAILY_LIMIT' };
-      const dailyDelta = 1;
-      const availableDelta = c.available > 0 ? 1 : 0;
+      // The daily limit is a hard stop until the 3:00 AM refill. The one exemption: credits earned from the X
+      // campaign keep working after it, until they are used up.
+      const campaign = Math.max(0, Math.min(c.campaign ?? 0, c.available));
+      let dailyDelta = 0;
+      let availableDelta = 0;
+      let campaignDelta = 0;
+      if (c.dailyRemaining > 0) {
+        dailyDelta = 1;
+        // Daily use never eats into campaign credits
+        availableDelta = c.available - campaign > 0 ? 1 : 0;
+      } else if (campaign > 0) {
+        campaignDelta = 1;
+        availableDelta = 1;
+      } else {
+        return { ok: false as const, reason: 'DAILY_LIMIT' };
+      }
       tx.update(loaded.ref, {
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
         'credits.available': c.available - availableDelta,
+        'credits.campaign': campaign - campaignDelta,
       });
-      return { ok: true as const, dailyDelta, availableDelta, remaining: c.dailyRemaining - dailyDelta, limit: c.dailyLimit };
+      return {
+        ok: true as const,
+        dailyDelta,
+        availableDelta,
+        campaignDelta,
+        campaignLeft: campaign - campaignDelta,
+        remaining: c.dailyRemaining - dailyDelta,
+        limit: c.dailyLimit,
+      };
     });
 
     if (!charged.ok) {
@@ -629,7 +665,17 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
           notifyActivity(user.uid, {
             type: 'system',
             title: `You've used today's ${charged.limit} analyses`,
-            message: `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
+            message:
+              charged.campaignLeft > 0
+                ? `Your ${charged.campaignLeft} campaign credit${charged.campaignLeft === 1 ? '' : 's'} keep you going until they run out. Daily analyses refill at ${CREDIT_RESET_LABEL}.`
+                : `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
+            actionType: 'open_pricing',
+          });
+        } else if (charged.campaignDelta && charged.campaignLeft === 0) {
+          notifyActivity(user.uid, {
+            type: 'system',
+            title: 'Campaign credits used up',
+            message: `New prompts are paused until your daily analyses refill automatically at ${CREDIT_RESET_LABEL}.`,
             actionType: 'open_pricing',
           });
         }
@@ -639,6 +685,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         .update({
           'credits.dailyRemaining': FieldValue.increment(charged.dailyDelta),
           'credits.available': FieldValue.increment(charged.availableDelta),
+          'credits.campaign': FieldValue.increment(charged.campaignDelta),
         })
         .catch(err => console.warn('[MarketX Credits] Refund failed:', err?.message || err));
     });

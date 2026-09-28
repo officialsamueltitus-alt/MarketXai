@@ -67,9 +67,19 @@ export function getDailyResetCountdown(state: Pick<CreditState, 'nextDailyResetA
   };
 }
 
-/** True when the signed-in user has used today's analyses (prompts are paused until the refill). */
+/** Campaign credits left (the one exemption: they still work after the daily limit, until used up). */
+export function campaignCreditsLeft(state: CreditState): number {
+  return Math.max(0, Math.min(state.campaignCredits ?? 0, state.availableCredits));
+}
+
+/** Prompts the user can still send before the next refill: today's analyses plus campaign credits. */
+export function promptsLeft(state: CreditState): number {
+  return Math.max(0, state.dailyUsageRemaining) + campaignCreditsLeft(state);
+}
+
+/** True when today's analyses and campaign credits are both used up (prompts pause until the refill). */
 export function isDailyLimitReached(state: CreditState, email?: string): boolean {
-  return !isUnlimitedUser(email) && state.dailyUsageRemaining <= 0;
+  return !isUnlimitedUser(email) && promptsLeft(state) <= 0;
 }
 
 /**

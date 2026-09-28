@@ -328,7 +328,7 @@ const SECTIONS: Section[] = [
     id: 'credits-and-plans',
     title: 'Credits, daily analyses and plans',
     icon: CreditCard,
-    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. If an analysis fails, it is refunded automatically.",
+    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. The one exemption is campaign credits: they keep working after the daily limit until they run out. If an analysis fails, it is refunded automatically.",
     body: (
       <>
         <Table
@@ -351,7 +351,8 @@ const SECTIONS: Section[] = [
           in the Plans window.
         </Note>
         <Note title="Daily limit reached?" tone="amber">
-          The input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro gives you
+          If you have campaign credits from the X campaign, you keep going on those until they run out; the credit pill shows how many are left. Otherwise
+          the input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro gives you
           10 analyses a day instead of 3.
         </Note>
       </>

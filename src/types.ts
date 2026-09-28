@@ -278,6 +278,8 @@ export interface CreditState {
   /** Next automatic refill (3:00 AM in the site's time zone), set by the server */
   nextDailyResetAt?: number;
   resetTimeZone?: string;
+  /** Credits earned from the X campaign: still usable after the daily limit, until used up */
+  campaignCredits?: number;
 }
 
 export interface CreditGift {
