@@ -19,6 +19,8 @@
 - Paystack plans are granted only after server verification (verify endpoint or signed webhook).
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
+  Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a
+  fresh code (hourly sweep + checks at redeem/sign-in/sign-up).
   When a batch is fully allocated, new sign-ups are refused until `ACCESS_CODE_BATCH` is raised.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
   scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.

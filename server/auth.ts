@@ -19,13 +19,17 @@ import {
   blockedStatusMessage,
 } from './account';
 import { bumpDaily, logActivity, touchUser } from './tracking';
+import { clientIp, createKeyedThrottle } from './security';
 import {
   batchFullMessage,
   checkPasscode,
   consumePasscodeInTx,
   createPendingSignup,
+  isPendingExpired,
+  PASSCODE_TTL_HOURS,
   PendingSignup,
   pendingRef,
+  releaseExpiredPasscodes,
   sendPasscodeOnce,
 } from './access';
 import {
@@ -59,8 +63,10 @@ export function isAuthConfigured(): boolean {
   return isFirebaseConfigured() && isSessionConfigured();
 }
 
+// Links in emails never come from the request's Host header (that would allow reset-link poisoning)
 function siteUrl(req: Request): string {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/+$/, '');
+  if (process.env.NODE_ENV === 'production') return 'https://marketx.world';
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol).split(',')[0];
   return `${proto}://${req.get('host')}`;
 }
@@ -68,7 +74,7 @@ function siteUrl(req: Request): string {
 // Stricter per-IP limiter for credential endpoints (brute-force protection)
 const authAttempts = new Map<string, { count: number; resetAt: number }>();
 function authLimiter(req: Request, res: Response, next: NextFunction) {
-  const ip = String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  const ip = clientIp(req);
   const now = Date.now();
   const rec = authAttempts.get(ip);
   if (!rec || now > rec.resetAt) {
@@ -85,6 +91,11 @@ setInterval(() => {
   const now = Date.now();
   for (const [ip, rec] of authAttempts) if (now > rec.resetAt) authAttempts.delete(ip);
 }, 10 * 60 * 1000).unref();
+
+// Per-email limits that hold even when an attacker rotates IP addresses
+const loginFailures = createKeyedThrottle({ windowMs: 15 * 60 * 1000, max: 10 });
+const resetEmails = createKeyedThrottle({ windowMs: 60 * 60 * 1000, max: 3 });
+const verifyEmails = createKeyedThrottle({ windowMs: 60 * 60 * 1000, max: 3 });
 
 function requireConfigured(req: Request, res: Response, next: NextFunction) {
   if (!isAuthConfigured()) {
@@ -189,7 +200,7 @@ function deliverPasscode(req: Request, email: string) {
       {
         code,
         cta: { label: 'Enter my pass code', url: `${siteUrl(req)}/access?email=${encodeURIComponent(email)}` },
-        note: 'This code is unique to you, works only once and cannot be reissued, so keep it private. If you did not sign up for MarketX, you can ignore this email.',
+        note: `This code is unique to you and works only once, so keep it private. It expires in ${PASSCODE_TTL_HOURS} hours; after that your reserved seat is released to the next person in line. If you did not sign up for MarketX, you can ignore this email.`,
       }
     )
   ).catch(err => {
@@ -236,6 +247,12 @@ export async function setEmailBanned(email: string, banned: boolean) {
 }
 
 export function registerAuthRoutes(app: Express) {
+  // Unused pass codes expire after 48 hours; sweep hourly so their seats return to the batch
+  if (isAuthConfigured()) {
+    const sweep = () => releaseExpiredPasscodes().catch(err => console.warn('[MarketX Access] expiry sweep failed:', err?.message || err));
+    setTimeout(sweep, 30 * 1000).unref();
+    setInterval(sweep, 60 * 60 * 1000).unref();
+  }
   const wrap =
     (fn: (req: Request, res: Response) => Promise<any>) =>
     (req: Request, res: Response) =>
@@ -288,6 +305,10 @@ export function registerAuthRoutes(app: Express) {
   app.post('/api/auth/login', authLimiter, requireConfigured, wrap(async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
+    const waitMin = loginFailures.check(email);
+    if (waitMin) {
+      return res.status(429).json({ error: 'RATE_LIMITED', message: `Too many failed sign-in attempts. Try again in ${waitMin} minute${waitMin === 1 ? '' : 's'}, or reset your password.` });
+    }
     const cred = EMAIL_RE.test(email) ? await credentialsRef(email).get() : null;
     const data = cred?.exists ? cred.data()! : null;
 
@@ -296,6 +317,14 @@ export function registerAuthRoutes(app: Express) {
       const pending = await pendingRef(email).get();
       const p = pending.exists ? (pending.data() as PendingSignup) : null;
       if (p?.passwordHash && (await verifyPassword(password, p.passwordHash))) {
+        loginFailures.clear(email);
+        if (isPendingExpired(p)) {
+          // Their 48 hours ran out: retire the old code and reserve a fresh seat if one is free
+          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName });
+          if (again.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+          await deliverPasscode(req, email);
+          return pendingResponse(res, email, false);
+        }
         if (!p.codeEmailSentAt) await deliverPasscode(req, email);
         return pendingResponse(res, email, !!p.codeEmailSentAt);
       }
@@ -306,8 +335,10 @@ export function registerAuthRoutes(app: Express) {
     // Always run a hash comparison so response time doesn't reveal whether the email exists
     const ok = await verifyPassword(password, data?.passwordHash || 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$' + 'A'.repeat(86) + '==');
     if (!data || !ok) {
+      loginFailures.hit(email);
       return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Incorrect email or password.' });
     }
+    loginFailures.clear(email);
     await createUserIfMissing({ uid: data.uid, email, emailVerified: false });
     const blocked = await blockedFor(data.uid);
     if (blocked) return res.status(403).json({ error: blocked.code, message: blocked.message });
@@ -379,7 +410,8 @@ export function registerAuthRoutes(app: Express) {
     const email = String(req.body?.email || '').trim().toLowerCase();
     // Same response whether or not the account exists
     res.json({ success: true, message: 'If an account exists for that email, a reset link has been sent.' });
-    if (!EMAIL_RE.test(email)) return;
+    // At most 3 reset emails per address per hour (stops inbox flooding); response is identical
+    if (!EMAIL_RE.test(email) || resetEmails.hit(email)) return;
     const cred = await credentialsRef(email).get();
     if (!cred.exists) return;
     const { token, hash } = newOneTimeToken();
@@ -457,6 +489,10 @@ export function registerAuthRoutes(app: Express) {
   app.post('/api/auth/resend-verification', authLimiter, requireAuth, wrap(async (req, res) => {
     const user = getUser(res);
     if (user.emailVerified) return res.json({ success: true, message: 'Your email is already verified.' });
+    const waitMin = verifyEmails.hit(user.uid);
+    if (waitMin) {
+      return res.status(429).json({ error: 'RATE_LIMITED', message: `Verification email already sent. Check your inbox (and spam), or try again in ${waitMin} minutes.` });
+    }
     await sendVerificationEmail(req, user.uid, user.email);
     res.json({ success: true, message: `Verification email sent to ${user.email}.` });
   }));
@@ -469,6 +505,12 @@ export function registerAuthRoutes(app: Express) {
     if (!code.trim()) return res.status(400).json({ error: 'CODE_REQUIRED', message: 'Enter your pass code.' });
 
     const check = await checkPasscode(email, code);
+    if (check.status === 'expired') {
+      return res.status(410).json({
+        error: 'CODE_EXPIRED',
+        message: `This pass code expired because it wasn't used within ${PASSCODE_TTL_HOURS} hours, and the seat was released. Sign up again to request a new one.`,
+      });
+    }
     if (check.status === 'no_pending') {
       const hasAccount = (await credentialsRef(email).get()).exists;
       return res.status(hasAccount ? 409 : 404).json(

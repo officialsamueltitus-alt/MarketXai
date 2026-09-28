@@ -6,8 +6,9 @@ import { hashPassword, signWithServerSecret, verifyPassword } from './session';
 import { sendEmail } from './mailer';
 import { addNotification, UserDoc, userRef, usernameRef } from './account';
 import { deleteAccountData, setEmailBanned } from './auth';
-import { ACCESS_BATCH, ACCESS_BATCH_SIZE } from './access';
+import { ACCESS_BATCH, ACCESS_BATCH_SIZE, allocatedSeats } from './access';
 import { dayKey, logActivity } from './tracking';
+import { clientIp } from './security';
 
 // ===========================================================================
 // MarketX admin console API (/api/admin/*), served to the /admin page.
@@ -109,7 +110,6 @@ const IP_MAX = 5;
 const IP_LOCK_MS = 15 * 60 * 1000;
 const GLOBAL_MAX = 25;
 
-const clientIp = (req: Request) => String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
 
 function lockState(ip: string): number {
   const now = Date.now();
@@ -429,7 +429,7 @@ export function registerAdminRoutes(app: Express) {
         series: days.map(d => ({ day: d.day, prompts: d.analyses + d.chats, signups: d.signups })),
       },
       revenue: { totalUsd: Math.round(revenueUsd * 100) / 100, last30Usd: Math.round(revenueUsd30 * 100) / 100, payments: payments.length },
-      passcodes: { batch: ACCESS_BATCH, size: batch?.size || ACCESS_BATCH_SIZE, allocated: batch?.next || 0 },
+      passcodes: { batch: ACCESS_BATCH, size: batch?.size || ACCESS_BATCH_SIZE, allocated: allocatedSeats(batch as any) },
       topPairs: topPairs(days.slice(-7), 6),
       recent: recentSnap.docs.map(d => d.data()),
     });

@@ -11,9 +11,10 @@ import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './serve
 import { registerAdminRoutes } from './server/admin';
 import { isMailerConfigured } from './server/mailer';
 import { fetchDerivQuote, mapDerivSymbol } from './server/deriv';
+import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders } from './server/security';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Security hardening: Disable X-Powered-By header to prevent fingerprinting
 app.disable('x-powered-by');
@@ -40,8 +41,7 @@ setInterval(() => {
 
 function createRateLimiter(options: { windowMs: number; max: number; message: string }) {
   return (req: Request, res: Response, next: () => void) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress) || '127.0.0.1';
+    const ip = clientIp(req);
     const key = `${req.baseUrl || req.path}:${ip}`;
     const now = Date.now();
 
@@ -77,32 +77,25 @@ const generalApiRateLimiter = createRateLimiter({
   message: 'API rate limit reached. Please slow down requests.',
 });
 
-// Enable CORS and strict HTTP Security headers
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+// Security headers (CSP, HSTS, framing), CORS allow-list and cross-site request blocking
+app.use(securityHeaders);
+app.use(corsAndOriginGuard);
 
-// Standard 15MB limit sufficient for high-resolution chart images while preventing memory exhaustion
+// JSON bodies only. Chart screenshots need room on the analysis routes; everything else is small.
 // rawBody is kept for Paystack webhook signature verification
-app.use(
-  express.json({
-    limit: '15mb',
-    verify: (req, _res, buf) => {
-      (req as any).rawBody = buf;
-    },
-  })
-);
-app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+const keepRawBody = (req: any, _res: any, buf: Buffer) => {
+  req.rawBody = buf;
+};
+const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat']);
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
+const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
+const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
+const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
+app.use((req, res, next) => {
+  if (LARGE_BODY_ROUTES.has(req.path)) return largeJson(req, res, next);
+  if (MEDIUM_BODY_PREFIXES.some(p => req.path.startsWith(p))) return mediumJson(req, res, next);
+  return smallJson(req, res, next);
+});
 
 // Initialize Gemini Client
 const getGeminiClient = () => {
@@ -1874,7 +1867,7 @@ app.get('/api/health', (req: Request, res: Response) => {
     service: 'MarketX AI Strategy Engine',
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
     accountsConfigured: isAuthConfigured(),
-    accountsError: firebaseStatus(),
+    storageConfigured: !firebaseStatus(),
     googleSignInConfigured: Boolean(getGoogleClientId()),
     paymentsConfigured: getPaymentsPublicConfig().enabled,
     emailConfigured: isMailerConfigured(),
@@ -3057,18 +3050,24 @@ async function startServer() {
       maxAge: '1y',
       immutable: true,
       setHeaders: (res, filePath) => {
-        if (filePath.endsWith('index.html')) {
-          res.setHeader('Cache-Control', 'no-cache');
+        // Only content-hashed bundles are immutable; index.html and public files (boot scripts, icons) revalidate
+        if (filePath.endsWith('index.html') || !filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=3600');
         } else {
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         }
       },
     }));
     app.get('*', (req: Request, res: Response) => {
+      if (req.path.startsWith('/api/')) return apiNotFound(req, res);
       res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Unknown API routes get a JSON 404; errors never leak stack traces
+  app.all('/api/*', apiNotFound);
+  app.use(jsonErrorHandler);
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Market AI server active at http://localhost:${PORT}`);

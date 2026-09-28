@@ -1,17 +1,8 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script>
-      // Apply the saved theme before first paint (no flash)
-      (function () {
-        try {
-          var p = localStorage.getItem('mx_theme') || 'dark';
-          var t = p === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : p;
-          document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
-        } catch (e) {}
-      })();
-    </script>
     <meta charset="UTF-8" />
+    <script src="/boot/theme.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     
     <!-- Primary SEO Metadata -->
@@ -52,11 +43,11 @@
     <!-- Web Fonts & Preconnects -->
     <link rel="dns-prefetch" href="https://fonts.googleapis.com">
     <link rel="dns-prefetch" href="https://fonts.gstatic.com">
-    <link rel="dns-prefetch" href="https://api.binance.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Non-render-blocking font load: a slow/blocked Google Fonts request must never keep the page blank -->
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..800&family=Geist+Mono:wght@400..700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..800&family=Geist+Mono:wght@400..700&display=swap" rel="stylesheet" media="print" id="mx-fonts">
+    <script src="/boot/fonts.js"></script>
     
     <!-- Paystack Inline Checkout JS (Deferred for zero render-blocking) -->
     <script defer src="https://js.paystack.co/v1/inline.js"></script>
@@ -82,32 +73,7 @@
   <body class="bg-black bg-[#000000] text-slate-100 antialiased overflow-hidden select-none">
     <div id="root"></div>
     <!-- Boot watchdog: if the app script fails to load or run (old browser, network, crash), show a message instead of a blank page -->
-    <script>
-      (function () {
-        var shown = false;
-        function showFallback(detail) {
-          var root = document.getElementById('root');
-          if (shown || !root || root.children.length > 0) return;
-          shown = true;
-          root.innerHTML =
-            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#09090b;color:#e2e8f0;font-family:system-ui,sans-serif;text-align:center">' +
-            '<div style="max-width:420px"><h1 style="font-size:20px;font-weight:700;margin:0 0 8px">MarketX could not load</h1>' +
-            '<p style="font-size:14px;color:#94a3b8;margin:0 0 16px">Please check your connection and reload. If it keeps happening, update your browser.</p>' +
-            '<button onclick="location.reload()" style="padding:10px 18px;border-radius:12px;background:#4f46e5;color:#fff;font-weight:600;border:0">Reload</button>' +
-            (detail ? '<p style="font-size:11px;color:#64748b;margin-top:16px;word-break:break-word">' + String(detail).replace(/</g, '&lt;') + '</p>' : '') +
-            '</div></div>';
-        }
-        window.addEventListener('error', function (e) {
-          var t = e && e.target;
-          var ownScriptFailed = t && t.tagName === 'SCRIPT' && t.src && t.src.indexOf(location.host) !== -1;
-          var runtimeError = !t || t === window;
-          if (!ownScriptFailed && !runtimeError) return; // ignore third-party resources (fonts, Paystack, images)
-          var detail = runtimeError ? e.message : 'Failed to load ' + t.src;
-          setTimeout(function () { showFallback(detail); }, 1500);
-        }, true);
-        setTimeout(function () { showFallback('Timed out while loading.'); }, 15000);
-      })();
-    </script>
+    <script src="/boot/watchdog.js"></script>
     <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

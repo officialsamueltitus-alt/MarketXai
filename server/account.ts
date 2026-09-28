@@ -4,6 +4,7 @@ import { db, isFirebaseConfigured } from './firebase';
 import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
 import { sendEmail, EmailOptions } from './mailer';
 import { logActivity, recordUsage } from './tracking';
+import { clientIp, stripReservedKeys } from './security';
 import type {
   UserProfile,
   CreditState,
@@ -238,7 +239,7 @@ export function describeRequest(req: Request): { device: string; ip: string; whe
           : /Linux/.test(ua)
             ? 'Linux'
             : 'an unknown device';
-  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'unknown';
+  const ip = clientIp(req);
   const when = new Date().toUTCString().replace(' GMT', ' UTC');
   return { device: `${browser} on ${os}`, ip, when };
 }
@@ -605,7 +606,10 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
 // History sanitising (Firestore documents are limited to 1 MiB)
 // ---------------------------------------------------------------------------
 const MAX_SESSION_BYTES = 900_000;
-const SAFE_ID = /^[\w.-]{1,100}$/;
+const MAX_ANALYSES_BYTES = 900_000;
+const MAX_SESSIONS_PER_USER = 200;
+// Letters, digits, "_", "-" and "." — but never "." / ".." or Firestore-reserved "__…__" ids
+const SAFE_ID = /^(?!\.{1,2}$)(?!__.*__$)[\w.-]{1,100}$/;
 
 function sanitizeSession(raw: any, id: string): ChatSession | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -627,7 +631,7 @@ function sanitizeSession(raw: any, id: string): ChatSession | null {
     bias: raw.bias,
     lastMessage: String(raw.lastMessage || '').slice(0, 500),
     updatedAt: Number(raw.updatedAt) || Date.now(),
-    messages: cleaned,
+    messages: stripReservedKeys(cleaned),
   };
   while (session.messages.length > 0 && Buffer.byteLength(JSON.stringify(session)) > MAX_SESSION_BYTES) {
     session.messages.shift();
@@ -747,7 +751,28 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     if (!SAFE_ID.test(id)) return res.status(400).json({ error: 'INVALID_ID' });
     const session = sanitizeSession(req.body, id);
     if (!session) return res.status(400).json({ error: 'INVALID_SESSION' });
-    await userRef(uid).collection('sessions').doc(id).set(session);
+    // Keep a small index so one account can't grow its history without bound: the oldest
+    // sessions are dropped once the cap is reached.
+    const sessions = userRef(uid).collection('sessions');
+    const indexRef = userRef(uid).collection('meta').doc('sessionIndex');
+    await db().runTransaction(async tx => {
+      const snap = await tx.get(indexRef);
+      const ids: Record<string, number> = { ...((snap.exists && (snap.data() as any)?.ids) || {}) };
+      ids[id] = session.updatedAt;
+      const overflow = Object.keys(ids).length - MAX_SESSIONS_PER_USER;
+      if (overflow > 0) {
+        const oldest = Object.entries(ids)
+          .filter(([k]) => k !== id)
+          .sort((a, b) => a[1] - b[1])
+          .slice(0, overflow);
+        for (const [k] of oldest) {
+          delete ids[k];
+          tx.delete(sessions.doc(k));
+        }
+      }
+      tx.set(indexRef, { ids });
+      tx.set(sessions.doc(id), session);
+    });
     res.json({ success: true });
   }));
 
@@ -756,19 +781,33 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     const id = String(req.params.id);
     if (!SAFE_ID.test(id)) return res.status(400).json({ error: 'INVALID_ID' });
     await userRef(uid).collection('sessions').doc(id).delete();
+    const indexRef = userRef(uid).collection('meta').doc('sessionIndex');
+    await db()
+      .runTransaction(async tx => {
+        const snap = await tx.get(indexRef);
+        const ids = { ...((snap.exists && (snap.data() as any)?.ids) || {}) };
+        if (!(id in ids)) return;
+        delete ids[id];
+        tx.set(indexRef, { ids });
+      })
+      .catch(() => {});
     res.json({ success: true });
   }));
 
   app.delete('/api/history/sessions', limiter, requireAuth, wrap(async (req, res) => {
     const { uid } = getUser(res);
     await db().recursiveDelete(userRef(uid).collection('sessions'));
+    await userRef(uid).collection('meta').doc('sessionIndex').delete().catch(() => {});
     res.json({ success: true });
   }));
 
   app.put('/api/history/analyses', limiter, requireAuth, wrap(async (req, res) => {
     const { uid } = getUser(res);
-    const items = Array.isArray(req.body?.analyses) ? req.body.analyses.slice(0, 500) : [];
-    await userRef(uid).collection('meta').doc('analyses').set({ items: JSON.parse(JSON.stringify(items)) });
+    const raw = Array.isArray(req.body?.analyses) ? req.body.analyses.slice(0, 500) : [];
+    const items = stripReservedKeys(JSON.parse(JSON.stringify(raw)) as any[]).filter(i => i && typeof i === 'object' && !Array.isArray(i));
+    // Stay under Firestore's 1 MiB document limit: drop the oldest entries (newest are first)
+    while (items.length > 0 && Buffer.byteLength(JSON.stringify(items)) > MAX_ANALYSES_BYTES) items.pop();
+    await userRef(uid).collection('meta').doc('analyses').set({ items });
     res.json({ success: true });
   }));
 

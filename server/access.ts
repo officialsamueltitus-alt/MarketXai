@@ -4,10 +4,12 @@ import { db } from './firebase';
 
 // ---------------------------------------------------------------------------
 // Invite-only access: a fixed batch of one-time pass codes.
-//   accessBatches/batch-N   -> { batch, codes: string[], next, createdAt }  (server-only, never sent to clients)
-//   accessCodes/{code}      -> { status: 'reserved' | 'redeemed', email, uid?, reservedAt, redeemedAt? }
+//   accessBatches/batch-N   -> { batch, codes: string[], next, free: string[], createdAt }  (server-only, never sent to clients)
+//   accessCodes/{code}      -> { status: 'reserved' | 'redeemed' | 'expired', email, uid?, reservedAt, redeemedAt?, expiredAt? }
 //   pendingSignups/{email}  -> a sign-up waiting for its pass code; the account is only created on redeem
 // Each code is reserved for exactly one email, emailed once, and expires when redeemed.
+// A code that isn't redeemed within 48 hours expires: the pending sign-up is removed and the seat
+// goes back to the batch with a brand-new code (the old code is dead, so it can't be reused).
 // When every code in the batch is reserved, new sign-ups are refused until the next batch.
 // ---------------------------------------------------------------------------
 
@@ -18,6 +20,8 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I lookalikes
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 15 * 60 * 1000;
 const SEND_CLAIM_MS = 2 * 60 * 1000;
+export const PASSCODE_TTL_MS = 48 * 60 * 60 * 1000;
+export const PASSCODE_TTL_HOURS = PASSCODE_TTL_MS / 3600000;
 
 export interface PendingSignup {
   email: string;
@@ -34,7 +38,20 @@ export interface PendingSignup {
   codeEmailClaimAt?: number | null;
   attempts?: number;
   lockedUntil?: number;
+  expiresAt?: number;
 }
+
+interface BatchDoc {
+  batch: number;
+  size: number;
+  codes: string[];
+  next: number;
+  free?: string[];
+  createdAt: number;
+}
+
+const expiryOf = (p: PendingSignup) => p.expiresAt || (p.createdAt || 0) + PASSCODE_TTL_MS;
+export const isPendingExpired = (p: PendingSignup, now = Date.now()) => expiryOf(p) <= now;
 
 const batchRef = () => db().collection('accessBatches').doc(`batch-${ACCESS_BATCH}`);
 const codeRef = (code: string) => db().collection('accessCodes').doc(code);
@@ -72,6 +89,63 @@ export async function ensureAccessBatch(): Promise<void> {
   });
 }
 
+/**
+ * Expires a pending sign-up inside a transaction: the old code is retired and the seat returns to its
+ * batch with a fresh code. All reads must already be done by the caller (batchSnap may be null for
+ * pending sign-ups from an older batch, whose seats are simply retired).
+ */
+function releaseSeatInTx(tx: Transaction, p: PendingSignup, batch: BatchDoc | null, batchDocRef: FirebaseFirestore.DocumentReference | null) {
+  const now = Date.now();
+  tx.set(codeRef(p.code), { status: 'expired', expiredAt: now }, { merge: true });
+  tx.delete(pendingRef(p.email));
+  if (batch && batchDocRef) {
+    const taken = new Set([...batch.codes, ...(batch.free || [])]);
+    let fresh = newCode();
+    while (taken.has(fresh)) fresh = newCode();
+    batch.free = [...(batch.free || []), fresh];
+    batch.codes = [...batch.codes, fresh];
+    tx.update(batchDocRef, { free: batch.free, codes: batch.codes });
+  }
+}
+
+const batchRefFor = (n: number) => db().collection('accessBatches').doc(`batch-${n}`);
+
+/** Expires one pending sign-up if its 48 hours are up. Returns true if it was released. */
+export async function expirePendingIfDue(email: string): Promise<boolean> {
+  return db().runTransaction(async tx => {
+    const snap = await tx.get(pendingRef(email));
+    if (!snap.exists) return false;
+    const p = snap.data() as PendingSignup;
+    if (!isPendingExpired(p)) return false;
+    const bRef = batchRefFor(p.batch || ACCESS_BATCH);
+    const bSnap = await tx.get(bRef);
+    releaseSeatInTx(tx, p, bSnap.exists ? (bSnap.data() as BatchDoc) : null, bSnap.exists ? bRef : null);
+    return true;
+  });
+}
+
+/** Sweeps every expired pending sign-up back into its batch. Safe to run repeatedly. */
+export async function releaseExpiredPasscodes(): Promise<number> {
+  const snap = await db().collection('pendingSignups').get();
+  const now = Date.now();
+  let released = 0;
+  for (const d of snap.docs) {
+    const p = d.data() as PendingSignup;
+    if (p?.email && isPendingExpired(p, now)) {
+      if (await expirePendingIfDue(p.email).catch(() => false)) released++;
+    }
+  }
+  if (released) console.log(`[MarketX Access] ${released} unused pass code(s) expired and returned to the batch.`);
+  return released;
+}
+
+/** Seats taken in the current batch (reserved or redeemed), for the admin console. */
+export function allocatedSeats(batch: Partial<BatchDoc> | undefined | null): number {
+  if (!batch) return 0;
+  // Seats handed out from the original list, minus seats that expired and are waiting in `free`
+  return Math.max(0, (batch.next || 0) - (batch.free?.length || 0));
+}
+
 export type ReserveResult =
   | { status: 'created'; pending: PendingSignup }
   | { status: 'exists'; pending: PendingSignup }
@@ -86,13 +160,27 @@ export async function createPendingSignup(
   return db().runTransaction(async tx => {
     const pRef = pendingRef(email);
     const existing = await tx.get(pRef);
-    if (existing.exists) return { status: 'exists', pending: existing.data() as PendingSignup };
     const batchSnap = await tx.get(batchRef());
-    const batch = batchSnap.data() as { codes: string[]; next: number };
-    if (!batch || batch.next >= batch.codes.length) return { status: 'full' };
-
-    const code = batch.codes[batch.next];
+    const batch = batchSnap.data() as BatchDoc;
     const now = Date.now();
+    let old = existing.exists ? (existing.data() as PendingSignup) : null;
+    if (old && !isPendingExpired(old, now)) return { status: 'exists', pending: old };
+    // Their earlier code lapsed: retire it (its seat goes back to the batch) and start over
+    if (old && old.batch === ACCESS_BATCH && batch) releaseSeatInTx(tx, old, batch, batchRef());
+    else if (old) releaseSeatInTx(tx, old, null, null);
+    if (!batch) return { status: 'full' };
+
+    let code: string;
+    const update: Record<string, unknown> = {};
+    if (batch.free && batch.free.length) {
+      code = batch.free[0];
+      update.free = batch.free.slice(1);
+    } else if (batch.next < Math.min(batch.codes.length, batch.size || BATCH_SIZE)) {
+      code = batch.codes[batch.next];
+      update.next = batch.next + 1;
+    } else {
+      return { status: 'full' };
+    }
     const pending: PendingSignup = {
       ...data,
       email: email.toLowerCase(),
@@ -103,11 +191,14 @@ export async function createPendingSignup(
       codeEmailClaimAt: null,
       attempts: 0,
       lockedUntil: 0,
+      expiresAt: now + PASSCODE_TTL_MS,
     };
-    tx.update(batchRef(), { next: batch.next + 1 });
+    tx.update(batchRef(), update);
     tx.set(codeRef(code), { code, batch: ACCESS_BATCH, status: 'reserved', email: pending.email, reservedAt: now });
-    tx.set(pRef, pending);
-    return { status: 'created', pending };
+    // Firestore rejects undefined values (e.g. a sign-up without a username)
+    const clean = JSON.parse(JSON.stringify(pending)) as PendingSignup;
+    tx.set(pRef, clean);
+    return { status: 'created', pending: clean };
   });
 }
 
@@ -136,6 +227,7 @@ export async function sendPasscodeOnce(email: string, send: (code: string) => Pr
 export type RedeemCheck =
   | { status: 'ok'; pending: PendingSignup }
   | { status: 'no_pending' }
+  | { status: 'expired' }
   | { status: 'locked'; retryInMin: number }
   | { status: 'invalid'; attemptsLeft: number };
 
@@ -147,6 +239,12 @@ export async function checkPasscode(email: string, code: string): Promise<Redeem
     if (!snap.exists) return { status: 'no_pending' };
     const p = snap.data() as PendingSignup;
     const now = Date.now();
+    if (isPendingExpired(p, now)) {
+      const bRef = batchRefFor(p.batch || ACCESS_BATCH);
+      const bSnap = await tx.get(bRef);
+      releaseSeatInTx(tx, p, bSnap.exists ? (bSnap.data() as BatchDoc) : null, bSnap.exists ? bRef : null);
+      return { status: 'expired' };
+    }
     if ((p.lockedUntil || 0) > now) return { status: 'locked', retryInMin: Math.ceil(((p.lockedUntil || 0) - now) / 60000) };
     if (codesMatch(code, p.code)) return { status: 'ok', pending: p };
     const attempts = (p.attempts || 0) + 1;
