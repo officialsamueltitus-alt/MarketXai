@@ -429,6 +429,12 @@ header.glass-panel {
 .mx-composer.is-dragging::before {
   opacity: 1;
 }
+/* Phones: a compact one-row composer (half the desktop height) */
+@media (max-width: 639.98px) {
+  .mx-composer {
+    border-radius: 1.4rem;
+  }
+}
 
 /* Light theme touch-ups for hand-written effects */
 :root[data-theme='light'] .mx-backdrop {

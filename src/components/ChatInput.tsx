@@ -56,6 +56,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onClearInitialChart,
 }) => {
   const [input, setInput] = useState('');
+  // Phones get the compact one-row composer, which needs a shorter placeholder
+  const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639.98px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639.98px)');
+    const on = () => setCompact(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
   const [timeframe, setTimeframe] = useState('4H');
   const [slMode, setSlMode] = useState<'normal' | 'tight'>('normal');
   const [chartImage, setChartImage] = useState<string | null>(initialChartImage || null);
@@ -113,7 +121,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.min(200, textareaRef.current.scrollHeight)}px`;
     }
-  }, [input]);
+  }, [input, compact]);
 
   const processImageFile = useCallback((file: File, customName?: string, fromPaste: boolean = false) => {
     if (!file || !file.type.startsWith('image/')) return;
@@ -360,15 +368,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className={`mx-composer ${isDragging ? 'is-dragging' : ''}`}>
+      <form
+        onSubmit={handleSubmit}
+        className={`mx-composer max-sm:flex max-sm:flex-wrap max-sm:items-end max-sm:gap-0.5 max-sm:p-[5px] ${isDragging ? 'is-dragging' : ''}`}
+      >
         {/* Attached chart preview */}
         {chartImage && (
-          <div className="px-3 pt-3">
+          <div className="px-3 pt-3 max-sm:basis-full max-sm:px-1 max-sm:pt-1 max-sm:pb-1">
             <div className="inline-flex items-center gap-2.5 pl-1.5 pr-2 py-1.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] mx-rise">
               <img
                 src={chartImage}
                 alt="Attached chart"
-                className="w-10 h-10 rounded-xl object-cover bg-slate-900"
+                className="w-10 h-10 max-sm:w-8 max-sm:h-8 rounded-xl max-sm:rounded-lg object-cover bg-slate-900"
                 referrerPolicy="no-referrer"
               />
               <div className="min-w-0">
@@ -402,17 +413,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={chartImage ? 'Ask about this chart…' : 'Ask about any market, or type /'}
+          placeholder={compact ? (chartImage ? 'Ask about it…' : 'Ask any market…') : chartImage ? 'Ask about this chart…' : 'Ask about any market, or type /'}
           rows={1}
-          className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px]"
+          className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:order-2 max-sm:w-auto max-sm:flex-1 max-sm:min-w-0 max-sm:px-1.5 max-sm:py-1.5 max-sm:min-h-9 max-sm:max-h-[132px]"
         />
 
-        <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1 max-sm:contents">
+          <div className="flex items-center gap-1 max-sm:contents">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+              className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 max-sm:order-1 max-sm:mb-0.5 ${
                 chartImage ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
               }`}
               title="Attach a chart screenshot (or paste with Ctrl+V)"
@@ -424,22 +435,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={cycleTimeframe}
-              className="h-8 px-2.5 rounded-full text-xs font-medium font-mono text-slate-300 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              className="h-8 px-2.5 max-sm:px-2 rounded-full text-xs font-medium font-mono text-slate-300 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors cursor-pointer inline-flex items-center gap-1.5 shrink-0 max-sm:order-3 max-sm:mb-0.5"
               title="Change timeframe"
+              aria-label={`Timeframe ${timeframe} (tap to change)`}
             >
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <Clock className="w-3.5 h-3.5 text-slate-500 max-sm:hidden" />
               {timeframe}
             </button>
 
             <button
               type="button"
               onClick={() => setSlMode(prev => (prev === 'tight' ? 'normal' : 'tight'))}
-              className={`h-8 px-2.5 rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border ${
+              className={`h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 ${
                 slMode === 'tight'
                   ? 'text-amber-200 bg-amber-500/10 border-amber-500/30'
                   : 'text-slate-300 hover:text-white hover:bg-white/[0.06] border-white/[0.08]'
               }`}
               title={`Stop-loss mode: ${slMode === 'tight' ? 'Tight' : 'Normal'} (click to toggle)`}
+              aria-label={`Stop-loss mode: ${slMode === 'tight' ? 'Tight' : 'Normal'}`}
             >
               {slMode === 'tight' ? <Crosshair className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5 text-slate-500" />}
               <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
@@ -450,21 +463,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={onStopAnalysis}
-              className="h-9 w-9 rounded-full bg-white text-slate-950 flex items-center justify-center transition hover:bg-slate-200 active:scale-95 cursor-pointer"
+              className="h-9 w-9 rounded-full bg-white text-slate-950 flex items-center justify-center transition hover:bg-slate-200 active:scale-95 cursor-pointer shrink-0 max-sm:order-5"
               title="Stop"
               aria-label="Stop analysis"
             >
               <Square className="w-3.5 h-3.5 fill-current" />
             </button>
           ) : credits <= 0 ? (
-            <span className="h-9 px-3 rounded-full text-xs font-medium text-rose-300 bg-rose-500/10 inline-flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" /> Out of credits
+            <span className="h-9 px-3 max-sm:px-2.5 rounded-full text-xs font-medium text-rose-300 bg-rose-500/10 inline-flex items-center gap-1.5 shrink-0 max-sm:order-5 whitespace-nowrap">
+              <AlertCircle className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Out of credits</span>
+              <span className="sm:hidden">No credits</span>
             </span>
           ) : (
             <button
               type="submit"
               disabled={!input.trim() && !chartImage}
-              className={`h-9 w-9 rounded-full flex items-center justify-center transition active:scale-95 ${
+              className={`h-9 w-9 rounded-full flex items-center justify-center transition active:scale-95 shrink-0 max-sm:order-5 ${
                 input.trim() || chartImage
                   ? 'bg-white text-slate-950 hover:bg-slate-200 cursor-pointer shadow-[0_0_0_4px_rgba(139,92,246,0.15)]'
                   : 'bg-white/[0.06] text-slate-500 cursor-not-allowed'
@@ -478,7 +492,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </form>
 
-      <p className="text-center text-[11px] text-slate-500 mt-2">
+      <p className="text-center text-[11px] text-slate-500 mt-2 max-sm:mt-1.5 max-sm:text-[10px]">
         <MarketXText className="text-[11px]" /> is AI and can make mistakes. Always manage your risk.
       </p>
     </div>
