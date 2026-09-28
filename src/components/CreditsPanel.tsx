@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CreditState, UserProfile } from '../types';
-import { getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
+import { campaignCreditsLeft, formatDailyResetTime, getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
@@ -52,13 +52,15 @@ const QuotaRing: React.FC<{ value: number; max: number; unlimited: boolean }> = 
 export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditState, onOpenPricing, onOpenGiftModal }) => {
   const unlimited = isUnlimitedUser(userProfile.email) || creditState.availableCredits >= 99999;
   const isPremium = userProfile.subscription.active;
-  const [reset, setReset] = useState(() => getDailyResetCountdown(creditState.lastDailyResetTime));
+  const [reset, setReset] = useState(() => getDailyResetCountdown(creditState));
+  const resetAt = formatDailyResetTime(creditState);
+  const campaignLeft = campaignCreditsLeft(creditState);
 
   useEffect(() => {
-    setReset(getDailyResetCountdown(creditState.lastDailyResetTime));
-    const id = setInterval(() => setReset(getDailyResetCountdown(creditState.lastDailyResetTime)), 30000);
+    setReset(getDailyResetCountdown(creditState));
+    const id = setInterval(() => setReset(getDailyResetCountdown(creditState)), 30000);
     return () => clearInterval(id);
-  }, [creditState.lastDailyResetTime]);
+  }, [creditState.nextDailyResetAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tier = unlimited ? 'VIP Unlimited' : isPremium ? 'Pro' : 'Free';
 
@@ -102,15 +104,30 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
               ? 'No daily limit on your account.'
               : `${formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE)} of ${formatTokens(
                   creditState.dailyUsageLimit * TOKENS_PER_USAGE
-                )} tokens left · ${formatTokens((creditState.dailyUsageLimit - creditState.dailyUsageRemaining) * TOKENS_PER_USAGE)} used. Renews every 24h, no rollover.`}
+                )} tokens left · ${formatTokens((creditState.dailyUsageLimit - creditState.dailyUsageRemaining) * TOKENS_PER_USAGE)} used. Refills every day at ${resetAt}, no rollover.`}
           </p>
           {!unlimited && (
             <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-white/[0.05] text-[11px] text-slate-300">
-              <Clock className="w-3 h-3" /> Resets in <span className="font-mono">{reset.text}</span>
+              <Clock className="w-3 h-3" /> Refills at {resetAt} · in <span className="font-mono">{reset.text}</span>
             </span>
           )}
         </div>
       </section>
+
+      {/* Campaign credits: the one exemption, still usable after the daily limit */}
+      {!unlimited && campaignLeft > 0 && (
+        <section className="rounded-3xl border border-cyan-400/15 bg-cyan-500/[0.06] p-4 flex items-center gap-3">
+          <span className="w-10 h-10 rounded-2xl bg-cyan-500/15 text-cyan-300 flex items-center justify-center shrink-0">
+            <Gift className="w-5 h-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-white">
+              {campaignLeft} campaign credit{campaignLeft === 1 ? '' : 's'}
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Earned from the X campaign. They keep working after today's limit, until used up.</p>
+          </div>
+        </section>
+      )}
 
       {/* Actions */}
       {!unlimited && (

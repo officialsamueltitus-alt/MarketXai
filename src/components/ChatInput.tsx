@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MarketXText } from './MarketXText';
+import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
   ArrowUp,
   Clock,
@@ -19,7 +20,67 @@ import {
   Bot,
   Plug,
   Lock,
+  BellRing,
+  History,
+  NotebookPen,
 } from 'lucide-react';
+
+// Every timeframe the analysis engine supports (value sent to the server, label shown)
+const TIMEFRAMES: { value: string; label: string }[] = [
+  { value: '1M', label: '1m' },
+  { value: '3M', label: '3m' },
+  { value: '5M', label: '5m' },
+  { value: '15M', label: '15m' },
+  { value: '30M', label: '30m' },
+  { value: '1H', label: '1H' },
+  { value: '2H', label: '2H' },
+  { value: '4H', label: '4H' },
+  { value: '6H', label: '6H' },
+  { value: '8H', label: '8H' },
+  { value: '12H', label: '12H' },
+  { value: '1D', label: '1D' },
+  { value: '1W', label: '1W' },
+];
+const TF_KEY = 'mx_timeframe';
+
+/** True when the text names a market (the asset parser falls back to Bitcoin when it finds none). */
+function namesAnAsset(text: string): boolean {
+  if (!text.trim()) return false;
+  const a = extractAssetInfo(text);
+  return a.symbol !== 'BTC/USDT' || /\b(BTC|XBT|BITCOIN)\b/i.test(text);
+}
+
+const MAX_CHART_SIDE = 1600;
+/** Decodes an uploaded image and re-encodes it at most 1600px on its longest side (sharp enough to read a price
+ * axis, small enough to upload fast). Rejects files the browser can't open as an image. */
+function prepareChartImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      if (!w || !h) return reject(new Error('empty'));
+      const scale = Math.min(1, MAX_CHART_SIDE / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      const g = canvas.getContext('2d');
+      if (!g) return reject(new Error('canvas'));
+      g.fillStyle = '#ffffff'; // transparent PNGs get a solid background instead of black
+      g.fillRect(0, 0, canvas.width, canvas.height);
+      g.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.9));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('decode'));
+    };
+    img.src = url;
+  });
+}
+const timeframeLabel = (v: string) => TIMEFRAMES.find(t => t.value === v)?.label || v;
 
 // Slash-command menu shown when the user types "/" in the chat input
 const SLASH_COMMANDS = [
@@ -27,6 +88,9 @@ const SLASH_COMMANDS = [
   { id: 'preference', label: 'Preference Mode', description: 'Tune analysis style, risk and defaults', icon: SlidersHorizontal },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
+  { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
+  { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
+  { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
 ] as const;
 
 interface ChatInputProps {
@@ -40,7 +104,10 @@ interface ChatInputProps {
   ) => void;
   onStopAnalysis?: () => void;
   isLoading: boolean;
+  /** Analyses left today; at 0 new prompts are paused until the refill */
   credits: number;
+  /** Local time of the next automatic refill, e.g. "3:00 AM" */
+  refillLabel?: string;
   initialChartImage?: string | null;
   initialChartFileName?: string;
   onClearInitialChart?: () => void;
@@ -51,6 +118,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStopAnalysis,
   isLoading,
   credits,
+  refillLabel = '3:00 AM',
   initialChartImage,
   initialChartFileName,
   onClearInitialChart,
@@ -64,11 +132,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     mq.addEventListener?.('change', on);
     return () => mq.removeEventListener?.('change', on);
   }, []);
-  const [timeframe, setTimeframe] = useState('4H');
+  // The chosen timeframe stays selected (also across visits) until the user picks another
+  const [timeframe, setTimeframeState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(TF_KEY);
+      if (saved && TIMEFRAMES.some(t => t.value === saved)) return saved;
+    } catch {}
+    return '4H';
+  });
+  const setTimeframe = (v: string) => {
+    setTimeframeState(v);
+    try {
+      localStorage.setItem(TF_KEY, v);
+    } catch {}
+  };
+  const [tfOpen, setTfOpen] = useState(false);
+  const tfButtonRef = useRef<HTMLButtonElement>(null);
+  const tfMenuRef = useRef<HTMLDivElement>(null);
   const [slMode, setSlMode] = useState<'normal' | 'tight'>('normal');
   const [chartImage, setChartImage] = useState<string | null>(initialChartImage || null);
   const [chartFileName, setChartFileName] = useState<string>(initialChartFileName || '');
   const [isPasted, setIsPasted] = useState(false);
+  // Chart attached but no pair named yet, or the file couldn't be opened as an image
+  const [chartNotice, setChartNotice] = useState<'pair' | 'unreadable' | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,6 +171,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       )
     : [];
   const isSlashMenuOpen = !!slashMatch && !slashDismissed && filteredCommands.length > 0;
+
+  // Keep the highlighted command visible when moving through the (scrollable) list with the arrow keys
+  useEffect(() => {
+    document.querySelector('[aria-label="Commands"] [aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [slashIndex]);
 
   useEffect(() => {
     setSlashIndex(0);
@@ -124,21 +215,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [input, compact]);
 
   const processImageFile = useCallback((file: File, customName?: string, fromPaste: boolean = false) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      const result = e.target?.result as string;
-      if (result) {
+    if (!file || !file.type.startsWith('image/')) {
+      if (file) setChartNotice('unreadable');
+      return;
+    }
+    prepareChartImage(file)
+      .then(result => {
         setChartImage(result);
-        const resolvedName = customName || file.name || 'Chart_Screenshot.png';
-        setChartFileName(resolvedName);
+        setChartFileName(customName || file.name || 'Chart_Screenshot.png');
         setIsPasted(fromPaste);
+        setChartNotice(null);
         setTimeout(() => {
           textareaRef.current?.focus();
         }, 50);
-      }
-    };
-    reader.readAsDataURL(file);
+      })
+      .catch(() => setChartNotice('unreadable'));
   }, []);
 
   const handlePaste = useCallback(
@@ -237,9 +328,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const trimmed = input.trim();
     if (!trimmed && !chartImage) return;
 
-    const promptToSend =
-      trimmed ||
-      `Analyze this uploaded chart image: identify key market structure, trend, key levels and high-probability trade setups.`;
+    // A chart is read from the image alone, so the user only has to say which pair it is
+    if (chartImage && !namesAnAsset(trimmed)) {
+      setChartNotice('pair');
+      textareaRef.current?.focus();
+      return;
+    }
+    setChartNotice(null);
+    const promptToSend = trimmed;
 
     onSendMessage(
       promptToSend,
@@ -290,12 +386,62 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  const timeframes = ['15m', '1H', '4H', '1D'];
+  // Timeframe pop-up: closes on outside tap or Escape; the selected chip is scrolled into view when it opens
+  useEffect(() => {
+    if (!tfOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (tfMenuRef.current?.contains(t) || tfButtonRef.current?.contains(t)) return;
+      setTfOpen(false);
+      // The tap only closes the menu; it must not also press whatever sits underneath (e.g. a market card)
+      const swallow = (ev: MouseEvent) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
+      window.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 600);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setTfOpen(false);
+        tfButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    const sel = tfMenuRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+    sel?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    sel?.focus({ preventScroll: true });
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [tfOpen]);
 
-  const cycleTimeframe = () => {
-    const idx = timeframes.indexOf(timeframe);
-    const nextIdx = (idx + 1) % timeframes.length;
-    setTimeframe(timeframes[nextIdx]);
+  // While the timeframe menu is open, the chat's scroll button moves up above it instead of covering a chip
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = tfMenuRef.current;
+    if (!tfOpen || !el) return;
+    root.style.setProperty('--mx-popover-h', `${el.offsetHeight + 8}px`);
+    return () => root.style.setProperty('--mx-popover-h', '0px');
+  }, [tfOpen]);
+
+  const chooseTimeframe = (v: string) => {
+    setTimeframe(v);
+    setTfOpen(false);
+    textareaRef.current?.focus({ preventScroll: true });
+  };
+
+  const onTfKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    const buttons = Array.from(tfMenuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="option"]') || []);
+    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
+    buttons[next]?.focus();
+    buttons[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };
 
   return (
@@ -312,6 +458,47 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         className="hidden"
         onChange={handleFileChange}
       />
+
+      {/* Timeframe pop-up: one horizontal row of every timeframe, anchored to the top of the composer */}
+      {tfOpen && (
+        <div
+          ref={tfMenuRef}
+          className="absolute bottom-full left-0 right-0 mb-2 z-30 rounded-2xl bg-[var(--mx-surface-2)] border border-white/[0.1] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.9)] mx-pop-in"
+        >
+          <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
+            <span className="text-[11px] font-medium text-slate-400">Timeframe</span>
+            <span className="text-[11px] text-slate-500">Stays selected until you change it</span>
+          </div>
+          <div
+            role="listbox"
+            aria-label="Timeframe"
+            aria-orientation="horizontal"
+            onKeyDown={onTfKeyDown}
+            className="flex gap-1.5 overflow-x-auto overscroll-x-contain px-2.5 pb-2.5 pt-1 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {TIMEFRAMES.map(t => {
+              const active = t.value === timeframe;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  tabIndex={active ? 0 : -1}
+                  onClick={() => chooseTimeframe(t.value)}
+                  className={`snap-start shrink-0 h-9 min-w-[3rem] px-3 rounded-xl text-[13px] font-medium font-mono transition-colors cursor-pointer border ${
+                    active
+                      ? 'bg-white text-slate-950 border-white'
+                      : 'text-slate-300 border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Slash-command pop-out, anchored to the top of the composer */}
       {(isSlashMenuOpen || comingSoonLabel) && (
@@ -335,8 +522,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             </div>
           ) : (
-            <div role="listbox" aria-label="Commands" className="p-1.5">
-              <div className="px-2.5 pt-1.5 pb-1 text-[11px] font-medium text-slate-500">Commands</div>
+            <div role="listbox" aria-label="Commands" className="p-1.5 max-h-[min(60vh,400px)] overflow-y-auto overscroll-contain">
+              <div className="px-2.5 pt-1.5 pb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
+                <span>Commands</span>
+                <span className="inline-flex items-center gap-1 text-amber-300/80">
+                  <Lock className="w-3 h-3" /> Private testing
+                </span>
+              </div>
               {filteredCommands.map((cmd, i) => {
                 const Icon = cmd.icon;
                 const active = i === slashIndex;
@@ -357,7 +549,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       <Icon className="w-4 h-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium">/{cmd.label.toLowerCase().replace(/\s+/g, '-')}</span>
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
+                        <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
+                      </span>
                       <span className="block text-xs text-slate-500 truncate">{cmd.description}</span>
                     </span>
                   </button>
@@ -372,6 +567,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         onSubmit={handleSubmit}
         className={`mx-composer max-sm:flex max-sm:flex-wrap max-sm:items-end max-sm:gap-0.5 max-sm:p-[5px] ${isDragging ? 'is-dragging' : ''}`}
       >
+        {chartNotice === 'unreadable' && !chartImage && (
+          <div className="px-3 pt-3 max-sm:basis-full max-sm:px-1 max-sm:pt-1 max-sm:pb-1">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-[12px] text-rose-200" role="alert">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              That file can't be read as an image. Use a PNG or JPG chart screenshot.
+              <button type="button" onClick={() => setChartNotice(null)} aria-label="Dismiss" className="ml-1 w-5 h-5 rounded-full hover:bg-white/[0.08] flex items-center justify-center cursor-pointer">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Attached chart preview */}
         {chartImage && (
           <div className="px-3 pt-3 max-sm:basis-full max-sm:px-1 max-sm:pt-1 max-sm:pb-1">
@@ -386,9 +593,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 <div className="text-xs font-medium text-slate-200 truncate max-w-[180px]">
                   {chartFileName || (isPasted ? 'Pasted chart' : 'Chart image')}
                 </div>
-                <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Ready for vision analysis
-                </div>
+                {chartNotice === 'pair' ? (
+                  <div className="text-[11px] text-amber-300 flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3 h-3" /> Type the pair, e.g. EURUSD or Gold
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Ready, name the pair and send
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -396,6 +609,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   setChartImage(null);
                   setChartFileName('');
                   setIsPasted(false);
+                  setChartNotice(null);
                   if (onClearInitialChart) onClearInitialChart();
                 }}
                 className="ml-1 w-6 h-6 rounded-full hover:bg-white/[0.1] text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
@@ -410,10 +624,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => {
+            setInput(e.target.value);
+            if (chartNotice === 'pair' && namesAnAsset(e.target.value)) setChartNotice(null);
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={compact ? (chartImage ? 'Ask about it…' : 'Ask any market…') : chartImage ? 'Ask about this chart…' : 'Ask about any market, or type /'}
+          placeholder={credits <= 0 ? `Daily limit reached, back at ${refillLabel}` : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
           rows={1}
           className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:order-2 max-sm:w-auto max-sm:flex-1 max-sm:min-w-0 max-sm:px-1.5 max-sm:py-1.5 max-sm:min-h-9 max-sm:max-h-[132px]"
         />
@@ -433,14 +650,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </button>
 
             <button
+              ref={tfButtonRef}
               type="button"
-              onClick={cycleTimeframe}
-              className="h-8 px-2.5 max-sm:px-2 rounded-full text-xs font-medium font-mono text-slate-300 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors cursor-pointer inline-flex items-center gap-1.5 shrink-0 max-sm:order-3 max-sm:mb-0.5"
+              onClick={() => setTfOpen(o => !o)}
+              className={`h-8 px-2.5 max-sm:px-2 rounded-full text-xs font-medium font-mono transition-colors cursor-pointer inline-flex items-center gap-1.5 shrink-0 max-sm:order-3 max-sm:mb-0.5 border ${
+                tfOpen ? 'text-white bg-white/[0.08] border-white/[0.16]' : 'text-slate-300 hover:text-white hover:bg-white/[0.06] border-white/[0.08]'
+              }`}
               title="Change timeframe"
-              aria-label={`Timeframe ${timeframe} (tap to change)`}
+              aria-label={`Timeframe ${timeframeLabel(timeframe)} (tap to change)`}
+              aria-haspopup="listbox"
+              aria-expanded={tfOpen}
             >
               <Clock className="w-3.5 h-3.5 text-slate-500 max-sm:hidden" />
-              {timeframe}
+              {timeframeLabel(timeframe)}
             </button>
 
             <button
@@ -470,9 +692,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <Square className="w-3.5 h-3.5 fill-current" />
             </button>
           ) : credits <= 0 ? (
-            <span className="h-9 px-3 max-sm:px-2.5 rounded-full text-xs font-medium text-rose-300 bg-rose-500/10 inline-flex items-center gap-1.5 shrink-0 max-sm:order-5 whitespace-nowrap">
-              <AlertCircle className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Out of credits</span>
-              <span className="sm:hidden">No credits</span>
+            <span
+              className="h-9 px-3 max-sm:px-2.5 rounded-full text-xs font-medium text-amber-200 bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-1.5 shrink-0 max-sm:order-5 whitespace-nowrap"
+              role="status"
+              title={`Today's analyses are used up. They refill automatically at ${refillLabel}.`}
+            >
+              <Clock className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Refills at {refillLabel}</span>
+              <span className="sm:hidden">{refillLabel}</span>
             </span>
           ) : (
             <button

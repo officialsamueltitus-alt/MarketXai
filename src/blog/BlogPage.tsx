@@ -14,6 +14,8 @@ import {
   SlidersHorizontal,
   Target,
   UserCog,
+  Activity,
+  ImagePlus,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -185,13 +187,17 @@ const SECTIONS: Section[] = [
               oil, crypto, stocks, major indices and synthetic indices.
             </>,
             <>
-              Pick a timeframe on the input box: <B>15m, 1H, 4H or 1D</B>. A timeframe written in your prompt (such as 5m, 30m, 2H, daily or weekly) always takes
-              priority.
+              Tap the <B>timeframe</B> button on the input box to open the full row of timeframes: <B>1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 8H, 12H, 1D and 1W</B>.
+              The one you pick stays selected, even after you close the site, until you change it. A timeframe written in your prompt (such as 5m, 2H, daily or
+              weekly) takes priority for that prompt.
             </>,
             <>
               Optional: choose <B>Normal SL</B> or <B>Tight SL</B> on the input box (see Stop loss options).
             </>,
-            <>Optional: attach a chart screenshot with the image button, or paste one with Ctrl+V (Cmd+V on Mac), and ask about it.</>,
+            <>
+              Optional: attach a chart screenshot with the image button, or paste one with Ctrl+V (Cmd+V on Mac), and type the pair. MarketX then reads that
+              chart (see Analyzing a chart screenshot).
+            </>,
             <>
               Press <B>Enter</B> or the send button. Use <B>Shift+Enter</B> for a new line. While it works you can press <B>Stop</B> to cancel.
             </>,
@@ -201,8 +207,46 @@ const SECTIONS: Section[] = [
           Say so in the prompt, for example short setup on gold 4H. If there is no valid setup in that direction, you get the best valid plan or a clear No signal.
         </Note>
         <Note title="Questions work too">Ask things like what is a liquidity sweep? and you get a plain answer instead of a trade plan.</Note>
-        <Note title="Commands">Type / in the input to see upcoming tools such as the Trading Agent and MT5 Connector. They are marked Coming soon.</Note>
+        <Note title="Watch it work">
+          After you send, the process report shows each step as it happens: reading your request, checking the live price, checking today's news and building
+          the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
+        </Note>
+        <Note title="Commands">
+          Type / in the input to see the tools in private testing: Strategy, Preference Mode, Trading Agent, MT5 Connector, Price Alerts, Backtest and Trade
+          Journal. They are marked Soon and open for everyone once testing ends.
+        </Note>
         <P>Each reply shows the tokens it used, and the arrows on the input box jump to the top or bottom of a long chat.</P>
+      </>
+    ),
+  },
+  {
+    id: 'chart-screenshots',
+    title: 'Analyzing a chart screenshot',
+    icon: ImagePlus,
+    lead: 'Upload a screenshot of any candlestick chart, tell MarketX which pair it is, and it analyzes exactly what the chart shows with the same strategy it uses for live analyses.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              Press the <B>image button</B> on the input box, or paste a screenshot with Ctrl+V (Cmd+V on Mac). PNG, JPG and WebP images work.
+            </>,
+            <>
+              Type the pair, for example <em>EURUSD</em>, <em>Gold</em> or <em>BTC</em>. If you forget, the input box reminds you.
+            </>,
+            <>
+              Send. MarketX reads the price scale, the last price, the swings and the timeframe label on your chart, then marks the zones, the entry, the stop loss
+              and three targets from that chart.
+            </>,
+          ]}
+        />
+        <Note title="Read from your chart">
+          The result starts with Read from your chart and shows the chart's last price next to today's live price. If price has moved since you took the
+          screenshot, check the levels before you trade.
+        </Note>
+        <Note title="Not a chart?" tone="amber">
+          Photos, documents and other images are not analyzed. You get a short message and the analysis is refunded. The same happens if a chart can't be read.
+        </Note>
       </>
     ),
   },
@@ -236,6 +280,32 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'live-prices',
+    title: 'Live prices',
+    icon: Activity,
+    lead: 'Prices on MarketX are live: they stream to your screen as the market moves, and every analysis fetches its price and candles at the moment you send it.',
+    body: (
+      <>
+        <Points
+          items={[
+            <>
+              <B>Crypto and gold</B> update about every second. <B>Forex, stocks and indices</B> update every few seconds, at the pace of their data source.
+            </>,
+            <>
+              <B>Analyses never reuse old data.</B> Each one reads the live price and fresh candles, including the candle that is still forming.
+            </>,
+            <>
+              <B>Saving battery.</B> When the tab is in the background, prices pause and pick up again the moment you come back.
+            </>,
+            <>
+              <B>If a feed is briefly down</B>, the last real price is shown for at most a minute, never an old or made up one.
+            </>,
+          ]}
+        />
+      </>
+    ),
+  },
+  {
     id: 'stop-loss-options',
     title: 'Stop loss options',
     icon: SlidersHorizontal,
@@ -258,7 +328,7 @@ const SECTIONS: Section[] = [
     id: 'credits-and-plans',
     title: 'Credits, daily analyses and plans',
     icon: CreditCard,
-    lead: 'Each analysis uses one of your daily analyses, plus one credit if you have any; you can keep going while either is left. If an analysis fails, it is refunded automatically.',
+    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. The one exemption is campaign credits: they keep working after the daily limit until they run out. If an analysis fails, it is refunded automatically.",
     body: (
       <>
         <Table
@@ -272,16 +342,18 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Check your balance">
-          Tap the credit pill in the top bar, or open Sidebar, Settings, Credits. You see your balance, today's analyses and tokens, and when your daily analyses
-          reset. Daily analyses renew 24 hours after your last reset.
+          Tap the credit pill in the top bar, or open Sidebar, Settings, Credits. You see your balance, today's analyses and tokens, and a countdown to the next
+          refill. Daily analyses refill every day at 3:00 AM Lagos time (the site shows it in your own time), with no rollover.
         </Note>
         <Note title="Upgrade or refill">
           In Credits choose Upgrade to Pro (or Refill or change plan), pick Monthly or Yearly, and pay through the secure checkout by card, bank transfer or USSD
           where available. Pro switches on as soon as the payment is confirmed, and you get a notification and an email receipt. Current prices are always shown
           in the Plans window.
         </Note>
-        <Note title="Out of credits?" tone="amber">
-          The input box shows Out of credits. Wait for your daily analyses to renew, earn credits through the X campaign, receive a gift, or upgrade.
+        <Note title="Daily limit reached?" tone="amber">
+          If you have campaign credits from the X campaign, you keep going on those until they run out; the credit pill shows how many are left. Otherwise
+          the input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro gives you
+          10 analyses a day instead of 3.
         </Note>
       </>
     ),

@@ -18,6 +18,9 @@
 - Credits, subscriptions, gifts, rewards and payments are only ever changed server-side inside
   Firestore transactions. `firestore.rules` denies all direct client access — keep it that way.
 - Paystack plans are granted only after server verification (verify endpoint or signed webhook).
+- Daily analyses refill every day at 3:00 AM in `CREDIT_RESET_TZ` (default Africa/Lagos, `server/dailyReset.ts`), not 24h after use;
+  the daily limit is a hard stop (402 `DAILY_LIMIT`) until that refill. Only exemption: X campaign credits (`credits.campaign`,
+  part of `available`) keep working after the daily limit until used up; daily use never consumes them.
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a

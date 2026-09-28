@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
+import { CREDIT_RESET_LABEL, CREDIT_RESET_TZ, isDailyResetDue, nextDailyReset } from './dailyReset';
 import crypto from 'crypto';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
@@ -55,6 +56,8 @@ export interface UserDoc {
     dailyLimit: number;
     dailyRemaining: number;
     lastDailyReset: number;
+    /** Credits earned from the X campaign (part of `available`): the one exemption, usable after the daily limit */
+    campaign?: number;
   };
   xShareReward: XShareReward | null;
   emailVerified?: boolean;
@@ -109,7 +112,7 @@ export function sanitizeUsername(raw: string): string {
   return (raw || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
 }
 
-// Apply subscription expiry and the strict 24h daily quota renewal (no rollover)
+// Apply subscription expiry and the daily quota refill at 3:00 AM (site time zone), no rollover
 function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: boolean } {
   let changed = false;
   const next: UserDoc = { ...doc, subscription: { ...doc.subscription }, credits: { ...doc.credits } };
@@ -119,8 +122,18 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
     changed = true;
   }
 
+  // Campaign credits pool: accounts credited before the pool existed get what is left of their reward
+  if (next.credits.campaign === undefined && next.xShareReward?.status === 'credited' && next.xShareReward.creditsAwarded > 0) {
+    next.credits.campaign = Math.max(0, Math.min(next.credits.available, next.xShareReward.creditsAwarded));
+    changed = true;
+  }
+  if ((next.credits.campaign ?? 0) > next.credits.available) {
+    next.credits.campaign = Math.max(0, next.credits.available);
+    changed = true;
+  }
+
   const targetLimit = next.subscription.active ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
-  if (now - next.credits.lastDailyReset >= DAY_MS) {
+  if (isDailyResetDue(next.credits.lastDailyReset, now)) {
     next.credits.dailyLimit = targetLimit;
     next.credits.dailyRemaining = targetLimit;
     next.credits.lastDailyReset = now;
@@ -156,12 +169,17 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
         dailyUsageLimit: UNLIMITED_VALUE,
         dailyUsageRemaining: UNLIMITED_VALUE,
         lastDailyResetTime: doc.credits.lastDailyReset,
+        nextDailyResetAt: nextDailyReset(),
+        resetTimeZone: CREDIT_RESET_TZ,
       }
     : {
         availableCredits: doc.credits.available,
         dailyUsageLimit: doc.credits.dailyLimit,
         dailyUsageRemaining: doc.credits.dailyRemaining,
         lastDailyResetTime: doc.credits.lastDailyReset,
+        nextDailyResetAt: nextDailyReset(),
+        resetTimeZone: CREDIT_RESET_TZ,
+        campaignCredits: Math.max(0, doc.credits.campaign ?? 0),
       };
   return { profile, credits, xShareReward: doc.xShareReward || null, unlimited: vip };
 }
@@ -491,6 +509,8 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
     if (!reward || reward.status !== 'pending' || Date.now() < reward.unlockAt) return false;
     tx.update(loaded.ref, {
       'credits.available': FieldValue.increment(reward.creditsAwarded),
+      // Kept in their own pool too: campaign credits still work after the daily limit, until used up
+      'credits.campaign': Math.max(0, loaded.doc.credits.campaign ?? 0) + reward.creditsAwarded,
       xShareReward: { ...reward, status: 'credited', notifiedOnSite: true, notifiedEmail: true },
     });
     addNotificationInTx(tx, user.uid, {
@@ -594,23 +614,46 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       if (!loaded) return { ok: false as const, reason: 'NO_ACCOUNT' };
       const c = loaded.doc.credits;
       saveNormalized(tx, loaded);
-      if (c.dailyRemaining <= 0 && c.available <= 0) return { ok: false as const, reason: 'NO_CREDITS' };
-      const dailyDelta = c.dailyRemaining > 0 ? 1 : 0;
-      const availableDelta = c.available > 0 ? 1 : 0;
+      // The daily limit is a hard stop until the 3:00 AM refill. The one exemption: credits earned from the X
+      // campaign keep working after it, until they are used up.
+      const campaign = Math.max(0, Math.min(c.campaign ?? 0, c.available));
+      let dailyDelta = 0;
+      let availableDelta = 0;
+      let campaignDelta = 0;
+      if (c.dailyRemaining > 0) {
+        dailyDelta = 1;
+        // Daily use never eats into campaign credits
+        availableDelta = c.available - campaign > 0 ? 1 : 0;
+      } else if (campaign > 0) {
+        campaignDelta = 1;
+        availableDelta = 1;
+      } else {
+        return { ok: false as const, reason: 'DAILY_LIMIT' };
+      }
       tx.update(loaded.ref, {
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
         'credits.available': c.available - availableDelta,
+        'credits.campaign': campaign - campaignDelta,
       });
-      return { ok: true as const, dailyDelta, availableDelta, remaining: c.dailyRemaining - dailyDelta, limit: c.dailyLimit };
+      return {
+        ok: true as const,
+        dailyDelta,
+        availableDelta,
+        campaignDelta,
+        campaignLeft: campaign - campaignDelta,
+        remaining: c.dailyRemaining - dailyDelta,
+        limit: c.dailyLimit,
+      };
     });
 
     if (!charged.ok) {
-      return res.status(charged.reason === 'NO_CREDITS' ? 402 : 409).json({
+      const limitReached = charged.reason === 'DAILY_LIMIT';
+      return res.status(limitReached ? 402 : 409).json({
         error: charged.reason,
-        message:
-          charged.reason === 'NO_CREDITS'
-            ? 'You have used all your credits. Refill or upgrade to continue.'
-            : 'Account not initialised. Please sign in again.',
+        nextDailyResetAt: limitReached ? nextDailyReset() : undefined,
+        message: limitReached
+          ? `You've reached today's analysis limit. Your analyses refill automatically at ${CREDIT_RESET_LABEL}.`
+          : 'Account not initialised. Please sign in again.',
       });
     }
 
@@ -622,7 +665,17 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
           notifyActivity(user.uid, {
             type: 'system',
             title: `You've used today's ${charged.limit} analyses`,
-            message: 'Your daily analyses renew 24 hours after your last reset. Credits or Pro keep you going.',
+            message:
+              charged.campaignLeft > 0
+                ? `Your ${charged.campaignLeft} campaign credit${charged.campaignLeft === 1 ? '' : 's'} keep you going until they run out. Daily analyses refill at ${CREDIT_RESET_LABEL}.`
+                : `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
+            actionType: 'open_pricing',
+          });
+        } else if (charged.campaignDelta && charged.campaignLeft === 0) {
+          notifyActivity(user.uid, {
+            type: 'system',
+            title: 'Campaign credits used up',
+            message: `New prompts are paused until your daily analyses refill automatically at ${CREDIT_RESET_LABEL}.`,
             actionType: 'open_pricing',
           });
         }
@@ -632,6 +685,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         .update({
           'credits.dailyRemaining': FieldValue.increment(charged.dailyDelta),
           'credits.available': FieldValue.increment(charged.availableDelta),
+          'credits.campaign': FieldValue.increment(charged.campaignDelta),
         })
         .catch(err => console.warn('[MarketX Credits] Refund failed:', err?.message || err));
     });

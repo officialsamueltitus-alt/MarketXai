@@ -15,7 +15,6 @@ export function isUnlimitedUser(email?: string): boolean {
   return email.trim().toLowerCase() === serverUnlimitedEmail;
 }
 
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const THREE_HUNDRED_SIXTY_FIVE_DAYS_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -42,64 +41,23 @@ export const INITIAL_CREDIT_STATE: CreditState = {
   lastDailyResetTime: Date.now(),
 };
 
-/**
- * Checks and updates the daily 24-hour quota.
- * Unlimited users bypass limits.
- */
-export function checkAndRefreshDailyQuota(
-  state: CreditState,
-  hasPremium: boolean,
-  userEmail?: string
-): { state: CreditState; refreshed: boolean } {
-  if (isUnlimitedUser(userEmail)) {
-    return {
-      state: {
-        ...state,
-        availableCredits: 999999,
-        dailyUsageLimit: 999999,
-        dailyUsageRemaining: 999999,
-      },
-      refreshed: false,
-    };
-  }
-
-  const now = Date.now();
-  const elapsed = now - state.lastDailyResetTime;
-  const targetDailyLimit = hasPremium ? 10 : 3;
-
-  if (elapsed >= TWENTY_FOUR_HOURS_MS) {
-    // 24 hours elapsed: restart strictly from the limit (10 for premium, 3 for free), no rollover!
-    const newState: CreditState = {
-      ...state,
-      dailyUsageLimit: targetDailyLimit,
-      dailyUsageRemaining: targetDailyLimit,
-      lastDailyResetTime: now,
-    };
-    return { state: newState, refreshed: true };
-  }
-
-  // Update limit if plan changed mid-day
-  if (state.dailyUsageLimit !== targetDailyLimit) {
-    const adjustedRemaining = Math.min(targetDailyLimit, state.dailyUsageRemaining + (targetDailyLimit - state.dailyUsageLimit));
-    return {
-      state: {
-        ...state,
-        dailyUsageLimit: targetDailyLimit,
-        dailyUsageRemaining: Math.max(0, adjustedRemaining),
-      },
-      refreshed: false,
-    };
-  }
-
-  return { state, refreshed: false };
+/** When the daily analyses refill next: the server's 3:00 AM refill time, or the next local 3:00 AM before it loads. */
+export function getNextDailyReset(state: Pick<CreditState, 'nextDailyResetAt'>): number {
+  if (state.nextDailyResetAt && state.nextDailyResetAt > 0) return state.nextDailyResetAt;
+  const d = new Date();
+  d.setHours(3, 0, 0, 0);
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+  return d.getTime();
 }
 
-/**
- * Calculates remaining time until next 24-hour daily quota refresh.
- */
-export function getDailyResetCountdown(lastDailyResetTime: number): { hours: number; minutes: number; text: string } {
-  const nextReset = lastDailyResetTime + TWENTY_FOUR_HOURS_MS;
-  const diff = Math.max(0, nextReset - Date.now());
+/** The refill time in the reader's own clock, e.g. "3:00 AM" (or "2:00 AM" for someone an hour behind the site). */
+export function formatDailyResetTime(state: Pick<CreditState, 'nextDailyResetAt'>): string {
+  return new Date(getNextDailyReset(state)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/** Time left until the next daily refill (3:00 AM every day). */
+export function getDailyResetCountdown(state: Pick<CreditState, 'nextDailyResetAt'>): { hours: number; minutes: number; text: string } {
+  const diff = Math.max(0, getNextDailyReset(state) - Date.now());
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   return {
@@ -107,6 +65,21 @@ export function getDailyResetCountdown(lastDailyResetTime: number): { hours: num
     minutes,
     text: `${hours}h ${minutes}m`,
   };
+}
+
+/** Campaign credits left (the one exemption: they still work after the daily limit, until used up). */
+export function campaignCreditsLeft(state: CreditState): number {
+  return Math.max(0, Math.min(state.campaignCredits ?? 0, state.availableCredits));
+}
+
+/** Prompts the user can still send before the next refill: today's analyses plus campaign credits. */
+export function promptsLeft(state: CreditState): number {
+  return Math.max(0, state.dailyUsageRemaining) + campaignCreditsLeft(state);
+}
+
+/** True when today's analyses and campaign credits are both used up (prompts pause until the refill). */
+export function isDailyLimitReached(state: CreditState, email?: string): boolean {
+  return !isUnlimitedUser(email) && promptsLeft(state) <= 0;
 }
 
 /**

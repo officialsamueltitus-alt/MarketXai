@@ -2644,11 +2644,21 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     // A timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily") wins over the selector
     const analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
 
-    // Validate chartImage: must be valid base64 image data URI under 12MB
+    // Validate chartImage: a real PNG / JPEG / WebP (checked by its file signature, not just the label), under 12MB
     let safeChartImage: string | undefined = undefined;
-    if (typeof chartImage === 'string' && chartImage.startsWith('data:image/') && chartImage.length <= 12 * 1024 * 1024) {
-      safeChartImage = chartImage;
+    if (typeof chartImage === 'string' && chartImage.length <= 12 * 1024 * 1024) {
+      const m = /^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(chartImage);
+      const head = m ? Buffer.from(m[2].slice(0, 32), 'base64') : null;
+      const isPng = !!head && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+      const isJpeg = !!head && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+      const isWebp = !!head && head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP';
+      if (isPng || isJpeg || isWebp) safeChartImage = `data:image/${isPng ? 'png' : isJpeg ? 'jpeg' : 'webp'};base64,${m![2]}`;
+      else if (chartImage) {
+        return res.status(415).json({ error: 'UNSUPPORTED_IMAGE', message: 'Only PNG, JPG or WebP chart screenshots can be read. Your credit was refunded.' });
+      }
     }
+    // Chart mode: the analysis is read from the uploaded image alone (the user names the pair)
+    const chartMode = Boolean(safeChartImage);
 
     // Intercept attack vectors and security probing
     if (checkPromptSecurityViolation(cleanPrompt)) {
@@ -2769,14 +2779,17 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
     console.log(`[MarketX] Detected ANALYSIS PROMPT REQUEST: "${cleanPrompt.slice(0, 50)}" (SL Mode: ${safeSlMode})`);
     const asset = extractAssetInfo(cleanPrompt, safeSymbol);
     // Candles for the requested timeframe load in parallel with the live quote
-    const candleWarmup = fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
+    const candleWarmup = chartMode ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
     const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
-    const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+    // In chart mode the levels come from the uploaded image, never from live candles
+    const structureMap = chartMode
+      ? null
+      : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
     console.log(
       `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
         structureMap ? `${structureMap.candles} candles, ${structureMap.demandZones.length}D/${structureMap.supplyZones.length}S zones, plan ${structureMap.plan?.direction || 'NO_SIGNAL'}` : 'candles unavailable'
@@ -2793,6 +2806,14 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
       }
       return enforcePreSignalCrosscheck(s);
     };
+
+    // A chart can only be read by the vision engine; a computed analysis would ignore the image
+    const chartUnreadable = () =>
+      res.status(503).json({
+        error: 'CHART_READ_FAILED',
+        message: "Couldn't read your chart right now. Your credit was refunded, please try again in a moment.",
+      });
+    if (!ai && chartMode) return chartUnreadable();
 
     if (!ai) {
       console.log('Gemini API key not configured, using algorithmic institutional analysis engine.');
@@ -2946,7 +2967,17 @@ SECOND: A detailed, highly actionable Markdown trading thesis discussing:
 - Execution Plan (or explicit "No signal opportunity found" rationale with wait-and-see guidelines)
 - Risk Management guidelines.
 
-CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g. Gemini 3.1, Claude, GPT, etc.). Refer to yourself solely as MarketX Institutional Trading Engine.`;
+CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g. Gemini 3.1, Claude, GPT, etc.). Refer to yourself solely as MarketX Institutional Trading Engine.`
+    + (chartMode ? `
+
+CHART IMAGE MODE (this request): the user uploaded a chart of ${asset.name} (${asset.symbol}).
+- Your only data source is the image. Analyze exactly what is visible on it, applying the same strategy above (Supply & Demand zones, then the Fibonacci entry, stop and targets). There is no computed market map and no live candle data in this mode; ignore the parts of these instructions that refer to them.
+- First decide whether the image is a price chart (candlesticks, bars or a price line with a price axis). If it is not, output only this JSON block: {"isChart": false, "reason": string} and nothing else.
+- Read every price from the chart's own price axis and labels. The current price is the last visible candle's price (the highlighted price label on the axis when shown). Every level you output must lie on the visible price scale, with the decimals the chart shows.
+- Read the timeframe from the chart's label when visible; otherwise use ${analysisTimeframe}.
+- Judge zone freshness and taps only from the candles visible after each zone formed. Draw the Fibonacci on the most recent visible swing leg.
+- Add these fields to the JSON: "isChart": true, "chartTimeframe": string or null, "chartSymbol": string or null (as printed on the chart).
+- In the thesis, describe what you see on this chart (structure, the zones and where they sit, the swing leg) before the execution plan. Never claim to have used live data.` : '');
 
     let aiResponseText = '';
     let usedModel = 'MarketX Frontier Engine';
@@ -2967,7 +2998,18 @@ CRITICAL DIRECTIVE: NEVER mention specific underlying AI models or versions (e.g
 
     const newsWatchBlock = newsBriefPromptBlock(newsBrief, asset.symbol);
 
-    const promptContext = `Perform comprehensive Institutional Supply and Demand + Fibonacci market analysis for ${asset.name} (${asset.symbol}) on the ${analysisTimeframe} timeframe based on user request: "${cleanPrompt}".
+    const promptContext = chartMode
+      ? `Analyze the uploaded ${asset.name} (${asset.symbol}) chart image with the Institutional Supply and Demand + Fibonacci strategy, based on the user's request: "${cleanPrompt}".
+
+INSTRUCTIONS:
+1. Confirm the image is a price chart; if not, output only {"isChart": false, "reason": "..."} in a json block.
+2. Read the price axis, the last price, the visible swing highs and lows, and the timeframe label from the chart.
+3. STEP 1: mark the high-probability Supply & Demand zones visible on the chart (pattern, proximal and distal lines, freshness judged by the candles after each zone, strength): fresh demand below the last price for longs, fresh supply above it for shorts.
+4. Classify UNMITIGATED (untouched) vs MITIGATED (tapped and left) zones from what the chart shows. Never trade a zone retested twice or more.
+5. STEP 2: draw the Fibonacci retracement on the most recent visible swing leg; the entry is where the 0.618 to 0.705 golden pocket overlaps the chosen zone.
+6. Stop loss beyond the zone's distal line, three take profit targets (swing liquidity, Fibonacci -0.272 and -0.618 extensions), at least 1:2.5 to the final target, or NO_SIGNAL with the zones to watch.
+7. Every price must be read from this chart's price axis. First output the structured JSON codeblock in \`\`\`json ... \`\`\`, then the Markdown thesis describing what the chart shows.`
+      : `Perform comprehensive Institutional Supply and Demand + Fibonacci market analysis for ${asset.name} (${asset.symbol}) on the ${analysisTimeframe} timeframe based on user request: "${cleanPrompt}".
 
 REAL-TIME VERIFIED MARKET DATA:
 - Symbol: ${asset.symbol} (${asset.name})
@@ -3034,8 +3076,8 @@ INSTRUCTIONS:
                     systemInstruction,
                   },
                 }),
-                12000,
-                'Analysis model request timed out (12s limit)'
+                chartMode ? 35000 : 12000,
+                chartMode ? 'Chart reading timed out (35s limit)' : 'Analysis model request timed out (12s limit)'
               ),
             AI_QUEUE_WAIT_MS
           );
@@ -3093,6 +3135,7 @@ INSTRUCTIONS:
       usedModel = aiResult.label;
     }
 
+    if (!aiResponseText && chartMode) return chartUnreadable();
     if (!aiResponseText) {
       console.log(
         `[Market Engine] Upstream model capacity temporarily constrained; seamlessly serving verified quantitative institutional strategy.`
@@ -3143,23 +3186,46 @@ INSTRUCTIONS:
     const rawSl = parsedJson?.stopLoss || parsedJson?.stop_loss;
     const rawTp = parsedJson?.takeProfits || parsedJson?.take_profits || parsedJson?.targets;
 
+    // Chart mode: the image was not a price chart, or the engine could not read levels from it (credit refunded)
+    if (chartMode && parsedJson && parsedJson.isChart === false) {
+      const reason = String(parsedJson.reason || '').replace(/[^\w\s.,'()/-]/g, '').trim().slice(0, 140);
+      return res.status(422).json({
+        error: 'NOT_A_CHART',
+        message: `That image doesn't look like a price chart${reason ? ` (${reason})` : ''}. Upload a screenshot of a candlestick chart and name the pair. Your credit was refunded.`,
+      });
+    }
+    const chartPrice = Number(parsedJson?.currentPrice || parsedJson?.current_price);
+    if (chartMode && !(rawEntry && rawSl && Array.isArray(rawTp) && chartPrice > 0)) return chartUnreadable();
+    // Reference prices for the levels: the chart's own last price and visible swing range in chart mode
+    const refTicker: MarketTicker = chartMode
+      ? {
+          ...currentTicker,
+          price: chartPrice,
+          change24h: 0,
+          high24h: Number(parsedJson.swingHigh || parsedJson.swing_high) || chartPrice,
+          low24h: Number(parsedJson.swingLow || parsedJson.swing_low) || chartPrice,
+        }
+      : currentTicker;
+    const chartTimeframe = chartMode ? timeframeFromPrompt(String(parsedJson?.chartTimeframe || '')) : null;
+    const levelTimeframe = chartTimeframe || analysisTimeframe;
+
     if (rawEntry && rawSl && Array.isArray(rawTp)) {
       const entryZone = {
-        min: Number(rawEntry.min || rawEntry.low || rawEntry.optimal || currentTicker.price * 0.99),
-        max: Number(rawEntry.max || rawEntry.high || rawEntry.optimal || currentTicker.price * 1.01),
-        optimal: Number(rawEntry.optimal || rawEntry.price || currentTicker.price),
+        min: Number(rawEntry.min || rawEntry.low || rawEntry.optimal || refTicker.price * 0.99),
+        max: Number(rawEntry.max || rawEntry.high || rawEntry.optimal || refTicker.price * 1.01),
+        optimal: Number(rawEntry.optimal || rawEntry.price || refTicker.price),
         rationale: rawEntry.rationale || 'Institutional 0.618 Fib & Demand cluster',
       };
 
       const isTightSl = safeSlMode === 'tight' || cleanPrompt.toLowerCase().includes('tight sl') || cleanPrompt.toLowerCase().includes('tight stop');
-      let slPrice = Number(rawSl.price || rawSl.level || currentTicker.price * 0.98);
+      let slPrice = Number(rawSl.price || rawSl.level || refTicker.price * 0.98);
       let slRiskPercent = Number(rawSl.riskPercent || rawSl.risk_percent || 1.5);
       let slRationale = rawSl.rationale || 'Structural invalidation beyond institutional block';
 
       if (isTightSl && !structureMap) {
         // Smaller but valid for the timeframe (0.7 x typical ATR); with a candle map the map's tight stop is used
         const tightBuffer = estimateAtrFraction(analysisTimeframe, asset.type) * 0.7;
-        const tradeIsShort = parsedJson.tradeType === 'SHORT' || (!parsedJson.tradeType && currentTicker.change24h < 0);
+        const tradeIsShort = parsedJson.tradeType === 'SHORT' || (!parsedJson.tradeType && refTicker.change24h < 0);
         const dec = priceDecimals(entryZone.optimal, asset.symbol.toUpperCase().includes('JPY'), asset.type === 'forex');
         const minDistance = entryZone.optimal * tightBuffer;
         const modelDistance = Math.abs(entryZone.optimal - slPrice);
@@ -3179,39 +3245,39 @@ INSTRUCTIONS:
 
       const takeProfits = rawTp.map((tp: any, idx: number) => ({
         level: tp.level || `TP${idx + 1}`,
-        price: Number(tp.price || currentTicker.price * (1 + (idx + 1) * 0.015)),
+        price: Number(tp.price || refTicker.price * (1 + (idx + 1) * 0.015)),
         rewardRatio: tp.rewardRatio || tp.reward_ratio || `1:${(1.5 + idx * 1.2).toFixed(1)}`,
         exitPercent: Number(tp.exitPercent || tp.exit_percent || (idx === 0 ? 40 : idx === 1 ? 40 : 20)),
       }));
 
       const actualRisk = Math.abs(entryZone.optimal - slPrice);
-      const actualReward = Math.abs((takeProfits[takeProfits.length - 1]?.price || currentTicker.price * 1.05) - entryZone.optimal);
+      const actualReward = Math.abs((takeProfits[takeProfits.length - 1]?.price || refTicker.price * 1.05) - entryZone.optimal);
       const calculatedRR = actualRisk > 0 ? (actualReward / actualRisk).toFixed(1) : (isTightSl ? '6.4' : '2.8');
       const finalRR = isTightSl ? `1 : ${calculatedRR}` : (parsedJson.riskRewardRatio || `1 : ${calculatedRR}`);
 
       // Computed once, only if the model left gaps
       let algoCache: ReturnType<typeof generateAlgorithmicStrategy> | null = null;
-      const algo = () => (algoCache ||= generateAlgorithmicStrategy(asset, currentTicker, analysisTimeframe, cleanPrompt, safeSlMode));
+      const algo = () => (algoCache ||= generateAlgorithmicStrategy(asset, refTicker, levelTimeframe, cleanPrompt, safeSlMode));
 
       const fullStrategy: any = {
         symbol: asset.symbol,
         name: asset.name,
         assetType: asset.type,
-        timeframe: analysisTimeframe,
-        currentPrice: parsedJson.currentPrice || parsedJson.current_price || currentTicker.price,
-        change24h: currentTicker.change24h,
-        high24h: currentTicker.high24h,
-        low24h: currentTicker.low24h,
-        bias: parsedJson.bias || parsedJson.market_bias || (currentTicker.change24h >= 0 ? 'BULLISH' : 'BEARISH'),
-        tradeType: parsedJson.tradeType || parsedJson.trade_type || (currentTicker.change24h >= 0 ? 'LONG' : 'SHORT'),
+        timeframe: levelTimeframe,
+        currentPrice: parsedJson.currentPrice || parsedJson.current_price || refTicker.price,
+        change24h: refTicker.change24h,
+        high24h: refTicker.high24h,
+        low24h: refTicker.low24h,
+        bias: parsedJson.bias || parsedJson.market_bias || (refTicker.change24h >= 0 ? 'BULLISH' : 'BEARISH'),
+        tradeType: parsedJson.tradeType || parsedJson.trade_type || (refTicker.change24h >= 0 ? 'LONG' : 'SHORT'),
         confidenceScore: Number(parsedJson.confidenceScore || parsedJson.confidence_score || 88),
         entryZone,
         stopLoss,
         takeProfits,
         riskRewardRatio: finalRR,
         demandZone: parsedJson.demandZone || parsedJson.demand_zone || {
-          low: currentTicker.low24h * 0.99,
-          high: currentTicker.low24h * 1.01,
+          low: refTicker.low24h * 0.99,
+          high: refTicker.low24h * 1.01,
           strength: 'HIGH',
           timeframe: analysisTimeframe,
           description: 'Institutional Demand Block with 0.618 Fib alignment',
@@ -3221,8 +3287,8 @@ INSTRUCTIONS:
           reactionSummary: 'Price has not touched yet. Virgin untouched demand accumulation block.',
         },
         supplyZone: parsedJson.supplyZone || parsedJson.supply_zone || {
-          low: currentTicker.high24h * 0.99,
-          high: currentTicker.high24h * 1.01,
+          low: refTicker.high24h * 0.99,
+          high: refTicker.high24h * 1.01,
           strength: 'HIGH',
           timeframe: analysisTimeframe,
           description: 'Overhead Distribution Imbalance / Liquidity Pool',
@@ -3235,28 +3301,28 @@ INSTRUCTIONS:
           ? (parsedJson.poiZones || parsedJson.poi_zones).map((z: any) => ({
               name: z.name || 'Institutional POI',
               type: z.type || 'ORDER_BLOCK',
-              min: Number(z.min || z.low || currentTicker.price * 0.98),
-              max: Number(z.max || z.high || currentTicker.price * 1.02),
+              min: Number(z.min || z.low || refTicker.price * 0.98),
+              max: Number(z.max || z.high || refTicker.price * 1.02),
               mitigationStatus: z.mitigationStatus === 'MITIGATED' ? 'MITIGATED' : 'UNMITIGATED',
               touchStatus: z.touchStatus === 'TAPPED_AND_LEFT' ? 'TAPPED_AND_LEFT' : (z.mitigationStatus === 'MITIGATED' ? 'TAPPED_AND_LEFT' : 'UNTOUCHED'),
               timeframe: z.timeframe || analysisTimeframe,
               description: z.description || 'Institutional smart money point of interest',
               reactionSummary: z.reactionSummary || (z.mitigationStatus === 'MITIGATED' ? 'Price tapped into level and left with rejection' : 'Price has not touched yet. Virgin untouched liquidity pool'),
               tapCount: Number(z.tapCount ?? (z.mitigationStatus === 'MITIGATED' ? 1 : 0)),
-              distancePercent: Number((Math.abs(currentTicker.price - Number(z.min || z.low || currentTicker.price)) / (currentTicker.price || 1) * 100).toFixed(1)),
+              distancePercent: Number((Math.abs(refTicker.price - Number(z.min || z.low || refTicker.price)) / (refTicker.price || 1) * 100).toFixed(1)),
             }))
-          : algo().poiZones,
+          : chartMode ? [] : algo().poiZones,
         unmitigatedZonesCount: parsedJson.poiZones
           ? (parsedJson.poiZones || parsedJson.poi_zones).filter((z: any) => z.mitigationStatus === 'UNMITIGATED' || z.touchStatus === 'UNTOUCHED').length
-          : algo().unmitigatedZonesCount,
+          : chartMode ? 0 : algo().unmitigatedZonesCount,
         mitigatedZonesCount: parsedJson.poiZones
           ? (parsedJson.poiZones || parsedJson.poi_zones).filter((z: any) => z.mitigationStatus === 'MITIGATED' || z.touchStatus === 'TAPPED_AND_LEFT').length
-          : algo().mitigatedZonesCount,
+          : chartMode ? 0 : algo().mitigatedZonesCount,
         fibonacciLevels: (parsedJson.fibonacciLevels || parsedJson.fibonacci_levels) && (parsedJson.fibonacciLevels || parsedJson.fibonacci_levels).length > 0
           ? (parsedJson.fibonacciLevels || parsedJson.fibonacci_levels)
-          : algo().fibonacciLevels,
-        swingHigh: Number(parsedJson.swingHigh || parsedJson.swing_high || currentTicker.high24h),
-        swingLow: Number(parsedJson.swingLow || parsedJson.swing_low || currentTicker.low24h),
+          : chartMode ? [] : algo().fibonacciLevels,
+        swingHigh: Number(parsedJson.swingHigh || parsedJson.swing_high || refTicker.high24h),
+        swingLow: Number(parsedJson.swingLow || parsedJson.swing_low || refTicker.low24h),
         detailedThesis: markdownThesis || 'Analysis generated based on institutional Supply & Demand confluence.',
         sources: sources.length > 0 ? sources : [
           { title: 'Live Market Order Book', uri: 'https://www.tradingview.com' },
@@ -3286,10 +3352,11 @@ INSTRUCTIONS:
         fullStrategy.structureVerified = true;
       }
 
-      if (safeChartImage && !fullStrategy.detailedThesis.includes('Multimodal Chart Analysis')) {
-        fullStrategy.detailedThesis = `### 📊 Multimodal Chart Analysis Verified
-> **Uploaded Chart Visual Inspection**: Verified candlestick structure, key swing pivots, liquidity sweep levels, and fair value gaps directly from the uploaded chart image.
-> **Chart Integration**: Structure identified in the chart directly aligns with the institutional Supply & Demand levels computed below.
+      if (chartMode) {
+        // Honest header: these levels were read from the uploaded chart, not from live data
+        const liveNow = currentTicker.price > 0 ? ` · live price now ${currentTicker.price}` : '';
+        fullStrategy.detailedThesis = `### 📊 Read from your ${asset.symbol} chart (${levelTimeframe})
+> Every level below was read from the chart you uploaded (last price on the chart ${chartPrice}${liveNow}). If price has moved since the screenshot, check the levels before you trade.
 
 ---
 
@@ -3370,6 +3437,12 @@ INSTRUCTIONS:
     });
   } catch (error: any) {
     console.warn('[Market Engine] Upstream capacity limit; seamlessly serving verified quantitative fallback strategy:', error?.message);
+    if (req.body?.chartImage) {
+      return res.status(503).json({
+        error: 'CHART_READ_FAILED',
+        message: "Couldn't read your chart right now. Your credit was refunded, please try again in a moment.",
+      });
+    }
     try {
       const { prompt = '', timeframe = '4H', symbol, slMode = 'normal' } = req.body || {};
       const safePrompt = typeof prompt === 'string' ? prompt.slice(0, 2000) : 'BTC';

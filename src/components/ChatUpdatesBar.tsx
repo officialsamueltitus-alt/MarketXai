@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppNotification, CreditState, MarketQuote, UserProfile } from '../types';
 import { Sparkles, Gift, Bell, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown, Megaphone } from 'lucide-react';
-import { getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
+import { campaignCreditsLeft, formatDailyResetTime, getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 
 interface ChatUpdatesBarProps {
@@ -106,7 +106,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
 
     // Older unread notifications join the random rotation
     p.notifications
-      .filter(n => !n.read)
+      .filter(n => !n.read && n.type !== 'analysis')
       .slice(0, 3)
       .forEach(n => promo.push(notificationItem(n, () => propsRef.current.onNotificationAction(n))));
 
@@ -143,7 +143,9 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
         onAction: p.onOpenPricing,
       });
       if (p.creditState.dailyUsageRemaining <= 0) {
-        promo.push({ id: 'out', tone: 'amber', icon: AlertTriangle, label: 'Daily limit', text: `You've used today's ${p.creditState.dailyUsageLimit} free analyses`, cta: 'Upgrade', onAction: p.onOpenPricing });
+        promo.push({ id: 'out', tone: 'amber', icon: AlertTriangle, label: 'Daily limit', text: campaignCreditsLeft(p.creditState) > 0
+            ? `Today's analyses are used up; your campaign credits keep you going. Daily analyses refill at ${formatDailyResetTime(p.creditState)}`
+            : `You've used today's ${p.creditState.dailyUsageLimit} analyses. They refill at ${formatDailyResetTime(p.creditState)}`, cta: 'Upgrade', onAction: p.onOpenPricing });
       }
     } else if (isPro && !unlimited) {
       const sub = getSubscriptionRemainingInfo(p.userProfile);
@@ -154,7 +156,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     if (p.isSignedIn) {
       promo.push({ id: 'campaign', tone: 'amber', icon: Gift, label: 'Campaign', text: 'Share MarketX on X and earn 10 free credits', cta: 'Start', onAction: p.onOpenCampaign });
     }
-    promo.push({ id: 'tip-chart', tone: 'cyan', icon: ImagePlus, label: 'Tip', text: 'Attach a chart screenshot and MarketX will read it for you' });
+    promo.push({ id: 'tip-chart', tone: 'cyan', icon: ImagePlus, label: 'Tip', text: 'Attach a chart screenshot, name the pair, and MarketX reads the chart for you' });
     promo.push({ id: 'tip-slash', tone: 'slate', icon: Lightbulb, label: 'Tip', text: 'Type / in the message box for quick commands' });
 
     const fresh = (l: UpdateItem[]) => l.filter(i => !seenRef.current.has(i.id));
@@ -198,10 +200,11 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     };
   }, [schedule]);
 
-  // A notification that arrives while the chat is open pops up straight away
+  // A notification that arrives while the chat is open pops up straight away. "Setup ready" is skipped: the
+  // result is already on screen in the chat, so a pop-up over it would only cover the answer.
   const mountedAtRef = useRef(Date.now());
   useEffect(() => {
-    const fresh = notifications.find(n => !n.read && n.timestamp > mountedAtRef.current);
+    const fresh = notifications.find(n => !n.read && n.type !== 'analysis' && n.timestamp > mountedAtRef.current);
     if (!fresh || seenRef.current.has(`n-${fresh.id}`)) return;
     show(notificationItem(fresh, () => propsRef.current.onNotificationAction(fresh)));
   }, [notifications, show]);
