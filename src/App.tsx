@@ -47,16 +47,11 @@ import { SiteBanner } from './components/SiteBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
-import {
-  INITIAL_USER_PROFILE,
-  INITIAL_CREDIT_STATE,
-  isUnlimitedUser,
-  setServerUnlimitedEmail,
-} from './utils/creditManager';
+import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
-import { ArrowLeft, Plus, CheckCircle2, Gift } from 'lucide-react';
+import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
 
 interface AccountPayload {
   profile: UserProfile;
@@ -141,7 +136,7 @@ export default function App() {
   const [openAnnouncement, setOpenAnnouncement] = useState<AppNotification | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
-  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' } | null>(null);
+  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' | 'info' } | null>(null);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -166,6 +161,23 @@ export default function App() {
       applyAccount(await apiFetch<AccountPayload>('/api/account'));
     } catch {}
   }, [applyAccount]);
+
+  // Daily analyses refill at 3:00 AM: fetch the new counts right after the refill (and when the tab comes back
+  // after it), so prompts unlock on time without a reload
+  useEffect(() => {
+    if (!authUser) return;
+    const refillAt = getNextDailyReset(creditState);
+    const wait = Math.min(Math.max(refillAt - Date.now() + 5000, 1000), 24 * 60 * 60 * 1000);
+    const t = setTimeout(refreshAccount, wait);
+    const onVisible = () => {
+      if (!document.hidden && Date.now() >= refillAt) refreshAccount();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [authUser, creditState.nextDailyResetAt, refreshAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggleEmailActivity = useCallback(
     (enabled: boolean) => {
@@ -1004,10 +1016,9 @@ export default function App() {
     );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
 
-    // Quick client-side check; the server enforces and deducts credits authoritatively
-    const isUnlimited = isUnlimitedUser(userProfile.email);
-    if (!isUnlimited && creditState.dailyUsageRemaining <= 0 && creditState.availableCredits <= 0) {
-      setIsPricingModalOpen(true);
+    // Daily limit reached: prompts are paused until the automatic 3:00 AM refill (the server enforces this too)
+    if (isDailyLimitReached(creditState, userProfile.email)) {
+      setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
       return;
     }
 
@@ -1257,7 +1268,7 @@ export default function App() {
       }
 
       if (result.kind === 'error') {
-        if (result.status === 402) setIsPricingModalOpen(true);
+        // 402 = daily limit reached: the message (refill at 3:00 AM) is shown in the chat; no pop-up
         if (result.status === 401) setIsAuthModalOpen(true);
         updateAssistant({
           content: `⚠️ ${result.message}`,
@@ -1425,7 +1436,13 @@ export default function App() {
 
   const toastBanner = toastNotification && (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[var(--mx-surface-2)] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_var(--mx-shadow)] max-w-[92vw] sm:max-w-md">
-      {toastNotification.type === 'gift' ? <Gift className="w-4 h-4 text-cyan-400 shrink-0" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+      {toastNotification.type === 'gift' ? (
+        <Gift className="w-4 h-4 text-cyan-400 shrink-0" />
+      ) : toastNotification.type === 'info' ? (
+        <Clock className="w-4 h-4 text-amber-300 shrink-0" />
+      ) : (
+        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+      )}
       <span className="text-xs font-medium leading-tight">{toastNotification.message}</span>
     </div>
   );
@@ -1646,8 +1663,9 @@ export default function App() {
         <Header
           onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
           tickers={tickers}
-          credits={creditState.availableCredits}
+          credits={creditState.dailyUsageRemaining}
           maxCredits={creditState.dailyUsageLimit}
+          refillLabel={formatDailyResetTime(creditState)}
           username={userProfile.username}
           avatarUrl={userProfile.avatarUrl}
           isVerified={userProfile.isVerified}
@@ -1779,7 +1797,8 @@ export default function App() {
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
                     isLoading={isLoading}
-                    credits={creditState.availableCredits}
+                    credits={isUnlimitedUser(userProfile.email) ? 999999 : creditState.dailyUsageRemaining}
+                    refillLabel={formatDailyResetTime(creditState)}
                     initialChartImage={pendingChartImage}
                     initialChartFileName={pendingChartFileName}
                     onClearInitialChart={() => {

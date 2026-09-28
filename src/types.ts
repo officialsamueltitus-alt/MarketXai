@@ -274,7 +274,10 @@ export interface CreditState {
   availableCredits: number;
   dailyUsageLimit: number; // 10 per day for subscribers
   dailyUsageRemaining: number;
-  lastDailyResetTime: number; // 24-hour rollover tracker
+  lastDailyResetTime: number; // when the daily analyses last refilled
+  /** Next automatic refill (3:00 AM in the site's time zone), set by the server */
+  nextDailyResetAt?: number;
+  resetTimeZone?: string;
 }
 
 export interface CreditGift {

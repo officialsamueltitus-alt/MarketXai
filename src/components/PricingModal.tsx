@@ -396,7 +396,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             </span>
           </div>
           <p className="mt-3 text-center text-[11px] text-slate-600 inline-flex w-full items-center justify-center gap-1.5">
-            <RotateCcw className="w-3 h-3" /> Daily analyses renew every 24 hours, with no rollover. Pro lasts {yearly ? '365' : '30'} days per payment.
+            <RotateCcw className="w-3 h-3" /> Daily analyses refill every day at 3:00 AM, with no rollover. Pro lasts {yearly ? '365' : '30'} days per payment.
           </p>
         </div>
       </div>

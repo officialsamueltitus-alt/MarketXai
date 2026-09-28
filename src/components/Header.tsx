@@ -7,8 +7,11 @@ import { PanelLeft, Zap, Bell, SquarePen } from 'lucide-react';
 interface HeaderProps {
   onToggleSidebar: () => void;
   tickers: MarketQuote[];
+  /** Analyses left today (what gates new prompts) */
   credits: number;
   maxCredits: number;
+  /** Local time of the next automatic refill */
+  refillLabel?: string;
   onOpenCredits: () => void;
   onResetChat: () => void;
   onSelectTicker: (symbol: string) => void;
@@ -28,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   tickers,
   credits,
   maxCredits,
+  refillLabel = '3:00 AM',
   onOpenCredits,
   onResetChat,
   onSelectTicker,
@@ -125,14 +129,22 @@ export const Header: React.FC<HeaderProps> = ({
           className={`h-8 flex items-center gap-1 min-[400px]:gap-1.5 px-2 min-[400px]:px-2.5 sm:px-3 rounded-full text-xs font-medium transition-colors shrink-0 ${
             credits >= 99999
               ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15'
-              : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border border-white/[0.06]'
+              : credits <= 0
+                ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/15 border border-amber-500/20'
+                : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] border border-white/[0.06]'
           }`}
-          title={credits >= 99999 ? 'Unlimited credits' : 'Credits'}
-          aria-label={credits >= 99999 ? 'Credits: unlimited' : `Credits: ${credits}`}
+          title={
+            credits >= 99999
+              ? 'Unlimited analyses'
+              : credits <= 0
+                ? `Today's analyses are used up. They refill at ${refillLabel}.`
+                : `${credits} of ${maxCredits} analyses left today. Refills at ${refillLabel}.`
+          }
+          aria-label={credits >= 99999 ? 'Credits: unlimited' : `Credits: ${credits} analyses left today`}
         >
           <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300/80" />
           <span className="font-mono">{credits >= 99999 ? '∞' : credits}</span>
-          <span className="text-slate-500 hidden sm:inline">credits</span>
+          <span className="text-slate-500 hidden sm:inline">{credits >= 99999 ? 'credits' : credits <= 0 ? `until ${refillLabel}` : 'left today'}</span>
         </button>
 
         {onOpenNotifications && (

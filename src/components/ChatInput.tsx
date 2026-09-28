@@ -20,6 +20,9 @@ import {
   Bot,
   Plug,
   Lock,
+  BellRing,
+  History,
+  NotebookPen,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -85,6 +88,9 @@ const SLASH_COMMANDS = [
   { id: 'preference', label: 'Preference Mode', description: 'Tune analysis style, risk and defaults', icon: SlidersHorizontal },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
+  { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
+  { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
+  { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
 ] as const;
 
 interface ChatInputProps {
@@ -98,7 +104,10 @@ interface ChatInputProps {
   ) => void;
   onStopAnalysis?: () => void;
   isLoading: boolean;
+  /** Analyses left today; at 0 new prompts are paused until the refill */
   credits: number;
+  /** Local time of the next automatic refill, e.g. "3:00 AM" */
+  refillLabel?: string;
   initialChartImage?: string | null;
   initialChartFileName?: string;
   onClearInitialChart?: () => void;
@@ -109,6 +118,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStopAnalysis,
   isLoading,
   credits,
+  refillLabel = '3:00 AM',
   initialChartImage,
   initialChartFileName,
   onClearInitialChart,
@@ -161,6 +171,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       )
     : [];
   const isSlashMenuOpen = !!slashMatch && !slashDismissed && filteredCommands.length > 0;
+
+  // Keep the highlighted command visible when moving through the (scrollable) list with the arrow keys
+  useEffect(() => {
+    document.querySelector('[aria-label="Commands"] [aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [slashIndex]);
 
   useEffect(() => {
     setSlashIndex(0);
@@ -507,8 +522,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             </div>
           ) : (
-            <div role="listbox" aria-label="Commands" className="p-1.5">
-              <div className="px-2.5 pt-1.5 pb-1 text-[11px] font-medium text-slate-500">Commands</div>
+            <div role="listbox" aria-label="Commands" className="p-1.5 max-h-[min(60vh,400px)] overflow-y-auto overscroll-contain">
+              <div className="px-2.5 pt-1.5 pb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
+                <span>Commands</span>
+                <span className="inline-flex items-center gap-1 text-amber-300/80">
+                  <Lock className="w-3 h-3" /> Private testing
+                </span>
+              </div>
               {filteredCommands.map((cmd, i) => {
                 const Icon = cmd.icon;
                 const active = i === slashIndex;
@@ -529,7 +549,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       <Icon className="w-4 h-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium">/{cmd.label.toLowerCase().replace(/\s+/g, '-')}</span>
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
+                        <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
+                      </span>
                       <span className="block text-xs text-slate-500 truncate">{cmd.description}</span>
                     </span>
                   </button>
@@ -607,7 +630,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
+          placeholder={credits <= 0 ? `Daily limit reached, back at ${refillLabel}` : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
           rows={1}
           className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:order-2 max-sm:w-auto max-sm:flex-1 max-sm:min-w-0 max-sm:px-1.5 max-sm:py-1.5 max-sm:min-h-9 max-sm:max-h-[132px]"
         />
@@ -669,9 +692,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <Square className="w-3.5 h-3.5 fill-current" />
             </button>
           ) : credits <= 0 ? (
-            <span className="h-9 px-3 max-sm:px-2.5 rounded-full text-xs font-medium text-rose-300 bg-rose-500/10 inline-flex items-center gap-1.5 shrink-0 max-sm:order-5 whitespace-nowrap">
-              <AlertCircle className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Out of credits</span>
-              <span className="sm:hidden">No credits</span>
+            <span
+              className="h-9 px-3 max-sm:px-2.5 rounded-full text-xs font-medium text-amber-200 bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-1.5 shrink-0 max-sm:order-5 whitespace-nowrap"
+              role="status"
+              title={`Today's analyses are used up. They refill automatically at ${refillLabel}.`}
+            >
+              <Clock className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Refills at {refillLabel}</span>
+              <span className="sm:hidden">{refillLabel}</span>
             </span>
           ) : (
             <button

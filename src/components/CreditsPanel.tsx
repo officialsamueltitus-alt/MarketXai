@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CreditState, UserProfile } from '../types';
-import { getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
+import { formatDailyResetTime, getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
@@ -52,13 +52,14 @@ const QuotaRing: React.FC<{ value: number; max: number; unlimited: boolean }> = 
 export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditState, onOpenPricing, onOpenGiftModal }) => {
   const unlimited = isUnlimitedUser(userProfile.email) || creditState.availableCredits >= 99999;
   const isPremium = userProfile.subscription.active;
-  const [reset, setReset] = useState(() => getDailyResetCountdown(creditState.lastDailyResetTime));
+  const [reset, setReset] = useState(() => getDailyResetCountdown(creditState));
+  const resetAt = formatDailyResetTime(creditState);
 
   useEffect(() => {
-    setReset(getDailyResetCountdown(creditState.lastDailyResetTime));
-    const id = setInterval(() => setReset(getDailyResetCountdown(creditState.lastDailyResetTime)), 30000);
+    setReset(getDailyResetCountdown(creditState));
+    const id = setInterval(() => setReset(getDailyResetCountdown(creditState)), 30000);
     return () => clearInterval(id);
-  }, [creditState.lastDailyResetTime]);
+  }, [creditState.nextDailyResetAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tier = unlimited ? 'VIP Unlimited' : isPremium ? 'Pro' : 'Free';
 
@@ -102,11 +103,11 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
               ? 'No daily limit on your account.'
               : `${formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE)} of ${formatTokens(
                   creditState.dailyUsageLimit * TOKENS_PER_USAGE
-                )} tokens left · ${formatTokens((creditState.dailyUsageLimit - creditState.dailyUsageRemaining) * TOKENS_PER_USAGE)} used. Renews every 24h, no rollover.`}
+                )} tokens left · ${formatTokens((creditState.dailyUsageLimit - creditState.dailyUsageRemaining) * TOKENS_PER_USAGE)} used. Refills every day at ${resetAt}, no rollover.`}
           </p>
           {!unlimited && (
             <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-white/[0.05] text-[11px] text-slate-300">
-              <Clock className="w-3 h-3" /> Resets in <span className="font-mono">{reset.text}</span>
+              <Clock className="w-3 h-3" /> Refills at {resetAt} · in <span className="font-mono">{reset.text}</span>
             </span>
           )}
         </div>

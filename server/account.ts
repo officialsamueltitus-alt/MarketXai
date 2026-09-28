@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
+import { CREDIT_RESET_LABEL, CREDIT_RESET_TZ, isDailyResetDue, nextDailyReset } from './dailyReset';
 import crypto from 'crypto';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
@@ -109,7 +110,7 @@ export function sanitizeUsername(raw: string): string {
   return (raw || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
 }
 
-// Apply subscription expiry and the strict 24h daily quota renewal (no rollover)
+// Apply subscription expiry and the daily quota refill at 3:00 AM (site time zone), no rollover
 function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: boolean } {
   let changed = false;
   const next: UserDoc = { ...doc, subscription: { ...doc.subscription }, credits: { ...doc.credits } };
@@ -120,7 +121,7 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
   }
 
   const targetLimit = next.subscription.active ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
-  if (now - next.credits.lastDailyReset >= DAY_MS) {
+  if (isDailyResetDue(next.credits.lastDailyReset, now)) {
     next.credits.dailyLimit = targetLimit;
     next.credits.dailyRemaining = targetLimit;
     next.credits.lastDailyReset = now;
@@ -156,12 +157,16 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
         dailyUsageLimit: UNLIMITED_VALUE,
         dailyUsageRemaining: UNLIMITED_VALUE,
         lastDailyResetTime: doc.credits.lastDailyReset,
+        nextDailyResetAt: nextDailyReset(),
+        resetTimeZone: CREDIT_RESET_TZ,
       }
     : {
         availableCredits: doc.credits.available,
         dailyUsageLimit: doc.credits.dailyLimit,
         dailyUsageRemaining: doc.credits.dailyRemaining,
         lastDailyResetTime: doc.credits.lastDailyReset,
+        nextDailyResetAt: nextDailyReset(),
+        resetTimeZone: CREDIT_RESET_TZ,
       };
   return { profile, credits, xShareReward: doc.xShareReward || null, unlimited: vip };
 }
@@ -594,8 +599,9 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       if (!loaded) return { ok: false as const, reason: 'NO_ACCOUNT' };
       const c = loaded.doc.credits;
       saveNormalized(tx, loaded);
-      if (c.dailyRemaining <= 0 && c.available <= 0) return { ok: false as const, reason: 'NO_CREDITS' };
-      const dailyDelta = c.dailyRemaining > 0 ? 1 : 0;
+      // The daily limit is a hard stop: no analyses until the 3:00 AM refill, whatever the credit balance
+      if (c.dailyRemaining <= 0) return { ok: false as const, reason: 'DAILY_LIMIT' };
+      const dailyDelta = 1;
       const availableDelta = c.available > 0 ? 1 : 0;
       tx.update(loaded.ref, {
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
@@ -605,12 +611,13 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
     });
 
     if (!charged.ok) {
-      return res.status(charged.reason === 'NO_CREDITS' ? 402 : 409).json({
+      const limitReached = charged.reason === 'DAILY_LIMIT';
+      return res.status(limitReached ? 402 : 409).json({
         error: charged.reason,
-        message:
-          charged.reason === 'NO_CREDITS'
-            ? 'You have used all your credits. Refill or upgrade to continue.'
-            : 'Account not initialised. Please sign in again.',
+        nextDailyResetAt: limitReached ? nextDailyReset() : undefined,
+        message: limitReached
+          ? `You've reached today's analysis limit. Your analyses refill automatically at ${CREDIT_RESET_LABEL}.`
+          : 'Account not initialised. Please sign in again.',
       });
     }
 
@@ -622,7 +629,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
           notifyActivity(user.uid, {
             type: 'system',
             title: `You've used today's ${charged.limit} analyses`,
-            message: 'Your daily analyses renew 24 hours after your last reset. Credits or Pro keep you going.',
+            message: `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
             actionType: 'open_pricing',
           });
         }

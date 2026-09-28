@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppNotification, CreditState, MarketQuote, UserProfile } from '../types';
 import { Sparkles, Gift, Bell, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown, Megaphone } from 'lucide-react';
-import { getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
+import { formatDailyResetTime, getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 
 interface ChatUpdatesBarProps {
@@ -143,7 +143,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
         onAction: p.onOpenPricing,
       });
       if (p.creditState.dailyUsageRemaining <= 0) {
-        promo.push({ id: 'out', tone: 'amber', icon: AlertTriangle, label: 'Daily limit', text: `You've used today's ${p.creditState.dailyUsageLimit} free analyses`, cta: 'Upgrade', onAction: p.onOpenPricing });
+        promo.push({ id: 'out', tone: 'amber', icon: AlertTriangle, label: 'Daily limit', text: `You've used today's ${p.creditState.dailyUsageLimit} analyses. They refill at ${formatDailyResetTime(p.creditState)}`, cta: 'Upgrade', onAction: p.onOpenPricing });
       }
     } else if (isPro && !unlimited) {
       const sub = getSubscriptionRemainingInfo(p.userProfile);
@@ -154,7 +154,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     if (p.isSignedIn) {
       promo.push({ id: 'campaign', tone: 'amber', icon: Gift, label: 'Campaign', text: 'Share MarketX on X and earn 10 free credits', cta: 'Start', onAction: p.onOpenCampaign });
     }
-    promo.push({ id: 'tip-chart', tone: 'cyan', icon: ImagePlus, label: 'Tip', text: 'Attach a chart screenshot and MarketX will read it for you' });
+    promo.push({ id: 'tip-chart', tone: 'cyan', icon: ImagePlus, label: 'Tip', text: 'Attach a chart screenshot, name the pair, and MarketX reads the chart for you' });
     promo.push({ id: 'tip-slash', tone: 'slate', icon: Lightbulb, label: 'Tip', text: 'Type / in the message box for quick commands' });
 
     const fresh = (l: UpdateItem[]) => l.filter(i => !seenRef.current.has(i.id));
