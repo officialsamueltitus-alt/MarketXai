@@ -8,6 +8,7 @@ import { addNotification, UserDoc, userRef, usernameRef } from './account';
 import { deleteAccountData, setEmailBanned } from './auth';
 import { ACCESS_BATCH, ACCESS_BATCH_SIZE } from './access';
 import { dayKey, logActivity } from './tracking';
+import { clientIp } from './security';
 
 // ===========================================================================
 // MarketX admin console API (/api/admin/*), served to the /admin page.
@@ -109,7 +110,6 @@ const IP_MAX = 5;
 const IP_LOCK_MS = 15 * 60 * 1000;
 const GLOBAL_MAX = 25;
 
-const clientIp = (req: Request) => String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
 
 function lockState(ip: string): number {
   const now = Date.now();
