@@ -9,6 +9,7 @@ import { hideEngineInResponses } from './server/brand';
 import { readSessionCookie, verifySessionToken } from './server/session';
 import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
 import { WORKERS, perWorker } from './server/workers';
+import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
 import {
   refreshNewsFeeds,
   refreshNewsFeedsWithin,
@@ -26,7 +27,7 @@ import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './serve
 import { registerAdminRoutes } from './server/admin';
 import { registerSupportRoutes } from './server/support';
 import { isMailerConfigured } from './server/mailer';
-import { fetchDerivCandles, fetchDerivQuote, mapDerivSymbol } from './server/deriv';
+import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
   aggregateCandles,
   buildMarketMap,
@@ -52,8 +53,9 @@ const app = express();
 const AI_MAX_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.AI_MAX_CONCURRENCY) || 24));
 const AI_QUEUE_WAIT_MS = Math.max(1000, Math.floor(Number(process.env.AI_QUEUE_WAIT_MS) || 9000));
 const aiGate = createGate(perWorker(AI_MAX_CONCURRENCY));
-// AI_CACHE_TTL_MS=0 turns reuse off (identical simultaneous requests are still shared)
-const AI_CACHE_TTL_MS = Math.max(0, Number(process.env.AI_CACHE_TTL_MS ?? 45_000) || 0);
+// Analyses are never reused once finished (markets move every second). Only identical requests that arrive while the
+// same analysis is still being written share it: same market, timeframe, levels from the same live candles, and news.
+const AI_CACHE_TTL_MS = 0;
 const aiAnalysisCache = new SharedCache<{ text: string; label: string } | null>(AI_CACHE_TTL_MS, 500);
 const chatAnswerCache = new SharedCache<string>(10 * 60_000, 500);
 
@@ -186,6 +188,10 @@ interface MarketTicker {
   sector?: string;
   currency?: string;
   type: 'crypto' | 'stock' | 'forex' | 'commodity' | 'synthetic';
+  /** When this price was fetched from its source (ms) */
+  asOf?: number;
+  /** A real quote from the last minute (false: the feed is down and this is the last known price) */
+  live?: boolean;
 }
 
 // Memory cache for tickers and forex rates
@@ -198,7 +204,7 @@ let lastForexFetch = 0;
 // keeps serving the most recent real price instead of reverting to hardcoded baselines.
 const lastLiveQuotes: Record<string, { data: Partial<MarketTicker>; at: number }> = {};
 // A live quote older than this is no longer treated as "live" by the quote resolver
-const LIVE_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
+const LIVE_QUOTE_MAX_AGE_MS = LAST_GOOD_MAX_MS;
 
 // Throttled upstream failure logging (visible in Render logs) without flooding output
 const lastFeedWarning: Record<string, number> = {};
@@ -260,10 +266,13 @@ function mapBinanceTicker(data: any): Partial<MarketTicker> | null {
 }
 
 // Fetch live crypto quotes from Binance public API for a single pair
-async function fetchBinanceTicker(symbol: string): Promise<Partial<MarketTicker> | null> {
-  const cleanSym = symbol.replace(/[^A-Z0-9]/g, '');
+// (live: reused only within the same second)
+const binanceLive = liveFetcher<Partial<MarketTicker>>(async cleanSym => {
   const data = await binanceRequest(`/api/v3/ticker/24hr?symbol=${cleanSym}`, 4000);
   return data ? mapBinanceTicker(data) : null;
+});
+function fetchBinanceTicker(symbol: string): Promise<Partial<MarketTicker> | null> {
+  return binanceLive(symbol.replace(/[^A-Z0-9]/g, ''));
 }
 
 // Fetch batch quotes for multiple crypto pairs in a single high-speed request
@@ -312,18 +321,14 @@ async function fetchForexRates(): Promise<Record<string, number> | null> {
 
 type LiveQuote = { price: number; change24h: number; high24h: number; low24h: number };
 
-// Per-symbol Yahoo Finance quote cache (equities, indices, FX and commodity futures)
-const yahooQuoteCache: Record<string, { quote: LiveQuote | null; at: number }> = {};
-const YAHOO_TTL_MS = 10000;
-const YAHOO_FAIL_TTL_MS = 5000;
+// Yahoo Finance quotes (equities, indices, FX and commodity futures), fetched live: a quote is reused only within the
+// same second, and after a failed fetch only the last real quote from the past minute is served
+const yahooLive = liveFetcher<LiveQuote>(loadYahooQuote);
+function fetchYahooQuote(yahooSym: string, maxAgeMs?: number): Promise<LiveQuote | null> {
+  return yahooLive(yahooSym, maxAgeMs);
+}
 
-async function fetchYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
-  const now = Date.now();
-  const cached = yahooQuoteCache[yahooSym];
-  if (cached && now - cached.at < (cached.quote ? YAHOO_TTL_MS : YAHOO_FAIL_TTL_MS)) {
-    return cached.quote;
-  }
-  let quote: LiveQuote | null = null;
+async function loadYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
   for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
     try {
       const { status, data } = await fetchJsonWithTimeout(
@@ -338,37 +343,32 @@ async function fetchYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
       }
       const prevClose = Number(meta.previousClose || meta.regularMarketPreviousClose || meta.chartPreviousClose || price);
       const decimals = price < 10 ? 5 : price < 1000 ? 3 : 2;
-      quote = {
+      return {
         price,
         change24h: Number((((price - prevClose) / prevClose) * 100).toFixed(2)),
         high24h: Number(Number(meta.regularMarketDayHigh || Math.max(price, prevClose)).toFixed(decimals)),
         low24h: Number(Number(meta.regularMarketDayLow || Math.min(price, prevClose)).toFixed(decimals)),
       };
-      break;
     } catch (err: any) {
       warnFeed(`Yahoo ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
     }
   }
-  // Keep serving the last good quote on failure
-  if (!quote && cached?.quote) {
-    yahooQuoteCache[yahooSym] = { quote: cached.quote, at: now - YAHOO_TTL_MS + YAHOO_FAIL_TTL_MS };
-    return cached.quote;
-  }
-  yahooQuoteCache[yahooSym] = { quote, at: now };
-  return quote;
+  return null;
 }
 
-// Memory cache for major US stocks to minimize latency
-let cachedStockQuotes: Record<string, LiveQuote> = {};
+// Deriv synthetic indices, live
+const derivLive = liveFetcher<{ price: number; change24h: number; high24h: number; low24h: number }>(loadDerivQuote);
+const fetchDerivQuote = (derivSym: string) => derivLive(derivSym);
 
-// Fetch live US equities quotes (AAPL, TSLA, GOOGL, NVDA, WMT) from Yahoo Finance
-async function fetchStockQuotes(): Promise<Record<string, LiveQuote>> {
+// Live US equities quotes (AAPL, TSLA, GOOGL, NVDA, WMT) from Yahoo Finance
+async function fetchStockQuotes(maxAgeMs?: number): Promise<Record<string, LiveQuote>> {
   const symbols = ['AAPL', 'TSLA', 'GOOGL', 'NVDA', 'WMT'];
-  const results = await Promise.all(symbols.map(sym => fetchYahooQuote(sym)));
+  const results = await Promise.all(symbols.map(sym => fetchYahooQuote(sym, maxAgeMs)));
+  const map: Record<string, LiveQuote> = {};
   symbols.forEach((sym, i) => {
-    if (results[i]) cachedStockQuotes[sym] = results[i]!;
+    if (results[i]) map[sym] = results[i]!;
   });
-  return cachedStockQuotes;
+  return map;
 }
 
 // Yahoo Finance symbols for indices and non-gold commodities
@@ -390,8 +390,8 @@ const YAHOO_SYMBOL_MAP: Record<string, string> = {
 };
 
 // Live intraday FX quote from Yahoo Finance (e.g. EURUSD=X), falling back to daily reference rates
-async function fetchForexQuote(base: string, quote: string): Promise<(LiveQuote & { intraday: boolean }) | null> {
-  const live = await fetchYahooQuote(`${base}${quote}=X`);
+async function fetchForexQuote(base: string, quote: string, maxAgeMs?: number): Promise<(LiveQuote & { intraday: boolean }) | null> {
+  const live = await fetchYahooQuote(`${base}${quote}=X`, maxAgeMs);
   if (live) return { ...live, intraday: true };
 
   const rates = await fetchForexRates();
@@ -403,21 +403,89 @@ async function fetchForexQuote(base: string, quote: string): Promise<(LiveQuote 
   return { price: rate, change24h: 0, high24h: rate, low24h: rate, intraday: false };
 }
 
-// Fetch live quotes across key markets
-// Live tickers are shared by every visitor: one refresh at a time (all concurrent callers wait on it), and once
-// prices exist they are answered instantly while a refresh runs in the background (stale-while-revalidate).
+// Live tickers: a price loop refreshes every LIVE_TICK_MS (1s) while anyone is watching, and pushes each change to
+// connected browsers (/api/market/stream). Crypto and gold come from Binance every tick; FX, stocks and indices from
+// Yahoo every LIVE_YAHOO_MS (3s, its own update pace; faster polling gets the server blocked). Nothing older is served.
+const LIVE_TICK_MS = Math.max(500, envInt('LIVE_TICK_MS', 1000));
+const LIVE_YAHOO_MS = Math.max(1000, envInt('LIVE_YAHOO_MS', 3000));
 let tickerRefresh: Promise<MarketTicker[]> | null = null;
-function getLiveMarketTickers(): Promise<MarketTicker[]> {
-  const fresh = cachedTickers.length > 0 && Date.now() - lastTickerFetch < 3500;
-  if (fresh) return Promise.resolve(cachedTickers);
+function refreshTickers(): Promise<MarketTicker[]> {
   if (!tickerRefresh) {
     tickerRefresh = loadLiveMarketTickers().finally(() => {
       tickerRefresh = null;
     });
   }
-  // Serve the last known prices (at most a few seconds old) instead of making everyone wait
-  if (cachedTickers.length > 0 && Date.now() - lastTickerFetch < 60_000) return Promise.resolve(cachedTickers);
   return tickerRefresh;
+}
+/** The prices from the latest tick (may be empty before the first one). */
+function latestTickers(): MarketTicker[] {
+  return cachedTickers;
+}
+/** Prices from this very tick: joins the refresh already running, or starts one. */
+function getLiveMarketTickers(): Promise<MarketTicker[]> {
+  priceDemandAt = Date.now();
+  ensurePriceLoop();
+  if (cachedTickers.length > 0 && Date.now() - lastTickerFetch < LIVE_TICK_MS) return Promise.resolve(cachedTickers);
+  return refreshTickers();
+}
+
+// ---- Price loop + server-sent events ----
+const streamClients = new Set<Response>();
+const streamPerIp = new Map<string, number>();
+const STREAM_MAX_CLIENTS = Math.max(100, perWorker(envInt('LIVE_STREAM_MAX_CLIENTS', 20000)));
+const STREAM_MAX_PER_IP = Math.max(5, envInt('LIVE_STREAM_PER_IP', 300));
+const STREAM_MAX_BUFFER = 256 * 1024; // a client this far behind is dropped (it reconnects and gets a fresh snapshot)
+let priceDemandAt = 0;
+let priceLoopRunning = false;
+let lastStreamWrite = 0;
+const lastSentRow = new Map<string, string>();
+
+const tickerRow = (t: MarketTicker) => [t.symbol, t.price, t.change24h, t.high24h, t.low24h, t.live ? 1 : 0, t.asOf || 0];
+
+function streamSend(res: Response, chunk: string) {
+  if (res.writableLength > STREAM_MAX_BUFFER) {
+    res.end();
+    return;
+  }
+  res.write(chunk);
+}
+
+function broadcastTickers(tickers: MarketTicker[]) {
+  const changed: unknown[] = [];
+  for (const t of tickers) {
+    const row = tickerRow(t);
+    const sig = row.slice(1, 6).join('|');
+    if (lastSentRow.get(t.symbol) === sig) continue;
+    lastSentRow.set(t.symbol, sig);
+    changed.push(row);
+  }
+  const now = Date.now();
+  let chunk = '';
+  if (changed.length) chunk = `event: prices\ndata: ${JSON.stringify({ at: now, rows: changed })}\n\n`;
+  else if (now - lastStreamWrite > 15_000) chunk = ': live\n\n'; // keeps proxies from closing a quiet stream
+  if (!chunk) return;
+  lastStreamWrite = now;
+  for (const res of streamClients) streamSend(res, chunk);
+}
+
+function ensurePriceLoop() {
+  if (priceLoopRunning) return;
+  priceLoopRunning = true;
+  const tick = async () => {
+    const started = Date.now();
+    if (streamClients.size === 0 && started - priceDemandAt > 30_000) {
+      priceLoopRunning = false; // nobody watching: stop calling the exchanges
+      lastSentRow.clear();
+      return;
+    }
+    try {
+      broadcastTickers(await refreshTickers());
+    } catch (err) {
+      console.warn('[MarketX Feed] price tick failed:', err);
+    }
+    setTimeout(tick, Math.max(0, LIVE_TICK_MS - (Date.now() - started)));
+  };
+  void tick();
 }
 
 async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
@@ -753,11 +821,11 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
     const forexItems = baseList.filter(b => b.type === 'forex');
     const [cryptoBatch, stockQuotes, forexQuotes] = await Promise.all([
       fetchBinanceBatchTickers(cryptoSymbolsToFetch),
-      fetchStockQuotes(),
+      fetchStockQuotes(LIVE_YAHOO_MS),
       Promise.all(
         forexItems.map(item => {
           const [base, quote] = item.symbol.split('/');
-          return fetchForexQuote(base, quote);
+          return fetchForexQuote(base, quote, LIVE_YAHOO_MS);
         })
       ),
     ]);
@@ -790,7 +858,7 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
         low24h: paxgLive.low24h,
       };
     } else {
-      const goldFutures = await fetchYahooQuote('GC=F');
+      const goldFutures = await fetchYahooQuote('GC=F', LIVE_YAHOO_MS);
       if (goldFutures) liveUpdates['XAU/USD'] = { ...goldFutures };
     }
 
@@ -827,6 +895,8 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
         }
       }
     }
+    item.asOf = known?.at || 0;
+    item.live = !!known && now - known.at < LIVE_QUOTE_MAX_AGE_MS;
   }
 
   cachedTickers = baseList;
@@ -1754,14 +1824,57 @@ registerAdminRoutes(app);
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 
-// Live market ticker feed
+// Live market ticker feed (one request: prices from this very tick)
 app.get('/api/market/tickers', generalApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const tickers = await getLiveMarketTickers();
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ success: true, tickers });
   } catch (error) {
     console.error('Ticker endpoint error:', error);
     res.status(500).json({ error: 'Failed to fetch market tickers' });
+  }
+});
+
+// Live price stream (server-sent events): a full snapshot on connect, then every price change as it happens
+app.get('/api/market/stream', generalApiRateLimiter, async (req: Request, res: Response) => {
+  const ip = clientIp(req);
+  const fromIp = streamPerIp.get(ip) || 0;
+  if (streamClients.size >= STREAM_MAX_CLIENTS || fromIp >= STREAM_MAX_PER_IP) {
+    res.setHeader('Retry-After', '10');
+    return res.status(503).json({ error: 'Live stream is full right now; prices update by polling instead' });
+  }
+  streamPerIp.set(ip, fromIp + 1);
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    streamClients.delete(res);
+    const n = (streamPerIp.get(ip) || 1) - 1;
+    if (n > 0) streamPerIp.set(ip, n);
+    else streamPerIp.delete(ip);
+  };
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+  res.on('error', cleanup);
+
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  // no-transform keeps the compression middleware from buffering the stream
+  res.setHeader('Cache-Control', 'no-store, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+
+  try {
+    const tickers = await getLiveMarketTickers();
+    if (closed) return;
+    res.write(`event: snapshot\ndata: ${JSON.stringify({ at: Date.now(), tickers })}\n\n`);
+    streamClients.add(res);
+    ensurePriceLoop();
+  } catch {
+    if (!closed) res.end();
   }
 });
 
@@ -1886,25 +1999,25 @@ function getDefaultPriceForAsset(sym: string): number {
 }
 
 // Robust, multi-market quote resolver ensuring accurate real-time data for all tradeable assets
-// Live quotes are shared: requests for the same market within 4s (or at the same moment) use one lookup
-const quoteCache = new SharedCache<MarketTicker>(4_000, 2_000);
+// Always fetched live from the market's own source at the moment of the request; only requests arriving in the same
+// second share one lookup
+const quoteCache = new SharedCache<MarketTicker>(LIVE_FRESH_MS, 2_000);
 function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
   const key = extractAssetInfo(query).symbol.toUpperCase();
   return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(query), q => !!q && q.price > 0);
 }
 
+/** The latest streamed ticker for this asset, only when it holds a real quote from the last minute. */
+function recentTickerFor(asset: ReturnType<typeof extractAssetInfo>): MarketTicker | undefined {
+  const sym = asset.symbol.toUpperCase();
+  const name = asset.name.toLowerCase();
+  const t = latestTickers().find(x => x.symbol.toUpperCase() === sym || x.name.toLowerCase() === name);
+  return t && t.price > 0 && hasRecentLiveQuote(t.symbol) ? t : undefined;
+}
+
 async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketTicker> {
   const asset = extractAssetInfo(query);
   const cleanSym = asset.symbol;
-
-  // 1. Check live tickers cache first (homepage tickers) — only when it holds a real live quote
-  const tickers = await getLiveMarketTickers();
-  const match = tickers.find(
-    t => t.symbol.toUpperCase() === cleanSym.toUpperCase() || t.name.toLowerCase() === asset.name.toLowerCase()
-  );
-  if (match && match.price > 0 && hasRecentLiveQuote(match.symbol)) {
-    return match;
-  }
 
   // 2. CRYPTOCURRENCY: Query live Binance order book
   if (asset.type === 'crypto') {
@@ -1944,6 +2057,9 @@ async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketT
     const base = parts[0] ? parts[0].trim().toUpperCase() : 'EUR';
     const quote = parts[1] ? parts[1].trim().toUpperCase() : 'USD';
     const fx = await fetchForexQuote(base, quote);
+    // The daily reference rate is only a last resort: a streamed live quote from the last minute is closer to now
+    const streamed = fx && !fx.intraday ? recentTickerFor(asset) : undefined;
+    if (streamed) return streamed;
     if (fx) {
       const isJpy = quote === 'JPY' || cleanSym.includes('JPY');
       const decimals = isJpy ? 3 : 5;
@@ -1992,7 +2108,7 @@ async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketT
   if (asset.type === 'stock') {
     const stockSym = cleanSym.replace(/[^A-Z0-9]/g, '');
     const yahooSym = YAHOO_SYMBOL_MAP[stockSym] || stockSym;
-    const q = (await fetchYahooQuote(yahooSym)) || cachedStockQuotes[yahooSym];
+    const q = await fetchYahooQuote(yahooSym);
     if (q) {
       return {
         symbol: cleanSym,
@@ -2008,10 +2124,9 @@ async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketT
     }
   }
 
-  // Live feeds unavailable: prefer the homepage ticker (last known live quote) over static baselines
-  if (match && match.price > 0 && asset.type !== 'synthetic') {
-    return match;
-  }
+  // Live feeds unavailable: the streamed ticker (a real quote from the last minute) beats a static baseline
+  const match = asset.type === 'synthetic' ? undefined : recentTickerFor(asset);
+  if (match) return match;
 
   // 6. SYNTHETICS (Deriv Volatility, Boom, Crash, Step Index): live from Deriv's public API
   if (asset.type === 'synthetic') {
@@ -2084,8 +2199,10 @@ async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketT
 // Historical candles for the strategy engine (requested timeframe, ~300 bars)
 // Crypto & gold: Binance klines · FX, metals, energy, stocks & indices: Yahoo Finance · synthetics: Deriv
 // -------------------------------------------------------------
+// Candles are fetched live for every analysis (shared only by requests in the same second), so the newest,
+// still forming candle and every zone tap up to this moment are included
 const candleCache: Record<string, { at: number; candles: Candle[] | null }> = {};
-const CANDLE_TTL_MS = 30000;
+const CANDLE_TTL_MS = LIVE_FRESH_MS;
 
 const BINANCE_INTERVALS: Record<string, string> = {
   '1M': '1m', '3M': '3m', '5M': '5m', '15M': '15m', '30M': '30m', '1H': '1h', '2H': '2h',
@@ -2194,6 +2311,8 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
     candles = null;
   }
   candleCache[key] = { at: Date.now(), candles };
+  const keys = Object.keys(candleCache);
+  if (keys.length > 2000) for (const k of keys) if (Date.now() - candleCache[k].at > LAST_GOOD_MAX_MS) delete candleCache[k];
   return candles;
 }
 
@@ -2956,8 +3075,8 @@ INSTRUCTIONS:
       }
       return null;
     };
-    // Identical analyses requested together (same market, timeframe, stop mode, prompt, levels and news) share one
-    // engine call, and repeats within 45s are answered from memory; chart uploads are always analysed individually.
+    // Identical analyses requested at the same moment (same market, timeframe, stop mode, prompt, live levels and news)
+    // share one engine call; nothing is answered from an earlier analysis, and chart uploads are always analysed alone.
     const aiKey = safeChartImage
       ? null
       : [

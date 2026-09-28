@@ -469,63 +469,156 @@ export default function App() {
     },
   ]);
 
-  // Live market quotes synchronization: polling /api/market/tickers with change-detection
+  // Live market prices: a server-sent stream pushes every price change as it happens (about once a second).
+  // If the stream can't connect, prices are fetched live every 3s instead. Paused while the tab is hidden.
   useEffect(() => {
     let isMounted = true;
+    let source: EventSource | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let streamFailures = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const mergeFull = (incoming: MarketQuote[]) =>
+      setTickers(prev => {
+        let hasChanged = prev.length !== incoming.length;
+        for (let i = 0; !hasChanged && i < incoming.length; i++) {
+          const existing = prev.find(p => p.symbol === incoming[i].symbol);
+          if (!existing || existing.price !== incoming[i].price || existing.change24h !== incoming[i].change24h || existing.live !== incoming[i].live) {
+            hasChanged = true;
+          }
+        }
+        if (!hasChanged) return prev;
+        return incoming.map((t: MarketQuote) => {
+          const old = prev.find(p => p.symbol === t.symbol);
+          return {
+            ...old,
+            ...t,
+            name: t.name || old?.name || t.symbol,
+            type: t.type || old?.type || 'stock',
+            marketCap: t.marketCap || old?.marketCap,
+            ratio: t.ratio || old?.ratio,
+            sector: t.sector || old?.sector,
+            currency: t.currency || old?.currency || 'USD',
+          };
+        });
+      });
+
+    // Stream rows: [symbol, price, change24h, high24h, low24h, live, asOf]
+    const mergeRows = (rows: unknown[]) =>
+      setTickers(prev => {
+        const bySymbol = new Map<string, any[]>();
+        for (const r of rows) if (Array.isArray(r) && typeof r[0] === 'string') bySymbol.set(r[0], r);
+        let changed = false;
+        const next = prev.map(t => {
+          const r = bySymbol.get(t.symbol);
+          if (!r) return t;
+          const price = Number(r[1]);
+          if (!Number.isFinite(price) || price <= 0) return t;
+          changed = true;
+          return {
+            ...t,
+            price,
+            change24h: Number.isFinite(Number(r[2])) ? Number(r[2]) : t.change24h,
+            high24h: Number.isFinite(Number(r[3])) ? Number(r[3]) : t.high24h,
+            low24h: Number.isFinite(Number(r[4])) ? Number(r[4]) : t.low24h,
+            live: r[5] === 1,
+            asOf: Number(r[6]) || t.asOf,
+          };
+        });
+        return changed ? next : prev;
+      });
 
     const fetchLatestTickers = async () => {
-      // Don't poll when page is hidden/minimized to save CPU and network bandwidth
       if (typeof document !== 'undefined' && document.hidden) return;
-
       try {
-        const res = await fetch(getApiUrl('/api/market/tickers'));
+        const res = await fetch(getApiUrl('/api/market/tickers'), { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         if (data.success && Array.isArray(data.tickers) && data.tickers.length > 0 && isMounted) {
           setTickersLive(true);
-          setTickers(prev => {
-            // Guard: check if any ticker values actually changed before creating new array reference
-            let hasChanged = false;
-            if (prev.length !== data.tickers.length) {
-              hasChanged = true;
-            } else {
-              for (let i = 0; i < data.tickers.length; i++) {
-                const incoming = data.tickers[i];
-                const existing = prev.find(p => p.symbol === incoming.symbol);
-                if (!existing || existing.price !== incoming.price || existing.change24h !== incoming.change24h) {
-                  hasChanged = true;
-                  break;
-                }
-              }
-            }
-            if (!hasChanged) return prev;
-
-            return data.tickers.map((t: MarketQuote) => {
-              const old = prev.find(p => p.symbol === t.symbol);
-              return {
-                ...old,
-                ...t,
-                name: t.name || old?.name || t.symbol,
-                type: t.type || old?.type || 'stock',
-                marketCap: t.marketCap || old?.marketCap,
-                ratio: t.ratio || old?.ratio,
-                sector: t.sector || old?.sector,
-                currency: t.currency || old?.currency || 'USD',
-              };
-            });
-          });
+          mergeFull(data.tickers);
         }
       } catch (err) {
         console.warn('Ticker sync error:', err);
       }
     };
 
-    fetchLatestTickers();
-    const interval = setInterval(fetchLatestTickers, 15000);
+    const stopPolling = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+    };
+    const startPolling = () => {
+      if (pollTimer) return;
+      fetchLatestTickers();
+      pollTimer = setInterval(fetchLatestTickers, 3000);
+    };
+
+    const closeStream = () => {
+      source?.close();
+      source = null;
+    };
+    const openStream = () => {
+      if (source || typeof EventSource === 'undefined' || streamFailures >= 3) {
+        startPolling();
+        return;
+      }
+      source = new EventSource(getApiUrl('/api/market/stream'));
+      source.addEventListener('snapshot', (ev: MessageEvent) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (isMounted && Array.isArray(data?.tickers) && data.tickers.length > 0) {
+            streamFailures = 0;
+            stopPolling();
+            setTickersLive(true);
+            mergeFull(data.tickers);
+          }
+        } catch {}
+      });
+      source.addEventListener('prices', (ev: MessageEvent) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (isMounted && Array.isArray(data?.rows)) mergeRows(data.rows);
+        } catch {}
+      });
+      source.onerror = () => {
+        // The browser retries on its own; meanwhile fetch once so prices never stall. After repeated failures
+        // (e.g. the stream is full), poll instead
+        fetchLatestTickers();
+        if (source?.readyState === EventSource.CLOSED || ++streamFailures >= 3) {
+          closeStream();
+          startPolling();
+          // Try the stream again in a minute
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (!isMounted || document.hidden) return;
+            streamFailures = 0;
+            stopPolling();
+            openStream();
+          }, 60_000);
+        }
+      };
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        closeStream();
+        stopPolling();
+      } else {
+        streamFailures = 0;
+        openStream();
+      }
+    };
+
+    if (typeof document === 'undefined' || !document.hidden) openStream();
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+      closeStream();
+      stopPolling();
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, []);
 

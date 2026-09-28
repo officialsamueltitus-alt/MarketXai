@@ -211,6 +211,10 @@ export interface MarketQuote {
   sector?: string;
   currency?: string;
   type: AssetType;
+  /** When the price was fetched from its source (ms) */
+  asOf?: number;
+  /** A real quote from the last minute */
+  live?: boolean;
 }
 
 export interface PromptIdea {
