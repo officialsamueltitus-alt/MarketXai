@@ -644,9 +644,9 @@ export function buildMarketMap(
   }
   if (!plan && mitigatedSetup) {
     const m = mitigatedSetup;
-    noSignalReason = `No signal — already mitigated. The ${m.direction === 'LONG' ? 'buy' : 'sell'} setup from the ${
+    noSignalReason = `No signal, already mitigated. The ${m.direction === 'LONG' ? 'buy' : 'sell'} setup from the ${
       m.zone.kind === 'DEMAND' ? 'demand' : 'supply'
-    } zone ${m.zone.low.toFixed(dec)} – ${m.zone.high.toFixed(dec)} is no longer fresh: ${m.mitigation.join('; ')}. No other fresh, untouched zone offers a valid setup right now.`;
+    } zone ${m.zone.low.toFixed(dec)} to ${m.zone.high.toFixed(dec)} is no longer fresh: ${m.mitigation.join('; ')}. No other fresh, untouched zone offers a valid setup right now.`;
   } else if (!plan) {
     if (!demand.length && !supply.length) noSignalReason = 'No signal. No fresh, unbroken institutional supply or demand zone is in play on this timeframe.';
     else if ([...demand, ...supply].every(z => z.tapCount >= 1))
@@ -726,7 +726,7 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
   const zoneLines = (zs: SDZone[]) => (zs.length ? zs.map(z => `- ${describeZone(z, map.decimals, true)}`).join('\n') : '- None valid on this timeframe');
   const p = map.plan;
   let out = `### ${assetLabel} · ${map.timeframe} Supply & Demand + Fibonacci Map\n\n`;
-  out += `**Market structure:** ${map.trend.toLowerCase()} · recent range ${f(map.swingLow)} – ${f(map.swingHigh)} · ATR ${f(map.atr)} · built from ${map.candles} live ${map.timeframe} candles.\n\n`;
+  out += `**Market structure:** ${map.trend.toLowerCase()} · recent range ${f(map.swingLow)} to ${f(map.swingHigh)} · ATR ${f(map.atr)} · built from ${map.candles} live ${map.timeframe} candles.\n\n`;
   out += `#### Institutional Demand (below price)\n${zoneLines(map.demandZones)}\n\n#### Institutional Supply (above price)\n${zoneLines(map.supplyZones)}\n\n`;
   if (p) {
     const long = p.direction === 'LONG';
@@ -734,20 +734,20 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
     out += `Fibonacci is drawn on the swing leg **${f(p.impulseFrom)} (100%) → ${f(p.impulseTo)} (0%)**. `;
     out +=
       p.confluence === 'GOLDEN_POCKET_IN_ZONE'
-        ? `The **0.618–0.705 golden pocket (${f(p.goldenPocket.from)} – ${f(p.goldenPocket.to)})** sits inside the zone — the highest-probability entry.\n\n`
+        ? `The **0.618–0.705 golden pocket (${f(p.goldenPocket.from)} to ${f(p.goldenPocket.to)})** sits inside the zone, the highest-probability entry.\n\n`
         : p.confluence === 'FIB_BAND_OVERLAP'
           ? `The zone overlaps the 0.5–0.786 retracement band, giving Fibonacci confluence for the entry.\n\n`
           : p.confluence === 'LEG_ORIGIN'
-            ? `The zone is the origin of the swing (Fibonacci 100%) — a deep retest entry at the proximal edge.\n\n`
+            ? `The zone is the origin of the swing (Fibonacci 100%), a deep retest entry at the proximal edge.\n\n`
             : `The zone sits outside the key retracement band, so the entry is taken at the zone's proximal edge with reduced size.\n\n`;
     out += `#### Execution Plan · ${p.direction}\n`;
-    out += `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} – ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
-    out += `- **Stop loss:** ${f(p.stopLoss)} — beyond the zone's distal line (Fibonacci 100%)\n`;
-    p.targets.forEach((t, i) => (out += `- **TP${i + 1}:** ${f(t.price)} — ${t.label} (1:${t.rr})\n`));
+    out += `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} to ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
+    out += `- **Stop loss:** ${f(p.stopLoss)}, beyond the zone's distal line (Fibonacci 100%)\n`;
+    p.targets.forEach((t, i) => (out += `- **TP${i + 1}:** ${f(t.price)}, ${t.label} (1:${t.rr})\n`));
     out += `\n**Invalidation:** a candle close ${long ? 'below' : 'above'} ${f(p.zone.distal)} breaks the zone; cancel the order if price reaches TP1 before filling.\n\n`;
   } else {
     const already = !!map.mitigatedSetup;
-    out += `#### ${already ? 'No signal — already mitigated' : 'No signal'}\n${map.noSignalReason} ${
+    out += `#### ${already ? 'No signal, already mitigated' : 'No signal'}\n${map.noSignalReason} ${
       already
         ? 'Signals are only called from fresh zones whose entry, stop loss and targets are still untouched.'
         : 'Wait for price to form a fresh, untouched zone and a new impulse to anchor the Fibonacci retracement.'

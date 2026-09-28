@@ -4,6 +4,7 @@ import compression from 'compression';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import { hideEngineInResponses } from './server/brand';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { firebaseStatus } from './server/firebase';
@@ -104,6 +105,8 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
   req.rawBody = buf;
 };
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat']);
+// AI-written content never names the underlying model
+app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -1551,40 +1554,40 @@ function generateAlgorithmicStrategy(
 #### 1. Market Condition Assessment
 - **Asset**: ${asset.name} (**${asset.symbol}**)
 - **Live Price**: **$${formatPrice(currentPrice)}** (24h Change: ${change >= 0 ? '+' : ''}${change}%)
-- **24h Range**: $${formatPrice(low24)} — $${formatPrice(high24)}
+- **24h Range**: $${formatPrice(low24)} to $${formatPrice(high24)}
 - **Signal Status**: **No signal opportunity found.**
 
 #### 2. Key Findings & Confluence Gaps
 1. **Neutral Equilibrium Compression**: Current price action is oscillating around the 50.0% equilibrium midpoint ($${formatPrice(equilibriumPrice)}). No institutional displacement or liquidity sweep has taken place.
-2. **Missing Confluence**: Neither the institutional Demand Zone ($${formatPrice(demandLow)} - $${formatPrice(demandHigh)}) nor the overhead Supply Zone ($${formatPrice(supplyLow)} - $${formatPrice(supplyHigh)}) has been cleanly mitigated with rejection confirmation.
+2. **Missing Confluence**: Neither the institutional Demand Zone ($${formatPrice(demandLow)} to $${formatPrice(demandHigh)}) nor the overhead Supply Zone ($${formatPrice(supplyLow)} to $${formatPrice(supplyHigh)}) has been cleanly mitigated with rejection confirmation.
 3. **Risk-to-Reward Skew**: Initiating a position in this consolidation range results in an unfavorable mathematical expectancy.
 
 #### 3. Institutional POI & Zone Mitigation Status (Untouched vs Tapped)
-- 🟢 **Unmitigated (Untouched) POIs (${unmitigatedZonesCount} detected — Price has not touched yet)**:
-${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
-- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected — Price has tapped and left already)**:
-${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- 🟢 **Unmitigated (Untouched) POIs (${unmitigatedZonesCount} detected, Price has not touched yet)**:
+${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected, Price has tapped and left already)**:
+${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
 
 #### 4. Recommended Institutional Action
 - **Position**: **Stand Aside (Cash / No Trade)**.
-- **Trigger Required**: Wait for a clean sweep into untouched Demand ($${formatPrice(demandLow)} - $${formatPrice(demandHigh)}) for a Buy Zone confirmation, or into untouched Supply ($${formatPrice(supplyLow)} - $${formatPrice(supplyHigh)}) for a Sell Zone rejection.`
+- **Trigger Required**: Wait for a clean sweep into untouched Demand ($${formatPrice(demandLow)} to $${formatPrice(demandHigh)}) for a Buy Zone confirmation, or into untouched Supply ($${formatPrice(supplyLow)} to $${formatPrice(supplyHigh)}) for a Sell Zone rejection.`
     : `### Market Structure & Execution Thesis Report
 
 #### 1. Real-Time Market Structure & Institutional Liquidity
 ${asset.name} (**${asset.symbol}**) is displaying clear institutional structure on the **${timeframe}** timeframe.
 - **Current Live Price**: **$${formatPrice(currentPrice)}** (24h Change: ${change >= 0 ? '+' : ''}${change}%)
-- **24h Liquidity Range**: $${formatPrice(low24)} — $${formatPrice(high24)}
+- **24h Liquidity Range**: $${formatPrice(low24)} to $${formatPrice(high24)}
 - Institutional price action and real-time zone analysis indicate an unmitigated structural imbalance, making ${tradeType === 'LONG' ? 'a **Buy Zone (Buy Limit / Long)** pullback to untouched institutional demand with Fibonacci confluence' : 'a **Sell Zone (Sell Limit / Short)** retest into untouched overhead supply with Fibonacci confluence'} the highest mathematical expectancy setup.
 
 #### 2. Supply & Demand Zone Mapping
-- **Institutional Demand Zone**: **$${formatPrice(demandLow)} - $${formatPrice(demandHigh)}** (${demandMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Demand — Price has not touched yet' : '⚡ Mitigated Demand — Price tapped & left already'}). High volume node with institutional resting limit bids.
-- **Overhead Supply Zone**: **$${formatPrice(supplyLow)} - $${formatPrice(supplyHigh)}** (${supplyMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Supply — Price has not touched yet' : '⚡ Mitigated Supply — Price tapped & left already'}). Significant sell-side resting liquidity where sellers defended the previous structural pivot.
+- **Institutional Demand Zone**: **$${formatPrice(demandLow)} to $${formatPrice(demandHigh)}** (${demandMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Demand, Price has not touched yet' : '⚡ Mitigated Demand, Price tapped & left already'}). High volume node with institutional resting limit bids.
+- **Overhead Supply Zone**: **$${formatPrice(supplyLow)} to $${formatPrice(supplyHigh)}** (${supplyMitigationStatus === 'UNMITIGATED' ? '🟢 Untouched Virgin Supply, Price has not touched yet' : '⚡ Mitigated Supply, Price tapped & left already'}). Significant sell-side resting liquidity where sellers defended the previous structural pivot.
 
 #### 3. Institutional POI & Zone Mitigation Breakdown (Untouched vs Tapped)
-- 🟢 **Unmitigated (Untouched) POIs & Zones (${unmitigatedZonesCount} detected — Price has not touched yet)**:
-${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
-- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected — Price has tapped and left already)**:
-${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} - $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- 🟢 **Unmitigated (Untouched) POIs & Zones (${unmitigatedZonesCount} detected, Price has not touched yet)**:
+${poiZones.filter(z => z.mitigationStatus === 'UNMITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
+- ⚡ **Mitigated Zones (${mitigatedZonesCount} detected, Price has tapped and left already)**:
+${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.name}** ($${formatPrice(z.min)} to $${formatPrice(z.max)}): *${z.reactionSummary}*`).join('\n')}
 
 #### 4. Fibonacci Retracement Confluence
 - **Swing Low**: $${formatPrice(swingLow)} | **Swing High**: $${formatPrice(swingHigh)}
@@ -1593,11 +1596,11 @@ ${poiZones.filter(z => z.mitigationStatus === 'MITIGATED').map(z => `  - **${z.n
 
 #### 5. Actionable Execution Plan
 - **Directional Bias**: **${tradeType} (${tradeType === 'LONG' ? 'BUY ZONE / BUY LIMIT' : 'SELL ZONE / SELL LIMIT'})**
-- **Optimal Entry Price**: **$${formatPrice(optimalEntry)}** (Range: $${formatPrice(entryMin)} - $${formatPrice(entryMax)})
+- **Optimal Entry Price**: **$${formatPrice(optimalEntry)}** (Range: $${formatPrice(entryMin)} to $${formatPrice(entryMax)})
 - **Protective Invalidation Stop Loss**: **$${formatPrice(stopLossPrice)}** (${riskPercent}% risk from entry). Safely protected beyond the structural zone invalidation barrier.
-- **Take Profit 1 (TP1)**: **$${formatPrice(tp1)}** — Scale out 40% position at 50% equilibrium retracement. Move stop loss to breakeven upon fill.
-- **Take Profit 2 (TP2)**: **$${formatPrice(tp2)}** — Harvest 40% profit at the opposing institutional liquidity band.
-- **Take Profit 3 (TP3 / Runner)**: **$${formatPrice(tp3)}** — Retain final 20% position for structural extension.
+- **Take Profit 1 (TP1)**: **$${formatPrice(tp1)}**, Scale out 40% position at 50% equilibrium retracement. Move stop loss to breakeven upon fill.
+- **Take Profit 2 (TP2)**: **$${formatPrice(tp2)}**, Harvest 40% profit at the opposing institutional liquidity band.
+- **Take Profit 3 (TP3 / Runner)**: **$${formatPrice(tp3)}**, Retain final 20% position for structural extension.
 - **Expected Risk-to-Reward**: **1 : ${rrRatio} R:R**
 
 #### 6. Invalidation & Risk Management
@@ -1848,20 +1851,20 @@ async function buildTightenedStrategy(rawBase: any): Promise<any | null> {
   const cut = Math.round((1 - risk / origRisk) * 100);
 
   const rationale = t.tightened
-    ? `Tightened to ${fmt(newStop)} — ${t.basis}; at least half an ATR (${fmt(t.minRisk)}) of the ${tf} timeframe so normal noise doesn't stop the trade out.`
-    : `Kept at ${fmt(newStop)} — ${t.basis} (any closer would sit inside normal ${tf} noise of ${fmt(t.minRisk * 2)} per candle).`;
+    ? `Tightened to ${fmt(newStop)}, ${t.basis}; at least half an ATR (${fmt(t.minRisk)}) of the ${tf} timeframe so normal noise doesn't stop the trade out.`
+    : `Kept at ${fmt(newStop)}, ${t.basis} (any closer would sit inside normal ${tf} noise of ${fmt(t.minRisk * 2)} per candle).`;
 
   const thesis = `### Tightened Stop Loss · ${base.name} (${base.symbol}) · ${tf}
 
-The setup is unchanged — same ${isShort ? 'sell' : 'buy'} zone, Fibonacci entry and targets. Only the stop loss is recalculated for the ${tf} timeframe.
+The setup is unchanged, same ${isShort ? 'sell' : 'buy'} zone, Fibonacci entry and targets. Only the stop loss is recalculated for the ${tf} timeframe.
 
 #### Stop loss
 - **Original:** ~~${fmt(originalStop)}~~ (${origRiskPct}% risk)
 - **${t.tightened ? 'Tightened' : 'Unchanged'}:** **${fmt(newStop)}** (${riskPct}% risk${t.tightened ? `, ${cut}% less risk` : ''})
-- **Why it's valid:** ${t.basis}. The stop stays at least half an ATR (${fmt(t.minRisk)}) away from the entry — ${atrSource === 'estimated' ? `estimated ${tf} volatility` : atrSource} — so ordinary ${tf} candle noise won't trigger it.
+- **Why it's valid:** ${t.basis}. The stop stays at least half an ATR (${fmt(t.minRisk)}) away from the entry, ${atrSource === 'estimated' ? `estimated ${tf} volatility` : atrSource}, so ordinary ${tf} candle noise won't trigger it.
 
 #### Entry & targets (unchanged)
-- **Entry:** ${fmt(base.entryZone.min)} – ${fmt(base.entryZone.max)}, optimal **${fmt(entry)}**
+- **Entry:** ${fmt(base.entryZone.min)} to ${fmt(base.entryZone.max)}, optimal **${fmt(entry)}**
 ${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.rewardRatio})`).join('\n')}
 - **Overall R:R:** 1 : ${finalRR}${base.riskRewardRatio ? ` (was ${base.riskRewardRatio})` : ''}
 
@@ -1891,7 +1894,7 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     service: 'MarketX AI Strategy Engine',
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    aiConfigured: Boolean(process.env.GEMINI_API_KEY),
     accountsConfigured: isAuthConfigured(),
     storageConfigured: !firebaseStatus(),
     googleSignInConfigured: Boolean(getGoogleClientId()),
@@ -2399,7 +2402,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     reactionSummary: z.priceInside
       ? 'Price is trading inside this zone right now.'
       : z.fresh
-        ? 'Price has not returned since the explosive leg-out — institutional orders are still resting here.'
+        ? 'Price has not returned since the explosive leg-out, institutional orders are still resting here.'
         : `Price has tapped this zone ${z.tapCount}x and it held.`,
   });
   const nearest = (zs: SDZone[]) => [...zs].sort((a, b) => a.distanceAtr - b.distanceAtr)[0];
@@ -2439,7 +2442,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
       min: plan.entry.min,
       max: plan.entry.max,
       optimal: plan.entry.optimal,
-      rationale: `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} – ${r(plan.zone.high)})`,
+      rationale: `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} to ${r(plan.zone.high)})`,
     };
     strategy.stopLoss = {
       price: plan.stopLoss,
@@ -2458,8 +2461,8 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     strategy.confidenceScore = 50;
     if (watch) {
       const long = watch.kind === 'DEMAND';
-      strategy.entryZone = { min: r(watch.low), max: r(watch.high), optimal: r(watch.proximal), rationale: `Watch zone: ${long ? 'demand' : 'supply'} ${r(watch.low)} – ${r(watch.high)}` };
-      strategy.stopLoss = { price: r(watch.distal), riskPercent: 0, rationale: 'No position — wait for a valid setup' };
+      strategy.entryZone = { min: r(watch.low), max: r(watch.high), optimal: r(watch.proximal), rationale: `Watch zone: ${long ? 'demand' : 'supply'} ${r(watch.low)} to ${r(watch.high)}` };
+      strategy.stopLoss = { price: r(watch.distal), riskPercent: 0, rationale: 'No position, wait for a valid setup' };
     }
     strategy.riskRewardRatio = '1 : 0';
     const swingDiff = map.swingHigh - map.swingLow;
@@ -2482,7 +2485,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     const already = !!map.mitigatedSetup;
     strategy.signalStatus = {
       ...strategy.signalStatus,
-      verdict: already ? 'No Signal — Already Mitigated' : 'No Signal Opportunity',
+      verdict: already ? 'No Signal, Already Mitigated' : 'No Signal Opportunity',
       details: map.noSignalReason || strategy.signalStatus?.details,
     };
     strategy.alreadyMitigated = already;
@@ -2560,7 +2563,7 @@ function generateFallbackChatResponse(prompt: string): string {
   if (p.includes('golden pocket') || p.includes('0.618') || p.includes('fibonacci')) {
     return `### 📐 The 0.618 Golden Pocket in Institutional Trading
 
-In quantitative technical analysis, the **0.618 (61.8%) Fibonacci Retracement**—commonly referred to as the **Golden Pocket** when bracketed with the **0.65** or **0.705 ratio**—represents a prime mathematical zone of institutional equilibrium.
+In quantitative technical analysis, the **0.618 (61.8%) Fibonacci Retracement**, commonly referred to as the **Golden Pocket** when bracketed with the **0.65** or **0.705 ratio**, represents a prime mathematical zone of institutional equilibrium.
 
 #### Why the 0.618 Golden Pocket Works:
 1. **Discount vs. Premium Accumulation**: Institutional smart money rarely buys at market highs. After an impulsive leg, large funds wait for price to pull back to deep discount pricing (0.618 to 0.786) to absorb limit orders.
@@ -2608,7 +2611,7 @@ In institutional trading, surviving drawdowns and compounding gains is entirely 
   }
 
   if (p.includes('who are you') || p.includes('what are you') || p.includes('what can you do') || p.includes('help')) {
-    return `### 👋 Welcome to MarketX — Your Institutional Quant & Trading Mentor
+    return `### 👋 Welcome to MarketX, your Institutional Quant & Trading Mentor
 
 I am **MarketX**, an AI-powered financial market intelligence assistant built for quantitative traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
 
