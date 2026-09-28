@@ -1,4 +1,15 @@
 import nodemailer, { Transporter } from 'nodemailer';
+import { createMailQueue, MailPriority } from './mailQueue';
+import { perWorker } from './workers';
+
+// One paced queue for all outgoing mail (see mailQueue.ts). Gmail allows roughly 20 messages/minute sustained.
+const mailQueue = createMailQueue({
+  perMinute: perWorker(Math.max(1, Math.floor(Number(process.env.SMTP_MAX_PER_MINUTE) || 20))),
+  concurrency: 2,
+  lowBacklogMax: 300,
+  lowPerRecipientMs: 5 * 60 * 1000,
+});
+export const mailQueueStats = () => mailQueue.stats();
 
 // Gmail SMTP: SMTP_USER is the Gmail address, SMTP_PASS a Google "App password"
 // (Google Account → Security → 2-Step Verification → App passwords).
@@ -33,6 +44,8 @@ export interface EmailOptions {
   note?: string;
   /** A one-time code shown large and monospaced (e.g. an access pass code) */
   code?: string;
+  /** 'low' for activity mail (paced, deduplicated, droppable); everything else is 'high' */
+  priority?: MailPriority;
 }
 
 // Transactional email; failures are logged and never break the request. Resolves true when sent.
@@ -88,11 +101,13 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
     `${cta.label}: ${cta.url}`,
     ...(options.note ? ['', options.note] : []),
   ].join('\n');
-  try {
-    await t.sendMail({ from, to, subject, text, html });
-    return true;
-  } catch (err: any) {
-    console.warn(`[MarketX Mail] Failed to send "${subject}" to ${to}: ${err?.message || err}`);
-    return false;
-  }
+  return mailQueue.enqueue(to, options.priority === 'low' || options.priority === 'bulk' ? options.priority : 'high', async () => {
+    try {
+      await t.sendMail({ from, to, subject, text, html });
+      return true;
+    } catch (err: any) {
+      console.warn(`[MarketX Mail] Failed to send "${subject}" to ${to}: ${err?.message || err}`);
+      return false;
+    }
+  });
 }

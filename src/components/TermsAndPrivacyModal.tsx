@@ -53,7 +53,7 @@ const DOCS: Record<Tab, Doc> = {
     sections: [
       {
         title: 'What we collect',
-        body: 'Your email address, username, display name and optional profile photo; your credits, plan and payment records; your saved chats and trade setups; support conversations; and basic usage information (such as analyses run and sign-in activity) used to operate and secure the service.',
+        body: 'Your email address, username, display name and optional profile photo; your credits, plan and payment records; your saved chats and trade setups; support conversations; basic usage information (such as analyses run and sign-in activity) used to operate and secure the service; and, when you sign up, your IP address and device identifiers, used only to enforce one account per person and prevent abuse.',
       },
       {
         title: 'How it is stored',

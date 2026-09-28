@@ -155,6 +155,12 @@ const UserDetail: React.FC<{ uid: string; onClose: () => void; onChanged: () => 
                   <div className="text-xs text-slate-500">
                     Joined {fmtDate(u.joinedAt)} · Last active {timeAgo(u.lastActiveAt)}
                   </div>
+                  {u.signup && (
+                    <div className="text-xs text-slate-500 break-all" title={u.signup.userAgent || ''}>
+                      Signed up from {u.signup.ip || 'unknown IP'}
+                      {u.signup.userAgent ? ` · ${/iPhone|iPad/.test(u.signup.userAgent) ? 'iOS' : /Android/.test(u.signup.userAgent) ? 'Android' : /Mac OS/.test(u.signup.userAgent) ? 'Mac' : /Windows/.test(u.signup.userAgent) ? 'Windows' : /Linux/.test(u.signup.userAgent) ? 'Linux' : 'Other device'}` : ''}
+                    </div>
+                  )}
                 </div>
               </div>
 

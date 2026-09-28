@@ -17,8 +17,11 @@ import {
   addNotification,
   isUnlimitedEmail,
   blockedStatusMessage,
+  invalidateAuthCache,
 } from './account';
 import { bumpDaily, logActivity, touchUser } from './tracking';
+import { IS_LEAD_WORKER } from './workers';
+import { readDeviceSignals, reserveSignup, releasePendingSignup, activateSignup, keysOf, signupMetaOf, canonicalEmail, type DeviceSignals } from './signupGuard';
 import { clientIp, createKeyedThrottle } from './security';
 import {
   batchFullMessage,
@@ -149,7 +152,8 @@ async function sendVerificationEmail(req: Request, uid: string, email: string) {
   const { token, hash } = newOneTimeToken();
   await tokenRef(hash).set({ uid, email, type: 'verify', expiresAt: Date.now() + VERIFY_TTL_MS });
   const link = `${siteUrl(req)}/api/auth/verify-email?token=${token}`;
-  await sendEmail(
+  // Queued (not awaited) so the request never waits on the paced mail queue
+  void sendEmail(
     email,
     'Welcome to MarketX: confirm your email',
     [
@@ -237,7 +241,9 @@ export async function deleteAccountData(uid: string, email: string): Promise<Use
   const doc = snap.exists ? (snap.data() as UserDoc) : null;
   // Log first: the global feed entry survives, the per-user copy is removed with the account
   await logActivity(uid, { type: 'deleted', title: 'Account deleted', detail: email }, doc?.username);
+  invalidateAuthCache(uid);
   await db().recursiveDelete(userRef(uid));
+  invalidateAuthCache(uid); // again, in case a request re-cached it mid-deletion
   await userRef(uid).delete(); // no-op if already removed
   if (doc?.usernameLower) {
     const nameRef = db().collection('usernames').doc(doc.usernameLower);
@@ -259,7 +265,7 @@ export async function setEmailBanned(email: string, banned: boolean) {
 
 export function registerAuthRoutes(app: Express) {
   // Unused pass codes expire after 48 hours; sweep hourly so their seats return to the batch
-  if (isAuthConfigured()) {
+  if (isAuthConfigured() && IS_LEAD_WORKER) {
     const sweep = () => releaseExpiredPasscodes().catch(err => console.warn('[MarketX Access] expiry sweep failed:', err?.message || err));
     setTimeout(sweep, 30 * 1000).unref();
     setInterval(sweep, 60 * 60 * 1000).unref();
@@ -271,6 +277,42 @@ export function registerAuthRoutes(app: Express) {
         console.error(`[MarketX Auth] ${req.method} ${req.path} failed:`, err?.message || err);
         if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' });
       });
+
+  // --- Sign-up abuse guard: one device, one email, one IP (see server/signupGuard.ts) ---
+  const canonicalRef = (canon: string) => db().collection('canonicalEmails').doc(canon);
+  const guardHelpers = {
+    // A binding from another address still holds while that address has an account or a live pending sign-up
+    stillWaiting: async (raw: string) => {
+      if ((await credentialsRef(raw).get()).exists) return true;
+      const p = await pendingRef(raw).get();
+      return p.exists && !isPendingExpired(p.data() as PendingSignup);
+    },
+    // Another spelling of the same mailbox (Gmail dots, +tags) that already has an ACCOUNT. Pending sign-ups
+    // don't count (a stranger typing you+x@gmail.com must not lock you out); redemption re-checks this.
+    aliasOwner: async (canon: string, raw: string) => {
+      const snap = await canonicalRef(canon).get();
+      const accounts: string[] = Array.isArray(snap.data()?.accounts) ? snap.data()!.accounts : [];
+      for (const other of accounts) {
+        if (other && other !== raw && (await credentialsRef(other).get()).exists) return other;
+      }
+      return null;
+    },
+  };
+  /** Checks the guard for a new sign-up; on success returns what to store on the pending sign-up. */
+  const guardSignup = async (req: Request, res: Response, email: string) => {
+    const signals = readDeviceSignals(req, res);
+    // The owner's unlimited-access addresses are exempt (they may register from a device that has other accounts)
+    if (isUnlimitedEmail(email)) return { signals, extra: { signupMeta: signupMetaOf(signals), guardKeys: [] as ReturnType<typeof keysOf> } };
+    const result = await reserveSignup(email, signals, guardHelpers);
+    if (!result.ok) {
+      const verdict = result as { error: string; message: string };
+      console.warn(`[MarketX Access] Sign-up blocked (${verdict.error}) for ${email} from ${signals.ip || 'unknown IP'}`);
+      res.status(403).json({ error: verdict.error, message: verdict.message });
+      return null;
+    }
+    return { signals, extra: { signupMeta: signupMetaOf(signals), guardKeys: keysOf(signals) } };
+  };
+  const releaseGuard = (email: string, signals: DeviceSignals) => releasePendingSignup(email, signals).catch(() => {});
 
   app.post('/api/auth/signup', authLimiter, requireConfigured, wrap(async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
@@ -293,10 +335,21 @@ export function registerAuthRoutes(app: Express) {
       return res.status(409).json({ error: 'USERNAME_TAKEN', message: `@${cleanUsername} is already taken. Try another username.` });
     }
 
+    // One device, one email, one IP (plus alias and disposable-address checks)
+    const guard = await guardSignup(req, res, email);
+    if (!guard) return;
+
     // Invite-only: the account is created only after the emailed pass code is entered
     const passwordHash = await hashPassword(password);
-    const reserved = await createPendingSignup(email, { passwordHash, username: cleanUsername || undefined, displayName, termsAcceptedAt: Date.now() });
+    const reserved = await createPendingSignup(email, {
+      passwordHash,
+      username: cleanUsername || undefined,
+      displayName,
+      termsAcceptedAt: Date.now(),
+      ...guard.extra,
+    });
     if (reserved.status === 'full') {
+      await releaseGuard(email, guard.signals);
       return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
     }
     if (reserved.status === 'exists') {
@@ -307,10 +360,10 @@ export function registerAuthRoutes(app: Express) {
           message: 'A pass code has already been sent to this email. Enter it on the pass code page to finish signing up.',
         });
       }
-      if (!reserved.pending.codeEmailSentAt) await deliverPasscode(req, email);
+      if (!reserved.pending.codeEmailSentAt) void deliverPasscode(req, email);
       return pendingResponse(res, email, !!reserved.pending.codeEmailSentAt);
     }
-    await deliverPasscode(req, email);
+    void deliverPasscode(req, email);
     pendingResponse(res, email, false);
   }));
 
@@ -331,13 +384,18 @@ export function registerAuthRoutes(app: Express) {
       if (p?.passwordHash && (await verifyPassword(password, p.passwordHash))) {
         loginFailures.clear(email);
         if (isPendingExpired(p)) {
-          // Their 48 hours ran out: retire the old code and reserve a fresh seat if one is free
-          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName });
-          if (again.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
-          await deliverPasscode(req, email);
+          // Their 48 hours ran out: retire the old code and reserve a fresh seat if one is free (same device rules)
+          const guard = await guardSignup(req, res, email);
+          if (!guard) return;
+          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName, ...guard.extra });
+          if (again.status === 'full') {
+            await releaseGuard(email, guard.signals);
+            return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+          }
+          void deliverPasscode(req, email);
           return pendingResponse(res, email, false);
         }
-        if (!p.codeEmailSentAt) await deliverPasscode(req, email);
+        if (!p.codeEmailSentAt) void deliverPasscode(req, email);
         return pendingResponse(res, email, !!p.codeEmailSentAt);
       }
     }
@@ -394,10 +452,21 @@ export function registerAuthRoutes(app: Express) {
       const w = waiting.exists ? (waiting.data() as PendingSignup) : null;
       // A pending email/password sign-up can't be taken over or finished through Google
       if (w && !isPendingExpired(w) && w.googleSub !== payload.sub) return res.status(403).json(GOOGLE_NOT_REGISTERED);
-      const reserved = await createPendingSignup(email, { googleSub: payload.sub, name: payload.name, picture: payload.picture, termsAcceptedAt: Date.now() });
-      if (reserved.status === 'full') return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+      const guard = await guardSignup(req, res, email);
+      if (!guard) return;
+      const reserved = await createPendingSignup(email, {
+        googleSub: payload.sub,
+        name: payload.name,
+        picture: payload.picture,
+        termsAcceptedAt: Date.now(),
+        ...guard.extra,
+      });
+      if (reserved.status === 'full') {
+        await releaseGuard(email, guard.signals);
+        return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
+      }
       const alreadySent = reserved.status === 'exists' && !!reserved.pending.codeEmailSentAt;
-      if (!alreadySent) await deliverPasscode(req, email);
+      if (!alreadySent) void deliverPasscode(req, email);
       return pendingResponse(res, email, alreadySent);
     }
 
@@ -474,6 +543,7 @@ export function registerAuthRoutes(app: Express) {
       return data.uid as string;
     });
     if (!uid) return res.status(400).json({ error: 'INVALID_TOKEN', message: 'This reset link is invalid or has expired. Request a new one.' });
+    invalidateAuthCache(uid); // every old session is now revoked
     const blockedR = await blockedFor(uid);
     if (blockedR) return res.status(403).json({ error: blockedR.code, message: blockedR.message });
     const state = await signIn(res, uid);
@@ -563,6 +633,9 @@ export function registerAuthRoutes(app: Express) {
 
     const pending = check.pending;
     if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
+    // The device entering the code must not already belong to someone else either
+    const redeemGuard = await guardSignup(req, res, email);
+    if (!redeemGuard) return;
     const uid = (await findLegacyUid(email)) || crypto.randomUUID();
     const created = await db().runTransaction(async tx => {
       const cred = await tx.get(credentialsRef(email));
@@ -582,7 +655,18 @@ export function registerAuthRoutes(app: Express) {
 
     // The pass code arrived by email, so the address is proven
     await createUserIfMissing({ uid, email, emailVerified: true, name: pending.name, picture: pending.picture }, pending.username, pending.displayName);
-    await userRef(uid).update({ emailVerified: true });
+    await userRef(uid).update({
+      emailVerified: true,
+      // Where the account was registered and activated (admin console; abuse checks)
+      signupMeta: pending.signupMeta || redeemGuard.extra.signupMeta,
+      redeemMeta: redeemGuard.extra.signupMeta,
+    });
+    await canonicalRef(canonicalEmail(email))
+      .set({ accounts: FieldValue.arrayUnion(email.toLowerCase()), at: Date.now() }, { merge: true })
+      .catch(() => {});
+    await activateSignup(email, [...((pending.guardKeys as any[]) || []), ...redeemGuard.extra.guardKeys]).catch(err =>
+      console.warn('[MarketX Access] could not activate device bindings:', err?.message || err)
+    );
     const state = await signIn(res, uid);
     res.json({ success: true, accessGranted: true, ...state });
     logActivity(uid, { type: 'signup', title: 'Joined MarketX with a pass code', detail: `Batch ${pending.batch}` }, state?.profile?.username);

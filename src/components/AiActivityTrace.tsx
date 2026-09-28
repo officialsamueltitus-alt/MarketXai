@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, ChevronDown, X, Square, Newspaper, CalendarClock, ArrowUpRight, Landmark } from 'lucide-react';
+import { Check, ChevronDown, X, Square, ArrowUpRight } from 'lucide-react';
 import { ActivityStep, NewsBrief, ReasoningStep } from '../types';
 import { allocateTokens, formatTokens, promptTokenBudget } from '../utils/tokens';
 
@@ -87,7 +87,12 @@ function stepTokens(steps: ActivityStep[], now: number, running: boolean, seed: 
   return out;
 }
 
-const Timeline: React.FC<{ steps: ActivityStep[]; now: number; tokens: Record<string, number> | null }> = ({ steps, now, tokens }) => (
+const Timeline: React.FC<{ steps: ActivityStep[]; now: number; tokens: Record<string, number> | null; newsStepHasNews?: boolean }> = ({
+  steps,
+  now,
+  tokens,
+  newsStepHasNews = false,
+}) => (
   <ol className="relative">
     {steps.map((step, i) => {
       const last = i === steps.length - 1;
@@ -97,7 +102,13 @@ const Timeline: React.FC<{ steps: ActivityStep[]; now: number; tokens: Record<st
         <li key={step.id} className="mx-rise relative flex gap-3 pb-3 last:pb-0">
           {!last && <span className="absolute left-[7.5px] top-5 bottom-0 w-px bg-white/[0.08]" aria-hidden="true" />}
           <span className="mt-0.5 shrink-0">
-            <StepIcon status={step.status} />
+            {step.id === 'news' && newsStepHasNews && step.status === 'done' ? (
+              <span className="w-4 h-4 rounded-full bg-amber-400/15 flex items-center justify-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              </span>
+            ) : (
+              <StepIcon status={step.status} />
+            )}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-3">
@@ -132,88 +143,97 @@ const untilFmt = (ms: number) => {
 export const isNewsCurrent = (news?: NewsBrief | null, now = Date.now()): news is NewsBrief =>
   !!news && Number.isFinite(news.expiresAt) && now < news.expiresAt && (news.events?.length > 0 || news.headlines?.length > 0);
 
-// Today's fundamentals, inside the process report
+/** Soft yellow dot that marks "today's news is available" */
+const NewsDot: React.FC<{ pulse?: boolean; className?: string }> = ({ pulse = false, className = '' }) => (
+  <span className={`relative inline-flex w-2 h-2 shrink-0 ${className}`} aria-hidden="true">
+    {pulse && <span className="absolute inset-0 rounded-full bg-amber-400/60 mx-ping-live" />}
+    <span className="relative w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.15)]" />
+  </span>
+);
+
+// Today's fundamentals, inside the process report: one aligned list (time | item | tag)
 const NewsPanel: React.FC<{ news: NewsBrief }> = ({ news }) => {
   const now = Date.now();
   const events = news.events || [];
   const headlines = (news.headlines || []).filter(h => h && h.title);
+  type Row = { key: string; time: string; title: string; meta: string; tag?: { text: string; cls: string }; href?: string | null };
+  const rows: Row[] = [
+    ...events.map((e, i) => {
+      const holiday = e.impact === 'HOLIDAY';
+      const upcoming = e.at != null && e.at > now;
+      return {
+        key: `e${i}`,
+        time: e.at == null ? 'All day' : timeFmt(e.at),
+        title: e.title,
+        meta: [
+          e.currency,
+          e.at != null ? (upcoming ? untilFmt(e.at - now) : 'released') : '',
+          e.forecast ? `forecast ${e.forecast}` : '',
+          e.previous ? `previous ${e.previous}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        tag: holiday
+          ? { text: 'Holiday', cls: 'bg-sky-500/10 text-sky-300' }
+          : upcoming
+            ? { text: 'High impact', cls: 'bg-amber-500/15 text-amber-300' }
+            : { text: 'Released', cls: 'bg-white/[0.05] text-slate-400' },
+      };
+    }),
+    ...headlines.map((h, i) => ({
+      key: `h${i}`,
+      time: timeFmt(h.publishedAt),
+      title: h.title,
+      meta: h.source,
+      href: typeof h.url === 'string' && /^https:\/\//i.test(h.url) ? h.url : null,
+    })),
+  ];
+
   return (
-    <section className="mt-3.5 pt-3.5 border-t border-white/[0.06]" aria-label="Today's news">
-      <div className="flex items-center justify-between gap-3">
-        <span className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-100">
-          <span className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-300 flex items-center justify-center">
-            <Newspaper className="w-3.5 h-3.5" />
-          </span>
-          Today's news · {dayFmt(news.day)}
-        </span>
-        <span className="text-[11px] text-slate-500 shrink-0">Valid until midnight</span>
-      </div>
+    <section className="mt-3 pt-3 border-t border-white/[0.06]" aria-label="Today's news">
+      <header className="flex items-center gap-2">
+        <NewsDot />
+        <span className="text-[13px] font-medium text-slate-100">Today's news</span>
+        <span className="text-[12px] text-slate-500">{dayFmt(news.day)}</span>
+        <span className="ml-auto text-[11px] text-slate-500">Until midnight</span>
+      </header>
 
       {news.guidance && (
-        <p className="mt-2.5 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-100/90 leading-relaxed">{news.guidance}</p>
+        <p className="mt-2 pl-3 border-l-2 border-amber-400/50 text-xs text-slate-300 leading-relaxed">{news.guidance}</p>
       )}
 
-      {events.length > 0 && (
-        <ul className="mt-2.5 space-y-1.5">
-          {events.map((e, i) => {
-            const holiday = e.impact === 'HOLIDAY';
-            const upcoming = e.at != null && e.at > now;
-            return (
-              <li key={`${e.title}-${i}`} className="flex items-start gap-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05] px-3 py-2">
-                <span className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${holiday ? 'bg-sky-500/15 text-sky-300' : 'bg-rose-500/15 text-rose-300'}`}>
-                  {holiday ? <Landmark className="w-3.5 h-3.5" /> : <CalendarClock className="w-3.5 h-3.5" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="text-[13px] text-slate-100 leading-5">{e.title}</span>
-                    <span className="text-[10px] font-semibold tracking-wide px-1.5 h-4 rounded bg-white/[0.06] text-slate-300 inline-flex items-center">{e.currency}</span>
-                    <span className={`text-[10px] font-semibold tracking-wide px-1.5 h-4 rounded inline-flex items-center ${holiday ? 'bg-sky-500/15 text-sky-300' : 'bg-rose-500/15 text-rose-300'}`}>
-                      {holiday ? 'BANK HOLIDAY' : 'HIGH IMPACT'}
-                    </span>
-                  </span>
-                  <span className="block text-[11px] text-slate-500 mt-0.5 tabular-nums">
-                    {e.at == null ? 'All day' : timeFmt(e.at)}
-                    {e.at != null && (upcoming ? ` · ${untilFmt(e.at - now)}` : ' · released')}
-                    {e.forecast ? ` · forecast ${e.forecast}` : ''}
-                    {e.previous ? ` · previous ${e.previous}` : ''}
-                  </span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {headlines.length > 0 && (
-        <div className="mt-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Headlines today</p>
-          <ul className="space-y-1">
-            {headlines.map((h, i) => {
-              const safe = typeof h.url === 'string' && /^https:\/\//i.test(h.url) ? h.url : null;
-              const body = (
-                <>
-                  <span className="text-[13px] text-slate-200 leading-snug group-hover:text-white">{h.title}</span>
-                  <span className="block text-[11px] text-slate-500 mt-0.5">
-                    {h.source} · {timeFmt(h.publishedAt)}
-                  </span>
-                </>
-              );
-              return (
-                <li key={`${h.title}-${i}`}>
-                  {safe ? (
-                    <a href={safe} target="_blank" rel="noopener noreferrer nofollow" className="group flex items-start gap-2 rounded-lg px-2 py-1.5 -mx-2 hover:bg-white/[0.04] transition-colors">
-                      <span className="min-w-0 flex-1">{body}</span>
-                      <ArrowUpRight className="w-3.5 h-3.5 mt-0.5 text-slate-500 group-hover:text-slate-300 shrink-0" />
-                    </a>
-                  ) : (
-                    <div className="px-2 py-1.5 -mx-2">{body}</div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+      <ul className="mt-2.5 divide-y divide-white/[0.05] rounded-xl border border-white/[0.06] bg-white/[0.015] overflow-hidden">
+        {rows.map(r => {
+          const inner = (
+            <>
+              <span className="text-[11px] font-mono text-slate-500 tabular-nums pt-px">{r.time}</span>
+              <span className="min-w-0">
+                <span className="block text-[13px] text-slate-200 leading-snug break-words group-hover:text-white">{r.title}</span>
+                <span className="block text-[11px] text-slate-500 mt-0.5 truncate">{r.meta}</span>
+              </span>
+              {r.tag ? (
+                <span className={`self-start text-[10px] font-medium px-1.5 h-[18px] rounded-md inline-flex items-center whitespace-nowrap ${r.tag.cls}`}>{r.tag.text}</span>
+              ) : r.href ? (
+                <ArrowUpRight className="self-start w-3.5 h-3.5 mt-0.5 text-slate-500 group-hover:text-slate-300" />
+              ) : (
+                <span />
+              )}
+            </>
+          );
+          const cls = 'grid grid-cols-[3.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-3 py-2.5';
+          return (
+            <li key={r.key}>
+              {r.href ? (
+                <a href={r.href} target="_blank" rel="noopener noreferrer nofollow" className={`group ${cls} hover:bg-white/[0.03] transition-colors`}>
+                  {inner}
+                </a>
+              ) : (
+                <div className={cls}>{inner}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 };
@@ -222,6 +242,11 @@ const NewsPanel: React.FC<{ news: NewsBrief }> = ({ news }) => {
 export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps, seed, news }) => {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
+  // Mounted on first open and kept, so closing animates too
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (open) setOpened(true);
+  }, [open]);
 
   useEffect(() => {
     if (!running) return;
@@ -298,24 +323,34 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
             <span className="text-slate-500 tabular-nums">{formatTokens(tokenTotal || promptTokenBudget(tokenSeed))} tokens</span>
           </>
         )}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
         {currentNews && (
-          <span className="ml-1 inline-flex items-center gap-1 h-5 px-2 rounded-full bg-amber-500/15 text-[11px] font-medium text-amber-300">
-            <Newspaper className="w-3 h-3" /> {newsCount} news today
+          <span className="inline-flex items-center pl-0.5" title={`${newsCount} news item${newsCount === 1 ? '' : 's'} today`}>
+            <NewsDot pulse={!open} />
+            <span className="sr-only">{`, ${newsCount} news item${newsCount === 1 ? '' : 's'} for today`}</span>
           </span>
         )}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="mx-fade-in mt-2 mb-1 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-          <Timeline steps={list} now={now} tokens={tokens} />
-          {currentNews && <NewsPanel news={currentNews} />}
-          {expiredNews && (
-            <p className="mt-3.5 pt-3 border-t border-white/[0.06] text-xs text-slate-500">
-              The news for {dayFmt(news!.day)} has expired. Run a new analysis for today's news.
-            </p>
+      {/* Smooth expand/collapse (grid rows 0fr -> 1fr) */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+        aria-hidden={!open}
+        inert={!open}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {(open || opened) && (
+            <div className="mt-2 mb-1 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3.5">
+              <Timeline steps={list} now={now} tokens={tokens} newsStepHasNews={!!currentNews} />
+              {currentNews && <NewsPanel news={currentNews} />}
+              {expiredNews && (
+                <p className="mt-3 pt-3 border-t border-white/[0.06] text-xs text-slate-500">
+                  The news for {dayFmt(news!.day)} has expired. Run a new analysis for today's news.
+                </p>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

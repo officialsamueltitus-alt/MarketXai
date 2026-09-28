@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && node scripts/precompress.mjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/cluster.ts --bundle --platform=node --format=cjs --external:./server.cjs --outfile=dist/start.cjs",
     "build:client": "vite build",
-    "start": "node dist/server.cjs",
+    "start": "node dist/start.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

@@ -14,6 +14,31 @@ import {
   Infinity as InfinityIcon
 } from 'lucide-react';
 
+let paystackLoading: Promise<void> | null = null;
+/** Injects Paystack's inline checkout script once (resolves when ready, rejects after 10s or on error). */
+function loadPaystack(): Promise<void> {
+  if (typeof window === 'undefined' || (window as any).PaystackPop) return Promise.resolve();
+  if (paystackLoading) return paystackLoading;
+  paystackLoading = new Promise<void>((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = 'https://js.paystack.co/v1/inline.js';
+    el.async = true;
+    const timer = setTimeout(() => reject(new Error('timeout')), 10_000);
+    el.onload = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    el.onerror = () => {
+      clearTimeout(timer);
+      paystackLoading = null;
+      el.remove();
+      reject(new Error('failed'));
+    };
+    document.head.appendChild(el);
+  });
+  return paystackLoading;
+}
+
 interface PricingModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -66,6 +91,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen]);
 
+  // Paystack's script is only needed here: fetch it when the Plans window opens, not on every page load
+  useEffect(() => {
+    if (isOpen && paymentsConfig?.enabled) loadPaystack().catch(() => {});
+  }, [isOpen, paymentsConfig?.enabled]);
+
   if (!isOpen) return null;
 
   const isUnlimited = isUnlimitedUser(userProfile.email);
@@ -92,6 +122,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       setCheckoutError('Payments are not available yet. Please check back soon.');
       return;
     }
+    if (!window.PaystackPop) await loadPaystack().catch(() => {});
     if (!window.PaystackPop) {
       setCheckoutError('Paystack checkout could not load. Disable any ad/script blocker and try again.');
       return;

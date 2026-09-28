@@ -30,13 +30,8 @@ export interface DerivQuote {
   low24h: number;
 }
 
-const cache: Record<string, { quote: DerivQuote | null; at: number }> = {};
-
+/** One live quote straight from Deriv (callers share and pace these through a live fetcher). */
 export async function fetchDerivQuote(derivSymbol: string): Promise<DerivQuote | null> {
-  const now = Date.now();
-  const cached = cache[derivSymbol];
-  if (cached && now - cached.at < (cached.quote ? 5000 : 15000)) return cached.quote;
-
   const WS: any = (globalThis as any).WebSocket;
   if (!WS) return null;
   const appId = process.env.DERIV_APP_ID || '1089';
@@ -79,8 +74,7 @@ export async function fetchDerivQuote(derivSymbol: string): Promise<DerivQuote |
   });
 
   if (!quote) console.warn(`[MarketX Feed] Deriv ${derivSymbol} unavailable`);
-  cache[derivSymbol] = { quote: quote || cached?.quote || null, at: now };
-  return quote || cached?.quote || null;
+  return quote;
 }
 
 export interface DerivCandle {

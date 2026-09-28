@@ -195,14 +195,19 @@ export function __setNewsFeedsForTest(data: { calendar?: CalendarEvent[]; headli
 // Reader's calendar day
 // ---------------------------------------------------------------------------
 /** A valid IANA time zone from the client, or UTC. */
+const tzVerdicts = new Map<string, string>();
 export function resolveTimeZone(tz: unknown): string {
   if (typeof tz !== 'string' || !tz || tz.length > 64 || !/^[A-Za-z_+\-/0-9]+$/.test(tz)) return 'UTC';
+  // Validating a zone builds a formatter (slow); remember the answer (bounded: there are ~600 real zones)
+  const known = tzVerdicts.get(tz);
+  if (known) return known;
+  let out = 'UTC';
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0);
-    return tz;
-  } catch {
-    return 'UTC';
-  }
+    out = tz;
+  } catch {}
+  if (tzVerdicts.size < 2000) tzVerdicts.set(tz, out);
+  return out;
 }
 
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();

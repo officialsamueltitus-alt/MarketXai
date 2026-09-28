@@ -19,7 +19,8 @@ const BATCH_SIZE = ACCESS_BATCH_SIZE;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I lookalikes
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 15 * 60 * 1000;
-const SEND_CLAIM_MS = 2 * 60 * 1000;
+// Long enough for the paced mail queue to deliver during a sign-up burst, so a code is never sent twice
+const SEND_CLAIM_MS = 10 * 60 * 1000;
 export const PASSCODE_TTL_MS = 48 * 60 * 60 * 1000;
 export const PASSCODE_TTL_HOURS = PASSCODE_TTL_MS / 3600000;
 
@@ -34,6 +35,10 @@ export interface PendingSignup {
   name?: string;
   picture?: string;
   termsAcceptedAt?: number;
+  /** Where the sign-up came from (IP, user agent, device cookie id) */
+  signupMeta?: { ip: string | null; userAgent: string; deviceId: string; at: number };
+  /** Device/network guard keys bound to this sign-up (made permanent when the code is redeemed) */
+  guardKeys?: Array<{ kind: string; key: string }>;
   createdAt: number;
   codeEmailSentAt?: number | null;
   codeEmailClaimAt?: number | null;

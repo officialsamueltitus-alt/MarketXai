@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { deviceSignals } from '../utils/device';
 import { ArrowLeft, Check, KeyRound, Loader2, Mail } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from './MarketXIcon';
@@ -44,7 +45,7 @@ export const PasscodePage: React.FC<PasscodePageProps> = ({ initialEmail, onGran
     try {
       const account = await apiFetch('/api/access/redeem', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), code }),
+        body: JSON.stringify({ email: email.trim(), code, device: await deviceSignals() }),
       });
       setGranted(true);
       setTimeout(() => onGranted(account), 1800);

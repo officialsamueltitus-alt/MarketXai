@@ -21,6 +21,7 @@ const KEY = 'mx_banner_dismissed';
 // Site-wide notice published from the admin console; dismissible per banner
 export const SiteBanner: React.FC = () => {
   const [banner, setBanner] = useState<Banner | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(() => {
     try {
       return localStorage.getItem(KEY);
@@ -48,20 +49,40 @@ export const SiteBanner: React.FC = () => {
 
   if (!banner || banner.id === dismissed) return null;
   const { cls, icon: Icon } = TONES[banner.tone] || TONES.info;
+  const link = banner.link && /^https:\/\/[^\s<>"']+$/i.test(banner.link) ? banner.link : null;
+  const long = (banner.message || '').length > 70;
 
   return (
-    <div className={`mx-fade-in relative z-40 border-b ${cls}`} role="status">
-      <div className="max-w-5xl mx-auto flex items-center gap-2.5 pl-4 pr-2 py-2 text-[13px]">
-        <Icon className="w-4 h-4 shrink-0" />
-        <p className="min-w-0 flex-1 leading-snug">
-          <span className="font-semibold">{banner.title}</span>
-          {banner.message && <span className="opacity-80"> · {banner.message}</span>}
-          {banner.link && (
-            <a href={banner.link} target="_blank" rel="noopener noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">
-              Learn more <ArrowUpRight className="w-3 h-3" />
-            </a>
+    <div className="mx-fade-in relative z-40 px-2 sm:px-4 pt-2" role="status" aria-label="Announcement">
+      <div className={`max-w-5xl mx-auto rounded-2xl border ${cls} flex items-start gap-2.5 sm:gap-3 pl-3 pr-1.5 py-2 sm:py-2.5`}>
+        <span className="mt-0.5 w-6 h-6 rounded-lg bg-white/[0.08] flex items-center justify-center shrink-0">
+          <Icon className="w-3.5 h-3.5" />
+        </span>
+        <div className="min-w-0 flex-1 text-[13px] leading-snug">
+          <p className="min-w-0">
+            <span className="font-semibold break-words">{banner.title}</span>
+            {banner.message && (
+              <span className={`opacity-80 break-words ${expanded ? '' : 'max-sm:line-clamp-1'} max-sm:block sm:inline`}>
+                <span className="hidden sm:inline"> · </span>
+                {banner.message}
+              </span>
+            )}
+          </p>
+          {(link || long) && (
+            <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {long && (
+                <button type="button" onClick={() => setExpanded(v => !v)} className="sm:hidden text-xs font-medium underline underline-offset-2 opacity-90 cursor-pointer">
+                  {expanded ? 'Show less' : 'Read more'}
+                </button>
+              )}
+              {link && (
+                <a href={link} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-0.5 text-xs font-semibold underline underline-offset-2">
+                  Learn more <ArrowUpRight className="w-3 h-3" />
+                </a>
+              )}
+            </span>
           )}
-        </p>
+        </div>
         <button
           type="button"
           aria-label="Dismiss notice"
@@ -71,7 +92,7 @@ export const SiteBanner: React.FC = () => {
               localStorage.setItem(KEY, banner.id);
             } catch {}
           }}
-          className="w-7 h-7 rounded-full inline-flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-white/[0.08] shrink-0 cursor-pointer"
+          className="w-8 h-8 rounded-full inline-flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-white/[0.08] shrink-0 cursor-pointer"
         >
           <X className="w-3.5 h-3.5" />
         </button>

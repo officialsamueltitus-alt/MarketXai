@@ -1,10 +1,15 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import compression from 'compression';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { hideEngineInResponses } from './server/brand';
+import { readSessionCookie, verifySessionToken } from './server/session';
+import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
+import { WORKERS, perWorker } from './server/workers';
+import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
 import {
   refreshNewsFeeds,
   refreshNewsFeedsWithin,
@@ -22,7 +27,7 @@ import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './serve
 import { registerAdminRoutes } from './server/admin';
 import { registerSupportRoutes } from './server/support';
 import { isMailerConfigured } from './server/mailer';
-import { fetchDerivCandles, fetchDerivQuote, mapDerivSymbol } from './server/deriv';
+import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
   aggregateCandles,
   buildMarketMap,
@@ -42,6 +47,22 @@ import {
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
 const app = express();
+
+// Capacity: at most AI_MAX_CONCURRENCY engine calls run at once; others wait up to AI_QUEUE_WAIT_MS, then the
+// request is served the computed (real-candle) analysis instead of an error.
+const AI_MAX_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.AI_MAX_CONCURRENCY) || 24));
+const AI_QUEUE_WAIT_MS = Math.max(1000, Math.floor(Number(process.env.AI_QUEUE_WAIT_MS) || 9000));
+const aiGate = createGate(perWorker(AI_MAX_CONCURRENCY));
+// Analyses are never reused once finished (markets move every second). Only identical requests that arrive while the
+// same analysis is still being written share it: same market, timeframe, levels from the same live candles, and news.
+const AI_CACHE_TTL_MS = 0;
+const aiAnalysisCache = new SharedCache<{ text: string; label: string } | null>(AI_CACHE_TTL_MS, 500);
+const chatAnswerCache = new SharedCache<string>(10 * 60_000, 500);
+
+// Never let one stray promise take the whole server down under load
+process.on('unhandledRejection', reason => {
+  console.error('[MarketX] Unhandled rejection:', (reason as any)?.message || reason);
+});
 const PORT = Number(process.env.PORT) || 3000;
 
 // Security hardening: Disable X-Powered-By header to prevent fingerprinting
@@ -67,41 +88,53 @@ setInterval(() => {
   }
 }, 3 * 60 * 1000);
 
-function createRateLimiter(options: { windowMs: number; max: number; message: string }) {
-  return (req: Request, res: Response, next: () => void) => {
-    const ip = clientIp(req);
-    const key = `${req.baseUrl || req.path}:${ip}`;
-    const now = Date.now();
-
+let limiterSeq = 0;
+/**
+ * Fixed-window limiter. Signed-in users are limited per account (so thousands of people behind one mobile
+ * carrier or office IP are not throttled together); every request is also held to a much higher per-IP ceiling
+ * so one address cannot flood the server with many accounts or anonymous calls.
+ */
+function createRateLimiter(options: { windowMs: number; max: number; message: string; ipMultiplier?: number }) {
+  const name = `rl${++limiterSeq}`;
+  const max = perWorker(options.max);
+  const ipMax = perWorker(options.max * (options.ipMultiplier ?? 20));
+  const hit = (key: string, max: number, now: number) => {
     const record = rateLimitMap.get(key);
     if (!record || now > record.resetAt) {
       rateLimitMap.set(key, { count: 1, resetAt: now + options.windowMs });
-      return next();
+      return 0;
     }
-
     record.count++;
-    if (record.count > options.max) {
-      const retryAfter = Math.ceil((record.resetAt - now) / 1000);
-      res.setHeader('Retry-After', retryAfter);
-      return res.status(429).json({
-        error: options.message,
-        retryAfterSeconds: retryAfter,
-      });
+    return record.count > max ? Math.ceil((record.resetAt - now) / 1000) : 0;
+  };
+  return (req: Request, res: Response, next: () => void) => {
+    const now = Date.now();
+    const ip = clientIp(req);
+    const session = verifySessionToken(readSessionCookie(req) || '');
+    const wait = session
+      ? hit(`${name}:u:${session.uid}`, max, now) || hit(`${name}:ip:${ip}`, ipMax, now)
+      : hit(`${name}:ip:${ip}`, max, now);
+    if (wait) {
+      res.setHeader('Retry-After', wait);
+      return res.status(429).json({ error: options.message, retryAfterSeconds: wait });
     }
-
     next();
   };
 }
 
+const envInt = (name: string, fallback: number) => {
+  const v = Math.floor(Number(process.env[name]));
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+};
 const analysisRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 45,
+  max: envInt('RATE_LIMIT_ANALYSIS_PER_MIN', 45),
   message: 'Too many analysis requests. Please wait a moment before sending another prompt.',
 });
 
 const generalApiRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 180,
+  max: envInt('RATE_LIMIT_API_PER_MIN', 180),
   message: 'API rate limit reached. Please slow down requests.',
 });
 
@@ -155,6 +188,10 @@ interface MarketTicker {
   sector?: string;
   currency?: string;
   type: 'crypto' | 'stock' | 'forex' | 'commodity' | 'synthetic';
+  /** When this price was fetched from its source (ms) */
+  asOf?: number;
+  /** A real quote from the last minute (false: the feed is down and this is the last known price) */
+  live?: boolean;
 }
 
 // Memory cache for tickers and forex rates
@@ -167,7 +204,7 @@ let lastForexFetch = 0;
 // keeps serving the most recent real price instead of reverting to hardcoded baselines.
 const lastLiveQuotes: Record<string, { data: Partial<MarketTicker>; at: number }> = {};
 // A live quote older than this is no longer treated as "live" by the quote resolver
-const LIVE_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
+const LIVE_QUOTE_MAX_AGE_MS = LAST_GOOD_MAX_MS;
 
 // Throttled upstream failure logging (visible in Render logs) without flooding output
 const lastFeedWarning: Record<string, number> = {};
@@ -229,10 +266,13 @@ function mapBinanceTicker(data: any): Partial<MarketTicker> | null {
 }
 
 // Fetch live crypto quotes from Binance public API for a single pair
-async function fetchBinanceTicker(symbol: string): Promise<Partial<MarketTicker> | null> {
-  const cleanSym = symbol.replace(/[^A-Z0-9]/g, '');
+// (live: reused only within the same second)
+const binanceLive = liveFetcher<Partial<MarketTicker>>(async cleanSym => {
   const data = await binanceRequest(`/api/v3/ticker/24hr?symbol=${cleanSym}`, 4000);
   return data ? mapBinanceTicker(data) : null;
+});
+function fetchBinanceTicker(symbol: string): Promise<Partial<MarketTicker> | null> {
+  return binanceLive(symbol.replace(/[^A-Z0-9]/g, ''));
 }
 
 // Fetch batch quotes for multiple crypto pairs in a single high-speed request
@@ -281,18 +321,14 @@ async function fetchForexRates(): Promise<Record<string, number> | null> {
 
 type LiveQuote = { price: number; change24h: number; high24h: number; low24h: number };
 
-// Per-symbol Yahoo Finance quote cache (equities, indices, FX and commodity futures)
-const yahooQuoteCache: Record<string, { quote: LiveQuote | null; at: number }> = {};
-const YAHOO_TTL_MS = 10000;
-const YAHOO_FAIL_TTL_MS = 5000;
+// Yahoo Finance quotes (equities, indices, FX and commodity futures), fetched live: a quote is reused only within the
+// same second, and after a failed fetch only the last real quote from the past minute is served
+const yahooLive = liveFetcher<LiveQuote>(loadYahooQuote);
+function fetchYahooQuote(yahooSym: string, maxAgeMs?: number): Promise<LiveQuote | null> {
+  return yahooLive(yahooSym, maxAgeMs);
+}
 
-async function fetchYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
-  const now = Date.now();
-  const cached = yahooQuoteCache[yahooSym];
-  if (cached && now - cached.at < (cached.quote ? YAHOO_TTL_MS : YAHOO_FAIL_TTL_MS)) {
-    return cached.quote;
-  }
-  let quote: LiveQuote | null = null;
+async function loadYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
   for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
     try {
       const { status, data } = await fetchJsonWithTimeout(
@@ -307,37 +343,32 @@ async function fetchYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
       }
       const prevClose = Number(meta.previousClose || meta.regularMarketPreviousClose || meta.chartPreviousClose || price);
       const decimals = price < 10 ? 5 : price < 1000 ? 3 : 2;
-      quote = {
+      return {
         price,
         change24h: Number((((price - prevClose) / prevClose) * 100).toFixed(2)),
         high24h: Number(Number(meta.regularMarketDayHigh || Math.max(price, prevClose)).toFixed(decimals)),
         low24h: Number(Number(meta.regularMarketDayLow || Math.min(price, prevClose)).toFixed(decimals)),
       };
-      break;
     } catch (err: any) {
       warnFeed(`Yahoo ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
     }
   }
-  // Keep serving the last good quote on failure
-  if (!quote && cached?.quote) {
-    yahooQuoteCache[yahooSym] = { quote: cached.quote, at: now - YAHOO_TTL_MS + YAHOO_FAIL_TTL_MS };
-    return cached.quote;
-  }
-  yahooQuoteCache[yahooSym] = { quote, at: now };
-  return quote;
+  return null;
 }
 
-// Memory cache for major US stocks to minimize latency
-let cachedStockQuotes: Record<string, LiveQuote> = {};
+// Deriv synthetic indices, live
+const derivLive = liveFetcher<{ price: number; change24h: number; high24h: number; low24h: number }>(loadDerivQuote);
+const fetchDerivQuote = (derivSym: string) => derivLive(derivSym);
 
-// Fetch live US equities quotes (AAPL, TSLA, GOOGL, NVDA, WMT) from Yahoo Finance
-async function fetchStockQuotes(): Promise<Record<string, LiveQuote>> {
+// Live US equities quotes (AAPL, TSLA, GOOGL, NVDA, WMT) from Yahoo Finance
+async function fetchStockQuotes(maxAgeMs?: number): Promise<Record<string, LiveQuote>> {
   const symbols = ['AAPL', 'TSLA', 'GOOGL', 'NVDA', 'WMT'];
-  const results = await Promise.all(symbols.map(sym => fetchYahooQuote(sym)));
+  const results = await Promise.all(symbols.map(sym => fetchYahooQuote(sym, maxAgeMs)));
+  const map: Record<string, LiveQuote> = {};
   symbols.forEach((sym, i) => {
-    if (results[i]) cachedStockQuotes[sym] = results[i]!;
+    if (results[i]) map[sym] = results[i]!;
   });
-  return cachedStockQuotes;
+  return map;
 }
 
 // Yahoo Finance symbols for indices and non-gold commodities
@@ -359,8 +390,8 @@ const YAHOO_SYMBOL_MAP: Record<string, string> = {
 };
 
 // Live intraday FX quote from Yahoo Finance (e.g. EURUSD=X), falling back to daily reference rates
-async function fetchForexQuote(base: string, quote: string): Promise<(LiveQuote & { intraday: boolean }) | null> {
-  const live = await fetchYahooQuote(`${base}${quote}=X`);
+async function fetchForexQuote(base: string, quote: string, maxAgeMs?: number): Promise<(LiveQuote & { intraday: boolean }) | null> {
+  const live = await fetchYahooQuote(`${base}${quote}=X`, maxAgeMs);
   if (live) return { ...live, intraday: true };
 
   const rates = await fetchForexRates();
@@ -372,13 +403,93 @@ async function fetchForexQuote(base: string, quote: string): Promise<(LiveQuote 
   return { price: rate, change24h: 0, high24h: rate, low24h: rate, intraday: false };
 }
 
-// Fetch live quotes across key markets
-async function getLiveMarketTickers(): Promise<MarketTicker[]> {
-  const now = Date.now();
-  // Cache for 3.5 seconds
-  if (cachedTickers.length > 0 && now - lastTickerFetch < 3500) {
-    return cachedTickers;
+// Live tickers: a price loop refreshes every LIVE_TICK_MS (1s) while anyone is watching, and pushes each change to
+// connected browsers (/api/market/stream). Crypto and gold come from Binance every tick; FX, stocks and indices from
+// Yahoo every LIVE_YAHOO_MS (3s, its own update pace; faster polling gets the server blocked). Nothing older is served.
+const LIVE_TICK_MS = Math.max(500, envInt('LIVE_TICK_MS', 1000));
+const LIVE_YAHOO_MS = Math.max(1000, envInt('LIVE_YAHOO_MS', 3000));
+let tickerRefresh: Promise<MarketTicker[]> | null = null;
+function refreshTickers(): Promise<MarketTicker[]> {
+  if (!tickerRefresh) {
+    tickerRefresh = loadLiveMarketTickers().finally(() => {
+      tickerRefresh = null;
+    });
   }
+  return tickerRefresh;
+}
+/** The prices from the latest tick (may be empty before the first one). */
+function latestTickers(): MarketTicker[] {
+  return cachedTickers;
+}
+/** Prices from this very tick: joins the refresh already running, or starts one. */
+function getLiveMarketTickers(): Promise<MarketTicker[]> {
+  priceDemandAt = Date.now();
+  ensurePriceLoop();
+  if (cachedTickers.length > 0 && Date.now() - lastTickerFetch < LIVE_TICK_MS) return Promise.resolve(cachedTickers);
+  return refreshTickers();
+}
+
+// ---- Price loop + server-sent events ----
+const streamClients = new Set<Response>();
+const streamPerIp = new Map<string, number>();
+const STREAM_MAX_CLIENTS = Math.max(100, perWorker(envInt('LIVE_STREAM_MAX_CLIENTS', 20000)));
+const STREAM_MAX_PER_IP = Math.max(5, envInt('LIVE_STREAM_PER_IP', 300));
+const STREAM_MAX_BUFFER = 256 * 1024; // a client this far behind is dropped (it reconnects and gets a fresh snapshot)
+let priceDemandAt = 0;
+let priceLoopRunning = false;
+let lastStreamWrite = 0;
+const lastSentRow = new Map<string, string>();
+
+const tickerRow = (t: MarketTicker) => [t.symbol, t.price, t.change24h, t.high24h, t.low24h, t.live ? 1 : 0, t.asOf || 0];
+
+function streamSend(res: Response, chunk: string) {
+  if (res.writableLength > STREAM_MAX_BUFFER) {
+    res.end();
+    return;
+  }
+  res.write(chunk);
+}
+
+function broadcastTickers(tickers: MarketTicker[]) {
+  const changed: unknown[] = [];
+  for (const t of tickers) {
+    const row = tickerRow(t);
+    const sig = row.slice(1, 6).join('|');
+    if (lastSentRow.get(t.symbol) === sig) continue;
+    lastSentRow.set(t.symbol, sig);
+    changed.push(row);
+  }
+  const now = Date.now();
+  let chunk = '';
+  if (changed.length) chunk = `event: prices\ndata: ${JSON.stringify({ at: now, rows: changed })}\n\n`;
+  else if (now - lastStreamWrite > 15_000) chunk = ': live\n\n'; // keeps proxies from closing a quiet stream
+  if (!chunk) return;
+  lastStreamWrite = now;
+  for (const res of streamClients) streamSend(res, chunk);
+}
+
+function ensurePriceLoop() {
+  if (priceLoopRunning) return;
+  priceLoopRunning = true;
+  const tick = async () => {
+    const started = Date.now();
+    if (streamClients.size === 0 && started - priceDemandAt > 30_000) {
+      priceLoopRunning = false; // nobody watching: stop calling the exchanges
+      lastSentRow.clear();
+      return;
+    }
+    try {
+      broadcastTickers(await refreshTickers());
+    } catch (err) {
+      console.warn('[MarketX Feed] price tick failed:', err);
+    }
+    setTimeout(tick, Math.max(0, LIVE_TICK_MS - (Date.now() - started)));
+  };
+  void tick();
+}
+
+async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
+  const now = Date.now();
 
   // Baseline market data with current, accurate prices
   const baseList: MarketTicker[] = [
@@ -710,11 +821,11 @@ async function getLiveMarketTickers(): Promise<MarketTicker[]> {
     const forexItems = baseList.filter(b => b.type === 'forex');
     const [cryptoBatch, stockQuotes, forexQuotes] = await Promise.all([
       fetchBinanceBatchTickers(cryptoSymbolsToFetch),
-      fetchStockQuotes(),
+      fetchStockQuotes(LIVE_YAHOO_MS),
       Promise.all(
         forexItems.map(item => {
           const [base, quote] = item.symbol.split('/');
-          return fetchForexQuote(base, quote);
+          return fetchForexQuote(base, quote, LIVE_YAHOO_MS);
         })
       ),
     ]);
@@ -747,7 +858,7 @@ async function getLiveMarketTickers(): Promise<MarketTicker[]> {
         low24h: paxgLive.low24h,
       };
     } else {
-      const goldFutures = await fetchYahooQuote('GC=F');
+      const goldFutures = await fetchYahooQuote('GC=F', LIVE_YAHOO_MS);
       if (goldFutures) liveUpdates['XAU/USD'] = { ...goldFutures };
     }
 
@@ -784,6 +895,8 @@ async function getLiveMarketTickers(): Promise<MarketTicker[]> {
         }
       }
     }
+    item.asOf = known?.at || 0;
+    item.live = !!known && now - known.at < LIVE_QUOTE_MAX_AGE_MS;
   }
 
   cachedTickers = baseList;
@@ -1711,14 +1824,57 @@ registerAdminRoutes(app);
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 
-// Live market ticker feed
+// Live market ticker feed (one request: prices from this very tick)
 app.get('/api/market/tickers', generalApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const tickers = await getLiveMarketTickers();
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ success: true, tickers });
   } catch (error) {
     console.error('Ticker endpoint error:', error);
     res.status(500).json({ error: 'Failed to fetch market tickers' });
+  }
+});
+
+// Live price stream (server-sent events): a full snapshot on connect, then every price change as it happens
+app.get('/api/market/stream', generalApiRateLimiter, async (req: Request, res: Response) => {
+  const ip = clientIp(req);
+  const fromIp = streamPerIp.get(ip) || 0;
+  if (streamClients.size >= STREAM_MAX_CLIENTS || fromIp >= STREAM_MAX_PER_IP) {
+    res.setHeader('Retry-After', '10');
+    return res.status(503).json({ error: 'Live stream is full right now; prices update by polling instead' });
+  }
+  streamPerIp.set(ip, fromIp + 1);
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    streamClients.delete(res);
+    const n = (streamPerIp.get(ip) || 1) - 1;
+    if (n > 0) streamPerIp.set(ip, n);
+    else streamPerIp.delete(ip);
+  };
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+  res.on('error', cleanup);
+
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  // no-transform keeps the compression middleware from buffering the stream
+  res.setHeader('Cache-Control', 'no-store, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+
+  try {
+    const tickers = await getLiveMarketTickers();
+    if (closed) return;
+    res.write(`event: snapshot\ndata: ${JSON.stringify({ at: Date.now(), tickers })}\n\n`);
+    streamClients.add(res);
+    ensurePriceLoop();
+  } catch {
+    if (!closed) res.end();
   }
 });
 
@@ -1843,18 +1999,25 @@ function getDefaultPriceForAsset(sym: string): number {
 }
 
 // Robust, multi-market quote resolver ensuring accurate real-time data for all tradeable assets
-async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
+// Always fetched live from the market's own source at the moment of the request; only requests arriving in the same
+// second share one lookup
+const quoteCache = new SharedCache<MarketTicker>(LIVE_FRESH_MS, 2_000);
+function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
+  const key = extractAssetInfo(query).symbol.toUpperCase();
+  return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(query), q => !!q && q.price > 0);
+}
+
+/** The latest streamed ticker for this asset, only when it holds a real quote from the last minute. */
+function recentTickerFor(asset: ReturnType<typeof extractAssetInfo>): MarketTicker | undefined {
+  const sym = asset.symbol.toUpperCase();
+  const name = asset.name.toLowerCase();
+  const t = latestTickers().find(x => x.symbol.toUpperCase() === sym || x.name.toLowerCase() === name);
+  return t && t.price > 0 && hasRecentLiveQuote(t.symbol) ? t : undefined;
+}
+
+async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketTicker> {
   const asset = extractAssetInfo(query);
   const cleanSym = asset.symbol;
-
-  // 1. Check live tickers cache first (homepage tickers) — only when it holds a real live quote
-  const tickers = await getLiveMarketTickers();
-  const match = tickers.find(
-    t => t.symbol.toUpperCase() === cleanSym.toUpperCase() || t.name.toLowerCase() === asset.name.toLowerCase()
-  );
-  if (match && match.price > 0 && hasRecentLiveQuote(match.symbol)) {
-    return match;
-  }
 
   // 2. CRYPTOCURRENCY: Query live Binance order book
   if (asset.type === 'crypto') {
@@ -1894,6 +2057,9 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
     const base = parts[0] ? parts[0].trim().toUpperCase() : 'EUR';
     const quote = parts[1] ? parts[1].trim().toUpperCase() : 'USD';
     const fx = await fetchForexQuote(base, quote);
+    // The daily reference rate is only a last resort: a streamed live quote from the last minute is closer to now
+    const streamed = fx && !fx.intraday ? recentTickerFor(asset) : undefined;
+    if (streamed) return streamed;
     if (fx) {
       const isJpy = quote === 'JPY' || cleanSym.includes('JPY');
       const decimals = isJpy ? 3 : 5;
@@ -1942,7 +2108,7 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
   if (asset.type === 'stock') {
     const stockSym = cleanSym.replace(/[^A-Z0-9]/g, '');
     const yahooSym = YAHOO_SYMBOL_MAP[stockSym] || stockSym;
-    const q = (await fetchYahooQuote(yahooSym)) || cachedStockQuotes[yahooSym];
+    const q = await fetchYahooQuote(yahooSym);
     if (q) {
       return {
         symbol: cleanSym,
@@ -1958,10 +2124,9 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
     }
   }
 
-  // Live feeds unavailable: prefer the homepage ticker (last known live quote) over static baselines
-  if (match && match.price > 0 && asset.type !== 'synthetic') {
-    return match;
-  }
+  // Live feeds unavailable: the streamed ticker (a real quote from the last minute) beats a static baseline
+  const match = asset.type === 'synthetic' ? undefined : recentTickerFor(asset);
+  if (match) return match;
 
   // 6. SYNTHETICS (Deriv Volatility, Boom, Crash, Step Index): live from Deriv's public API
   if (asset.type === 'synthetic') {
@@ -2034,8 +2199,10 @@ async function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
 // Historical candles for the strategy engine (requested timeframe, ~300 bars)
 // Crypto & gold: Binance klines · FX, metals, energy, stocks & indices: Yahoo Finance · synthetics: Deriv
 // -------------------------------------------------------------
+// Candles are fetched live for every analysis (shared only by requests in the same second), so the newest,
+// still forming candle and every zone tap up to this moment are included
 const candleCache: Record<string, { at: number; candles: Candle[] | null }> = {};
-const CANDLE_TTL_MS = 30000;
+const CANDLE_TTL_MS = LIVE_FRESH_MS;
 
 const BINANCE_INTERVALS: Record<string, string> = {
   '1M': '1m', '3M': '3m', '5M': '5m', '15M': '15m', '30M': '30m', '1H': '1h', '2H': '2h',
@@ -2144,6 +2311,8 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
     candles = null;
   }
   candleCache[key] = { at: Date.now(), candles };
+  const keys = Object.keys(candleCache);
+  if (keys.length > 2000) for (const k of keys) if (Date.now() - candleCache[k].at > LAST_GOOD_MAX_MS) delete candleCache[k];
   return candles;
 }
 
@@ -2550,29 +2719,34 @@ Provide a clear, engaging, highly knowledgeable response.
 - At the conclusion of your explanation, invite them to test the concept on any live asset (e.g., "Would you like me to analyze Bitcoin, Gold, or Solana right now?").
 Do NOT output structured trade card JSON unless specifically asked to analyze a live ticker.`;
 
-      let chatReply = '';
+      const chatKey = cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 400);
+      let chatReply = chatAnswerCache.get(chatKey) || '';
       const chatModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 
-      for (const modelId of chatModels) {
+      for (const modelId of chatReply ? [] : chatModels) {
         try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Chat model request timed out (10s limit)')), 10000)
+          const response: any = await aiGate.run(
+            () =>
+              withTimeout(
+                ai.models.generateContent({
+                  model: modelId,
+                  contents: `User asks: "${cleanPrompt}"`,
+                  config: {
+                    systemInstruction: chatSystemInstruction,
+                  },
+                }),
+                10000,
+                'Chat model request timed out (10s limit)'
+              ),
+            AI_QUEUE_WAIT_MS
           );
-          const response: any = await Promise.race([
-            ai.models.generateContent({
-              model: modelId,
-              contents: `User asks: "${cleanPrompt}"`,
-              config: {
-                systemInstruction: chatSystemInstruction,
-              },
-            }),
-            timeoutPromise,
-          ]);
           if (response?.text && response.text.trim().length > 0) {
             chatReply = response.text.trim();
+            chatAnswerCache.set(chatKey, chatReply);
             break;
           }
         } catch (err: any) {
+          if (err instanceof BusyError) break;
           console.warn(`[MarketX Chat] ${modelId} capacity limit, trying next engine...`);
         }
       }
@@ -2846,51 +3020,77 @@ INSTRUCTIONS:
     }
     geminiContents.push(promptContext);
 
-    for (const candidate of modelsToTry) {
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Analysis model request timed out (12s limit)')), 12000)
-        );
-        const response: any = await Promise.race([
-          ai.models.generateContent({
-            model: candidate.id,
-            contents: geminiContents.length > 1 ? geminiContents : promptContext,
-            config: {
-              systemInstruction,
-            },
-          }),
-          timeoutPromise,
-        ]);
+    const runModels = async (): Promise<{ text: string; label: string } | null> => {
+      for (const candidate of modelsToTry) {
+        try {
+          // Queued behind the engine's concurrency limit; the model call itself keeps its 12s limit
+          const response: any = await aiGate.run(
+            () =>
+              withTimeout(
+                ai.models.generateContent({
+                  model: candidate.id,
+                  contents: geminiContents.length > 1 ? geminiContents : promptContext,
+                  config: {
+                    systemInstruction,
+                  },
+                }),
+                12000,
+                'Analysis model request timed out (12s limit)'
+              ),
+            AI_QUEUE_WAIT_MS
+          );
 
-        if (response?.text && response.text.trim().length > 0) {
-          aiResponseText = response.text;
-          usedModel = candidate.label;
-          console.log(`[Market Engine] Analysis successfully generated with ${candidate.id}`);
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        const errStr = String(err?.message || '').toLowerCase();
-        const isTemporaryCapacity =
-          err?.status === 503 ||
-          err?.status === 429 ||
-          err?.code === 503 ||
-          err?.code === 429 ||
-          errStr.includes('503') ||
-          errStr.includes('429') ||
-          errStr.includes('high demand') ||
-          errStr.includes('quota') ||
-          errStr.includes('resource_exhausted') ||
-          errStr.includes('resourceexhausted') ||
-          errStr.includes('overloaded') ||
-          errStr.includes('rate limit');
+          if (response?.text && response.text.trim().length > 0) {
+            console.log(`[Market Engine] Analysis successfully generated with ${candidate.id}`);
+            return { text: response.text as string, label: candidate.label };
+          }
+        } catch (err: any) {
+          lastError = err;
+          if (err instanceof BusyError) {
+            // Every model shares the same gate: stop here and serve the computed analysis right away
+            console.warn(`[Market Engine] Engine at capacity (${JSON.stringify(aiGate.stats())}); serving the computed analysis.`);
+            break;
+          }
+          const errStr = String(err?.message || '').toLowerCase();
+          const isTemporaryCapacity =
+            err?.status === 503 ||
+            err?.status === 429 ||
+            err?.code === 503 ||
+            err?.code === 429 ||
+            errStr.includes('503') ||
+            errStr.includes('429') ||
+            errStr.includes('high demand') ||
+            errStr.includes('quota') ||
+            errStr.includes('resource_exhausted') ||
+            errStr.includes('resourceexhausted') ||
+            errStr.includes('overloaded') ||
+            errStr.includes('rate limit');
 
-        if (isTemporaryCapacity) {
-          console.warn(`[Market Engine] ${candidate.id} capacity limit (${errStr.slice(0, 80)}), seamlessly trying next engine...`);
-        } else {
-          console.warn(`[Market Engine] ${candidate.id} fallback triggered: ${err?.message || 'timeout'}`);
+          if (isTemporaryCapacity) {
+            console.warn(`[Market Engine] ${candidate.id} capacity limit (${errStr.slice(0, 80)}), seamlessly trying next engine...`);
+          } else {
+            console.warn(`[Market Engine] ${candidate.id} fallback triggered: ${err?.message || 'timeout'}`);
+          }
         }
       }
+      return null;
+    };
+    // Identical analyses requested at the same moment (same market, timeframe, stop mode, prompt, live levels and news)
+    // share one engine call; nothing is answered from an earlier analysis, and chart uploads are always analysed alone.
+    const aiKey = safeChartImage
+      ? null
+      : [
+          asset.symbol,
+          analysisTimeframe,
+          safeSlMode,
+          cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 300),
+          structureMap?.plan ? `${structureMap.plan.direction}:${structureMap.plan.entry.optimal}:${structureMap.plan.stopLoss}` : 'no-plan',
+          newsBrief ? `${newsBrief.day}:${newsBrief.timeZone}:${newsBrief.summary}` : 'no-news',
+        ].join('|');
+    const aiResult = aiKey ? await aiAnalysisCache.getOrCreate(aiKey, runModels, v => !!v) : await runModels();
+    if (aiResult) {
+      aiResponseText = aiResult.text;
+      usedModel = aiResult.label;
     }
 
     if (!aiResponseText) {
@@ -3211,6 +3411,31 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Pre-compressed bundles (built by scripts/precompress.mjs): serve .br/.gz straight from disk, no CPU per request
+    const PRECOMPRESSED_TYPES: Record<string, string> = {
+      '.js': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json; charset=utf-8',
+    };
+    app.use('/assets', (req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      const ext = path.extname(req.path);
+      const type = PRECOMPRESSED_TYPES[ext];
+      if (!type || req.path.includes('..')) return next();
+      const accept = String(req.headers['accept-encoding'] || '');
+      const file = path.join(distPath, 'assets', path.normalize(req.path));
+      if (!file.startsWith(path.join(distPath, 'assets'))) return next();
+      for (const [enc, suffix] of [['br', '.br'], ['gzip', '.gz']] as const) {
+        if (!new RegExp(`\\b${enc}\\b`).test(accept) || !fs.existsSync(file + suffix)) continue;
+        res.setHeader('Content-Encoding', enc);
+        res.setHeader('Content-Type', type);
+        res.setHeader('Vary', 'Accept-Encoding');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.sendFile(file + suffix);
+      }
+      next();
+    });
     app.use(express.static(distPath, {
       maxAge: '1y',
       immutable: true,
@@ -3234,9 +3459,16 @@ async function startServer() {
   app.all('/api/*', apiNotFound);
   app.use(jsonErrorHandler);
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Market AI server active at http://localhost:${PORT}`);
+  // Large accept backlog so a burst of thousands of new connections is queued instead of reset
+  const server = app.listen(PORT, '0.0.0.0', 8192, () => {
+    console.log(`Market AI server active at http://localhost:${PORT}${WORKERS > 1 ? ` (worker ${process.env.MX_WORKER_ID}/${WORKERS})` : ''}`);
   });
+  // Many simultaneous visitors: keep idle connections open longer than the load balancer's idle timeout so it
+  // never reuses a socket we just closed (avoids random 502s), and cap slow requests.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.requestTimeout = 120_000;
+  server.maxRequestsPerSocket = 0;
 }
 
 startServer();
