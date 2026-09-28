@@ -63,6 +63,9 @@ interface HomePageProps {
   xShareReward?: XShareReward | null;
   onOpenShareModal?: () => void;
   onOpenEmailReceipt?: () => void;
+  /** Opens the in-app support chat */
+  onOpenSupport?: () => void;
+  supportUnread?: number;
 }
 
 interface InstitutionalFeedItem {
@@ -403,6 +406,8 @@ export const HomePage: React.FC<HomePageProps> = ({
   xShareReward,
   onOpenShareModal,
   onOpenEmailReceipt,
+  onOpenSupport,
+  supportUnread = 0,
 }) => {
   // Exclude unwanted synthetic indices while keeping real market assets (Forex, Crypto, Equities, Commodities)
   const validTickers = useMemo(() => {
@@ -967,7 +972,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       )}
 
       {/* SECTION 4: Dedicated Trader Mail Support & Inquiries */}
-      <InstitutionalMailSupport className="mt-2 sm:mt-4" />
+      <InstitutionalMailSupport className="mt-2 sm:mt-4" onOpenSupport={onOpenSupport} supportUnread={supportUnread} />
     </div>
   );
 };

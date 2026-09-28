@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyRound, LineChart, ShieldCheck, Zap } from 'lucide-react';
+import { KeyRound, LineChart, ShieldCheck, Zap, BookOpen } from 'lucide-react';
 import { MarketXIcon } from './MarketXIcon';
 import { MarketXText } from './MarketXText';
 
@@ -73,6 +73,10 @@ export const WelcomeGate: React.FC<WelcomeGateProps> = ({ onSignIn, onSignUp, on
           </li>
         ))}
       </ul>
+
+      <a href="/blog" className="mt-8 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+        <BookOpen className="w-3.5 h-3.5" /> New here? Read the MarketX Site Guide
+      </a>
     </div>
   </div>
 );

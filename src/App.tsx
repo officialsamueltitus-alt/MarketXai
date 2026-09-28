@@ -764,6 +764,15 @@ export default function App() {
     [authUser]
   );
 
+  // A support link (e.g. from the Site Guide or a reply email) opened while signed out: ask to sign in first,
+  // the chat opens as soon as the session exists
+  useEffect(() => {
+    if (authChecked && !authUser && isSupportOpen) {
+      setAuthModalMode('signin');
+      setIsAuthModalOpen(true);
+    }
+  }, [authChecked, authUser, isSupportOpen]);
+
   // Support chat unread badge: a light check on sign-in, then every 90s while the tab is visible
   useEffect(() => {
     if (!authUser) {
@@ -1440,6 +1449,12 @@ export default function App() {
             xShareReward={xShareReward}
             onOpenShareModal={() => setIsShareModalOpen(true)}
             onOpenEmailReceipt={() => setIsEmailReceiptModalOpen(true)}
+            onOpenSupport={() => {
+              // Signed-out visitors sign in first; the chat opens as soon as they are in
+              setIsSupportOpen(true);
+              if (!authUser) setIsAuthModalOpen(true);
+            }}
+            supportUnread={supportUnread}
           />
         )}
 
