@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import {
   ChatSession,
   ChatMessage,
@@ -18,12 +18,26 @@ import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
 import { ChatFeed } from './components/ChatFeed';
 import { ChatInput } from './components/ChatInput';
-import { PricingModal } from './components/PricingModal';
-import { GiftCreditsModal } from './components/GiftCreditsModal';
-import { NotificationCenterModal } from './components/NotificationCenterModal';
-import { TermsAndPrivacyModal } from './components/TermsAndPrivacyModal';
-import { ShareProfileModal } from './components/ShareProfileModal';
-import { RewardEmailNotificationModal } from './components/RewardEmailNotificationModal';
+import { preloadMarkdown } from './components/LazyMarkdown';
+
+// Modals load on first open (smaller first download); once loaded they stay mounted
+const PricingModal = lazy(() => import('./components/PricingModal').then(m => ({ default: m.PricingModal })));
+const GiftCreditsModal = lazy(() => import('./components/GiftCreditsModal').then(m => ({ default: m.GiftCreditsModal })));
+const NotificationCenterModal = lazy(() => import('./components/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
+const TermsAndPrivacyModal = lazy(() => import('./components/TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
+const ShareProfileModal = lazy(() => import('./components/ShareProfileModal').then(m => ({ default: m.ShareProfileModal })));
+const RewardEmailNotificationModal = lazy(() =>
+  import('./components/RewardEmailNotificationModal').then(m => ({ default: m.RewardEmailNotificationModal }))
+);
+
+/** Renders its children from the first time `when` is true, then keeps them mounted. */
+const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
+  const [loaded, setLoaded] = useState(when);
+  useEffect(() => {
+    if (when) setLoaded(true);
+  }, [when]);
+  return loaded || when ? <Suspense fallback={null}>{children}</Suspense> : null;
+};
 import { AuthModal } from './components/AuthModal';
 import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
@@ -94,6 +108,14 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isEmailReceiptModalOpen, setIsEmailReceiptModalOpen] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+
+  // Warm up the Markdown parser in idle time so answers render instantly, without slowing first paint
+  useEffect(() => {
+    const w = window as any;
+    const run = () => preloadMarkdown();
+    const id = w.requestIdleCallback ? w.requestIdleCallback(run, { timeout: 6000 }) : setTimeout(run, 3500);
+    return () => (w.cancelIdleCallback ? w.cancelIdleCallback(id) : clearTimeout(id));
+  }, []);
   const [termsModalTab, setTermsModalTab] = useState<'terms' | 'privacy' | 'risk'>('terms');
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' } | null>(null);
@@ -1186,6 +1208,7 @@ export default function App() {
       {toastBanner}
 
       {/* Paystack Pricing & Subscription Modal */}
+      <Deferred when={isPricingModalOpen}>
       <PricingModal
         isOpen={isPricingModalOpen}
         onClose={() => setIsPricingModalOpen(false)}
@@ -1193,11 +1216,13 @@ export default function App() {
         paymentsConfig={paymentsConfig}
         onPaymentVerified={handlePaymentVerified}
       />
+      </Deferred>
 
       {/* Sign in / Create account (server-side auth; Google via Google Identity Services) */}
       {authModal}
 
       {/* Gift AI Credits Modal */}
+      <Deferred when={isGiftModalOpen}>
       <GiftCreditsModal
         isOpen={isGiftModalOpen}
         onClose={() => setIsGiftModalOpen(false)}
@@ -1206,8 +1231,10 @@ export default function App() {
         onSendGift={handleSendGift}
         recentGifts={recentGifts}
       />
+      </Deferred>
 
       {/* Notification Center Modal */}
+      <Deferred when={isNotificationCenterOpen}>
       <NotificationCenterModal
         isOpen={isNotificationCenterOpen}
         onClose={() => setIsNotificationCenterOpen(false)}
@@ -1243,15 +1270,15 @@ export default function App() {
         emailActivity={userProfile.emailActivity !== false}
         onToggleEmailActivity={authUser ? handleToggleEmailActivity : undefined}
       />
+      </Deferred>
 
       {/* Institutional Terms & Privacy Policy Modal */}
-      <TermsAndPrivacyModal
-        isOpen={isTermsModalOpen}
-        onClose={() => setIsTermsModalOpen(false)}
-        defaultTab={termsModalTab}
-      />
+      <Deferred when={isTermsModalOpen}>
+        <TermsAndPrivacyModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} defaultTab={termsModalTab} />
+      </Deferred>
 
       {/* Share Profile on X Modal with Downloadable Card */}
+      <Deferred when={isShareModalOpen}>
       <ShareProfileModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
@@ -1259,14 +1286,17 @@ export default function App() {
         onRegisterShareReward={handleRegisterShareReward}
         existingReward={xShareReward}
       />
+      </Deferred>
 
       {/* Reward Email Notification Preview Modal */}
-      {xShareReward && (
+      {xShareReward && isEmailReceiptModalOpen && (
+        <Suspense fallback={null}>
         <RewardEmailNotificationModal
           isOpen={isEmailReceiptModalOpen}
           onClose={() => setIsEmailReceiptModalOpen(false)}
           reward={xShareReward}
         />
+        </Suspense>
       )}
 
       {/* Sidebar Navigation: History, Credits, Profile */}

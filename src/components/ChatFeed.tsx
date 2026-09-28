@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { motion } from 'motion/react';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown } from './LazyMarkdown';
 import { ChatMessage, MarketQuote, StrategyResult } from '../types';
 import { StrategyCard } from './StrategyCard';
 import { MarketXText } from './MarketXText';
@@ -53,7 +52,7 @@ interface ChatFeedProps {
 }
 
 // Markdown only re-parses when its text changes (not on every live-price tick)
-const Markdown = React.memo(({ text }: { text: string }) => <ReactMarkdown>{text}</ReactMarkdown>);
+const Markdown = React.memo(({ text }: { text: string }) => <LazyMarkdown>{text}</LazyMarkdown>);
 
 export const ChatFeed: React.FC<ChatFeedProps> = ({
   messages,
@@ -572,7 +571,7 @@ Rationale: ${strategy.entryZone.rationale}
                   {/* Clean Independent Progressive Step Indicator */}
                   {/* Live activity while working; collapses to "Worked for Ns" once done */}
                   {message.status === 'searching' ? (
-                    <AiActivityTrace running steps={message.activity} startedAt={message.timestamp} />
+                    <AiActivityTrace running steps={message.activity} startedAt={message.timestamp} seed={message.id} />
                   ) : (
                     !strategy && (
                       <AiActivityTrace
@@ -580,6 +579,7 @@ Rationale: ${strategy.entryZone.rationale}
                         steps={message.activity}
                         startedAt={message.timestamp}
                         durationSeconds={message.durationSeconds}
+                        seed={message.id}
                       />
                     )
                   )}
@@ -607,6 +607,7 @@ Rationale: ${strategy.entryZone.rationale}
                         legacySteps={message.reasoningSteps}
                         startedAt={message.timestamp}
                         durationSeconds={message.durationSeconds}
+                        seed={message.id}
                       />
 
                       {/* High Impact News Detected Banner */}
@@ -989,19 +990,16 @@ Rationale: ${strategy.entryZone.rationale}
           style={{ bottom: 'calc(var(--mx-notice-h, 0px) + 6px)' }}
         >
           <div className="max-w-3xl mx-auto flex justify-end">
-            <motion.button
+            <button
               key={scrollArrow.direction}
-              initial={{ opacity: 0, scale: 0.85 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.15 }}
               type="button"
               onClick={handleArrowClick}
-              className="pointer-events-auto w-8 h-8 rounded-full bg-[var(--mx-surface)]/95 border border-white/[0.12] text-slate-300 hover:text-white hover:bg-[var(--mx-surface-2)] shadow-[0_8px_24px_-10px_var(--mx-shadow)] flex items-center justify-center cursor-pointer active:scale-95 transition-colors"
+              className="mx-pop-in pointer-events-auto w-8 h-8 rounded-full bg-[var(--mx-surface)]/95 border border-white/[0.12] text-slate-300 hover:text-white hover:bg-[var(--mx-surface-2)] shadow-[0_8px_24px_-10px_var(--mx-shadow)] flex items-center justify-center cursor-pointer active:scale-95 transition-colors"
               title={scrollArrow.direction === 'top' ? 'Scroll to top' : 'Scroll to latest'}
               aria-label={scrollArrow.direction === 'top' ? 'Scroll to top' : 'Scroll to latest'}
             >
               {scrollArrow.direction === 'top' ? <ChevronUp className="w-4 h-4" strokeWidth={2.5} /> : <ChevronDown className="w-4 h-4" strokeWidth={2.5} />}
-            </motion.button>
+            </button>
           </div>
         </div>
       )}

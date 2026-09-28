@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
 import {
   ShieldCheck,
   FileText,
@@ -30,21 +29,11 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
       {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/80 backdrop-blur-md"
-      />
+      <div onClick={onClose} className="mx-fade-in fixed inset-0 bg-black/80" />
 
       {/* Modal Dialog */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        transition={{ duration: 0.2 }}
-        className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[var(--mx-surface)]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
+      <div
+        className="mx-pop-in relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[var(--mx-surface)]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
       >
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between gap-3 bg-gradient-to-r from-indigo-950/40 via-transparent to-transparent shrink-0">
@@ -233,7 +222,7 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
             </a>
           </div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };

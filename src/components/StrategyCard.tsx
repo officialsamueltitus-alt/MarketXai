@@ -5,7 +5,7 @@ import { MarketXText } from './MarketXText';
 import { VerifiedBadge } from './VerifiedBadge';
 import { HighImpactNewsAlert } from './HighImpactNewsAlert';
 import { downloadStrategyImage, shareToX } from '../utils/exportImage';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown } from './LazyMarkdown';
 import {
   TrendingUp,
   TrendingDown,
@@ -496,7 +496,7 @@ Generated via MarketX AI (@_MarketXai) • https://marketx.world`;
           ) : (
             <div className="p-4 rounded-xl bg-black/20 border border-white/[0.06] text-xs text-slate-300 leading-relaxed max-h-96 overflow-y-auto space-y-3">
               <div className="prose prose-invert prose-xs max-w-none">
-                <ReactMarkdown>{detailedThesis}</ReactMarkdown>
+                <LazyMarkdown>{detailedThesis}</LazyMarkdown>
               </div>
             </div>
           )}
@@ -506,12 +506,12 @@ Generated via MarketX AI (@_MarketXai) • https://marketx.world`;
         {sources && sources.length > 0 && (
           <div className="pt-2 border-t border-white/[0.06] flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
             <span className="text-slate-500">Live Grounding Sources:</span>
-            {sources.map((src, i) => (
+            {sources.filter(src => /^https?:\/\//i.test(String(src?.uri || ''))).map((src, i) => (
               <a
                 key={i}
                 href={src.uri}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/[0.03] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-colors"
               >
                 <span>{src.title.length > 25 ? src.title.slice(0, 25) + '...' : src.title}</span>

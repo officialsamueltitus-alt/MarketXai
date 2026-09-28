@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion } from 'motion/react';
 import { MarketQuote, UserProfile, XShareReward } from '../types';
 import { MarketXText } from './MarketXText';
 import { MarketXHeroLogo } from './MarketXHeroLogo';

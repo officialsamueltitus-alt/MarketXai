@@ -711,6 +711,16 @@ header.glass-panel {
   }
 }
 
+/* Decorative glow blobs: a soft radial mask instead of a real blur filter (same look, far cheaper on
+   phone GPUs, no re-rasterising while scrolling) */
+.pointer-events-none.blur-xl,
+.pointer-events-none.blur-2xl,
+.pointer-events-none.blur-3xl {
+  filter: none;
+  -webkit-mask-image: radial-gradient(closest-side, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 100%);
+}
+
 /* Admin console: a normal scrolling document (the main app locks body scroll) */
 html.mx-admin-page,
 html.mx-admin-page body {

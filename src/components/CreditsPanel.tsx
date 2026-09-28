@@ -4,7 +4,7 @@ import { getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager'
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
-import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
+import { creditsToTokens, formatTokens, TOKENS_PER_CREDIT, TOKENS_PER_USAGE } from '../utils/tokens';
 
 interface CreditsPanelProps {
   userProfile: UserProfile;
@@ -86,7 +86,9 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
           <span className="text-sm text-slate-500 mb-1">credits</span>
         </div>
         <p className="relative mt-3 text-xs text-slate-500">
-          {unlimited ? 'Unlimited analyses. Nothing is deducted.' : 'Each analysis uses 1 credit and 1 daily analysis.'}
+          {unlimited
+            ? 'Unlimited analyses. Nothing is deducted.'
+            : `${creditState.availableCredits} credits = ${formatTokens(creditsToTokens(creditState.availableCredits))} tokens (1 credit = ${formatTokens(TOKENS_PER_CREDIT)} tokens).`}
         </p>
       </section>
 
