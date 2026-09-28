@@ -26,6 +26,7 @@ const GiftCreditsModal = lazy(() => import('./components/GiftCreditsModal').then
 const NotificationCenterModal = lazy(() => import('./components/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
 const TermsAndPrivacyModal = lazy(() => import('./components/TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
 const ShareProfileModal = lazy(() => import('./components/ShareProfileModal').then(m => ({ default: m.ShareProfileModal })));
+const SupportChat = lazy(() => import('./components/SupportChat').then(m => ({ default: m.SupportChat })));
 const RewardEmailNotificationModal = lazy(() =>
   import('./components/RewardEmailNotificationModal').then(m => ({ default: m.RewardEmailNotificationModal }))
 );
@@ -117,6 +118,9 @@ export default function App() {
     return () => (w.cancelIdleCallback ? w.cancelIdleCallback(id) : clearTimeout(id));
   }, []);
   const [termsModalTab, setTermsModalTab] = useState<'terms' | 'privacy' | 'risk'>('terms');
+  // Support chat (Settings → Support chat)
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [supportUnread, setSupportUnread] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' } | null>(null);
 
@@ -212,7 +216,9 @@ export default function App() {
       });
     }
     if (params.has('reset')) setIsAuthModalOpen(true);
-    if (params.has('verified') || params.has('reset')) {
+    // "Open the conversation" link in support reply emails
+    if (params.get('support') === '1') setIsSupportOpen(true);
+    if (params.has('verified') || params.has('reset') || params.has('support')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -758,10 +764,29 @@ export default function App() {
     [authUser]
   );
 
+  // Support chat unread badge: a light check on sign-in, then every 90s while the tab is visible
+  useEffect(() => {
+    if (!authUser) {
+      setSupportUnread(0);
+      return;
+    }
+    const check = () => {
+      if (document.hidden) return;
+      apiFetch<{ unread: number }>('/api/support/unread')
+        .then(d => setSupportUnread(Number(d?.unread) || 0))
+        .catch(() => {});
+    };
+    check();
+    const id = setInterval(check, 90_000);
+    return () => clearInterval(id);
+  }, [authUser]);
+
   const handleUpdateNotificationAction = (notif: AppNotification) => {
     markNotificationRead(notif.id);
     if (notif.actionPrompt) {
       handleSendMessage(notif.actionPrompt, '4H');
+    } else if (notif.actionType === 'open_support') {
+      setIsSupportOpen(true);
     } else if (notif.actionType === 'open_campaign') {
       setIsShareModalOpen(true);
     } else if (notif.type === 'reward' || notif.type === 'credit') {
@@ -1209,7 +1234,7 @@ export default function App() {
   }
 
   return (
-    <div className="mx-backdrop flex h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-full overflow-hidden text-slate-100 font-sans relative">
+    <div className="mx-backdrop mx-safe-shell flex h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-full overflow-hidden text-slate-100 font-sans relative">
       {/* Toast Notification Banner */}
       {toastBanner}
 
@@ -1265,6 +1290,8 @@ export default function App() {
             handleSendMessage(notif.actionPrompt, '4H');
           } else if (notif.actionType === 'open_pricing') {
             setIsPricingModalOpen(true);
+          } else if (notif.actionType === 'open_support') {
+            setIsSupportOpen(true);
           } else if (notif.actionType === 'open_campaign') {
             setIsShareModalOpen(true);
           } else if (notif.type === 'reward' || notif.type === 'credit') {
@@ -1279,6 +1306,16 @@ export default function App() {
       </Deferred>
 
       {/* Institutional Terms & Privacy Policy Modal */}
+      {/* Support chat (Settings → Support chat) */}
+      <Deferred when={isSupportOpen && !!authUser}>
+        <SupportChat
+          isOpen={isSupportOpen && !!authUser}
+          onClose={() => setIsSupportOpen(false)}
+          displayName={userProfile.displayName}
+          onRead={() => setSupportUnread(0)}
+        />
+      </Deferred>
+
       <Deferred when={isTermsModalOpen}>
         <TermsAndPrivacyModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} defaultTab={termsModalTab} />
       </Deferred>
@@ -1338,6 +1375,12 @@ export default function App() {
         isSignedIn={!!authUser}
         onSignIn={() => setIsAuthModalOpen(true)}
         onSignOut={handleSignOut}
+        onOpenSupport={() => setIsSupportOpen(true)}
+        supportUnread={supportUnread}
+        onOpenTerms={() => {
+          setTermsModalTab('terms');
+          setIsTermsModalOpen(true);
+        }}
       />
 
       {/* Main Workspace Area */}

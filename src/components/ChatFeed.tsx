@@ -702,9 +702,11 @@ Rationale: ${strategy.entryZone.rationale}
                               I've analyzed live order books and market depth for <strong className="text-white font-mono">{strategy.symbol}</strong> ({strategy.name}) on the <strong className="text-indigo-300 font-mono">{strategy.timeframe}</strong> timeframe.
                               <span className="text-amber-300 font-semibold block mt-1.5 flex items-center gap-1.5">
                                 <AlertCircle className="w-4 h-4 inline shrink-0" />
-                                No high-confluence signal opportunity found.
+                                {strategy.alreadyMitigated ? 'No signal — already mitigated.' : 'No signal.'}
                               </span>
-                              Current price action is in choppy consolidation around equilibrium. Recommended action: Stand aside and wait for a decisive breakout.
+                              {strategy.signalStatus?.details && /^No signal/i.test(strategy.signalStatus.details)
+                                ? strategy.signalStatus.details.replace(/^No signal(?: — already mitigated)?\.\s*/i, '')
+                                : 'No fresh, untouched zone offers a clean setup right now. Recommended action: stand aside and wait for a fresh zone to form.'}
                             </p>
                           ) : strategy.tradeType === 'SHORT' ? (
                             <p>
@@ -744,7 +746,7 @@ Rationale: ${strategy.entryZone.rationale}
                             {strategy.tradeType === 'NO_SIGNAL' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs">
                                 <AlertCircle className="w-3.5 h-3.5" />
-                                <span>NO SIGNAL OPPORTUNITY</span>
+                                <span>{strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
                               </span>
                             ) : strategy.tradeType === 'LONG' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs">

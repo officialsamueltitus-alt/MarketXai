@@ -7,9 +7,25 @@ import { defineConfig } from 'vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Oldest browsers the CSS must render correctly on. iPhones/iPads on iOS 14–16.3 lack oklch()/color-mix()/
+// @property, which Tailwind v4 uses; Lightning CSS adds plain-colour fallbacks, flattens nesting and adds
+// -webkit- prefixes for these targets. (major << 16 | minor << 8)
+const cssTargets = {
+  safari: 14 << 16,
+  ios_saf: 14 << 16,
+  chrome: 87 << 16,
+  edge: 88 << 16,
+  firefox: 78 << 16,
+  samsung: 14 << 16,
+};
+
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    css: {
+      transformer: 'lightningcss' as const,
+      lightningcss: { targets: cssTargets },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -19,7 +35,9 @@ export default defineConfig(() => {
     build: {
       sourcemap: false, // Security: seal raw source code and engine models from browser DevTools / inspect
       minify: 'esbuild' as const,
-      cssMinify: true,
+      // JS syntax for Safari 14+ (iOS 14+), matching the CSS targets
+      target: ['es2020', 'safari14', 'chrome87', 'edge88', 'firefox78'],
+      cssMinify: 'lightningcss' as const,
       reportCompressedSize: false,
       chunkSizeWarningLimit: 1200,
       rollupOptions: {

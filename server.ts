@@ -9,6 +9,7 @@ import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payment
 import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { registerAdminRoutes } from './server/admin';
+import { registerSupportRoutes } from './server/support';
 import { isMailerConfigured } from './server/mailer';
 import { fetchDerivCandles, fetchDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
@@ -1913,6 +1914,8 @@ registerAuthRoutes(app);
 registerAccountRoutes(app, generalApiRateLimiter);
 registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
+// Support chat: users write from Settings, admins answer from the console
+registerSupportRoutes(app, generalApiRateLimiter);
 
 // Live market ticker feed
 app.get('/api/market/tickers', generalApiRateLimiter, async (req: Request, res: Response) => {
@@ -2474,6 +2477,16 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     strategy.stopLoss?.price ?? price,
     strategy.takeProfits || []
   );
+  if (!plan) {
+    // Say exactly why there is no signal (e.g. "No signal — already mitigated: the entry was already tapped …")
+    const already = !!map.mitigatedSetup;
+    strategy.signalStatus = {
+      ...strategy.signalStatus,
+      verdict: already ? 'No Signal — Already Mitigated' : 'No Signal Opportunity',
+      details: map.noSignalReason || strategy.signalStatus?.details,
+    };
+    strategy.alreadyMitigated = already;
+  }
   return strategy;
 }
 
@@ -2834,6 +2847,7 @@ STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
 
 STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
 - Signal only when a strong zone has Fibonacci confluence and the final target pays at least 1:2.5. Otherwise output NO_SIGNAL and name the zones and prices to watch.
+- NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal — already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
 
 COMPUTED MARKET MAP (MANDATORY WHEN PROVIDED):
 - The request includes a map computed from real ${analysisTimeframe} candles using exactly this strategy. Treat its zones, Fibonacci levels, entry, stop loss and targets as ground truth and copy those numbers exactly into the JSON and the thesis.

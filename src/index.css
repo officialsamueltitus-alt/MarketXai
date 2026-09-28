@@ -297,6 +297,9 @@
     height: 100%;
     height: 100dvh;
     -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* No grey flash on tap in iOS Safari */
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     font-family: var(--font-sans);
@@ -672,6 +675,38 @@ header.glass-panel {
 }
 .pt-safe {
   padding-top: max(env(safe-area-inset-top, 0px), 8px);
+}
+/* iPhone notch / status bar / rounded corners: keep the app clear of them in landscape and when installed
+   to the home screen (viewport-fit=cover + translucent status bar). Zero on devices without insets. */
+.mx-safe-shell {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+/* The slide-over menu is fixed on phones/tablets (outside the padded shell); on desktop it sits inside it */
+@media (max-width: 1023.98px) {
+  .mx-safe-sidebar {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+
+/* Safari < 15.4 has no dvh units: an unknown unit would drop the height entirely and collapse the layout */
+@supports not (height: 100dvh) {
+  .h-\[100dvh\] {
+    height: 100vh;
+    height: -webkit-fill-available;
+  }
+  .min-h-\[100dvh\] {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+  }
+  .max-h-\[94dvh\] {
+    max-height: 94vh;
+  }
+  .max-h-\[92dvh\] {
+    max-height: 92vh;
+  }
 }
 
 /* Decorative pulses/pings settle after a few cycles instead of animating forever:

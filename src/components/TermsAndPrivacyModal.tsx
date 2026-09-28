@@ -1,227 +1,223 @@
-import React, { useState } from 'react';
-import {
-  ShieldCheck,
-  FileText,
-  Lock,
-  AlertTriangle,
-  X,
-  ExternalLink,
-  Mail,
-  CheckCircle2,
-  Cpu
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FileText, Lock, AlertTriangle, X, Mail, MessageCircle } from 'lucide-react';
+
+type Tab = 'terms' | 'privacy' | 'risk';
 
 interface TermsAndPrivacyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultTab?: 'terms' | 'privacy' | 'risk';
+  defaultTab?: Tab;
 }
 
-export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({
-  isOpen,
-  onClose,
-  defaultTab = 'terms',
-}) => {
-  const [activeTab, setActiveTab] = useState<'terms' | 'privacy' | 'risk'>(defaultTab);
+const LAST_UPDATED = 'September 2026';
+
+const TABS: Array<{ id: Tab; label: string; short: string; icon: React.ElementType }> = [
+  { id: 'terms', label: 'Terms of Service', short: 'Terms', icon: FileText },
+  { id: 'privacy', label: 'Privacy Policy', short: 'Privacy', icon: Lock },
+  { id: 'risk', label: 'Risk Disclosure', short: 'Risk', icon: AlertTriangle },
+];
+
+type Doc = { summary: string; tone: 'indigo' | 'emerald' | 'amber'; sections: Array<{ title: string; body: React.ReactNode }> };
+
+const DOCS: Record<Tab, Doc> = {
+  terms: {
+    tone: 'indigo',
+    summary:
+      'MarketX is an AI market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research — not advice.',
+    sections: [
+      {
+        title: 'Using MarketX',
+        body: 'MarketX provides market analysis, trade-planning tools and related features. Access is invite-only: an account is created once a valid pass code is redeemed. You must provide accurate information and keep your login details private.',
+      },
+      {
+        title: 'Credits, plans & payments',
+        body: 'Analyses use credits and a daily allowance (1 credit = 30k tokens). Pro plans are billed through Paystack and activate only after the payment is verified. Credits earned through campaigns are granted after their verification window.',
+      },
+      {
+        title: 'Acceptable use',
+        body: 'Do not reverse-engineer, scrape, overload or attempt to access parts of the service you are not authorised to use. Accounts involved in abuse, fraud or automated misuse may be suspended or closed.',
+      },
+      {
+        title: 'Intellectual property',
+        body: 'The MarketX software, design, analysis engine and content are the property of SpiriTech Labs. You may share your own analysis results, with attribution to MarketX.',
+      },
+      {
+        title: 'Changes & availability',
+        body: 'We continuously improve MarketX, so features and methods may change. We aim for high availability but cannot guarantee uninterrupted service or live data from third-party providers.',
+      },
+    ],
+  },
+  privacy: {
+    tone: 'emerald',
+    summary: 'We collect only what is needed to run your account and the service. We never sell your data, and we never see or store your card details.',
+    sections: [
+      {
+        title: 'What we collect',
+        body: 'Your email address, username, display name and optional profile photo; your credits, plan and payment records; your saved chats and trade setups; support conversations; and basic usage information (such as analyses run and sign-in activity) used to operate and secure the service.',
+      },
+      {
+        title: 'How it is stored',
+        body: 'Account data is stored on secure servers (Google Cloud Firestore) and is only accessed through the MarketX server — never directly from your browser. All traffic is encrypted with TLS. Passwords are stored as one-way hashes.',
+      },
+      {
+        title: 'Cookies',
+        body: 'We use a single secure, httpOnly session cookie to keep you signed in. Your theme preference is kept in your browser. We do not use advertising trackers.',
+      },
+      {
+        title: 'Third parties',
+        body: 'Payments are processed by Paystack (we never receive card numbers). Google Sign-In is used only if you choose it. Emails are sent through our mail provider. Market prices come from public data providers.',
+      },
+      {
+        title: 'Your choices',
+        body: 'You can clear your chat history at any time, change your email preferences, and permanently delete your account and its data from Settings → Profile. For any privacy request, message us from Support chat or by email.',
+      },
+    ],
+  },
+  risk: {
+    tone: 'amber',
+    summary:
+      'Trading forex, crypto, commodities, indices and stocks carries a high risk of losing money. MarketX analyses are educational research tools, not financial advice.',
+    sections: [
+      {
+        title: 'Not financial advice',
+        body: 'Levels, signals, trade plans and commentary are produced by quantitative models and AI for research and educational purposes. Nothing on MarketX is investment advice or an offer to buy or sell any asset.',
+      },
+      {
+        title: 'Your responsibility',
+        body: 'You alone decide whether to trade and how much to risk. Use proper position sizing and stop losses, never trade money you cannot afford to lose, and consider independent professional advice.',
+      },
+      {
+        title: 'No guarantees',
+        body: 'Past performance and historical levels do not guarantee future results. Market data can be delayed or incomplete, and volatility, gaps and slippage can move prices past planned levels.',
+      },
+      {
+        title: 'Limitation of liability',
+        body: 'SpiriTech Labs, MarketX and its contributors are not liable for trading losses, missed profits or other damages arising from the use of the service, to the fullest extent permitted by law.',
+      },
+    ],
+  },
+};
+
+const TONE: Record<Doc['tone'], string> = {
+  indigo: 'bg-indigo-500/[0.08] border-indigo-400/20 text-indigo-100',
+  emerald: 'bg-emerald-500/[0.08] border-emerald-400/20 text-emerald-100',
+  amber: 'bg-amber-500/[0.08] border-amber-400/20 text-amber-100',
+};
+
+export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({ isOpen, onClose, defaultTab = 'terms' }) => {
+  const [tab, setTab] = useState<Tab>(defaultTab);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Open on the requested tab each time
+  useEffect(() => {
+    if (isOpen) setTab(defaultTab);
+  }, [isOpen, defaultTab]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen]);
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+  }, [tab]);
 
   if (!isOpen) return null;
+  const doc = DOCS[tab];
+  const activeIndex = TABS.findIndex(t => t.id === tab);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
-      {/* Backdrop */}
-      <div onClick={onClose} className="mx-fade-in fixed inset-0 bg-black/80" />
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5" role="dialog" aria-modal="true" aria-label="Terms and Privacy">
+      <div onClick={onClose} className="mx-fade-in fixed inset-0 bg-black/75" />
 
-      {/* Modal Dialog */}
-      <div
-        className="mx-pop-in relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[var(--mx-surface)]/95 border border-white/[0.14] rounded-2xl sm:rounded-3xl shadow-2xl shadow-black overflow-hidden z-10"
-      >
-        {/* Top Header */}
-        <div className="p-4 sm:p-5 border-b border-white/[0.08] flex items-center justify-between gap-3 bg-gradient-to-r from-indigo-950/40 via-transparent to-transparent shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <ShieldCheck className="w-4 h-4" />
+      <div className="mx-pop-in relative z-10 w-full sm:max-w-2xl h-[92dvh] sm:h-auto sm:max-h-[86dvh] flex flex-col bg-[var(--mx-bg-2)] border border-white/[0.08] rounded-t-[28px] sm:rounded-[28px] shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)] overflow-hidden">
+        {/* Header */}
+        <header className="shrink-0 px-5 sm:px-7 pt-5 sm:pt-6 pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Legal</p>
+              <h2 className="mt-1 text-xl sm:text-2xl font-semibold text-white tracking-tight">Terms &amp; Privacy</h2>
+              <p className="mt-1 text-xs text-slate-500">Last updated {LAST_UPDATED}</p>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                Terms & Privacy Policy
-              </h2>
-              <p className="text-xs text-slate-400">
-                Institutional protocol governance & privacy standards • Built by SpiriTech Labs
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="w-9 h-9 -mr-1 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 sm:p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="px-4 sm:px-6 py-2.5 border-b border-white/[0.06] flex items-center gap-2 bg-black/30 shrink-0">
-          {[
-            { id: 'terms', label: 'Terms of Service', icon: FileText },
-            { id: 'privacy', label: 'Privacy Policy', icon: Lock },
-            { id: 'risk', label: 'Trading Risk Disclosure', icon: AlertTriangle },
-          ].map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
+          {/* Segmented tabs */}
+          <div className="relative mt-5 grid grid-cols-3 p-1 rounded-2xl bg-white/[0.04] border border-white/[0.06]" role="tablist" aria-label="Documents">
+            <span
+              aria-hidden="true"
+              className="absolute top-1 bottom-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-xl bg-white shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+              style={{ transform: `translateX(${activeIndex * 100}%)` }}
+            />
+            {TABS.map(({ id, label, short, icon: Icon }) => (
               <button
-                key={tab.id}
+                key={id}
                 type="button"
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-indigo-600/35 text-white border border-indigo-500/40 shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={`relative z-10 h-9 rounded-xl text-xs sm:text-[13px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                  tab === id ? 'text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="sm:hidden">{short}</span>
+                <span className="hidden sm:inline">{label}</span>
               </button>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        </header>
 
-        {/* Scrollable Document Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 text-slate-300 text-xs sm:text-sm space-y-5 leading-relaxed">
-          {activeTab === 'terms' && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-200">
-                <span className="font-bold">MarketX Protocol Notice:</span> This platform, proprietary algorithmic tools, and quantitative models are engineered and operated by <span className="font-semibold text-white">SpiriTech Labs</span>. By accessing MarketX, you agree to these Terms.
-              </div>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">1. Platform Scope & Intellectual Property</h3>
-                <p className="text-slate-400">
-                  MarketX provides high-fidelity institutional market intelligence, quantitative order flow mapping, and AI-driven trade planning. All proprietary algorithms, visualizers, software interfaces, and predictive logic are exclusive intellectual property of <strong className="text-slate-200">SpiriTech Labs</strong>.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">2. AI Analysis Credits & Promotional Campaigns</h3>
-                <p className="text-slate-400">
-                  MarketX users receive daily refreshed credits and may participate in verified community campaigns (such as sharing verified profiles on X) to earn additional credits. Campaign awards are subject to automated verification windows (e.g., 10-hour processing) operated by SpiriTech Labs.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">3. Acceptable Use & Fair Access</h3>
-                <p className="text-slate-400">
-                  You agree not to reverse engineer, scrape at abusive frequencies, or exploit the platform's backend endpoints. SpiriTech Labs reserves the right to rate-limit or terminate access for unauthorized automated bot activity.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">4. Modifications to Services</h3>
-                <p className="text-slate-400">
-                  SpiriTech Labs continuously evolves the MarketX engine. Features, parameters, and algorithms may update to incorporate advanced quantitative datasets.
-                </p>
-              </section>
-            </div>
-          )}
-
-          {activeTab === 'privacy' && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200">
-                <span className="font-bold">Privacy Commitment:</span> SpiriTech Labs maintains a privacy-first, non-custodial architecture. We do not sell your personal data or trade execution logs.
-              </div>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">1. Information We Collect</h3>
-                <p className="text-slate-400">
-                  MarketX operates with minimal data collection. We retain local browser preferences (session history, saved trade signals), custom display usernames, and trader email addresses strictly for automated campaign reward dispatches.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">2. Data Storage & Security</h3>
-                <p className="text-slate-400">
-                  Client sessions and saved strategy signals are stored with client-side isolation in secure browser storage. All network interactions are encrypted via modern TLS cryptographic protocols maintained by SpiriTech Labs.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">3. Third-Party Integrations</h3>
-                <p className="text-slate-400">
-                  When participating in the X Profile Share campaign, external interactions adhere to X’s privacy terms. Market price feeds are ingested via certified public ticker endpoints.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">4. Data Deletion & Inquiries</h3>
-                <p className="text-slate-400">
-                  Traders may clear all saved conversation records and cached history at any moment via the History tab. For privacy queries, reach out directly to the SpiriTech Labs support desk.
-                </p>
-              </section>
-            </div>
-          )}
-
-          {activeTab === 'risk' && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200">
-                <span className="font-bold">High-Risk Warning:</span> Trading digital assets, cryptocurrencies, foreign currencies, and equities involves significant capital risk and potential total loss of funds.
-              </div>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">1. Not Financial or Investment Advice</h3>
-                <p className="text-slate-400">
-                  The outputs, key levels, calculations, and trade plans provided by MarketX and SpiriTech Labs are purely quantitative research tools intended for educational and analytical purposes. Nothing on this platform constitutes personal investment advice, financial endorsement, or an offer to buy or sell securities.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">2. User Responsibility & Risk Management</h3>
-                <p className="text-slate-400">
-                  You are solely responsible for your trading decisions and capital exposure. Always employ prudent position sizing, strict stop losses, and consult certified independent financial advisors.
-                </p>
-              </section>
-
-              <section className="space-y-1.5">
-                <h3 className="font-bold text-white text-sm">3. Limitation of Liability</h3>
-                <p className="text-slate-400">
-                  Under no circumstances will SpiriTech Labs, MarketX, or its contributors be held liable for any trading losses, missed profits, or slippage resulting from market volatility or platform usage.
-                </p>
-              </section>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer with Built by SpiriTech Labs */}
-        <div className="p-4 border-t border-white/[0.08] bg-black/40 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-slate-400 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-[10px] font-mono font-bold">
-              SL
-            </div>
-            <span className="text-white font-semibold">
-              Built by SpiriTech Labs
-            </span>
+        {/* Document */}
+        <div ref={bodyRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-7 pb-6" role="tabpanel">
+          <div className={`rounded-2xl border px-4 py-3.5 text-sm leading-relaxed ${TONE[doc.tone]}`}>
+            <span className="font-semibold">In short: </span>
+            {doc.summary}
           </div>
 
-          <div className="flex items-center gap-3 text-[11px] font-mono">
-            <a
-              href="mailto:help.marketx@gmail.com?subject=MarketX%20Support%20Request"
-              className="text-slate-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
-            >
-              <Mail className="w-3 h-3" />
-              <span>Message Support via Mail</span>
+          <ol className="mt-5 space-y-5">
+            {doc.sections.map((s, i) => (
+              <li key={s.title} className="grid grid-cols-[1.75rem_1fr] gap-3">
+                <span className="mt-0.5 w-7 h-7 rounded-full bg-white/[0.05] border border-white/[0.08] text-[11px] font-semibold text-slate-300 flex items-center justify-center tabular-nums">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-semibold text-white">{s.title}</h3>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">{s.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        {/* Footer */}
+        <footer className="shrink-0 border-t border-white/[0.06] px-5 sm:px-7 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+          <span>
+            MarketX · Built by <span className="text-slate-300 font-medium">SpiriTech Labs</span>
+          </span>
+          <span className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1">
+              <MessageCircle className="w-3.5 h-3.5" /> Questions? Settings → Support chat
+            </span>
+            <a href="mailto:help.marketx@gmail.com?subject=MarketX%20Support" className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              <Mail className="w-3.5 h-3.5" /> Email
             </a>
-            <span>•</span>
-            <a
-              href="https://x.com/_MarketXai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-400 hover:text-white transition-colors"
-            >
+            <a href="https://x.com/_MarketXai" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
               @_MarketXai
             </a>
-          </div>
-        </div>
+          </span>
+        </footer>
       </div>
     </div>
   );
