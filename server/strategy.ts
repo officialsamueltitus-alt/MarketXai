@@ -484,10 +484,12 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
   eMax = Math.max(eMax, optimal);
 
   // Stop beyond the zone's distal line with an ATR buffer (tight = just beyond the line)
-  const buffer = atr * (slMode === 'tight' ? 0.08 : 0.3);
+  // Normal: 0.3 ATR beyond the distal line, >= 1 ATR risk. Tight (input-box toggle): a smaller but still
+  // valid stop for the timeframe — 0.15 ATR beyond the distal line, >= 0.7 ATR risk.
+  const buffer = atr * (slMode === 'tight' ? 0.15 : 0.3);
   let stop = long ? z.distal - buffer : z.distal + buffer;
   // Give the trade room to breathe: never risk less than a fraction of the ATR
-  const minRisk = atr * (slMode === 'tight' ? 0.5 : 1.0);
+  const minRisk = atr * (slMode === 'tight' ? 0.7 : 1.0);
   if (Math.abs(optimal - stop) < minRisk) stop = long ? optimal - minRisk : optimal + minRisk;
   const risk = Math.abs(optimal - stop);
   if (risk <= 0) return null;
@@ -695,4 +697,69 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
   }
   out += `#### Risk Management\nRisk no more than 1–2% per trade, scale out at each target, and move the stop to entry after TP1.`;
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Volatility helpers & "Tighten SL" on an existing setup
+// ---------------------------------------------------------------------------
+/** ATR(14) of the latest candle. */
+export function computeAtr(candles: Candle[], period = 14): number {
+  const a = rollingAtr(candles, period);
+  return a[a.length - 1] || 0;
+}
+
+/**
+ * Typical ATR(14) as a fraction of price when candles are unavailable. Scales with the square root of the
+ * timeframe (0.12% per 1H for FX majors) and with how volatile the asset class is.
+ */
+export function estimateAtrFraction(tf: string, assetType?: string): number {
+  const mult: Record<string, number> = { forex: 1, commodity: 1.6, stock: 2, synthetic: 3, crypto: 3.5 };
+  const k = mult[String(assetType || '')] ?? 2;
+  return 0.0012 * k * Math.sqrt(timeframeMinutes(normalizeTimeframe(tf)) / 60);
+}
+
+export interface TightenResult {
+  stop: number;
+  tightened: boolean;
+  basis: string;
+  minRisk: number;
+}
+
+/**
+ * A tighter but still valid stop for an existing setup (same entry & targets). Prefers structure — the 0.786
+ * retracement, then the zone's distal line — never closer than 0.5 ATR of the setup's timeframe and always
+ * tighter than the original stop. If the original is already at that floor, it is kept (tightened=false).
+ */
+export function tightenStop(opts: {
+  direction: 'LONG' | 'SHORT';
+  entry: number;
+  originalStop: number;
+  atr: number;
+  zoneDistal?: number | null;
+  fib786?: number | null;
+}): TightenResult {
+  const { direction, entry, originalStop, atr } = opts;
+  const long = direction === 'LONG';
+  const originalRisk = Math.abs(entry - originalStop);
+  const minRisk = Math.max(atr * 0.5, 1e-12);
+  const riskOf = (p: number) => (long ? entry - p : p - entry);
+  const tighter = (p: number) => riskOf(p) < originalRisk * 0.92;
+  const valid = (p: number) => Number.isFinite(p) && riskOf(p) >= minRisk && tighter(p);
+
+  const candidates: Array<{ price: number; basis: string }> = [];
+  if (opts.fib786 && (long ? opts.fib786 < entry : opts.fib786 > entry)) {
+    candidates.push({ price: long ? opts.fib786 - atr * 0.1 : opts.fib786 + atr * 0.1, basis: 'just beyond the 0.786 Fibonacci retracement' });
+  }
+  if (opts.zoneDistal && (long ? opts.zoneDistal < entry : opts.zoneDistal > entry)) {
+    candidates.push({ price: long ? opts.zoneDistal - atr * 0.05 : opts.zoneDistal + atr * 0.05, basis: "just beyond the zone's distal line" });
+  }
+  // Closest valid structural level to the entry wins
+  const structural = candidates.filter(c => valid(c.price)).sort((a, b) => riskOf(a.price) - riskOf(b.price))[0];
+  if (structural) return { stop: structural.price, tightened: true, basis: structural.basis, minRisk };
+
+  // Otherwise ~60% of the original risk, floored at 0.5 ATR
+  const fallbackRisk = Math.max(minRisk, originalRisk * 0.6);
+  const p = long ? entry - fallbackRisk : entry + fallbackRisk;
+  if (tighter(p)) return { stop: p, tightened: true, basis: '60% of the original risk, kept above half an ATR of this timeframe', minRisk };
+  return { stop: originalStop, tightened: false, basis: 'already at the tightest valid level for this timeframe', minRisk };
 }

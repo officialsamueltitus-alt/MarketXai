@@ -20,10 +20,14 @@ import {
   SDZone,
   marketMapThesis,
   normalizeTimeframe,
+  computeAtr,
+  estimateAtrFraction,
+  priceDecimals,
+  tightenStop,
   timeframeFromPrompt,
   timeframeMinutes,
 } from './server/strategy';
-import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders } from './server/security';
+import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -1414,7 +1418,8 @@ function generateAlgorithmicStrategy(
     entryMax = Math.max(demandHigh, optimalEntry * 1.004);
 
     if (isTightSl) {
-      const tightBuffer = isJpyPair ? 0.0012 : asset.type === 'forex' ? 0.0012 : asset.type === 'commodity' ? 0.0018 : 0.0028;
+      // Smaller but valid for the timeframe: 0.7 x the timeframe's typical ATR
+      const tightBuffer = estimateAtrFraction(timeframe, asset.type) * 0.7;
       stopLossPrice = Number((optimalEntry * (1 - tightBuffer)).toFixed(priceDecimals));
     } else {
       const normalBuffer = isJpyPair ? 0.0025 : asset.type === 'forex' ? 0.0025 : 0.008;
@@ -1431,7 +1436,8 @@ function generateAlgorithmicStrategy(
     entryMax = Math.max(supplyHigh, optimalEntry * 1.004);
 
     if (isTightSl) {
-      const tightBuffer = isJpyPair ? 0.0012 : asset.type === 'forex' ? 0.0012 : asset.type === 'commodity' ? 0.0018 : 0.0028;
+      // Smaller but valid for the timeframe: 0.7 x the timeframe's typical ATR
+      const tightBuffer = estimateAtrFraction(timeframe, asset.type) * 0.7;
       stopLossPrice = Number((optimalEntry * (1 + tightBuffer)).toFixed(priceDecimals));
     } else {
       const normalBuffer = isJpyPair ? 0.0025 : asset.type === 'forex' ? 0.0025 : 0.008;
@@ -1730,140 +1736,147 @@ ${newsAlert.breakingHeadline ? `- **MarketWatch Wire**: "${newsAlert.breakingHea
 }
 
 // -------------------------------------------------------------
-// Tightened Stop Loss Strategy Generator
-// Preserves identical market structure, entry, and take-profit targets,
-// while recalculating a tighter 15-minute invalidation stop loss and revised R:R.
+// "Tighten SL" on an existing setup: identical entry, zones and targets; a tighter but still valid stop
+// for the setup's timeframe (structure first, never inside half an ATR of that timeframe).
 // -------------------------------------------------------------
-function generateTightenedStrategy(baseStrategy: any, userPrompt: string = ''): any {
-  const currentPrice = Number(baseStrategy.currentPrice || baseStrategy.entryZone?.optimal || 100);
-  const entryOptimal = Number(baseStrategy.entryZone?.optimal || currentPrice);
-  const isJpyPair = (baseStrategy.symbol || '').includes('JPY');
-  const priceDecimals = isJpyPair ? 3 : entryOptimal < 10 ? 4 : 2;
-  const currSym = isJpyPair
-    ? '¥'
-    : (baseStrategy.symbol || '').startsWith('EUR')
-    ? '€'
-    : (baseStrategy.symbol || '').startsWith('GBP')
-    ? '£'
-    : (baseStrategy.symbol || '').startsWith('CAD')
-    ? 'C$'
-    : (baseStrategy.symbol || '').startsWith('AUD')
-    ? 'A$'
-    : '$';
-  const formatPrice = (p: number) => Number(p).toFixed(priceDecimals);
+const num = (v: any) => (typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN);
 
-  const tradeType = baseStrategy.tradeType || 'LONG';
-  const isShort = tradeType === 'SHORT';
-  const originalSlPrice = Number(
-    baseStrategy.stopLoss?.price || (isShort ? entryOptimal * 1.015 : entryOptimal * 0.985)
-  );
-  const originalDistance = Math.abs(entryOptimal - originalSlPrice);
-  const originalRiskPercent = Number(baseStrategy.stopLoss?.riskPercent || 1.5);
-
-  const assetType = baseStrategy.assetType || 'crypto';
-  const tightRatioCap = isJpyPair
-    ? 0.0012
-    : assetType === 'forex'
-    ? 0.0012
-    : assetType === 'commodity'
-    ? 0.0018
-    : 0.0035;
-
-  // Compress stop loss risk by ~60-65%, capped by asset class micro-invalidation threshold
-  let tightDistance = Math.min(originalDistance * 0.38, entryOptimal * tightRatioCap);
-  if (tightDistance <= 0 || !isFinite(tightDistance)) {
-    tightDistance = entryOptimal * 0.0028;
+/** Rebuilds a client-supplied setup from known fields only; null if it isn't a tradable setup. */
+function sanitizeBaseStrategy(raw: any): any | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  try {
+    if (JSON.stringify(raw).length > 400_000) return null;
+  } catch {
+    return null;
   }
-  if (originalDistance > 0 && tightDistance >= originalDistance) {
-    tightDistance = originalDistance * 0.45;
-  }
+  const tradeType = raw.tradeType === 'LONG' || raw.tradeType === 'SHORT' ? raw.tradeType : null;
+  const entry = num(raw.entryZone?.optimal);
+  const stop = num(raw.stopLoss?.price);
+  const tps = Array.isArray(raw.takeProfits) ? raw.takeProfits.slice(0, 5) : [];
+  if (!tradeType || !(entry > 0) || !(stop > 0) || !tps.length) return null;
+  if (tradeType === 'LONG' ? stop >= entry : stop <= entry) return null;
+  const takeProfits = tps
+    .map((tp: any, i: number) => ({
+      level: String(tp?.level || `TP${i + 1}`).slice(0, 80),
+      price: num(tp?.price),
+      rewardRatio: String(tp?.rewardRatio || '').slice(0, 16),
+      exitPercent: Math.max(0, Math.min(100, num(tp?.exitPercent) || (i < 2 ? 40 : 20))),
+    }))
+    .filter((tp: any) => tp.price > 0 && (tradeType === 'LONG' ? tp.price > entry : tp.price < entry));
+  if (!takeProfits.length) return null;
+  const clean = stripReservedKeys(JSON.parse(JSON.stringify(raw)));
+  const zone = (z: any) => (z && typeof z === 'object' && num(z.low) > 0 && num(z.high) > 0 ? z : undefined);
+  return {
+    symbol: String(clean.symbol || '').slice(0, 32),
+    name: String(clean.name || clean.symbol || '').slice(0, 64),
+    assetType: ['crypto', 'forex', 'commodity', 'stock', 'synthetic'].includes(clean.assetType) ? clean.assetType : 'crypto',
+    timeframe: normalizeTimeframe(String(clean.timeframe || '4H')),
+    currentPrice: num(clean.currentPrice) > 0 ? num(clean.currentPrice) : entry,
+    change24h: num(clean.change24h) || 0,
+    high24h: num(clean.high24h) || undefined,
+    low24h: num(clean.low24h) || undefined,
+    bias: tradeType === 'LONG' ? 'BULLISH' : 'BEARISH',
+    tradeType,
+    confidenceScore: Math.max(50, Math.min(95, num(clean.confidenceScore) || 75)),
+    entryZone: {
+      min: num(clean.entryZone?.min) > 0 ? num(clean.entryZone.min) : entry,
+      max: num(clean.entryZone?.max) > 0 ? num(clean.entryZone.max) : entry,
+      optimal: entry,
+      rationale: String(clean.entryZone?.rationale || '').slice(0, 300),
+    },
+    stopLoss: { price: stop, riskPercent: num(clean.stopLoss?.riskPercent) || 0, rationale: String(clean.stopLoss?.rationale || '').slice(0, 300) },
+    takeProfits,
+    riskRewardRatio: String(clean.riskRewardRatio || '').slice(0, 16),
+    demandZone: zone(clean.demandZone),
+    supplyZone: zone(clean.supplyZone),
+    poiZones: Array.isArray(clean.poiZones) ? clean.poiZones.slice(0, 12) : [],
+    unmitigatedZonesCount: num(clean.unmitigatedZonesCount) || 0,
+    mitigatedZonesCount: num(clean.mitigatedZonesCount) || 0,
+    fibonacciLevels: Array.isArray(clean.fibonacciLevels) ? clean.fibonacciLevels.slice(0, 12) : [],
+    swingHigh: num(clean.swingHigh) || undefined,
+    swingLow: num(clean.swingLow) || undefined,
+    sources: Array.isArray(clean.sources) ? clean.sources.filter((x: any) => /^https?:\/\//i.test(String(x?.uri || ''))).slice(0, 6) : [],
+    highImpactNews: clean.highImpactNews && typeof clean.highImpactNews === 'object' ? clean.highImpactNews : undefined,
+    strategyEngine: clean.strategyEngine && typeof clean.strategyEngine === 'object' ? clean.strategyEngine : undefined,
+    aiModel: typeof clean.aiModel === 'string' ? clean.aiModel.slice(0, 60) : undefined,
+  };
+}
 
-  // Calculate new tightened SL price anchored strictly to the entry side
-  const newSlPrice = Number(
-    (isShort ? entryOptimal + tightDistance : entryOptimal - tightDistance).toFixed(priceDecimals)
-  );
-  const newRiskPercent = Number(((tightDistance / (entryOptimal || 1)) * 100).toFixed(2));
-  const newSlRationale = `Tight 15-minute invalidation zone: stop loss tightened from ${currSym}${formatPrice(
-    originalSlPrice
-  )} to ${currSym}${formatPrice(
-    newSlPrice
-  )} (-${newRiskPercent}%), anchored directly to immediate 15m micro-rejection wick.`;
+async function buildTightenedStrategy(rawBase: any): Promise<any | null> {
+  const base = sanitizeBaseStrategy(rawBase);
+  if (!base) return null;
+  const tf = base.timeframe;
+  const entry = base.entryZone.optimal;
+  const isShort = base.tradeType === 'SHORT';
+  const jpy = base.symbol.toUpperCase().includes('JPY');
+  const dec = priceDecimals(entry, jpy, base.assetType === 'forex');
+  const round = (p: number) => Number(p.toFixed(dec));
+  const fmt = (p: number) => p.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
-  // Take profits: keep EXACT same target prices, and update individual R:R ratios
-  const updatedTakeProfits = (baseStrategy.takeProfits || []).map((tp: any, idx: number) => {
-    const tpPrice = Number(tp.price);
-    const rewardDistance = Math.abs(tpPrice - entryOptimal);
-    const calculatedRewardRatio =
-      tightDistance > 0
-        ? (rewardDistance / tightDistance).toFixed(1)
-        : (idx === 0 ? '2.8' : idx === 1 ? '5.4' : '8.2');
-    return {
-      ...tp,
-      price: tpPrice,
-      rewardRatio: `1:${calculatedRewardRatio}`,
-    };
+  // Volatility of the setup's own timeframe: real candles when available, otherwise a calibrated estimate
+  let atr = 0;
+  let atrSource = 'estimated';
+  try {
+    const asset = extractAssetInfo(base.symbol);
+    const candles = await Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(r => setTimeout(() => r(null), 5000))]);
+    if (candles && candles.length >= 20) {
+      atr = computeAtr(candles);
+      atrSource = `${tf} ATR(14) from ${candles.length} live candles`;
+    }
+  } catch {}
+  if (!(atr > 0)) atr = entry * estimateAtrFraction(tf, base.assetType);
+
+  const fib786 = num((base.fibonacciLevels || []).find((l: any) => Math.abs(num(l?.ratio) - 0.786) < 1e-6)?.price);
+  const zoneDistal = isShort ? num(base.supplyZone?.high) : num(base.demandZone?.low);
+  const originalStop = base.stopLoss.price;
+  const t = tightenStop({
+    direction: base.tradeType,
+    entry,
+    originalStop,
+    atr,
+    zoneDistal: zoneDistal > 0 ? zoneDistal : null,
+    fib786: fib786 > 0 ? fib786 : null,
   });
+  const newStop = round(t.stop);
+  const risk = Math.abs(entry - newStop);
+  const origRisk = Math.abs(entry - originalStop);
+  const riskPct = Number(((risk / entry) * 100).toFixed(2));
+  const origRiskPct = Number(((origRisk / entry) * 100).toFixed(2));
+  const takeProfits = base.takeProfits.map((tp: any) => ({ ...tp, price: round(tp.price), rewardRatio: `1:${(Math.abs(tp.price - entry) / risk).toFixed(1)}` }));
+  const finalRR = (Math.abs(takeProfits[takeProfits.length - 1].price - entry) / risk).toFixed(1);
+  const cut = Math.round((1 - risk / origRisk) * 100);
 
-  // Calculate expanded overall R:R
-  const finalTpPrice = Number(
-    updatedTakeProfits[updatedTakeProfits.length - 1]?.price ||
-      (isShort ? entryOptimal * 0.95 : entryOptimal * 1.05)
-  );
-  const totalReward = Math.abs(finalTpPrice - entryOptimal);
-  const calculatedOverallRR =
-    tightDistance > 0 ? (totalReward / tightDistance).toFixed(1) : '5.8';
-  const newRiskRewardRatio = `1 : ${calculatedOverallRR}`;
+  const rationale = t.tightened
+    ? `Tightened to ${fmt(newStop)} — ${t.basis}; at least half an ATR (${fmt(t.minRisk)}) of the ${tf} timeframe so normal noise doesn't stop the trade out.`
+    : `Kept at ${fmt(newStop)} — ${t.basis} (any closer would sit inside normal ${tf} noise of ${fmt(t.minRisk * 2)} per candle).`;
 
-  // Build the updated Markdown thesis retaining identical market structure
-  const thesisMarkdown = `### 🎯 Institutional Strategy Revision: Tightened Stop Loss Execution
+  const thesis = `### Tightened Stop Loss · ${base.name} (${base.symbol}) · ${tf}
 
-#### 1. Retained Market Structure & Setup Continuity
-${baseStrategy.name} (**${baseStrategy.symbol}**) setup parameters remain strictly grounded in the verified **${baseStrategy.timeframe}** institutional Supply & Demand structure:
-- **Directional Bias**: **${baseStrategy.tradeType} (${baseStrategy.tradeType === 'LONG' ? 'BUY ZONE / BUY LIMIT' : 'SELL ZONE / SELL LIMIT'})**
-- **Market Bias**: **${baseStrategy.bias}**
-- **Optimal Entry Price**: **${currSym}${formatPrice(entryOptimal)}** (Range: ${currSym}${formatPrice(baseStrategy.entryZone?.min || entryOptimal * 0.995)} — ${currSym}${formatPrice(baseStrategy.entryZone?.max || entryOptimal * 1.005)})
-- **Fibonacci & Zone Confluence**: 0.618 Golden Pocket alignment and supply/demand boundaries are preserved identically to the baseline analysis.
+The setup is unchanged — same ${isShort ? 'sell' : 'buy'} zone, Fibonacci entry and targets. Only the stop loss is recalculated for the ${tf} timeframe.
 
-#### 2. Stop Loss Recalibration & Invalidation Boundary
-- **Original Stop Loss**: ~~${currSym}${formatPrice(originalSlPrice)}~~ (-${originalRiskPercent}% risk)
-- **Tightened Invalidation Stop Loss**: **${currSym}${formatPrice(newSlPrice)}** (**-${newRiskPercent}% risk**)
-- **Micro-Structure Rationale**: The stop loss is tucked directly behind the immediate **15-minute micro order block rejection wick**. Rather than tolerating a deeper drawdown toward macro invalidation, this tightened threshold cuts risk if intraday momentum fails to respect the entry reaction buffer.
-- **Risk Exposure Reduction**: Capital at risk is compressed by **${Math.max(15, Math.round(((originalRiskPercent - newRiskPercent) / (originalRiskPercent || 1)) * 100))}%**, significantly reducing potential portfolio drawdown.
+#### Stop loss
+- **Original:** ~~${fmt(originalStop)}~~ (${origRiskPct}% risk)
+- **${t.tightened ? 'Tightened' : 'Unchanged'}:** **${fmt(newStop)}** (${riskPct}% risk${t.tightened ? `, ${cut}% less risk` : ''})
+- **Why it's valid:** ${t.basis}. The stop stays at least half an ATR (${fmt(t.minRisk)}) away from the entry — ${atrSource === 'estimated' ? `estimated ${tf} volatility` : atrSource} — so ordinary ${tf} candle noise won't trigger it.
 
-#### 3. Revised Risk-to-Reward Matrix
-${updatedTakeProfits.map((tp: any) => `- **${tp.level}**: **${currSym}${formatPrice(tp.price)}** (Revised R:R: **${tp.rewardRatio}**) — Exit ${tp.exitPercent}% position`).join('\n')}
-- **Overall Mathematical Expectancy**: **${newRiskRewardRatio}** (expanded from ${baseStrategy.riskRewardRatio})
+#### Entry & targets (unchanged)
+- **Entry:** ${fmt(base.entryZone.min)} – ${fmt(base.entryZone.max)}, optimal **${fmt(entry)}**
+${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.rewardRatio})`).join('\n')}
+- **Overall R:R:** 1 : ${finalRR}${base.riskRewardRatio ? ` (was ${base.riskRewardRatio})` : ''}
 
-#### 4. Invalidation & Precision Execution Rules
-- **Execution**: Because the stop loss is tighter (${currSym}${formatPrice(newSlPrice)}), execute strictly via **Limit Orders** within the optimal entry pocket (${currSym}${formatPrice(entryOptimal)}) or confirm with a 15-minute structural candle close to avoid spread spikes.
-- **Trade Invalidation**: Immediate exit if any 15-minute candle closes ${isShort ? 'above' : 'below'} **${currSym}${formatPrice(newSlPrice)}**.`;
-
-  const signalStatus = evaluateSignalExecutionStatus(
-    baseStrategy.tradeType,
-    baseStrategy.currentPrice,
-    entryOptimal,
-    newSlPrice,
-    updatedTakeProfits
-  );
-
-  let finalTradeType = baseStrategy.tradeType;
-  let finalBias = baseStrategy.bias;
-  let finalThesis = thesisMarkdown;
+#### Execution
+- A tighter stop needs a precise fill: use a **limit order** inside the entry zone and don't chase price.
+- **Invalidation:** exit if a ${tf} candle closes ${isShort ? 'above' : 'below'} **${fmt(newStop)}**.`;
 
   return {
-    ...baseStrategy,
-    tradeType: finalTradeType,
-    bias: finalBias,
-    signalStatus,
-    stopLoss: {
-      price: newSlPrice,
-      riskPercent: newRiskPercent,
-      rationale: newSlRationale,
-    },
-    takeProfits: updatedTakeProfits,
-    riskRewardRatio: newRiskRewardRatio,
-    detailedThesis: finalThesis,
-    aiModel: baseStrategy.aiModel || 'MarketX Quant Engine (Tight SL)',
+    ...base,
+    stopLoss: { price: newStop, riskPercent: riskPct, rationale },
+    takeProfits,
+    riskRewardRatio: `1 : ${finalRR}`,
+    detailedThesis: thesis,
+    signalStatus: evaluateSignalExecutionStatus(base.tradeType, base.currentPrice, entry, newStop, takeProfits),
+    stopTightened: t.tightened,
+    aiModel: base.aiModel || 'MarketX Quant Engine',
     timestamp: Date.now(),
   };
 }
@@ -2675,23 +2688,24 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     const hasExplicitTightenWords =
       /tighten.*(sl|stop\s*loss)|tighter.*(sl|stop\s*loss)|tight.*(sl|stop\s*loss)|reduce.*(risk|sl|stop)|make.*(sl|stop).*tight/i.test(cleanPrompt);
 
-    const hasAnalyzeNewPair =
-      /\b(analyze|chart|pair|setup|forecast|outlook)\b/i.test(cleanPrompt) ||
-      /\b(eur|gbp|usd|aud|nzd|cad|chf|jpy|xau|xag|btc|eth|sol|xrp|bnb|doge|sui|link|nvda|tsla|aapl|volatility|boom|crash)\b/i.test(cleanPrompt);
-
-    const isGenuineTighten = baseStrategy && hasExplicitTightenWords && !hasAnalyzeNewPair;
-
-    // Fast-path & deterministic setup retention: Only when user explicitly asked to tighten an existing setup and did not ask to analyze a new asset
-    if (isGenuineTighten) {
-      console.log(`[MarketX] Generating TIGHTENED STOP LOSS for existing strategy: ${baseStrategy.symbol} ${baseStrategy.tradeType}`);
-      const tightenedStrategy = generateTightenedStrategy(baseStrategy, cleanPrompt);
-      return res.json({
-        success: true,
-        isAnalysis: true,
-        message: tightenedStrategy.detailedThesis,
-        content: tightenedStrategy.detailedThesis,
-        strategy: tightenedStrategy,
-      });
+    // "Tighten SL" on an existing result: the client sends the setup plus an explicit action flag
+    const wantsTighten = !!baseStrategy && (req.body?.action === 'tighten_sl' || hasExplicitTightenWords);
+    if (wantsTighten) {
+      const tightened = await buildTightenedStrategy(baseStrategy);
+      if (tightened) {
+        console.log(`[MarketX] Tightened stop loss for existing ${tightened.symbol} ${tightened.tradeType} setup (${tightened.timeframe})`);
+        return res.json({
+          success: true,
+          isAnalysis: true,
+          message: tightened.detailedThesis,
+          content: tightened.detailedThesis,
+          strategy: tightened,
+        });
+      }
+      if (req.body?.action === 'tighten_sl') {
+        const msg = 'That setup has no active trade to tighten (no entry and stop loss). Run a fresh analysis first.';
+        return res.json({ success: true, isAnalysis: false, message: msg, content: msg });
+      }
     }
 
     const intent = classifyPromptIntent(cleanPrompt, safeSymbol);
@@ -3130,13 +3144,19 @@ INSTRUCTIONS:
       let slRiskPercent = Number(rawSl.riskPercent || rawSl.risk_percent || 1.5);
       let slRationale = rawSl.rationale || 'Structural invalidation beyond institutional block';
 
-      if (isTightSl) {
-        // Enforce tight 15-minute invalidation zone: reduced to few pips, not a wide one!
-        const tightBuffer = asset.type === 'forex' ? 0.0012 : asset.type === 'commodity' ? 0.0018 : 0.0028;
+      if (isTightSl && !structureMap) {
+        // Smaller but valid for the timeframe (0.7 x typical ATR); with a candle map the map's tight stop is used
+        const tightBuffer = estimateAtrFraction(analysisTimeframe, asset.type) * 0.7;
         const tradeIsShort = parsedJson.tradeType === 'SHORT' || (!parsedJson.tradeType && currentTicker.change24h < 0);
-        slPrice = Number((entryZone.optimal * (tradeIsShort ? (1 + tightBuffer) : (1 - tightBuffer))).toFixed(currentTicker.price < 10 ? 4 : 2));
-        slRiskPercent = Number((tightBuffer * 100).toFixed(2));
-        slRationale = 'Tight 15-minute invalidation zone: stop loss reduced to few pips following 15m structural wick rejection.';
+        const dec = priceDecimals(entryZone.optimal, asset.symbol.toUpperCase().includes('JPY'), asset.type === 'forex');
+        const minDistance = entryZone.optimal * tightBuffer;
+        const modelDistance = Math.abs(entryZone.optimal - slPrice);
+        // Only tighten when the model's stop is wider than the timeframe-valid tight distance
+        if (!(modelDistance > 0) || modelDistance > minDistance) {
+          slPrice = Number((entryZone.optimal * (tradeIsShort ? 1 + tightBuffer : 1 - tightBuffer)).toFixed(dec));
+        }
+        slRiskPercent = Number(((Math.abs(entryZone.optimal - slPrice) / entryZone.optimal) * 100).toFixed(2));
+        slRationale = `Tight stop sized to the ${analysisTimeframe} timeframe's volatility (about 0.7 ATR) so normal candle noise doesn't trigger it.`;
       }
 
       const stopLoss = {
@@ -3155,7 +3175,7 @@ INSTRUCTIONS:
       const actualRisk = Math.abs(entryZone.optimal - slPrice);
       const actualReward = Math.abs((takeProfits[takeProfits.length - 1]?.price || currentTicker.price * 1.05) - entryZone.optimal);
       const calculatedRR = actualRisk > 0 ? (actualReward / actualRisk).toFixed(1) : (isTightSl ? '6.4' : '2.8');
-      const finalRR = isTightSl ? `1 : ${Math.max(4.5, parseFloat(calculatedRR))}` : (parsedJson.riskRewardRatio || `1 : ${calculatedRR}`);
+      const finalRR = isTightSl ? `1 : ${calculatedRR}` : (parsedJson.riskRewardRatio || `1 : ${calculatedRR}`);
 
       // Computed once, only if the model left gaps
       let algoCache: ReturnType<typeof generateAlgorithmicStrategy> | null = null;

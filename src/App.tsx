@@ -801,7 +801,12 @@ export default function App() {
     const hasNewAnalysisDirectives =
       /\b(analyze|chart|pair|setup|forecast|outlook|buy|sell|long|short)\b/i.test(promptText);
 
-    const isTightenPrompt = Boolean(baseStrategy && hasTightenKeywords && !hasNewAnalysisDirectives);
+    // A setup is only ever passed by the "Tighten SL" actions on a result, so a setup plus tight mode (or
+    // tightening words) means: keep this exact setup and tighten its stop. The words "setup"/"analyze" in the
+    // button's own prompt must not turn it into a brand-new analysis.
+    const isTightenPrompt = Boolean(
+      baseStrategy && (slMode === 'tight' || hasTightenKeywords) && (baseStrategy.tradeType === 'LONG' || baseStrategy.tradeType === 'SHORT')
+    );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
 
     // Quick client-side check; the server enforces and deducts credits authoritatively
@@ -978,6 +983,7 @@ export default function App() {
           timeframe: resolvedBaseStrategy?.timeframe || timeframe,
           slMode: isTightenPrompt ? 'tight' : slMode,
           baseStrategy: resolvedBaseStrategy,
+          action: isTightenPrompt ? 'tighten_sl' : undefined,
           chartImage,
         }),
         signal: controller.signal,
