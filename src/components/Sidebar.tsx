@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
 import { useTheme, ThemePref } from '../utils/theme';
 import { createPortal } from 'react-dom';
@@ -113,14 +113,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const detailView = activeTab === 'credits' || activeTab === 'profile' ? activeTab : null;
   const closeDetail = () => setActiveTab('history');
 
+  // Escape closes the open detail window first, then the slide-over menu (phones & tablets).
+  // Latest values are read from refs so the listener stays attached across re-renders.
+  const escRef = useRef({ detailView, isOpen, onCloseMobile, setActiveTab });
+  escRef.current = { detailView, isOpen, onCloseMobile, setActiveTab };
   useEffect(() => {
-    if (!detailView) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setActiveTab('history');
+      if (e.key !== 'Escape') return;
+      const cur = escRef.current;
+      if (cur.detailView) cur.setActiveTab('history');
+      else if (cur.isOpen && window.matchMedia('(max-width: 1023.98px)').matches) cur.onCloseMobile?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [detailView, setActiveTab]);
+  }, []);
 
   const formatPrice = (p: number) =>
     p < 10

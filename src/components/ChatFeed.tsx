@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { motion } from 'motion/react';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown } from './LazyMarkdown';
 import { ChatMessage, MarketQuote, StrategyResult } from '../types';
 import { StrategyCard } from './StrategyCard';
 import { MarketXText } from './MarketXText';
@@ -53,7 +52,7 @@ interface ChatFeedProps {
 }
 
 // Markdown only re-parses when its text changes (not on every live-price tick)
-const Markdown = React.memo(({ text }: { text: string }) => <ReactMarkdown>{text}</ReactMarkdown>);
+const Markdown = React.memo(({ text }: { text: string }) => <LazyMarkdown>{text}</LazyMarkdown>);
 
 export const ChatFeed: React.FC<ChatFeedProps> = ({
   messages,
@@ -351,6 +350,12 @@ Rationale: ${strategy.entryZone.rationale}
     });
   }, []);
 
+  // Show the up/down button as soon as new content makes the feed scrollable (not only after a scroll)
+  useEffect(() => {
+    const t = setTimeout(handleScroll, 700);
+    return () => clearTimeout(t);
+  }, [messages.length, isLoading, handleScroll]);
+
   const handleArrowClick = () => {
     const container = containerRef.current;
     if (!container) return;
@@ -361,11 +366,18 @@ Rationale: ${strategy.entryZone.rationale}
         behavior: 'smooth',
       });
     } else {
-      // User explicitly requested to slide down to latest message
+      // Slide down: first to the start of the latest analysis, and from there to the very bottom
       lockedTargetIdRef.current = null;
       userHasInteractedRef.current = false;
       onClearTargetMessage?.();
-      scrollToLatestAnalysis(true);
+      const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+      const userElem = lastUserMsg ? document.getElementById(`chat-msg-${lastUserMsg.id}`) : null;
+      const latestTop = userElem ? container.scrollTop + (userElem.getBoundingClientRect().top - container.getBoundingClientRect().top) - 16 : 0;
+      if (!userElem || container.scrollTop >= latestTop - 24) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      } else {
+        scrollToLatestAnalysis(true);
+      }
     }
   };
 
@@ -559,7 +571,7 @@ Rationale: ${strategy.entryZone.rationale}
                   {/* Clean Independent Progressive Step Indicator */}
                   {/* Live activity while working; collapses to "Worked for Ns" once done */}
                   {message.status === 'searching' ? (
-                    <AiActivityTrace running steps={message.activity} startedAt={message.timestamp} />
+                    <AiActivityTrace running steps={message.activity} startedAt={message.timestamp} seed={message.id} />
                   ) : (
                     !strategy && (
                       <AiActivityTrace
@@ -567,6 +579,7 @@ Rationale: ${strategy.entryZone.rationale}
                         steps={message.activity}
                         startedAt={message.timestamp}
                         durationSeconds={message.durationSeconds}
+                        seed={message.id}
                       />
                     )
                   )}
@@ -594,6 +607,7 @@ Rationale: ${strategy.entryZone.rationale}
                         legacySteps={message.reasoningSteps}
                         startedAt={message.timestamp}
                         durationSeconds={message.durationSeconds}
+                        seed={message.id}
                       />
 
                       {/* High Impact News Detected Banner */}
@@ -969,34 +983,25 @@ Rationale: ${strategy.entryZone.rationale}
       <div className="w-full h-20 sm:h-24 shrink-0 pointer-events-none" aria-hidden="true" />
       </div>
 
-      {/* Floating Interactive Scroll Arrow Button */}
+      {/* Scroll up / down: sits on the top-right corner of the input box (aligned to the composer's width) */}
       {scrollArrow.visible && (
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8, y: 6 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.8, y: 6 }}
-          transition={{ duration: 0.18 }}
-          type="button"
-          onClick={handleArrowClick}
-          className="fixed right-3 sm:right-6 bottom-28 sm:bottom-32 z-40 px-2.5 py-1 rounded-full bg-slate-900/90 border border-white/20 text-white shadow-xl backdrop-blur-md flex items-center gap-1.5 group cursor-pointer hover:scale-105 active:scale-95 transition-transform"
-          title={scrollArrow.direction === 'top' ? 'Slide to top of chat' : 'Slide to latest message'}
+        <div
+          className="pointer-events-none absolute inset-x-0 z-40 px-3 sm:px-6 transition-[bottom] duration-200"
+          style={{ bottom: 'calc(var(--mx-notice-h, 0px) + 6px)' }}
         >
-          {scrollArrow.direction === 'top' ? (
-            <>
-              <ArrowUp className="w-3.5 h-3.5 text-cyan-300 group-hover:-translate-y-0.5 transition-transform" />
-              <span className="text-[11px] font-medium font-mono text-cyan-200">
-                Top
-              </span>
-            </>
-          ) : (
-            <>
-              <ArrowDown className="w-3.5 h-3.5 text-indigo-300 group-hover:translate-y-0.5 transition-transform" />
-              <span className="text-[11px] font-medium font-mono text-indigo-200">
-                Down
-              </span>
-            </>
-          )}
-        </motion.button>
+          <div className="max-w-3xl mx-auto flex justify-end">
+            <button
+              key={scrollArrow.direction}
+              type="button"
+              onClick={handleArrowClick}
+              className="mx-pop-in pointer-events-auto w-8 h-8 rounded-full bg-[var(--mx-surface)]/95 border border-white/[0.12] text-slate-300 hover:text-white hover:bg-[var(--mx-surface-2)] shadow-[0_8px_24px_-10px_var(--mx-shadow)] flex items-center justify-center cursor-pointer active:scale-95 transition-colors"
+              title={scrollArrow.direction === 'top' ? 'Scroll to top' : 'Scroll to latest'}
+              aria-label={scrollArrow.direction === 'top' ? 'Scroll to top' : 'Scroll to latest'}
+            >
+              {scrollArrow.direction === 'top' ? <ChevronUp className="w-4 h-4" strokeWidth={2.5} /> : <ChevronDown className="w-4 h-4" strokeWidth={2.5} />}
+            </button>
+          </div>
+        </div>
       )}
       {/* Fullscreen Lightbox Modal for Uploaded Chart Inspection */}
       {previewImageModal && (

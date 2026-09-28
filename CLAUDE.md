@@ -7,7 +7,8 @@
 ## Protected areas (strict)
 - Never modify the analysis AI instructions or configuration: the system instruction and
   prompt text built in the `/api/market/analyze` handler in `server.ts`, the Gemini model
-  list (`modelsToTry`), `getGeminiClient`, and `src/data/prompts.ts`.
+  list (`modelsToTry`), `getGeminiClient`, `src/data/prompts.ts`, and the trading strategy engine `server/strategy.ts` —
+  unless the owner explicitly asks for a change to the analysis engine.
 
 ## Architecture
 - Firestore is storage only (via `firebase-admin` service account). Do NOT use Firebase Authentication.
@@ -24,6 +25,10 @@
   When a batch is fully allocated, new sign-ups are refused until `ACCESS_CODE_BATCH` is raised.
 - Sign-up (email or Google) and every Google sign-in require `acceptTerms: true` (Terms & Privacy checkbox),
   enforced server-side. Google sign-in only works for accounts registered with that same Google account.
+- Analysis strategy (owner-specified): identify high-probability institutional Supply & Demand zones, then enter with the
+  Fibonacci retracement tool, on whatever timeframe is prompted. `server/strategy.ts` computes zones, freshness, the
+  swing-leg Fibonacci, entry/stop/targets from real candles (`fetchCandlesForAsset` in `server.ts`: Binance, Yahoo,
+  Deriv); those levels are authoritative over the model's numbers, and the model writes the thesis around them.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
   scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced

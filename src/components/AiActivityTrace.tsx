@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown, X, Square } from 'lucide-react';
 import { ActivityStep, ReasoningStep } from '../types';
-import { allocateTokens, formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
+import { allocateTokens, formatTokens, promptTokenBudget } from '../utils/tokens';
 
 interface AiActivityTraceProps {
   steps?: ActivityStep[];
@@ -10,6 +10,8 @@ interface AiActivityTraceProps {
   durationSeconds?: number;
   /** Older saved messages only have static reasoning steps */
   legacySteps?: ReasoningStep[];
+  /** Stable id (message id) that fixes this prompt's random token count */
+  seed?: string | number;
 }
 
 export function formatElapsed(ms: number): string {
@@ -57,14 +59,15 @@ const StepIcon: React.FC<{ status: ActivityStep['status'] }> = ({ status }) => {
 
 // Tokens per step. Finished runs use the exact allocation; while running, done steps show their
 // share and the active analysis step counts up towards its budget in real time.
-function stepTokens(steps: ActivityStep[], now: number, running: boolean): Record<string, number> | null {
+function stepTokens(steps: ActivityStep[], now: number, running: boolean, seed: string | number): Record<string, number> | null {
   const main = steps.find(s => s.id === 'analyze');
   if (!main) return null;
+  const budget = promptTokenBudget(seed);
   if (!running) {
     if (main.status !== 'done') return null; // failed or stopped runs are not charged
-    return allocateTokens(steps.map(s => s.id));
+    return allocateTokens(steps.map(s => s.id), budget, seed);
   }
-  const expected = allocateTokens([...steps.map(s => s.id), 'plan', 'news']);
+  const expected = allocateTokens([...steps.map(s => s.id), 'plan', 'news'], budget, seed);
   const out: Record<string, number> = {};
   for (const s of steps) {
     if (s.id === 'analyze') {
@@ -112,7 +115,7 @@ const Timeline: React.FC<{ steps: ActivityStep[]; now: number; tokens: Record<st
 );
 
 // Live, step-by-step view of what MarketX is doing, collapsing to "Worked for Ns" when finished
-export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps }) => {
+export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps, seed }) => {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
 
@@ -131,7 +134,8 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
           return { id: `legacy-${i}`, title: s.title, detail: s.detail, status: 'done' as const, startedAt: 0, endedAt: ms };
         });
 
-  const tokens = stepTokens(list, now, running);
+  const tokenSeed = seed ?? startedAt;
+  const tokens = stepTokens(list, now, running, tokenSeed);
   const tokenTotal = tokens ? Object.values(tokens).reduce((a, b) => a + b, 0) : 0;
 
   if (running) {
@@ -183,7 +187,7 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
         {tokens && (
           <>
             <span className="text-slate-600">·</span>
-            <span className="text-slate-500 tabular-nums">{formatTokens(tokenTotal || TOKENS_PER_USAGE)} tokens</span>
+            <span className="text-slate-500 tabular-nums">{formatTokens(tokenTotal || promptTokenBudget(tokenSeed))} tokens</span>
           </>
         )}
         <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />

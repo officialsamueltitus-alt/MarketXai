@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check } from 'lucide-react';
-import { TermsAndPrivacyModal } from './TermsAndPrivacyModal';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXText } from './MarketXText';
 import { MarketXIcon } from './MarketXIcon';
+
+const TermsAndPrivacyModal = lazy(() => import('./TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'reset';
 
@@ -484,7 +485,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           // Rendered above the sign-in sheet; clicks must not reach the sheet's backdrop
           <div className="relative z-[80]" onClick={e => e.stopPropagation()}>
             <div className="fixed inset-0 z-[80]">
-              <TermsAndPrivacyModal key={termsTab} isOpen onClose={() => setTermsTab(null)} defaultTab={termsTab} />
+              <Suspense fallback={null}>
+                <TermsAndPrivacyModal key={termsTab} isOpen onClose={() => setTermsTab(null)} defaultTab={termsTab} />
+              </Suspense>
             </div>
           </div>,
           document.body
