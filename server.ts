@@ -1228,7 +1228,9 @@ function detectHighImpactNews(symbol: string, timeframe: string = '4H') {
   };
 }
 
-// Pre-Signal Crosscheck Function: Confirms that trade setup targets fresh unmitigated levels
+// Pre-Signal Crosscheck: before any setup is shown, confirm it has not already played out.
+// LONG: stop < entry <= price < TP1 < TP2 < TP3. SHORT: stop > entry >= price > TP1 > TP2 > TP3.
+// Price through the stop, beyond a target, or on the wrong side of the entry means the levels were already reached.
 function evaluateSignalExecutionStatus(
   tradeType: 'LONG' | 'SHORT' | 'WAIT_CONFIRMATION' | 'NO_SIGNAL',
   currentPrice: number,
@@ -1236,24 +1238,78 @@ function evaluateSignalExecutionStatus(
   stopLossPrice: number,
   takeProfits: Array<{ level: string; price: number }>
 ): {
-  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION';
+  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE';
   verdict: 'Active Signal (Fresh Untapped Levels)' | 'No Signal Opportunity' | string;
   details: string;
   tpHitLevel?: 'TP1' | 'TP2' | 'TP3' | 'ALL_TPS';
 } {
-  if (tradeType === 'NO_SIGNAL' || tradeType === 'WAIT_CONFIRMATION') {
+  if (tradeType !== 'LONG' && tradeType !== 'SHORT') {
     return {
       state: 'PENDING_CONFIRMATION',
       verdict: 'No Signal Opportunity',
-      details: 'Market is in neutral consolidation. Awaiting structural displacement into fresh unmitigated zones.',
+      details: 'No signal. Market is in neutral consolidation. Awaiting structural displacement into fresh unmitigated zones.',
     };
   }
-
+  const long = tradeType === 'LONG';
+  const price = Number(currentPrice);
+  const entry = Number(optimalEntry);
+  const stop = Number(stopLossPrice);
+  const tps = (Array.isArray(takeProfits) ? takeProfits : []).map(t => Number(t?.price)).filter(p => Number.isFinite(p) && p > 0);
+  const fmt = (p: number) => String(Number(p.toPrecision(8)));
+  const stale = (state: 'TP_SMASHED' | 'SL_TAKEN' | 'MITIGATED_ZONE_STALE', why: string, tpHitLevel?: 'TP1' | 'TP2' | 'TP3' | 'ALL_TPS') => ({
+    state,
+    verdict: 'No Signal, Already Mitigated',
+    details: `No signal, already mitigated. ${why} The setup has already played out; stand aside until a new, untouched zone forms.`,
+    ...(tpHitLevel ? { tpHitLevel } : {}),
+  });
+  if (!(price > 0) || !(entry > 0) || !(stop > 0) || tps.length === 0) {
+    return stale('MITIGATED_ZONE_STALE', 'The setup is missing a valid entry, stop loss or target.');
+  }
+  const beyond = (a: number, b: number) => (long ? a > b : a < b); // a is further in the trade's direction than b
+  // Stop loss must sit on the invalidation side of the entry, and price must not have reached it
+  if (!beyond(entry, stop)) return stale('MITIGATED_ZONE_STALE', `The stop loss ${fmt(stop)} is not ${long ? 'below' : 'above'} the entry ${fmt(entry)}.`);
+  if (!beyond(price, stop)) return stale('SL_TAKEN', `Price ${fmt(price)} has already reached the stop loss ${fmt(stop)}.`);
+  // Targets must be ahead of the entry and still ahead of price
+  const hit = tps.filter(tp => !beyond(tp, price)).length;
+  if (hit > 0) {
+    const lvl = hit >= tps.length ? 'ALL_TPS' : (`TP${hit}` as 'TP1' | 'TP2' | 'TP3');
+    return stale('TP_SMASHED', `Price ${fmt(price)} is already ${hit >= tps.length ? 'beyond every target' : `beyond TP${hit} ${fmt(tps[hit - 1])}`}.`, lvl);
+  }
+  if (tps.some(tp => !beyond(tp, entry))) return stale('MITIGATED_ZONE_STALE', `A target is not ${long ? 'above' : 'below'} the entry ${fmt(entry)}.`);
+  // A limit entry sits in the zone ahead of price; price already on the far side of it means the entry was tapped
+  if (beyond(entry, price) && Math.abs(entry - price) / price > 0.0005) {
+    return stale('MITIGATED_ZONE_STALE', `Price ${fmt(price)} has already traded through the entry ${fmt(entry)}.`);
+  }
   return {
     state: 'ACTIVE',
     verdict: 'Active Signal (Fresh Untapped Levels)',
-    details: 'Fresh trade setup: High-probability limit entry positioned in unmitigated zone. Targets ahead of live price.',
+    details: 'Fresh trade setup: limit entry in an untouched zone, with the stop loss and every target still ahead of live price.',
   };
+}
+
+/**
+ * Runs the pre-signal crosscheck on a finished strategy and, when the setup has already played out,
+ * resets it to NO_SIGNAL ("No signal, already mitigated") so a stale trade is never shown as live.
+ */
+function enforcePreSignalCrosscheck<T extends Record<string, any>>(strategy: T): T {
+  const s: any = strategy;
+  if (!s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT')) {
+    if (s && !s.signalStatus) s.signalStatus = evaluateSignalExecutionStatus('NO_SIGNAL', s.currentPrice, 0, 0, []);
+    return strategy;
+  }
+  const status = evaluateSignalExecutionStatus(s.tradeType, s.currentPrice, s.entryZone?.optimal, s.stopLoss?.price, s.takeProfits || []);
+  s.signalStatus = status;
+  if (status.state === 'ACTIVE') return strategy;
+  console.log(`[MarketX Strategy] Pre-signal crosscheck reset ${s.symbol || ''} ${s.tradeType} to NO_SIGNAL: ${status.state}`);
+  s.tradeType = 'NO_SIGNAL';
+  s.bias = 'NEUTRAL';
+  s.confidenceScore = 50;
+  s.riskRewardRatio = '1 : 0';
+  s.alreadyMitigated = true;
+  if (s.stopLoss) s.stopLoss = { ...s.stopLoss, riskPercent: 0, rationale: 'No position, the setup has already played out' };
+  const note = `#### No signal, already mitigated\n${status.details}\n\n`;
+  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes('No signal, already mitigated')) s.detailedThesis = note + s.detailedThesis;
+  return strategy;
 }
 
 // Generate algorithmic strategy using real-time market data
@@ -2363,7 +2419,8 @@ async function buildStructureMap(
   price: number,
   slMode: 'normal' | 'tight',
   prompt: string,
-  currency?: string
+  currency?: string,
+  quote?: { high24h?: number; low24h?: number }
 ): Promise<MarketMap | null> {
   const candles = await Promise.race([
     fetchCandlesForAsset(asset, tf),
@@ -2374,7 +2431,11 @@ async function buildStructureMap(
   const prefer = /\b(short|sell|bear(ish)?|supply)\b/.test(lower) ? 'SHORT' : /\b(long|buy|bull(ish)?|demand)\b/.test(lower) ? 'LONG' : null;
   const jpy = asset.symbol.toUpperCase().includes('JPY') || currency === 'JPY';
   try {
-    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex' });
+    const session =
+      quote && Number(quote.high24h) > 0 && Number(quote.low24h) > 0
+        ? { high: Number(quote.high24h), low: Number(quote.low24h), since: Date.now() - 24 * 3600e3 }
+        : null;
+    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
   } catch (err: any) {
     console.warn('[MarketX Strategy] map failed:', err?.message || err);
     return null;
@@ -2800,7 +2861,7 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
     const candleWarmup = fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
-    const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency);
+    const structureMap = await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
     console.log(
       `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
         structureMap ? `${structureMap.candles} candles, ${structureMap.demandZones.length}D/${structureMap.supplyZones.length}S zones, plan ${structureMap.plan?.direction || 'NO_SIGNAL'}` : 'candles unavailable'
@@ -2819,7 +2880,7 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
         }
         s.detailedThesis = thesis;
       }
-      return s;
+      return enforcePreSignalCrosscheck(s);
     };
 
     if (!ai) {
@@ -2850,7 +2911,14 @@ STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
 
 STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
 - Signal only when a strong zone has Fibonacci confluence and the final target pays at least 1:2.5. Otherwise output NO_SIGNAL and name the zones and prices to watch.
-- NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal — already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
+- NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal, already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
+
+ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold):
+1. Spatial placement ahead of price. BUY: the fresh demand POI sits strictly below current price, TP1, TP2 and TP3 sit strictly above current price (into overhead premium liquidity), and the stop loss sits below the demand base (distal line). SELL: the fresh supply POI sits strictly above current price, TP1, TP2 and TP3 sit strictly below current price (into discount liquidity), and the stop loss sits above the supply ceiling (distal line). A zone price is trading inside right now is not a fresh entry.
+2. Tap detection. Cross-check the zone against every candle wick since its displacement and the session's 24h high and low. UNMITIGATED / UNTOUCHED (tapCount 0): price has never re-entered the zone, resting limit orders are unfilled, so it is the primary execution zone for a pending limit order. MITIGATED / TAPPED AND LEFT (tapCount 1 or more): price already wicked in and displaced away, the liquidity is absorbed, never recommend entering there again.
+3. Pre-signal crosscheck. Before presenting any setup, confirm price has not already reached TP1 (or any target), has not wicked through the stop loss (invalidation), and has not already traded through the entry. If it has, the opportunity has played out: output NO_SIGNAL ("No signal, already mitigated") and tell the trader to stand aside until a new unmitigated zone forms.
+4. Confluence. A virgin zone is high-probability only with (a) the 0.618 golden pocket of the swing leg inside the zone or within 0.3% of it, and (b) an unfilled 3-candle fair value gap (FVG) at the zone's doorstep, proving institutional displacement.
+Actionable rule: anchor entries only to unmitigated, virgin POIs with limit execution; never chase a move that has already occurred.
 
 COMPUTED MARKET MAP (MANDATORY WHEN PROVIDED):
 - The request includes a map computed from real ${analysisTimeframe} candles using exactly this strategy. Treat its zones, Fibonacci levels, entry, stop loss and targets as ground truth and copy those numbers exactly into the JSON and the thesis.
@@ -3299,6 +3367,18 @@ INSTRUCTIONS:
 
 ` + fullStrategy.detailedThesis;
       }
+      // Without a computed map, first crosscheck the model's own levels: if price is already beyond a target or
+      // through the stop, the setup has played out and becomes NO_SIGNAL (never re-projected ahead of price)
+      if (!structureMap && (fullStrategy.tradeType === 'LONG' || fullStrategy.tradeType === 'SHORT')) {
+        const raw = evaluateSignalExecutionStatus(
+          fullStrategy.tradeType,
+          fullStrategy.currentPrice,
+          fullStrategy.entryZone?.optimal,
+          fullStrategy.stopLoss?.price,
+          fullStrategy.takeProfits || []
+        );
+        if (raw.state === 'TP_SMASHED' || raw.state === 'SL_TAKEN') enforcePreSignalCrosscheck(fullStrategy);
+      }
       // Validate and calibrate Take Profit targets and Stop Loss ahead of price (only when no computed map)
       if (structureMap) {
         // Levels already verified against real candles
@@ -3334,15 +3414,9 @@ INSTRUCTIONS:
         }
       }
 
-      // Pre-Signal Crosscheck execution for AI generated parameters
-      const signalExecutionStatus = evaluateSignalExecutionStatus(
-        fullStrategy.tradeType,
-        fullStrategy.currentPrice,
-        fullStrategy.entryZone.optimal,
-        fullStrategy.stopLoss.price,
-        fullStrategy.takeProfits
-      );
-      (fullStrategy as any).signalStatus = signalExecutionStatus;
+      // Pre-Signal Crosscheck on the final parameters: a setup that already played out becomes NO_SIGNAL.
+      // A computed NO_SIGNAL keeps its specific reason ("No signal" / "No signal, already mitigated").
+      enforcePreSignalCrosscheck(fullStrategy);
 
       return res.json({
         success: true,
@@ -3380,7 +3454,7 @@ INSTRUCTIONS:
       const asset = extractAssetInfo(safePrompt || 'BTC', safeSymbol);
       const tickers = await getLiveMarketTickers();
       const ticker = tickers.find(t => t.symbol === asset.symbol) || tickers[0];
-      const fallback = generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode);
+      const fallback = enforcePreSignalCrosscheck(generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode));
       return res.json({
         success: true,
         isAnalysis: true,

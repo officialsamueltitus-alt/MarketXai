@@ -43,6 +43,8 @@ export interface SDZone {
   score: number; // 0-100
   distanceAtr: number; // from current price to the proximal line
   priceInside: boolean;
+  /** 3-candle fair value gap (imbalance) at the zone's doorstep; filled = price has since traded through it */
+  fvg: { low: number; high: number; filled: boolean } | null;
 }
 
 export interface FibLevel {
@@ -68,6 +70,8 @@ export interface TradePlan {
   score: number;
   /** Why this setup is no longer fresh (empty = clean): zone/entry/stop/target already tapped */
   mitigation: string[];
+  /** The golden pocket sits just outside the zone (within 0.3% of price) rather than inside it */
+  goldenPocketNear?: boolean;
 }
 
 export interface MarketMap {
@@ -307,6 +311,25 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     const priorSwing = [...swings].reverse().find(s => s.i < base[0] && s.kind === (up ? 'H' : 'L'));
     const brokeStructure = priorSwing ? (up ? Math.max(...after.map(c => c.h)) > priorSwing.price : Math.min(...after.map(c => c.l)) < priorSwing.price) : false;
 
+    // Fair value gap at the zone's doorstep: the first 3-candle imbalance of the leg-out
+    // (bullish: candle k+1 low above candle k-1 high; bearish: candle k+1 high below candle k-1 low)
+    let fvg: SDZone['fvg'] = null;
+    for (let k = i; k <= i + (strongPair ? 2 : 1) && k + 1 < n; k++) {
+      const c0 = candles[k - 1];
+      const c2 = candles[k + 1];
+      const gap = up ? (c2.l > c0.h ? { low: c0.h, high: c2.l } : null) : c2.h < c0.l ? { low: c2.h, high: c0.l } : null;
+      if (!gap) continue;
+      let filled = false;
+      for (let j = k + 2; j < n; j++) {
+        if (up ? candles[j].l <= gap.low : candles[j].h >= gap.high) {
+          filled = true;
+          break;
+        }
+      }
+      fvg = { ...gap, filled };
+      break;
+    }
+
     // Freshness: replay candles after the leg-out
     let tapCount = 0;
     let broken = false;
@@ -341,6 +364,7 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
       score: 0,
       distanceAtr: 0,
       priceInside: price >= Math.min(proximal, distal) && price <= Math.max(proximal, distal),
+      fvg,
     });
   }
 
@@ -358,6 +382,7 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     s += Math.min(z.departureAtr, 5) * 6; // up to +30 for explosive departure
     s += z.tapCount === 0 ? 14 : z.tapCount === 1 ? 4 : -12; // fresh zones hold best
     s += z.brokeStructure ? 8 : 0;
+    s += z.fvg ? (z.fvg.filled ? 0 : 6) : -8; // an open imbalance at the zone proves institutional displacement
     s += z.baseCandles === 1 ? 6 : z.baseCandles === 2 ? 3 : 0; // less time at base = more imbalance
     s += z.pattern === 'DBR' || z.pattern === 'RBD' ? 4 : 2; // reversal zones slightly stronger
     if ((z.kind === 'DEMAND' && trend === 'BULLISH') || (z.kind === 'SUPPLY' && trend === 'BEARISH')) s += 8;
@@ -417,7 +442,24 @@ function currentLeg(candles: Candle[], long: boolean, price: number, lookback = 
   return { from, to, fromIndex: org, toIndex: ext };
 }
 
-function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, opposing: SDZone[], slMode: 'normal' | 'tight', dec: number): TradePlan | null {
+/** Latest 24h high/low from the live quote, used to catch taps the candle feed may not show yet */
+export interface SessionRange {
+  high: number;
+  low: number;
+  /** Start of the 24h window (ms) */
+  since: number;
+}
+
+function planForZone(
+  z: SDZone,
+  candles: Candle[],
+  price: number,
+  atr: number,
+  opposing: SDZone[],
+  slMode: 'normal' | 'tight',
+  dec: number,
+  session?: SessionRange | null
+): TradePlan | null {
   const long = z.kind === 'DEMAND';
   // Fibonacci on the current swing leg when the zone sits inside it; otherwise on the impulse the zone created
   const leg = currentLeg(candles, long, price);
@@ -455,9 +497,16 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
   const overlap = (a1: number, a2: number, b1: number, b2: number) => Math.max(a1, b1) <= Math.min(a2, b2);
   let confluence: TradePlan['confluence'];
   let band: [number, number] | null = null;
+  let goldenPocketNear = false;
   if (overlap(rNear, rFar, 0.618, 0.705)) {
     confluence = 'GOLDEN_POCKET_IN_ZONE';
     band = [Math.max(rNear, 0.618), Math.min(rFar, 0.705)];
+  } else if (
+    // The golden pocket sits just outside the zone: within 0.3% of price still counts as golden pocket confluence
+    Math.max(Math.min(gp.from, gp.to) - z.high, z.low - Math.max(gp.from, gp.to), 0) <= price * 0.003
+  ) {
+    confluence = 'GOLDEN_POCKET_IN_ZONE';
+    goldenPocketNear = true;
   } else if (overlap(rNear, rFar, 0.5, 0.786)) {
     confluence = 'FIB_BAND_OVERLAP';
     band = [Math.max(rNear, 0.5), Math.min(rFar, 0.786)];
@@ -476,6 +525,12 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
     eMin = Math.min(p1, p2);
     eMax = Math.max(p1, p2);
     optimal = confluence === 'GOLDEN_POCKET_IN_ZONE' ? (p1 + p2) / 2 : long ? eMax - (eMax - eMin) * 0.4 : eMin + (eMax - eMin) * 0.4;
+  } else if (goldenPocketNear) {
+    // Enter at the zone edge nearest the golden pocket
+    eMin = z.low;
+    eMax = z.high;
+    const gpMid = (gp.from + gp.to) / 2;
+    optimal = Math.abs(gpMid - z.high) < Math.abs(gpMid - z.low) ? z.high - (z.high - z.low) * 0.1 : z.low + (z.high - z.low) * 0.1;
   } else {
     eMin = z.low;
     eMax = z.high;
@@ -512,8 +567,9 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
   const candidates = opp
     ? [...ladder.filter(c => (long ? c.price < opp.proximal : c.price > opp.proximal)), { label: `Opposing ${opp.kind === 'SUPPLY' ? 'supply' : 'demand'} zone`, price: opp.proximal }]
     : ladder;
+  // Every target must sit ahead of the entry AND ahead of current price (a target behind price has already been reached)
   const ordered = candidates
-    .filter(c => (long ? c.price > optimal : c.price < optimal))
+    .filter(c => (long ? c.price > optimal && c.price > price : c.price < optimal && c.price < price))
     .sort((a2, b2) => (long ? a2.price - b2.price : b2.price - a2.price));
 
   const rr = (p: number) => Math.abs(p - optimal) / risk;
@@ -529,6 +585,7 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
   if (targets.length === 0) return null;
   while (targets.length < 3) {
     const last = targets[targets.length - 1];
+    // (extensions continue beyond the last target, so they stay ahead of price too)
     const p = long ? last.price + risk * 1.5 : last.price - risk * 1.5;
     targets.push({ label: 'Measured extension', price: round(p), rr: Number(rr(p).toFixed(2)) });
   }
@@ -546,6 +603,16 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
   const mitigation: string[] = [];
   const when = (c: Candle) => new Date(c.t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
   if (z.tapCount > 0) mitigation.push(`the ${long ? 'demand' : 'supply'} zone was already tapped ${z.tapCount}x since it formed`);
+  else if (z.priceInside) mitigation.push(`price is trading inside the ${long ? 'demand' : 'supply'} zone right now`);
+  // The live 24h range can show a tap the candle feed has not printed yet. Only used when the window opens after the
+  // zone's leg-out, so the displacement candles themselves are never mistaken for a tap.
+  const legOutDone = candles[Math.min(candles.length - 1, z.legOutIndex + 2)];
+  if (session && legOutDone.t < session.since) {
+    const extreme = long ? session.low : session.high;
+    if (z.tapCount === 0 && !z.priceInside && (long ? extreme <= z.proximal : extreme >= z.proximal))
+      mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already traded into the zone`);
+    if (long ? extreme <= stop : extreme >= stop) mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already reached the stop-loss level ${round(stop)}`);
+  }
   let entryTap: Candle | null = null;
   for (let j = Math.max(extIndex + 1, z.legOutIndex + 1); j < candles.length; j++) {
     const c = candles[j];
@@ -568,6 +635,7 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
 
   return {
     mitigation,
+    ...(goldenPocketNear ? { goldenPocketNear } : {}),
     direction: long ? 'LONG' : 'SHORT',
     zone: z,
     impulseFrom: round(from),
@@ -585,7 +653,16 @@ function planForZone(z: SDZone, candles: Candle[], price: number, atr: number, o
 
 export function buildMarketMap(
   candles: Candle[],
-  opts: { price?: number; timeframe: string; slMode?: 'normal' | 'tight'; prefer?: 'LONG' | 'SHORT' | null; jpy?: boolean; forex?: boolean }
+  opts: {
+    price?: number;
+    timeframe: string;
+    slMode?: 'normal' | 'tight';
+    prefer?: 'LONG' | 'SHORT' | null;
+    jpy?: boolean;
+    forex?: boolean;
+    /** Live 24h high/low (checked for taps the candles may not show yet) */
+    session?: SessionRange | null;
+  }
 ): MarketMap | null {
   const clean = candles.filter(c => [c.o, c.h, c.l, c.c].every(v => Number.isFinite(v) && v > 0) && c.h >= c.l);
   if (clean.length < 40) return null;
@@ -599,8 +676,20 @@ export function buildMarketMap(
   const swingHigh = Math.max(...lookback.map(c => c.h));
   const swingLow = Math.min(...lookback.map(c => c.l));
 
-  const allLongs = demand.map(z => planForZone(z, clean, price, atr, supply, slMode, dec)).filter(Boolean) as TradePlan[];
-  const allShorts = supply.map(z => planForZone(z, clean, price, atr, demand, slMode, dec)).filter(Boolean) as TradePlan[];
+  // Trust the live 24h range only when it is consistent with price and with the candles' own last-24h range
+  // (a stale or placeholder quote must never mark a fresh zone as tapped)
+  let session: SessionRange | null = null;
+  const sr = opts.session;
+  if (sr && sr.high > 0 && sr.low > 0 && sr.high >= sr.low && price >= sr.low && price <= sr.high) {
+    const recent = clean.filter(c => c.t >= sr.since);
+    const tol = price * 0.015;
+    const agrees = recent.length
+      ? Math.abs(Math.min(...recent.map(c => c.l)) - sr.low) <= tol && Math.abs(Math.max(...recent.map(c => c.h)) - sr.high) <= tol
+      : false;
+    if (agrees) session = sr;
+  }
+  const allLongs = demand.map(z => planForZone(z, clean, price, atr, supply, slMode, dec, session)).filter(Boolean) as TradePlan[];
+  const allShorts = supply.map(z => planForZone(z, clean, price, atr, demand, slMode, dec, session)).filter(Boolean) as TradePlan[];
   // Only clean setups can become signals: fresh zone, and entry / stop / targets never tapped for this setup
   const longs = allLongs.filter(p => p.mitigation.length === 0);
   const shorts = allShorts.filter(p => p.mitigation.length === 0);
@@ -613,6 +702,9 @@ export function buildMarketMap(
     !!p &&
     p.confluence !== 'ZONE_ONLY' &&
     (p.confluence !== 'LEG_ORIGIN' || (p.zone.fresh && p.score >= 80)) &&
+    // Institutional displacement: an unfilled fair value gap at the zone's doorstep
+    !!p.zone.fvg &&
+    !p.zone.fvg.filled &&
     // Counter-trend trades must clear a much higher bar
     p.score >= ((trend === 'BULLISH' && p.direction === 'SHORT') || (trend === 'BEARISH' && p.direction === 'LONG') ? 82 : 70) &&
     p.zone.distanceAtr <= 12 &&
@@ -652,6 +744,8 @@ export function buildMarketMap(
     else if ([...demand, ...supply].every(z => z.tapCount >= 1))
       noSignalReason = 'No signal. Every zone in play has already been tapped since it formed, so none is fresh; wait for a new, untouched zone.';
     else if (!bestLong && !bestShort) noSignalReason = 'No signal. Fresh zones exist, but none leaves room for a clean Fibonacci entry ahead of price with a valid stop.';
+    else if (![...longs, ...shorts].some(p => p.zone.fvg && !p.zone.fvg.filled))
+      noSignalReason = 'No signal. The fresh zones have no open fair value gap at their doorstep, so institutional displacement is not confirmed; wait for a cleaner zone.';
     else noSignalReason = 'No signal. The fresh zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
   }
 
@@ -692,7 +786,7 @@ export function describeZone(z: SDZone, dec: number, pretty = false): string {
   const state = z.priceInside ? 'price is inside it now' : z.fresh ? 'fresh, untouched' : `tapped ${z.tapCount}x and held`;
   return `${z.kind} ${f(z.low)} – ${f(z.high)} (${PATTERN_NAME[z.pattern]}, proximal ${f(z.proximal)}, distal ${f(z.distal)}, ${state}, departure ${z.departureAtr.toFixed(1)} ATR${
     z.brokeStructure ? ', broke structure' : ''
-  }, score ${z.score}/100)`;
+  }${z.fvg ? `, FVG ${f(z.fvg.low)} to ${f(z.fvg.high)} ${z.fvg.filled ? 'filled' : 'open'}` : ', no FVG'}, score ${z.score}/100)`;
 }
 
 /** Compact, factual block for the AI prompt. */
@@ -708,7 +802,9 @@ export function marketMapPromptBlock(map: MarketMap): string {
   const p = map.plan;
   if (p) {
     lines.push(`- SELECTED PLAN: ${p.direction} from the ${p.zone.kind.toLowerCase()} zone ${f(p.zone.low)} – ${f(p.zone.high)}.`);
-    lines.push(`  Fibonacci drawn on the swing leg ${f(p.impulseFrom)} (100%) → ${f(p.impulseTo)} (0%): ${p.fib.map(l => `${l.ratio} = ${f(l.price)}`).join(', ')}. Golden pocket 0.618–0.705 = ${f(p.goldenPocket.from)} – ${f(p.goldenPocket.to)}. Confluence: ${p.confluence.replace(/_/g, ' ').toLowerCase()}.`);
+    lines.push(`  Fibonacci drawn on the swing leg ${f(p.impulseFrom)} (100%) → ${f(p.impulseTo)} (0%): ${p.fib.map(l => `${l.ratio} = ${f(l.price)}`).join(', ')}. Golden pocket 0.618–0.705 = ${f(p.goldenPocket.from)} – ${f(p.goldenPocket.to)}. Confluence: ${p.confluence.replace(/_/g, ' ').toLowerCase()}${p.goldenPocketNear ? ' (within 0.3% of the zone)' : ''}.`);
+    if (p.zone.fvg) lines.push(`  Fair value gap at the zone: ${f(p.zone.fvg.low)} – ${f(p.zone.fvg.high)}, unfilled (institutional displacement confirmed).`);
+    lines.push(`  Pre-signal crosscheck passed: zone untouched (tapCount 0), entry, stop loss and every target still untouched and ahead of price.`);
     lines.push(`  Entry ${f(p.entry.min)} – ${f(p.entry.max)} (optimal ${f(p.entry.optimal)}), stop loss ${f(p.stopLoss)}, targets ${p.targets.map((t, i) => `TP${i + 1} ${f(t.price)} [${t.label}, 1:${t.rr}]`).join('; ')}. Plan score ${p.score}/100.`);
   } else {
     lines.push(`- SELECTED PLAN: NO_SIGNAL. ${map.noSignalReason}`);
@@ -734,12 +830,16 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
     out += `Fibonacci is drawn on the swing leg **${f(p.impulseFrom)} (100%) → ${f(p.impulseTo)} (0%)**. `;
     out +=
       p.confluence === 'GOLDEN_POCKET_IN_ZONE'
-        ? `The **0.618–0.705 golden pocket (${f(p.goldenPocket.from)} to ${f(p.goldenPocket.to)})** sits inside the zone, the highest-probability entry.\n\n`
+        ? `The **0.618–0.705 golden pocket (${f(p.goldenPocket.from)} to ${f(p.goldenPocket.to)})** ${
+            p.goldenPocketNear ? 'sits within 0.3% of the zone' : 'sits inside the zone'
+          }, the highest-probability entry.\n\n`
         : p.confluence === 'FIB_BAND_OVERLAP'
           ? `The zone overlaps the 0.5–0.786 retracement band, giving Fibonacci confluence for the entry.\n\n`
           : p.confluence === 'LEG_ORIGIN'
             ? `The zone is the origin of the swing (Fibonacci 100%), a deep retest entry at the proximal edge.\n\n`
             : `The zone sits outside the key retracement band, so the entry is taken at the zone's proximal edge with reduced size.\n\n`;
+    if (p.zone.fvg)
+      out += `**Displacement:** an open fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) sits at the zone's doorstep, so the zone is untouched and institutional orders are still resting there.\n\n`;
     out += `#### Execution Plan · ${p.direction}\n`;
     out += `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} to ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
     out += `- **Stop loss:** ${f(p.stopLoss)}, beyond the zone's distal line (Fibonacci 100%)\n`;
