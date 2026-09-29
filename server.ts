@@ -11,6 +11,7 @@ import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate
 import { WORKERS, perWorker } from './server/workers';
 import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
 import { classifyPrompt } from './src/utils/promptIntent';
+import { DATA_SOURCES_FACTS, asksAboutDataSources } from './server/dataSources';
 import {
   refreshNewsFeeds,
   refreshNewsFeedsWithin,
@@ -37,6 +38,7 @@ import {
   marketMapPromptBlock,
   SDZone,
   marketMapThesis,
+  poiList,
   normalizeTimeframe,
   computeAtr,
   estimateAtrFraction,
@@ -2403,17 +2405,26 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   if (demand) strategy.demandZone = toZone(demand);
   if (supply) strategy.supplyZone = toZone(supply);
 
-  const all = [...map.demandZones, ...map.supplyZones];
-  strategy.poiZones = all.map(z => ({
-    name: `${map.timeframe} ${z.kind === 'DEMAND' ? 'Demand' : 'Supply'} (${z.pattern})`,
-    type: z.kind,
-    min: r(z.low),
-    max: r(z.high),
-    ...toZone(z),
-    distancePercent: Number(((Math.abs(price - z.proximal) / (price || 1)) * 100).toFixed(1)),
+  // POI map: demand order blocks (discount), supply zones (premium), fair value gaps and the golden pocket pool,
+  // each with its verified mitigation status
+  const POI_TYPE = { DEMAND_ORDER_BLOCK: 'DEMAND', SUPPLY_ZONE: 'SUPPLY', FAIR_VALUE_GAP: 'FVG', GOLDEN_POCKET: 'LIQUIDITY_POOL' } as const;
+  const pois = poiList(map);
+  strategy.poiZones = pois.map(p => ({
+    name: `${map.timeframe} ${p.name}`,
+    type: POI_TYPE[p.type],
+    min: r(p.low),
+    max: r(p.high),
+    mitigationStatus: p.mitigated ? 'MITIGATED' : 'UNMITIGATED',
+    touchStatus: p.mitigated ? 'TAPPED_AND_LEFT' : 'UNTOUCHED',
+    timeframe: map.timeframe,
+    description: p.note,
+    reactionSummary: p.mitigated ? 'Price has already used this level; it is never traded again.' : 'Price has not returned here since it formed.',
+    tapCount: p.tapCount,
+    distancePercent: Number(((Math.min(Math.abs(price - p.low), Math.abs(price - p.high)) / (price || 1)) * 100).toFixed(1)),
   }));
-  strategy.unmitigatedZonesCount = all.filter(z => z.tapCount === 0).length;
-  strategy.mitigatedZonesCount = all.filter(z => z.tapCount > 0).length;
+  strategy.unmitigatedZonesCount = pois.filter(p => !p.mitigated).length;
+  strategy.mitigatedZonesCount = pois.filter(p => p.mitigated).length;
+  strategy.equilibrium = map.equilibrium;
   strategy.swingHigh = map.swingHigh;
   strategy.swingLow = map.swingLow;
   strategy.timeframe = map.timeframe;
@@ -2447,7 +2458,7 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     strategy.fibonacciLevels = plan.fib;
   } else {
     // NO_SIGNAL: show the nearest zones as the levels to watch
-    const watch = nearest(all);
+    const watch = nearest([...map.demandZones, ...map.supplyZones]);
     strategy.tradeType = 'NO_SIGNAL';
     strategy.bias = 'NEUTRAL';
     strategy.confidenceScore = 50;
@@ -2763,7 +2774,9 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       }
 
       if (!ai) {
-        const fallbackMessage = (marketContext ? `${marketContext.replace(/^LIVE MARKET DATA/, '**Live market data**')}\n\n` : '') + generateFallbackChatResponse(cleanPrompt);
+        const fallbackMessage = asksAboutDataSources(cleanPrompt)
+          ? `### Where MarketX's live data comes from\n\n${DATA_SOURCES_FACTS.split('\n').slice(1).join('\n')}`
+          : (marketContext ? `${marketContext.replace(/^LIVE MARKET DATA/, '**Live market data**')}\n\n` : '') + generateFallbackChatResponse(cleanPrompt);
         return res.json({
           success: true,
           isAnalysis: false,
@@ -2777,6 +2790,7 @@ You have mastery in Crypto, Forex, Commodities (Gold/XAU), Equities, Indices and
 The user is asking a question about trading or the markets: "${cleanPrompt}".
 Answer it directly and accurately: trading concepts, risk management, market structure, how any pair, index, commodity, stock or crypto behaves, what drives it, sessions, correlations, and today's context.
 - When LIVE MARKET DATA is provided below, use those exact numbers for current price and today's news; never invent prices, levels or news.
+${asksAboutDataSources(cleanPrompt) ? `- The user asks about MarketX's data. Answer only from these facts, and do not invent caches, feeds or delays:\n${DATA_SOURCES_FACTS}` : ''}
 - Do not give an entry, stop loss or targets in this answer. If the user wants a trade plan, tell them to ask for one, for example "Analyze ${chatAsset ? chatAsset.symbol : 'EUR/USD'} on the 4H".
 - Format with clean Markdown: short headers, bold key terms and bullet points. Be concise and practical.
 - Maintain a professional, encouraging, institutional mentor tone.
@@ -2909,6 +2923,12 @@ ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold)
 3. Pre-signal crosscheck (strict, every timeframe). Before presenting any setup, check every candle since the zone formed: price must never have re-entered the zone, never touched the entry, never reached the stop loss, and never reached TP1, TP2 or TP3. If any of these happened, including price entering the zone and returning, the opportunity has played out: output NO_SIGNAL ("No signal, already mitigated"), name the level that was hit, and tell the trader to stand aside until a new unmitigated zone forms.
 4. Confluence. A virgin zone is high-probability only with (a) the 0.618 golden pocket of the swing leg inside the zone or within 0.3% of it, and (b) an unfilled 3-candle fair value gap (FVG) at the zone's doorstep, proving institutional displacement.
 Actionable rule: anchor entries only to unmitigated, virgin POIs with limit execution; never chase a move that has already occurred.
+
+POI FRAMEWORK (four stages, applied on every timeframe):
+Stage 1, structural swing anchor: take the dealing range from the recent swing high and swing low (true range / ATR sets the scale).
+Stage 2, Fibonacci: from those swing anchors compute the 0.50 equilibrium (fair value, splitting premium above from discount below) and the 0.618 to 0.705 golden pocket.
+Stage 3, POI identification: every setup maps these institutional points of interest: (1) Demand order block, only valid in discount below the 0.50 equilibrium, holding resting bids; (2) Supply zone, only valid in premium above the 0.50 equilibrium, holding unfilled sell limits; (3) Fair value gap, the 3-candle imbalance where price skipped continuous trading; (4) Golden pocket pool, the 0.618 to 0.705 confluence with the highest institutional order density. Never buy demand in premium or sell supply in discount.
+Stage 4, mitigation verification (tapCount): a POI price has returned to is MITIGATED (tapped and left) and disqualified; only UNMITIGATED POIs (tapCount 0) ahead of price, with at least 1:2.5 reward to risk, can trigger an entry.
 
 COMPUTED MARKET MAP (MANDATORY WHEN PROVIDED):
 - The request includes a map computed from real ${analysisTimeframe} candles using exactly this strategy. Treat its zones, Fibonacci levels, entry, stop loss and targets as ground truth and copy those numbers exactly into the JSON and the thesis.
