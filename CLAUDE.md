@@ -45,8 +45,8 @@
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
   price and today's news for any pair they name; only analysis requests return trade cards.
-- Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
-  scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
+- Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
+  hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
 

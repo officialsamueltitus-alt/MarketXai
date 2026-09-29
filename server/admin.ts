@@ -10,7 +10,7 @@ import { deleteAccountData, setEmailBanned } from './auth';
 import { passcodeReport } from './access';
 import { approveSubmission, listSubmissions, rejectSubmission } from './campaigns';
 import { dayKey, logActivity } from './tracking';
-import { clientIp } from './security';
+import { clientIp, createKeyedThrottle } from './security';
 
 // ===========================================================================
 // MarketX admin console API (/api/admin/*), served to the /admin page.
@@ -22,7 +22,16 @@ import { clientIp } from './security';
 // - Brute-force protection: per-IP lockout after repeated failures plus a global failure ceiling.
 // ===========================================================================
 
-const DEFAULT_PASSWORD = process.env.ADMIN_DEFAULT_PASSWORD || '@MarketX.Adminaccess123';
+// The fallback admin password comes only from the environment (never from the source code). Without it, and without a
+// custom password saved from the console, admin sign-in stays disabled instead of accepting a guessable default.
+const DEFAULT_PASSWORD = (() => {
+  const v = String(process.env.ADMIN_DEFAULT_PASSWORD || '').trim();
+  return v.length >= 12 ? v : null;
+})();
+const ADMIN_NOT_CONFIGURED = {
+  error: 'ADMIN_NOT_CONFIGURED',
+  message: 'Admin sign-in is disabled: set ADMIN_DEFAULT_PASSWORD (12+ characters) on the server, then sign in and choose your own password.',
+};
 const COOKIE = 'mx_admin';
 const COOKIE_PATH = '/api/admin';
 const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
@@ -67,7 +76,9 @@ interface AdminAuth {
 }
 
 let defaultHash: Promise<string> | null = null;
-const getDefaultHash = () => (defaultHash ||= hashPassword(DEFAULT_PASSWORD));
+const getDefaultHash = (): Promise<string> | null => (DEFAULT_PASSWORD ? (defaultHash ||= hashPassword(DEFAULT_PASSWORD)) : null);
+/** The hash that admin sign-in checks: the custom password if one was saved, else the environment default (or none). */
+const activeHash = async (auth: AdminAuth): Promise<string | null> => auth.passwordHash || (await getDefaultHash()) || null;
 
 async function readAuth(): Promise<AdminAuth> {
   const snap = await authRef().get();
@@ -97,6 +108,11 @@ function readToken(req: Request): { exp: number; version: number } | null {
   if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
   if (Number(exp) < Date.now()) return null;
   return { exp: Number(exp), version: Number(version) };
+}
+
+/** Cheap signature + expiry check of the admin cookie (the full check, including the session version, is requireAdmin). */
+export function hasValidAdminCookie(req: Request): boolean {
+  return readToken(req) !== null;
 }
 
 function setCookie(res: Response, token: string) {
@@ -370,11 +386,44 @@ export function registerAdminRoutes(app: Express) {
     res.send(data);
   };
   const IMAGE_TYPE = /^image\/(jpeg|png|gif|webp)$/;
+  // Pictures never change once sent: keep recent ones in memory (64 MB max) so repeat views cost no database reads,
+  // and cap how fast one address can pull them
+  const imageCache = new Map<string, { type: string; data: Buffer }>();
+  let imageCacheBytes = 0;
+  const cacheImage = (key: string, type: string, data: Buffer) => {
+    if (data.length > 16 * 1024 * 1024) return;
+    imageCache.set(key, { type, data });
+    imageCacheBytes += data.length;
+    for (const [k, v] of imageCache) {
+      if (imageCacheBytes <= 64 * 1024 * 1024) break;
+      imageCache.delete(k);
+      imageCacheBytes -= v.data.length;
+    }
+  };
+  const imageThrottle = createKeyedThrottle({ windowMs: 60_000, max: 120 });
+  const imageGate = (req: Request, res: Response) => {
+    const wait = imageThrottle.hit(clientIp(req));
+    if (wait) {
+      res.setHeader('Retry-After', String(wait * 60));
+      res.status(429).end();
+      return false;
+    }
+    return true;
+  };
+  const fromCache = (res: Response, key: string, id: string) => {
+    const hit = imageCache.get(key);
+    if (!hit) return false;
+    imageCache.delete(key);
+    imageCache.set(key, hit); // most recently used last
+    sendImage(res, hit.type, hit.data, `marketx-${id}`);
+    return true;
+  };
 
   // Public: the full, original picture (opened when someone taps it); falls back to the display copy
   app.get('/api/broadcast-image/:id/full', wrap(async (req, res) => {
     const id = String(req.params.id || '');
     if (!/^bc-\d{10,15}-[0-9a-f]{6}$/.test(id) || !isFirebaseConfigured()) return res.status(404).end();
+    if (!imageGate(req, res) || fromCache(res, `${id}:full`, id)) return;
     const snap = await broadcastImageRef(id).get();
     const img: any = snap.exists ? snap.data() : null;
     if (!img) return res.status(404).end();
@@ -382,7 +431,9 @@ export function registerAdminRoutes(app: Express) {
     if (chunks > 0 && IMAGE_TYPE.test(img.fullContentType)) {
       const parts = await Promise.all(Array.from({ length: chunks }, (_, n) => fullChunkRef(id, n).get()));
       if (parts.every(p => p.exists && typeof (p.data() as any)?.data === 'string')) {
-        return sendImage(res, img.fullContentType, Buffer.concat(parts.map(p => Buffer.from((p.data() as any).data, 'base64'))), `marketx-${id}`);
+        const data = Buffer.concat(parts.map(p => Buffer.from((p.data() as any).data, 'base64')));
+        cacheImage(`${id}:full`, img.fullContentType, data);
+        return sendImage(res, img.fullContentType, data, `marketx-${id}`);
       }
     }
     if (typeof img.data !== 'string' || !IMAGE_TYPE.test(img.contentType)) return res.status(404).end();
@@ -393,15 +444,13 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/broadcast-image/:id', wrap(async (req, res) => {
     const id = String(req.params.id || '');
     if (!/^bc-\d{10,15}-[0-9a-f]{6}$/.test(id) || !isFirebaseConfigured()) return res.status(404).end();
+    if (!imageGate(req, res) || fromCache(res, id, id)) return;
     const snap = await broadcastImageRef(id).get();
     const img: any = snap.exists ? snap.data() : null;
-    if (!img || typeof img.data !== 'string' || !/^image\/(jpeg|png|gif|webp)$/.test(img.contentType)) return res.status(404).end();
-    res.setHeader('Content-Type', img.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.send(Buffer.from(img.data, 'base64'));
+    if (!img || typeof img.data !== 'string' || !IMAGE_TYPE.test(img.contentType)) return res.status(404).end();
+    const data = Buffer.from(img.data, 'base64');
+    cacheImage(id, img.contentType, data);
+    sendImage(res, img.contentType, data, `marketx-${id}`);
   }));
 
   // --- Auth ---------------------------------------------------------------
@@ -412,9 +461,10 @@ export function registerAdminRoutes(app: Express) {
     const locked = lockState(ip);
     if (locked) return res.status(429).json({ error: 'LOCKED', message: `Too many attempts. Try again in ${locked} minutes.` });
 
-    const password = String(req.body?.password || '');
+    const password = String(req.body?.password || '').slice(0, 256);
     const auth = await readAuth();
-    const hash = auth.passwordHash || (await getDefaultHash());
+    const hash = await activeHash(auth);
+    if (!hash) return res.status(503).json(ADMIN_NOT_CONFIGURED);
     const ok = password.length > 0 && (await verifyPassword(password, hash));
     if (!ok) {
       recordFailure(ip);
@@ -444,7 +494,8 @@ export function registerAdminRoutes(app: Express) {
     const current = String(req.body?.current || '');
     const next = String(req.body?.next || '');
     const auth = await readAuth();
-    if (!(await verifyPassword(current, auth.passwordHash || (await getDefaultHash())))) {
+    const currentHash = await activeHash(auth);
+    if (!currentHash || !(await verifyPassword(current.slice(0, 256), currentHash))) {
       return res.status(401).json({ error: 'INVALID_PASSWORD', message: 'Your current password is incorrect.' });
     }
     const strong = next.length >= MIN_PASSWORD && /[A-Za-z]/.test(next) && /\d/.test(next);
@@ -461,6 +512,8 @@ export function registerAdminRoutes(app: Express) {
   // Reset to the default password; signs out other admin sessions
   app.post('/api/admin/password/reset', requireAdmin, wrap(async (req, res) => {
     if (String(req.body?.confirm || '') !== 'RESET') return res.status(400).json({ error: 'CONFIRM_REQUIRED', message: 'Type RESET to confirm.' });
+    // Without a server default, a reset would leave no way to sign in
+    if (!DEFAULT_PASSWORD) return res.status(400).json({ error: 'NO_DEFAULT', message: 'There is no default password on the server (ADMIN_DEFAULT_PASSWORD), so it can’t be reset to one. Change the password instead.' });
     const auth = await readAuth();
     const version = (auth.version || 0) + 1;
     await authRef().set({ custom: false, version, updatedAt: Date.now() });
