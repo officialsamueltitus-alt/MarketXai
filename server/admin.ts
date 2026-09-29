@@ -598,6 +598,45 @@ export function registerAdminRoutes(app: Express) {
     });
   }));
 
+  // --- X campaign participants -------------------------------------------
+  app.get('/api/admin/campaign', requireAdmin, wrap(async (req, res) => {
+    const now = Date.now();
+    const users = await allUsers();
+    const safeLink = (u: unknown) => (typeof u === 'string' && /^https:\/\/(x|twitter)\.com\/[^\s<>"']+$/i.test(u) ? u : null);
+    const participants = users
+      .filter(u => !!u.xShareReward)
+      .map(u => {
+        const r = u.xShareReward!;
+        const status = r.previouslyClaimed ? 'duplicate' : r.status === 'credited' ? 'credited' : now >= r.unlockAt ? 'ready' : 'pending';
+        return {
+          uid: u.uid,
+          username: u.username,
+          email: u.email,
+          joinedAt: r.sharedAt || null,
+          unlockAt: r.unlockAt || null,
+          status,
+          creditsAwarded: r.previouslyClaimed ? 0 : Number(r.creditsAwarded) || 0,
+          campaignCreditsLeft: Math.max(0, Math.min(u.credits?.campaign ?? 0, u.credits?.available ?? 0)),
+          tweetUrl: safeLink(r.tweetUrl),
+          accountStatus: u.status || 'active',
+        };
+      })
+      .sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+    const credited = participants.filter(p => p.status === 'credited');
+    res.json({
+      summary: {
+        participants: participants.length,
+        credited: credited.length,
+        pending: participants.filter(p => p.status === 'pending' || p.status === 'ready').length,
+        duplicates: participants.filter(p => p.status === 'duplicate').length,
+        creditsAwarded: credited.reduce((a, p) => a + p.creditsAwarded, 0),
+        creditsUnused: credited.reduce((a, p) => a + p.campaignCreditsLeft, 0),
+        joined7d: participants.filter(p => (p.joinedAt || 0) > now - 7 * 86400000).length,
+      },
+      participants,
+    });
+  }));
+
   // --- Broadcasts ---------------------------------------------------------
   app.post('/api/admin/broadcast', requireAdmin, wrap(async (req, res) => {
     const mode = String(req.body?.mode || '') as 'banner' | 'general' | 'individual';

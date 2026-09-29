@@ -54,7 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
     p < 10 ? p.toFixed(p < 1 ? 4 : 3) : p.toLocaleString(undefined, { maximumFractionDigits: p < 1000 ? 2 : 0 });
 
   return (
-    <header className="h-14 px-1.5 min-[400px]:px-2 sm:px-4 flex items-center justify-between gap-1.5 min-[400px]:gap-2 sm:gap-4 shrink-0 z-30 min-w-0">
+    <header className="h-14 pl-1.5 pr-2.5 min-[400px]:px-3 sm:px-4 flex items-center justify-between gap-1.5 min-[400px]:gap-2 sm:gap-4 shrink-0 z-30 min-w-0">
       {/* Left: sidebar, view switch, model picker */}
       <div className="flex items-center gap-1 min-[400px]:gap-1.5 sm:gap-2 min-w-0">
         <button
@@ -92,7 +92,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        <ModelSelectorButton onNotifyComingSoon={onNotifyComingSoon} />
+        {/* The engines picker (coming soon) steps aside on the narrowest screens so the credits and profile always fit */}
+        <div className="shrink-0 max-[339px]:hidden">
+          <ModelSelectorButton onNotifyComingSoon={onNotifyComingSoon} />
+        </div>
       </div>
 
       {/* Middle: live ticker strip (tablet & desktop) */}

@@ -43,6 +43,7 @@ import {
   computeAtr,
   estimateAtrFraction,
   priceDecimals,
+  recheckSetup,
   tightenStop,
   timeframeFromPrompt,
   timeframeMinutes,
@@ -1734,6 +1735,17 @@ function sanitizeBaseStrategy(raw: any): any | null {
     // Fundamentals are re-checked live by the server, never echoed from the client's copy
     strategyEngine: clean.strategyEngine && typeof clean.strategyEngine === 'object' ? clean.strategyEngine : undefined,
     aiModel: typeof clean.aiModel === 'string' ? clean.aiModel.slice(0, 60) : undefined,
+    execution: clean.execution === 'MARKET' ? 'MARKET' : 'LIMIT',
+    // Kept so the "Recheck" button still works on the tightened setup
+    setupCheck:
+      clean.setupCheck && num(clean.setupCheck.zone?.low) > 0 && num(clean.setupCheck.zone?.high) > 0 && num(clean.setupCheck.since) > 0
+        ? {
+            zone: { low: num(clean.setupCheck.zone.low), high: num(clean.setupCheck.zone.high) },
+            since: num(clean.setupCheck.since),
+            issuedAt: num(clean.setupCheck.issuedAt) || Date.now(),
+            timeframe: normalizeTimeframe(String(clean.setupCheck.timeframe || clean.timeframe || '4H')),
+          }
+        : undefined,
   };
 }
 
@@ -1800,7 +1812,7 @@ ${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.re
 - **Overall R:R:** 1 : ${finalRR}${base.riskRewardRatio ? ` (was ${base.riskRewardRatio})` : ''}
 
 #### Execution
-- A tighter stop needs a precise fill: use a **limit order** inside the entry zone and don't chase price.
+- ${base.execution === 'MARKET' ? "A tighter stop needs a precise fill: enter at market only while price is still inside the entry band, and don't chase it." : "A tighter stop needs a precise fill: use a **limit order** inside the entry zone and don't chase price."}
 - **Invalidation:** exit if a ${tf} candle closes ${isShort ? 'above' : 'below'} **${fmt(newStop)}**.`;
 
   return {
@@ -2387,13 +2399,15 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   const toZone = (z: SDZone) => ({
     low: r(z.low),
     high: r(z.high),
-    strength: z.fresh ? 'FRESH' : z.tapCount === 1 ? 'TESTED' : 'WEAK',
+    strength: z.fresh || z.liveFirstTouch ? 'FRESH' : z.tapCount === 1 ? 'TESTED' : 'WEAK',
     timeframe: map.timeframe,
     description: `${z.pattern === 'DBR' ? 'Drop-Base-Rally' : z.pattern === 'RBR' ? 'Rally-Base-Rally' : z.pattern === 'RBD' ? 'Rally-Base-Drop' : 'Drop-Base-Drop'} ${z.kind === 'DEMAND' ? 'demand' : 'supply'} · proximal ${r(z.proximal)}, distal ${r(z.distal)} · departure ${z.departureAtr.toFixed(1)} ATR${z.brokeStructure ? ' · broke structure' : ''} · score ${z.score}/100`,
-    mitigationStatus: z.tapCount > 0 ? 'MITIGATED' : 'UNMITIGATED',
-    touchStatus: z.tapCount > 0 ? 'TAPPED_AND_LEFT' : 'UNTOUCHED',
+    mitigationStatus: z.tapCount > 0 && !z.liveFirstTouch ? 'MITIGATED' : 'UNMITIGATED',
+    touchStatus: z.liveFirstTouch ? 'FIRST_TOUCH_NOW' : z.tapCount > 0 ? 'TAPPED_AND_LEFT' : 'UNTOUCHED',
     tapCount: z.tapCount,
-    reactionSummary: z.priceInside
+    reactionSummary: z.liveFirstTouch
+      ? 'Price is making its first touch of this zone right now.'
+      : z.priceInside
       ? 'Price is trading inside this zone right now.'
       : z.fresh
         ? 'Price has not returned since the explosive leg-out, institutional orders are still resting here.'
@@ -2441,11 +2455,22 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
         : plan.confluence === 'FIB_BAND_OVERLAP'
           ? '0.5–0.786 retracement overlapping'
           : 'Fibonacci 100% origin of';
+    strategy.execution = plan.execution;
     strategy.entryZone = {
       min: plan.entry.min,
       max: plan.entry.max,
       optimal: plan.entry.optimal,
-      rationale: `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} to ${r(plan.zone.high)})`,
+      rationale:
+        plan.execution === 'MARKET'
+          ? `${long ? 'Buy' : 'Sell'} now at market: price is making the first touch of the fresh ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} to ${r(plan.zone.high)}), ${confluenceText.replace(/ (inside|overlapping|of)$/, '')} confluence`
+          : `${confluenceText} the ${plan.zone.fresh ? 'fresh' : 'once-tested'} ${long ? 'demand' : 'supply'} zone (${r(plan.zone.low)} to ${r(plan.zone.high)})`,
+    };
+    // What the "Recheck" button replays: the zone and levels from the first candle after the zone's leg-out
+    strategy.setupCheck = {
+      zone: { low: r(plan.zone.low), high: r(plan.zone.high) },
+      since: plan.zone.freshFromTime ?? plan.zone.formedAt,
+      issuedAt: Date.now(),
+      timeframe: map.timeframe,
     };
     strategy.stopLoss = {
       price: plan.stopLoss,
@@ -2495,6 +2520,63 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   }
   return strategy;
 }
+
+// Recheck a signal: replay the latest candles and live price over its zone, entry, stop and targets, so the user can
+// confirm nothing has been tapped or mitigated since it was issued. Deterministic (no AI call) and free of charge.
+const recheckRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: envInt('RATE_LIMIT_RECHECK_PER_MIN', 20), message: 'Too many rechecks. Please wait a moment.' });
+app.post('/api/market/recheck', recheckRateLimiter, requireAuth, async (req: Request, res: Response) => {
+  const b = req.body || {};
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : NaN);
+  const direction = b.direction === 'LONG' || b.direction === 'SHORT' ? b.direction : null;
+  const execution = b.execution === 'MARKET' ? 'MARKET' : 'LIMIT';
+  const symbol = typeof b.symbol === 'string' ? b.symbol.trim().slice(0, 32) : '';
+  const tf = normalizeTimeframe(typeof b.timeframe === 'string' ? b.timeframe : '4H');
+  const zone = { low: num(b.zone?.low), high: num(b.zone?.high) };
+  const entry = { min: num(b.entry?.min), max: num(b.entry?.max), optimal: num(b.entry?.optimal) };
+  const stop = num(b.stop);
+  const targets = (Array.isArray(b.targets) ? b.targets : []).slice(0, 5).map(num).filter((x: number) => !Number.isNaN(x));
+  const now = Date.now();
+  const since = Number.isFinite(b.since) ? Math.max(now - 400 * 24 * 3600e3, Math.min(now, Number(b.since))) : NaN;
+  const issuedAt = Number.isFinite(b.issuedAt) ? Math.max(since || 0, Math.min(now, Number(b.issuedAt))) : now;
+  const levels = [zone.low, zone.high, entry.min, entry.max, entry.optimal, stop];
+  if (!direction || !symbol || levels.some(Number.isNaN) || !targets.length || Number.isNaN(since) || zone.low > zone.high) {
+    return res.status(400).json({ error: 'BAD_SETUP', message: 'This signal cannot be rechecked.' });
+  }
+  const long = direction === 'LONG';
+  // Levels must be on the right sides of the entry (a stop beyond the entry, targets ahead of it)
+  if ((long ? stop >= entry.optimal : stop <= entry.optimal) || targets.some((t: number) => (long ? t <= entry.optimal : t >= entry.optimal))) {
+    return res.status(400).json({ error: 'BAD_SETUP', message: 'This signal cannot be rechecked.' });
+  }
+  try {
+    const asset = extractAssetInfo(symbol, symbol);
+    const [quote, candles] = await Promise.all([
+      resolveAccurateAssetQuote(asset.symbol).catch(() => null),
+      Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(resolve => setTimeout(() => resolve(null), 8000))]),
+    ]);
+    if (!candles || candles.length < 2) {
+      return res.status(503).json({ error: 'NO_LIVE_DATA', message: `Couldn't load live ${tf} candles for ${asset.symbol} right now. Try again in a moment.` });
+    }
+    const lastClose = candles[candles.length - 1].c;
+    // Only a real, current quote is used; otherwise the latest candle close stands in for the live price
+    const liveQuote = quote && quote.price > 0 && quote.live !== false && Math.abs(quote.price - lastClose) / lastClose < 0.2 ? quote : null;
+    const price = liveQuote ? liveQuote.price : lastClose;
+    const jpy = asset.symbol.toUpperCase().includes('JPY');
+    const session =
+      liveQuote && Number(liveQuote.high24h) > 0 && Number(liveQuote.low24h) > 0 && liveQuote.low24h <= price && liveQuote.high24h >= price
+        ? { high: Number(liveQuote.high24h), low: Number(liveQuote.low24h), since: now - 24 * 3600e3 }
+        : null;
+    const result = recheckSetup(candles, price, { direction, execution, zone, entry, stop, targets, since, issuedAt }, {
+      timeframeMinutes: timeframeMinutes(tf),
+      decimals: priceDecimals(price, jpy, asset.type === 'forex'),
+      now,
+      session,
+    });
+    res.json({ success: true, symbol: asset.symbol, timeframe: tf, checkedAt: now, priceSource: liveQuote ? 'live' : 'candle', ...result });
+  } catch (err: any) {
+    console.warn('[MarketX Recheck] failed:', err?.message || err);
+    res.status(500).json({ error: 'RECHECK_FAILED', message: 'Recheck failed. Please try again.' });
+  }
+});
 
 function safeDecodeURIComponent(str: string): string {
   try {

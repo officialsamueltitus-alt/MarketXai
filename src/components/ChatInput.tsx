@@ -126,6 +126,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [input, setInput] = useState('');
   // Phones get the compact one-row composer, which needs a shorter placeholder
   const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639.98px)').matches);
+  // Very narrow screens (small Android phones, or any phone with enlarged text): the shortest placeholders
+  const [tiny, setTiny] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 359.98px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 359.98px)');
+    const on = () => setTiny(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639.98px)');
     const on = () => setCompact(mq.matches);
@@ -630,7 +638,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={credits <= 0 ? `Daily limit reached, back at ${refillLabel}` : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
+          placeholder={credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
           rows={1}
           className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:order-2 max-sm:w-auto max-sm:flex-1 max-sm:min-w-0 max-sm:px-1.5 max-sm:py-1.5 max-sm:min-h-9 max-sm:max-h-[132px]"
         />

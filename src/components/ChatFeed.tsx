@@ -8,6 +8,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { downloadStrategyImage, shareToX } from '../utils/exportImage';
 import { UserProfile } from '../types';
 import { AiActivityTrace } from './AiActivityTrace';
+import { RecheckPanel } from './RecheckPanel';
 import { Bitcoin, Gem, Activity, Coins } from 'lucide-react';
 import {
   User,
@@ -618,8 +619,8 @@ Rationale: ${strategy.entryZone.rationale}
                             <div className="w-5 h-5 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center">
                               <Sparkles className="w-3 h-3 text-indigo-400" />
                             </div>
-                            <span className="font-bold text-white text-xs sm:text-sm flex items-center gap-1">
-                              <MarketXText className="text-xs sm:text-sm" /> Institutional Analysis Memo
+                            <span className="font-bold text-white text-xs sm:text-sm flex items-center gap-1 whitespace-nowrap">
+                              <MarketXText className="text-xs sm:text-sm" /> <span className="max-[419px]:hidden">Institutional</span> Analysis Memo
                             </span>
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 font-semibold hidden sm:inline">
                               Verified setup
@@ -627,14 +628,15 @@ Rationale: ${strategy.entryZone.rationale}
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.06] text-slate-300 border border-white/[0.1]">
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.06] text-slate-300 border border-white/[0.1] whitespace-nowrap">
                               {strategy.symbol} • {strategy.timeframe} TF
                             </span>
                             <button
                               type="button"
                               onClick={() => handleCopyText(`writeup-${message.id}`, message.content || strategy.entryZone.rationale)}
-                              className="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded hover:bg-white/[0.06] flex items-center gap-1 text-[11px] font-mono cursor-pointer"
+                              className="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded hover:bg-white/[0.06] flex items-center gap-1 text-[11px] font-mono cursor-pointer whitespace-nowrap"
                               title="Copy AI Analysis Writeup"
+                              aria-label="Copy writeup"
                             >
                               {copiedId === `writeup-${message.id}` ? (
                                 <>
@@ -644,7 +646,7 @@ Rationale: ${strategy.entryZone.rationale}
                               ) : (
                                 <>
                                   <Copy className="w-3 h-3 text-slate-400" />
-                                  <span>Copy Writeup</span>
+                                  <span className="max-[359px]:hidden">Copy Writeup</span>
                                 </>
                               )}
                             </button>
@@ -746,12 +748,12 @@ Rationale: ${strategy.entryZone.rationale}
                             ) : strategy.tradeType === 'LONG' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs">
                                 <ArrowUpRight className="w-3.5 h-3.5" />
-                                <span>BUY LIMIT / BUY ZONE</span>
+                                <span>{strategy.execution === 'MARKET' ? 'BUY NOW / MARKET' : 'BUY LIMIT / BUY ZONE'}</span>
                               </span>
                             ) : (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-xs">
                                 <ArrowDownRight className="w-3.5 h-3.5" />
-                                <span>SELL LIMIT / SELL ZONE</span>
+                                <span>{strategy.execution === 'MARKET' ? 'SELL NOW / MARKET' : 'SELL LIMIT / SELL ZONE'}</span>
                               </span>
                             )}
                             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 text-xs font-semibold">
@@ -767,7 +769,7 @@ Rationale: ${strategy.entryZone.rationale}
                           <div className="p-3 rounded-xl bg-amber-500/[0.08] border border-amber-500/25 min-w-0 hover:border-amber-400/40 transition-all">
                             <span className="text-[10px] text-amber-300 font-sans block uppercase font-semibold flex items-center gap-1 truncate">
                               <Target className="w-3 h-3 text-amber-400 shrink-0" />
-                              Optimal Entry
+                              {strategy.execution === 'MARKET' ? 'Market Entry' : 'Optimal Entry'}
                             </span>
                             <span className="text-xs sm:text-base font-bold text-amber-200 mt-1 block truncate font-mono">
                               ${strategy.currentPrice < 10 ? strategy.entryZone.optimal.toFixed(4) : strategy.entryZone.optimal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -844,6 +846,9 @@ Rationale: ${strategy.entryZone.rationale}
                           </div>
                           <p>{strategy.entryZone.rationale}</p>
                         </div>
+
+                        {/* Recheck: live candles and price replayed over the zone, entry, stop and targets */}
+                        <RecheckPanel strategy={strategy} />
 
                         {/* Action Row: Share to 𝕏, Download as Image, & Copy Parameters */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
