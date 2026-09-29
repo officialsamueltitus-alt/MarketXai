@@ -30,6 +30,29 @@ const SUPPORT_EMAIL = 'help.marketx@gmail.com';
 
 const authRef = () => db().collection('adminConfig').doc('auth');
 const bannerRef = () => db().collection('siteConfig').doc('banner');
+const broadcastImageRef = (id: string) => db().collection('broadcastImages').doc(id);
+
+// Broadcast pictures: raster images only (no SVG, which can carry script), checked by their file signature,
+// at most 700 KB so one fits in a single Firestore document. The admin page shrinks photos before upload.
+export const BROADCAST_IMAGE_MAX_BYTES = 700 * 1024;
+const IMAGE_SIGNATURES: Array<[string, (b: Buffer) => boolean]> = [
+  ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
+  ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
+  ['image/gif', b => b.subarray(0, 4).toString('latin1') === 'GIF8'],
+  ['image/webp', b => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
+];
+export function parseBroadcastImage(raw: unknown): { data: Buffer; contentType: string } | { error: string } | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const m = typeof raw === 'string' ? /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(raw) : null;
+  if (!m) return { error: 'The picture must be a JPG, PNG, GIF or WebP image.' };
+  const data = Buffer.from(m[2], 'base64');
+  if (!data.length) return { error: 'The picture is empty.' };
+  if (data.length > BROADCAST_IMAGE_MAX_BYTES) return { error: 'The picture is too large (700 KB max after resizing).' };
+  const sig = IMAGE_SIGNATURES.find(([, test]) => test(data));
+  if (!sig) return { error: 'That file is not a valid image.' };
+  // Trust the bytes, not the label
+  return { data, contentType: sig[0] };
+}
 
 interface AdminAuth {
   passwordHash?: string;
@@ -329,7 +352,22 @@ export function registerAdminRoutes(app: Express) {
     const b: any = snap.exists ? snap.data() : null;
     const live = b && b.active && (!b.expiresAt || b.expiresAt > Date.now());
     res.setHeader('Cache-Control', 'public, max-age=30');
-    res.json({ banner: live ? { id: b.id, title: b.title, message: b.message, tone: b.tone, link: b.link || null } : null });
+    res.json({ banner: live ? { id: b.id, title: b.title, message: b.message, tone: b.tone, link: b.link || null, image: b.image || null } : null });
+  }));
+
+  // Public: a broadcast picture (shown in notifications, the banner and email clients)
+  app.get('/api/broadcast-image/:id', wrap(async (req, res) => {
+    const id = String(req.params.id || '');
+    if (!/^bc-\d{10,15}-[0-9a-f]{6}$/.test(id) || !isFirebaseConfigured()) return res.status(404).end();
+    const snap = await broadcastImageRef(id).get();
+    const img: any = snap.exists ? snap.data() : null;
+    if (!img || typeof img.data !== 'string' || !/^image\/(jpeg|png|gif|webp)$/.test(img.contentType)) return res.status(404).end();
+    res.setHeader('Content-Type', img.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(Buffer.from(img.data, 'base64'));
   }));
 
   // --- Auth ---------------------------------------------------------------
@@ -651,12 +689,22 @@ export function registerAdminRoutes(app: Express) {
     // Optional call-to-action link, https only
     const rawLink = String(req.body?.link || '').trim();
     const link = /^https:\/\/[^\s<>"']+$/i.test(rawLink) ? rawLink.slice(0, 300) : null;
+    // Optional picture: stored once, then shown in the notification, the banner and the email
+    const parsed = parseBroadcastImage(req.body?.image);
+    if (parsed && 'error' in parsed) return res.status(400).json({ error: 'INVALID_IMAGE', message: parsed.error });
+    const picture = parsed as { data: Buffer; contentType: string } | null;
+    let image: string | null = null;
+    if (picture) {
+      await broadcastImageRef(id).set({ id, contentType: picture.contentType, data: picture.data.toString('base64'), bytes: picture.data.length, createdAt: Date.now() });
+      image = `/api/broadcast-image/${id}`;
+    }
+    const mailImage = picture ? { data: picture.data, contentType: picture.contentType, alt: title } : undefined;
 
     if (mode === 'banner') {
       const tone = ['info', 'success', 'warning'].includes(req.body?.tone) ? req.body.tone : 'info';
       const hours = Math.max(0, Math.min(24 * 90, Number(req.body?.durationHours) || 0));
-      await bannerRef().set({ id, title, message: message.slice(0, 280), tone, link, active: true, createdAt: Date.now(), expiresAt: hours ? Date.now() + hours * 3600000 : null });
-      await db().collection('broadcasts').doc(id).set({ id, mode, title, message, tone, recipients: 'site', sentAt: Date.now() });
+      await bannerRef().set({ id, title, message: message.slice(0, 280), tone, link, image, active: true, createdAt: Date.now(), expiresAt: hours ? Date.now() + hours * 3600000 : null });
+      await db().collection('broadcasts').doc(id).set({ id, mode, title, message, tone, image, recipients: 'site', sentAt: Date.now() });
       adminLog('banner_set', { id, title });
       return res.json({ success: true, recipients: 0 });
     }
@@ -675,7 +723,7 @@ export function registerAdminRoutes(app: Express) {
       await Promise.all(
         targets
           .slice(i, i + 100)
-          .map(u => addNotification(u.uid, { type: 'announcement', title, message, ...(link ? { link } : {}) }).catch(() => {}))
+          .map(u => addNotification(u.uid, { type: 'announcement', title, message, ...(link ? { link } : {}), ...(image ? { image } : {}) }).catch(() => {}))
       );
     }
     if (sendMail) {
@@ -685,6 +733,7 @@ export function registerAdminRoutes(app: Express) {
             note: 'You are receiving this message because you have a MarketX account.',
             priority: 'bulk',
             ...(link ? { cta: { label: 'Learn more', url: link } } : {}),
+            ...(mailImage ? { image: mailImage } : {}),
           })
         );
       }
@@ -699,6 +748,7 @@ export function registerAdminRoutes(app: Express) {
         message,
         email: sendMail,
         link,
+        image,
         recipients: targets.length,
         target: mode === 'individual' ? `@${targets[0].username} (${targets[0].email})` : 'all users',
         sentAt: Date.now(),

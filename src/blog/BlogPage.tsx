@@ -218,7 +218,7 @@ const SECTIONS: Section[] = [
           Type / in the input to see the tools in private testing: Strategy, Preference Mode, Trading Agent, MT5 Connector, Price Alerts, Backtest and Trade
           Journal. They are marked Soon and open for everyone once testing ends.
         </Note>
-        <P>Each reply shows the tokens it used, and the arrows on the input box jump to the top or bottom of a long chat.</P>
+        <P>Each reply shows the tokens it used. The count is not fixed: it runs up live while the analysis works and lands somewhere around 18.5k to 41.5k (30k on average). Either way, one analysis costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
       </>
     ),
   },
@@ -271,7 +271,7 @@ const SECTIONS: Section[] = [
             ['Zones', 'Levels to watch: Untouched ones are still valid, Mitigated ones have already been used by price.'],
             ['Points of interest', 'Demand order blocks (discount), supply zones (premium), fair value gaps and the golden pocket pool, each marked unmitigated or mitigated.'],
             ['Write up', 'The full reasoning, the market structure and the timeframe used.'],
-            ['Recheck zones', 'Tap it any time after a signal: MarketX replays the latest live candles and price over the zone, entry, stop and targets and tells you if the setup is still valid, filled, stopped out, has reached a target or is already mitigated. Free, no credit used.'],
+            ['Recheck', 'On every result. After a signal, Recheck zones replays the latest live candles and price over the zone, entry, stop and targets and tells you if the setup is still valid, filled, stopped out, has reached a target or is already mitigated. After a No signal, Recheck market checks whether the zones listed were tapped and whether a fresh setup has formed since (run a new analysis to get its levels). Free, no credit used.'],
             ['High impact news', 'A warning when major news may move the market soon, with guidance.'],
           ]}
         />
@@ -331,7 +331,7 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Check your balance">
-          Tap the credit pill in the top bar, or open Sidebar, Settings, Credits. You see your balance, today's analyses and tokens, and a countdown to the next
+          Tap the credit pill in the top bar, or open Sidebar, Settings, Credits. You see your balance, today's analyses left, and a countdown to the next
           refill. Daily analyses refill every day at 3:00 AM Lagos time (the site shows it in your own time), with no rollover.
         </Note>
         <Note title="Upgrade or refill">
@@ -386,7 +386,7 @@ const SECTIONS: Section[] = [
         <Points
           items={[
             <>
-              <B>Profile.</B> Shows your name, @username, plan, analyses, credits and tokens used today. Use Edit profile to change your display name, username or
+              <B>Profile.</B> Shows your name, @username, plan, analyses, credits and analyses left today. Use Edit profile to change your display name, username or
               photo, then Save Changes. You can also share your profile.
             </>,
             <>

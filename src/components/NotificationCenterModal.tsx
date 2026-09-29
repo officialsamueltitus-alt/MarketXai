@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppNotification, NotificationType } from '../types';
+import { safeBroadcastImage } from './AnnouncementModal';
 import { Bell, CheckCheck, Trash2, X, Sparkles, TrendingUp, ShieldCheck, Gift, LineChart, ChevronRight, Mail, Megaphone } from 'lucide-react';
 
 interface NotificationCenterModalProps {
@@ -249,6 +250,14 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                               <span className="ml-auto text-[11px] text-slate-500 tabular-nums">{timeAgo(n.timestamp)}</span>
                             </span>
                             <span className={`mt-2 block text-sm leading-snug break-words ${n.read ? 'text-slate-200' : 'text-white font-semibold'}`}>{n.title}</span>
+                            {safeBroadcastImage(n.image) && (
+                              <img
+                                src={safeBroadcastImage(n.image)!}
+                                alt=""
+                                loading="lazy"
+                                className="mt-2 block w-full max-h-40 object-cover rounded-xl border border-white/[0.06] bg-black/20"
+                              />
+                            )}
                             {n.message && <span className="mt-1 block text-xs text-slate-400 leading-relaxed line-clamp-3 break-words">{n.message}</span>}
                             <span className="mt-2 inline-flex items-center gap-0.5 text-xs font-medium text-indigo-300">
                               Read announcement <ChevronRight className="w-3 h-3" />

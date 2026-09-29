@@ -4,7 +4,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { MarketXText } from './MarketXText';
 import { EditProfileModal } from './EditProfileModal';
 import { DeleteAccountModal } from './DeleteAccountModal';
-import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
+import { TOKEN_RANGE_TEXT } from '../utils/tokens';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
@@ -109,7 +109,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ? 'Pro · Yearly'
       : 'Pro · Monthly'
     : 'Free';
-  const dailyLeft = isUnlimited ? '∞' : formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE);
+  const dailyLeft = isUnlimited ? '∞' : String(creditState.dailyUsageRemaining);
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3 overscroll-contain pb-safe">
@@ -198,7 +198,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         {[
           { label: 'Analyses', value: String(completedAnalysesCount) },
           { label: 'Credits', value: isUnlimited || creditState.availableCredits >= 99999 ? '∞' : String(creditState.availableCredits) },
-          { label: 'Tokens today', value: dailyLeft },
+          { label: 'Left today', value: dailyLeft },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-white/[0.07] bg-[var(--mx-surface)] px-3 py-3">
             <div className="text-lg font-semibold text-white font-mono tracking-tight">{stat.value}</div>
@@ -206,6 +206,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         ))}
       </div>
+      {!isUnlimited && (
+        <p className="px-1 -mt-1 text-[11px] text-slate-500 leading-relaxed">
+          1 credit = 1 analysis. Tokens are not fixed per credit: each analysis uses {TOKEN_RANGE_TEXT}, depending on the run, and its exact
+          count shows live on the reply.
+        </p>
+      )}
 
       {/* Plan */}
       <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-4">

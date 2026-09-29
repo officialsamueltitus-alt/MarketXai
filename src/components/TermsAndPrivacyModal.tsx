@@ -31,7 +31,7 @@ const DOCS: Record<Tab, Doc> = {
       },
       {
         title: 'Credits, plans & payments',
-        body: 'Analyses use a daily allowance that refills every day at 3:00 AM, with no rollover; when it is used up, new analyses pause until the refill, except that credits earned through campaigns stay usable until spent (1 credit = 30k tokens). Pro plans are billed through Paystack and activate only after the payment is verified. Credits earned through campaigns are granted after their verification window.',
+        body: 'Analyses use a daily allowance that refills every day at 3:00 AM, with no rollover; when it is used up, new analyses pause until the refill, except that credits earned through campaigns stay usable until spent. One credit pays for one analysis; the token count shown on each analysis varies from run to run (about 18.5k to 41.5k, 30k on average) and is informational, not a separate charge. Pro plans are billed through Paystack and activate only after the payment is verified. Credits earned through campaigns are granted after their verification window.',
       },
       {
         title: 'Acceptable use',

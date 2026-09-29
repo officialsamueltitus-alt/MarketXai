@@ -4,7 +4,7 @@ import { campaignCreditsLeft, formatDailyResetTime, getDailyResetCountdown, isUn
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
-import { creditsToTokens, formatTokens, TOKENS_PER_CREDIT, TOKENS_PER_USAGE } from '../utils/tokens';
+import { TOKEN_RANGE_TEXT } from '../utils/tokens';
 
 interface CreditsPanelProps {
   userProfile: UserProfile;
@@ -42,8 +42,8 @@ const QuotaRing: React.FC<{ value: number; max: number; unlimited: boolean }> = 
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-lg font-semibold text-white font-mono leading-none">{unlimited ? '∞' : formatTokens(value * TOKENS_PER_USAGE)}</span>
-        {!unlimited && <span className="text-[10px] text-slate-500 mt-1">of {formatTokens(max * TOKENS_PER_USAGE)}</span>}
+        <span className="text-lg font-semibold text-white font-mono leading-none">{unlimited ? '∞' : value}</span>
+        {!unlimited && <span className="text-[10px] text-slate-500 mt-1">of {max} left</span>}
       </div>
     </div>
   );
@@ -90,7 +90,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
         <p className="relative mt-3 text-xs text-slate-500">
           {unlimited
             ? 'Unlimited analyses. Nothing is deducted.'
-            : `${creditState.availableCredits} credits = ${formatTokens(creditsToTokens(creditState.availableCredits))} tokens (1 credit = ${formatTokens(TOKENS_PER_CREDIT)} tokens).`}
+            : `1 credit = 1 analysis. Tokens are not fixed per credit: each analysis uses ${TOKEN_RANGE_TEXT}, depending on the run, and the reply shows its exact count, live while it works.`}
         </p>
       </section>
 
@@ -98,13 +98,13 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
       <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-4 flex items-center gap-4">
         <QuotaRing value={creditState.dailyUsageRemaining} max={creditState.dailyUsageLimit} unlimited={unlimited} />
         <div className="min-w-0">
-          <div className="text-sm font-medium text-white">Today's tokens</div>
+          <div className="text-sm font-medium text-white">Today's analyses</div>
           <p className="text-xs text-slate-500 mt-0.5">
             {unlimited
               ? 'No daily limit on your account.'
-              : `${formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE)} of ${formatTokens(
-                  creditState.dailyUsageLimit * TOKENS_PER_USAGE
-                )} tokens left · ${formatTokens((creditState.dailyUsageLimit - creditState.dailyUsageRemaining) * TOKENS_PER_USAGE)} used. Refills every day at ${resetAt}, no rollover.`}
+              : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} analyses left · ${
+                  creditState.dailyUsageLimit - creditState.dailyUsageRemaining
+                } used. Each one uses ${TOKEN_RANGE_TEXT}. Refills every day at ${resetAt}, no rollover.`}
           </p>
           {!unlimited && (
             <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-white/[0.05] text-[11px] text-slate-300">

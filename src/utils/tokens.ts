@@ -1,10 +1,13 @@
-// Usage accounting shown in the UI. Conversion used everywhere: 150k tokens = 5 credits (30k tokens per credit).
-// Each prompt reports its own token count: random per prompt (stable for a given message), centred on one credit.
+// Usage accounting shown in the UI. One analysis costs one credit. Each analysis reports its own token count:
+// random per analysis (stable for a given message), between MIN and MAX, 30k on average, and it counts up live
+// while the analysis runs. TOKENS_PER_CREDIT is that average, used only for estimates.
 export const TOKENS_PER_CREDIT = 30_000;
 /** @deprecated kept for existing imports: one credit's worth of tokens */
 export const TOKENS_PER_USAGE = TOKENS_PER_CREDIT;
-const MIN_PROMPT_TOKENS = 18_500;
-const MAX_PROMPT_TOKENS = 41_500;
+export const MIN_PROMPT_TOKENS = 18_500;
+export const MAX_PROMPT_TOKENS = 41_500;
+/** "about 18.5k to 41.5k tokens (30k on average)" */
+export const TOKEN_RANGE_TEXT = `about ${formatTokens(MIN_PROMPT_TOKENS)} to ${formatTokens(MAX_PROMPT_TOKENS)} tokens (${formatTokens(TOKENS_PER_CREDIT)} on average)`;
 
 /** Credits → tokens (5 credits → 150k tokens). */
 export const creditsToTokens = (credits: number) => credits * TOKENS_PER_CREDIT;

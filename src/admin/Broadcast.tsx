@@ -1,7 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import { Megaphone, Send, Users, User, Flag, X, Info, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Megaphone, Send, Users, User, Flag, X, Info, CheckCircle2, AlertTriangle, Loader2, ImagePlus } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
-import { AnnouncementBody } from '../components/AnnouncementModal';
+import { AnnouncementBody, safeBroadcastImage } from '../components/AnnouncementModal';
+
+const MAX_IMAGE_BYTES = 700 * 1024;
+const MAX_IMAGE_SIDE = 1400;
+
+/** Shrinks a picture in the browser (longest side 1400px, JPEG) so it fits the 700 KB upload limit. */
+async function prepareImage(file: File): Promise<string> {
+  if (!/^image\/(jpeg|png|gif|webp)$/.test(file.type)) throw new Error('Choose a JPG, PNG, GIF or WebP picture.');
+  if (file.size > 15 * 1024 * 1024) throw new Error('That picture is over 15 MB.');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('That file could not be read as an image.'));
+      el.src = url;
+    });
+    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff'; // transparent areas become white (JPEG has no transparency)
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    for (const q of [0.86, 0.78, 0.68, 0.58, 0.48]) {
+      const data = canvas.toDataURL('image/jpeg', q);
+      if ((data.length - data.indexOf(',') - 1) * 0.75 <= MAX_IMAGE_BYTES) return data;
+    }
+    throw new Error('That picture is too detailed to shrink under 700 KB. Try a smaller one.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const kb = (dataUrl: string) => Math.round(((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75) / 1024);
 import { Badge, Card, ConfirmDialog, Empty, fmtDateTime, useAdminData } from './ui';
 
 type Mode = 'banner' | 'general' | 'individual';
@@ -19,11 +54,11 @@ const TONE_STYLE: Record<Tone, { cls: string; icon: React.ElementType }> = {
   warning: { cls: 'bg-amber-500/12 border-amber-400/25 text-amber-100', icon: AlertTriangle },
 };
 
-export const BannerPreview: React.FC<{ title: string; message: string; tone: Tone }> = ({ title, message, tone }) => {
+export const BannerPreview: React.FC<{ title: string; message: string; tone: Tone; image?: string | null }> = ({ title, message, tone, image }) => {
   const { cls, icon: Icon } = TONE_STYLE[tone];
   return (
     <div className={`flex items-start gap-2.5 rounded-2xl border px-3.5 py-2.5 text-sm ${cls}`}>
-      <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+      {image ? <img src={image} alt="" className="w-10 h-10 rounded-xl object-cover border border-white/[0.1] shrink-0" /> : <Icon className="w-4 h-4 mt-0.5 shrink-0" />}
       <span className="min-w-0 break-words">
         <span className="font-semibold">{title || 'Banner title'}</span>
         {message && <span className="opacity-80"> · {message}</span>}
@@ -41,6 +76,24 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
   const [duration, setDuration] = useState('24');
   const [link, setLink] = useState('');
   const [email, setEmail] = useState(true);
+  const [image, setImage] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pickImage = async (file?: File | null) => {
+    if (!file) return;
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      setImage(await prepareImage(file));
+    } catch (e: any) {
+      setImageError(e?.message || 'Could not use that picture.');
+    } finally {
+      setImageBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -62,7 +115,7 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
     try {
       const r = await apiFetch<any>('/api/admin/broadcast', {
         method: 'POST',
-        body: JSON.stringify({ mode, title, message, target, tone, durationHours: Number(duration) || 0, link, email }),
+        body: JSON.stringify({ mode, title, message, target, tone, durationHours: Number(duration) || 0, link, email, ...(image ? { image } : {}) }),
       });
       setResult({
         ok: true,
@@ -74,6 +127,7 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
       setTitle('');
       setMessage('');
       setLink('');
+      setImage(null);
       history.reload();
     } catch (e: any) {
       setResult({ ok: false, text: e?.message || 'Could not send.' });
@@ -206,21 +260,63 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
             </>
           )}
 
+          {/* Picture (optional): goes with the notification, the banner and the email */}
+          <div>
+            <span className="text-xs text-slate-400">Picture (optional)</span>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="sr-only"
+              aria-label="Choose a picture"
+              onChange={e => pickImage(e.target.files?.[0])}
+            />
+            {image ? (
+              <div className="mt-1.5 flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2.5 min-w-0">
+                <img src={image} alt="Selected picture" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                <span className="min-w-0 flex-1 text-xs text-slate-400">
+                  <span className="block text-slate-200">Picture attached · {kb(image)} KB</span>
+                  {mode === 'banner' ? 'Shown as a thumbnail on the banner.' : `Shown in the notification${email ? ' and embedded in the email' : ''}.`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setImage(null)}
+                  className="w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.08] inline-flex items-center justify-center shrink-0 cursor-pointer"
+                  aria-label="Remove picture"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={imageBusy}
+                className="mt-1.5 w-full h-11 rounded-xl border border-dashed border-white/[0.14] text-sm text-slate-300 hover:text-white hover:bg-white/[0.03] inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {imageBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                {imageBusy ? 'Preparing picture…' : 'Add a picture'}
+              </button>
+            )}
+            {imageError && <p className="mt-1.5 text-xs text-rose-300">{imageError}</p>}
+          </div>
+
           {mode === 'banner' && (
             <div>
               <span className="text-xs text-slate-400">Preview</span>
               <div className="mt-1.5">
-                <BannerPreview title={title} message={message} tone={tone} />
+                <BannerPreview title={title} message={message} tone={tone} image={image} />
               </div>
             </div>
           )}
 
-          {mode !== 'banner' && (title || message) && (
+          {mode !== 'banner' && (title || message || image) && (
             <div>
               <span className="text-xs text-slate-400">How users will see it</span>
               <div className="mt-1.5 rounded-2xl border border-indigo-400/25 bg-gradient-to-br from-indigo-500/[0.12] to-transparent p-3.5">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-200">MarketX Team · Announcement</span>
                 <p className="mt-1.5 text-sm font-semibold text-white break-words">{title || 'Title'}</p>
+                {image && <img src={image} alt="" className="mt-2 w-full max-h-48 object-cover rounded-xl" />}
                 <div className="mt-1 text-xs text-slate-300 leading-relaxed">
                   <AnnouncementBody message={message || 'Your message'} />
                 </div>
@@ -251,7 +347,12 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
         <Card title="Live banner">
           {history.data?.banner ? (
             <div className="space-y-3">
-              <BannerPreview title={history.data.banner.title} message={history.data.banner.message} tone={history.data.banner.tone} />
+              <BannerPreview
+                title={history.data.banner.title}
+                message={history.data.banner.message}
+                tone={history.data.banner.tone}
+                image={safeBroadcastImage(history.data.banner.image)}
+              />
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                 <span>{history.data.banner.expiresAt ? `Until ${fmtDateTime(history.data.banner.expiresAt)}` : 'Until removed'}</span>
                 <button type="button" onClick={clearBanner} className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 cursor-pointer">
@@ -275,6 +376,7 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
                     </Badge>
                   </div>
                   {b.message && <p className="mt-1 text-xs text-slate-400 leading-relaxed line-clamp-2 break-words">{b.message}</p>}
+                  {safeBroadcastImage(b.image) && <img src={safeBroadcastImage(b.image)!} alt="" loading="lazy" className="mt-2 w-16 h-16 rounded-lg object-cover" />}
                   <div className="mt-1.5 text-[11px] text-slate-500 break-all">
                     {fmtDateTime(b.sentAt)} · {b.mode === 'banner' ? 'site banner' : b.mode === 'general' ? `${b.recipients} users` : b.target}
                     {b.mode !== 'banner' && (b.email ? ' · email' : ' · in-app only')}
