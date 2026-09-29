@@ -22,7 +22,7 @@ interface Participant {
 const STATUS_BADGE: Record<Status, { tone: 'green' | 'amber' | 'violet' | 'gray'; label: string }> = {
   credited: { tone: 'green', label: 'Credited' },
   pending: { tone: 'amber', label: 'Waiting 10h' },
-  ready: { tone: 'violet', label: 'Unlocked, credits on next visit' },
+  ready: { tone: 'violet', label: 'Unlocked, crediting now' },
   duplicate: { tone: 'gray', label: 'Already claimed before' },
 };
 

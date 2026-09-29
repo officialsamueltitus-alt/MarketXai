@@ -7,6 +7,7 @@ import { isSessionConfigured, readSessionCookie, verifySessionToken } from './se
 import { sendEmail, EmailOptions } from './mailer';
 import { logActivity, recordUsage } from './tracking';
 import { clientIp, stripReservedKeys } from './security';
+import { IS_LEAD_WORKER } from './workers';
 import type {
   UserProfile,
   CreditState,
@@ -531,6 +532,25 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
   return credited;
 }
 
+// Credits every campaign reward whose 10 hour window has passed, even if the user has not come back to the site.
+// The unlock time is set by the server when the user joins; settleXShareReward re-checks it inside a transaction,
+// so a reward is credited once and never before its unlock time.
+export async function sweepDueXShareRewards(): Promise<number> {
+  const snap = await db().collection('users').where('xShareReward.status', '==', 'pending').limit(500).get();
+  const now = Date.now();
+  let count = 0;
+  for (const d of snap.docs) {
+    const u = d.data() as UserDoc;
+    if (!u.xShareReward || now < u.xShareReward.unlockAt) continue;
+    try {
+      if (await settleXShareReward({ uid: d.id, email: u.email, emailVerified: !!u.emailVerified })) count++;
+    } catch (err: any) {
+      console.warn('[MarketX Campaign] could not credit', d.id, err?.message || err);
+    }
+  }
+  return count;
+}
+
 const EXPIRY_REMINDER_MS = 3 * DAY_MS;
 
 async function readAccountState(user: AuthedUser) {
@@ -737,6 +757,15 @@ function sanitizeSession(raw: any, id: string): ChatSession | null {
 // Routes
 // ---------------------------------------------------------------------------
 export function registerAccountRoutes(app: Express, limiter: any) {
+  // Campaign rewards land on time: check every 5 minutes for rewards past their 10 hour wait
+  if (isFirebaseConfigured() && IS_LEAD_WORKER) {
+    const sweep = () =>
+      sweepDueXShareRewards()
+        .then(n => n && console.log(`[MarketX Campaign] credited ${n} campaign reward(s)`))
+        .catch(err => console.warn('[MarketX Campaign] reward sweep failed:', err?.message || err));
+    setTimeout(sweep, 45 * 1000).unref();
+    setInterval(sweep, 5 * 60 * 1000).unref();
+  }
   const wrap =
     (fn: (req: Request, res: Response) => Promise<any>) =>
     (req: Request, res: Response) =>
