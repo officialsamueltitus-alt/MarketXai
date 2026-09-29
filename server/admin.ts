@@ -8,6 +8,7 @@ import { perWorkerAtLeast } from './workers';
 import { addNotification, invalidateAuthCache, UserDoc, userRef, usernameRef } from './account';
 import { deleteAccountData, setEmailBanned } from './auth';
 import { passcodeReport } from './access';
+import { approveSubmission, listSubmissions, rejectSubmission } from './campaigns';
 import { dayKey, logActivity } from './tracking';
 import { clientIp } from './security';
 
@@ -677,6 +678,23 @@ export function registerAdminRoutes(app: Express) {
       },
       participants,
     });
+  }));
+
+  // --- Explain MarketX campaign: review submitted posts, approve (50 credits) or decline ---
+  app.get('/api/admin/campaign/submissions', requireAdmin, wrap(async (req, res) => {
+    res.json(await listSubmissions());
+  }));
+  app.post('/api/admin/campaign/submissions/:id/approve', requireAdmin, wrap(async (req, res) => {
+    const r = await approveSubmission(String(req.params.id || '').slice(0, 200));
+    if ('error' in r) return res.status(r.status).json({ error: r.error, message: r.message });
+    adminLog('campaign_approved', { id: r.submission.id, user: r.submission.username, credits: r.submission.creditsAwarded });
+    res.json({ success: true });
+  }));
+  app.post('/api/admin/campaign/submissions/:id/reject', requireAdmin, wrap(async (req, res) => {
+    const r = await rejectSubmission(String(req.params.id || '').slice(0, 200), String(req.body?.reason || ''));
+    if ('error' in r) return res.status(r.status).json({ error: r.error, message: r.message });
+    adminLog('campaign_rejected', { id: r.submission.id, user: r.submission.username });
+    res.json({ success: true });
   }));
 
   // --- Broadcasts ---------------------------------------------------------
