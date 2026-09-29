@@ -11,10 +11,16 @@ const isBlogRoute = /^\/blog\/?$/i.test(window.location.pathname);
 if (isBlogRoute && window.location.pathname !== '/blog') {
   history.replaceState(null, '', '/blog' + window.location.search + window.location.hash);
 }
+// Campaign pages are standalone too (e.g. /campaigns/explain-marketx)
+const ExplainCampaignPage = lazy(() => import('./campaign/ExplainCampaignPage'));
+const isCampaignRoute = /^\/campaigns\/explain-marketx\/?$/i.test(window.location.pathname);
+if (isCampaignRoute && window.location.pathname !== '/campaigns/explain-marketx') {
+  history.replaceState(null, '', '/campaigns/explain-marketx' + window.location.search + window.location.hash);
+}
 // The app itself is a fixed, full-height shell (body can't scroll). The console is a normal scrolling
 // page, so it gets its own document styles: native window scroll, touch momentum, selectable text.
-if (isAdminRoute || isBlogRoute) {
-  document.documentElement.classList.add(isBlogRoute ? 'mx-blog-page' : 'mx-admin-page');
+if (isAdminRoute || isBlogRoute || isCampaignRoute) {
+  document.documentElement.classList.add(isAdminRoute ? 'mx-admin-page' : 'mx-blog-page');
   document.body.classList.remove('overflow-hidden', 'select-none');
 }
 import './index.css';
@@ -63,6 +69,10 @@ createRoot(document.getElementById('root')!).render(
       ) : isBlogRoute ? (
         <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
           <BlogPage />
+        </Suspense>
+      ) : isCampaignRoute ? (
+        <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
+          <ExplainCampaignPage />
         </Suspense>
       ) : (
         <App />

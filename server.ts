@@ -27,6 +27,7 @@ import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payment
 import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { registerAdminRoutes } from './server/admin';
+import { registerCampaignRoutes } from './server/campaigns';
 import { registerSupportRoutes } from './server/support';
 import { isMailerConfigured } from './server/mailer';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
@@ -1861,6 +1862,8 @@ registerAuthRoutes(app);
 registerAccountRoutes(app, generalApiRateLimiter);
 registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
+// Campaigns: users submit their X post; an admin reviews and approves the reward
+registerCampaignRoutes(app, generalApiRateLimiter);
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 

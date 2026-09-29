@@ -1,6 +1,47 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppNotification, NotificationType } from '../types';
 import { safeBroadcastImage } from './AnnouncementModal';
+
+// Campaigns shown in the Rewards tab. Listed here only: nobody gets a notification, badge or email about them.
+const EXPLAIN_CAMPAIGN_ENDS = Date.parse('2026-10-30T23:59:59+01:00');
+
+const ExplainCampaignCard: React.FC = () => {
+  if (Date.now() > EXPLAIN_CAMPAIGN_ENDS) return null;
+  const days = Math.max(0, Math.floor((EXPLAIN_CAMPAIGN_ENDS - Date.now()) / 86400000));
+  return (
+    <a
+      href="/campaigns/explain-marketx"
+      className="group relative mt-3 block overflow-hidden rounded-2xl border border-violet-400/25 p-3.5 transition hover:border-violet-300/40"
+      aria-label="Open the Explain MarketX campaign: earn 50 credits"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 bg-[radial-gradient(120%_140%_at_0%_0%,rgba(139,92,246,0.32),transparent_60%),radial-gradient(120%_140%_at_100%_100%,rgba(56,189,248,0.22),transparent_60%)]"
+      />
+      <span className="relative flex items-center gap-2">
+        <span className="h-5 px-2 rounded-full bg-white/[0.12] text-[10px] font-semibold uppercase tracking-wider text-white inline-flex items-center gap-1">
+          <Sparkles className="w-3 h-3" /> New campaign
+        </span>
+        <span className="ml-auto text-[11px] text-slate-300 tabular-nums">{days > 0 ? `${days}d left` : 'Ends today'}</span>
+      </span>
+      <span className="relative mt-2.5 flex items-start justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block text-[15px] font-semibold text-white leading-snug">Explain MarketX, earn 50 credits</span>
+          <span className="mt-1 block text-xs text-slate-300 leading-relaxed">
+            Share a 1 minute video or a write up with screenshots on X, tag @_MarketXai and submit the link. Credits are added once approved.
+          </span>
+        </span>
+        <span className="shrink-0 h-10 px-2.5 rounded-xl bg-white/[0.1] text-white inline-flex flex-col items-center justify-center leading-none">
+          <span className="text-sm font-bold tabular-nums">+50</span>
+          <span className="text-[9px] uppercase tracking-wider text-slate-300 mt-0.5">credits</span>
+        </span>
+      </span>
+      <span className="relative mt-3 inline-flex items-center gap-1 text-xs font-semibold text-white">
+        Join the campaign <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </a>
+  );
+};
 import { Bell, CheckCheck, Trash2, X, Sparkles, TrendingUp, ShieldCheck, Gift, LineChart, ChevronRight, Mail, Megaphone } from 'lucide-react';
 
 interface NotificationCenterModalProps {
@@ -210,6 +251,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
 
         {/* List */}
         <div className="flex-1 min-h-[240px] overflow-y-auto overscroll-contain px-3 pb-3 border-t border-white/[0.05]">
+          {filter === 'rewards' && <ExplainCampaignCard />}
           {groups.length === 0 ? (
             <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center px-8">
               <span className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center text-slate-500">

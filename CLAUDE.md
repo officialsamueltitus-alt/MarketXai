@@ -38,6 +38,10 @@
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
+- "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
+  users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
+  or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
+  notification Rewards tab; nobody is notified about the campaign itself.
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
   price and today's news for any pair they name; only analysis requests return trade cards.
