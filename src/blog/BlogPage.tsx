@@ -263,7 +263,7 @@ const SECTIONS: Section[] = [
         <Table
           head={['Part of the card', 'What it tells you']}
           rows={[
-            ['Direction', 'BUY ZONE / BUY LIMIT or SELL ZONE / SELL LIMIT: the side to trade, placed as a limit order.'],
+            ['Direction', 'BUY LIMIT or SELL LIMIT: a pending order in a zone price has not reached yet. BUY NOW or SELL NOW (market): price is making the first touch of a fresh zone right now, so the trade is taken at the current price.'],
             ['Entry (Limit Zone)', 'The price range to enter in, with the Optimal price marked.'],
             ['Stop Loss', 'Where the idea is wrong and the trade should close.'],
             ['TP1, TP2, TP3', 'Three targets, each with its reward to risk and a suggested share of the position to close.'],
@@ -271,6 +271,7 @@ const SECTIONS: Section[] = [
             ['Zones', 'Levels to watch: Untouched ones are still valid, Mitigated ones have already been used by price.'],
             ['Points of interest', 'Demand order blocks (discount), supply zones (premium), fair value gaps and the golden pocket pool, each marked unmitigated or mitigated.'],
             ['Write up', 'The full reasoning, the market structure and the timeframe used.'],
+            ['Recheck zones', 'Tap it any time after a signal: MarketX replays the latest live candles and price over the zone, entry, stop and targets and tells you if the setup is still valid, filled, stopped out, has reached a target or is already mitigated. Free, no credit used.'],
             ['High impact news', 'A warning when major news may move the market soon, with guidance.'],
           ]}
         />

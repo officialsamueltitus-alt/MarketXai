@@ -51,13 +51,19 @@ export interface SDZone {
   distanceAtr: number; // from current price to the proximal line
   priceInside: boolean;
   /** 3-candle fair value gap (imbalance) at the zone's doorstep; filled = price has since traded through it */
-  fvg: { low: number; high: number; filled: boolean } | null;
+  fvg: { low: number; high: number; filled: boolean; filledAt?: number } | null;
   /** First candle after the leg-out: every tap/mitigation check replays from here */
   freshFrom: number;
+  /** Open time of that candle (used by the recheck to replay from the same point) */
+  freshFromTime?: number;
   /** Candles since the base formed (lower = more recent) */
   ageBars: number;
   /** Where the zone sits in the dealing range: discount (below the 0.50 equilibrium) or premium (above it) */
   territory?: 'PREMIUM' | 'DISCOUNT';
+  /** Price is making the zone's FIRST touch right now (touch began on one of the last LIVE_TOUCH_BARS candles, never touched before) */
+  liveFirstTouch?: boolean;
+  /** Candle index where the current (live) touch began */
+  touchStart?: number;
 }
 
 export interface FibLevel {
@@ -89,6 +95,8 @@ export interface TradePlan {
   legEquilibrium: number;
   /** The zone sits on the right side of the leg's equilibrium (demand in discount, supply in premium) */
   inTerritory: boolean;
+  /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
+  execution: 'LIMIT' | 'MARKET';
 }
 
 export interface MarketMap {
@@ -252,9 +260,18 @@ function trendFromSwings(swings: Swing[]): 'BULLISH' | 'BEARISH' | 'RANGING' {
 export const RECENT_ZONE_BARS = 120;
 /** A zone further than this from price (in ATRs) is too far to trigger soon and is never signalled. */
 export const MAX_ZONE_DISTANCE_ATR = 12;
+/** A first touch that began within this many candles (the live candle or the one before) can be traded at market */
+export const LIVE_TOUCH_BARS = 2;
 
 function isBasing(c: Candle, atr: number) {
   return body(c) <= range(c) * 0.5 || range(c) <= atr * 0.7;
+}
+
+/** The zone's fair value gap was still open before the current first touch (price filling it on the way in is expected) */
+export function fvgOpenBefore(z: SDZone): boolean {
+  if (!z.fvg) return false;
+  if (!z.fvg.filled) return true;
+  return !!z.liveFirstTouch && z.touchStart !== undefined && z.fvg.filledAt !== undefined && z.fvg.filledAt >= z.touchStart;
 }
 
 export function detectZones(candles: Candle[], price: number): { demand: SDZone[]; supply: SDZone[]; atr: number; swings: Swing[] } {
@@ -351,14 +368,14 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
       const c2 = candles[k + 1];
       const gap = up ? (c2.l > c0.h ? { low: c0.h, high: c2.l } : null) : c2.h < c0.l ? { low: c2.h, high: c0.l } : null;
       if (!gap) continue;
-      let filled = false;
+      let filledAt: number | undefined;
       for (let j = k + 2; j < n; j++) {
         if (up ? candles[j].l <= gap.low : candles[j].h >= gap.high) {
-          filled = true;
+          filledAt = j;
           break;
         }
       }
-      fvg = { ...gap, filled };
+      fvg = filledAt === undefined ? { ...gap, filled: false } : { ...gap, filled: true, filledAt };
       break;
     }
 
@@ -366,10 +383,14 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     let tapCount = 0;
     let broken = false;
     let away = true;
+    let touchStart = -1;
     for (let j = i + (strongPair ? 2 : 1); j < n; j++) {
       const c = candles[j];
       const touches = up ? c.l <= proximal : c.h >= proximal;
-      if (touches && away) tapCount++;
+      if (touches && away) {
+        tapCount++;
+        touchStart = j;
+      }
       away = !touches;
       if (up ? c.c < distal : c.c > distal) {
         broken = true;
@@ -377,9 +398,15 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
       }
     }
     if (broken) continue;
+    const insideNow = price >= Math.min(proximal, distal) && price <= Math.max(proximal, distal);
+    // First touch in progress: never touched before, the touch began on the live candle (or the one before) and
+    // price is still inside the zone. Such a zone can be entered at market; any earlier touch means mitigated.
+    const liveFirstTouch = tapCount === 1 && !away && touchStart >= n - LIVE_TOUCH_BARS && insideNow;
 
     zones.push({
+      ...(liveFirstTouch ? { liveFirstTouch, touchStart } : {}),
       freshFrom: i + (strongPair ? 2 : 1),
+      freshFromTime: candles[Math.min(n - 1, i + (strongPair ? 2 : 1))].t,
       ageBars: n - 1 - base[0],
       kind: up ? 'DEMAND' : 'SUPPLY',
       pattern,
@@ -397,7 +424,7 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
       fresh: tapCount === 0,
       score: 0,
       distanceAtr: 0,
-      priceInside: price >= Math.min(proximal, distal) && price <= Math.max(proximal, distal),
+      priceInside: insideNow,
       fvg,
     });
   }
@@ -414,9 +441,9 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     z.distanceAtr = z.priceInside ? 0 : Math.abs(price - z.proximal) / atr;
     let s = 40;
     s += Math.min(z.departureAtr, 5) * 6; // up to +30 for explosive departure
-    s += z.tapCount === 0 ? 14 : z.tapCount === 1 ? 4 : -12; // fresh zones hold best
+    s += z.tapCount === 0 || z.liveFirstTouch ? 14 : z.tapCount === 1 ? 4 : -12; // fresh zones hold best (a first touch in progress is still fresh)
     s += z.brokeStructure ? 8 : 0;
-    s += z.fvg ? (z.fvg.filled ? 0 : 6) : -8; // an open imbalance at the zone proves institutional displacement
+    s += z.fvg ? (fvgOpenBefore(z) ? 6 : 0) : -8; // an open imbalance at the zone proves institutional displacement
     s += z.baseCandles === 1 ? 6 : z.baseCandles === 2 ? 3 : 0; // less time at base = more imbalance
     s += z.pattern === 'DBR' || z.pattern === 'RBD' ? 4 : 2; // reversal zones slightly stronger
     if ((z.kind === 'DEMAND' && trend === 'BULLISH') || (z.kind === 'SUPPLY' && trend === 'BEARISH')) s += 8;
@@ -572,11 +599,21 @@ function planForZone(
     optimal = long ? z.proximal - (z.high - z.low) * 0.25 : z.proximal + (z.high - z.low) * 0.25;
   }
 
-  // A limit entry must still be ahead of price (or price is sitting in the zone right now)
-  if (!z.priceInside && (long ? optimal >= price : optimal <= price)) return null;
-  if (z.priceInside) optimal = long ? Math.min(optimal, price) : Math.max(optimal, price);
-  eMin = Math.min(eMin, optimal);
-  eMax = Math.max(eMax, optimal);
+  // Instant (market) execution: price is making the zone's FIRST touch right now and sits at or beyond the leg's
+  // 0.50 (discount for buys, premium for sells), so the entry is the current price instead of a pending order
+  const instant = !!z.liveFirstTouch && z.priceInside && ratioOf(price) >= 0.5;
+  if (instant) {
+    const pad = Math.min(atr * 0.1, (z.high - z.low) * 0.25);
+    optimal = price;
+    eMin = long ? Math.max(z.low, price - pad) : price;
+    eMax = long ? price : Math.min(z.high, price + pad);
+  } else {
+    // A limit entry must still be ahead of price (or price is sitting in the zone right now)
+    if (!z.priceInside && (long ? optimal >= price : optimal <= price)) return null;
+    if (z.priceInside) optimal = long ? Math.min(optimal, price) : Math.max(optimal, price);
+    eMin = Math.min(eMin, optimal);
+    eMax = Math.max(eMax, optimal);
+  }
 
   // Stop beyond the zone's distal line with an ATR buffer (tight = just beyond the line)
   // Normal: 0.3 ATR beyond the distal line, >= 1 ATR risk. Tight (input-box toggle): a smaller but still
@@ -638,14 +675,18 @@ function planForZone(
   const mitigation: string[] = [];
   const when = (c: Candle) => new Date(c.t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
   const entryEdge = long ? eMax : eMin; // the side of the entry band price reaches first
-  if (z.tapCount > 0) mitigation.push(`the ${long ? 'demand' : 'supply'} zone was already tapped ${z.tapCount}x since it formed (price entered it and returned)`);
+  if (instant) {
+    // The first touch is happening now: that is the entry itself, not a mitigation
+  } else if (z.tapCount > 0) mitigation.push(`the ${long ? 'demand' : 'supply'} zone was already tapped ${z.tapCount}x since it formed (price entered it and returned)`);
   else if (z.priceInside) mitigation.push(`price is trading inside the ${long ? 'demand' : 'supply'} zone right now`);
   // The live 24h range can show a tap the candle feed has not printed yet. Only used when the window opens after the
   // zone's leg-out, so the displacement candles themselves are never mistaken for a tap.
   const legOutDone = candles[Math.min(candles.length - 1, z.freshFrom)];
   if (session && legOutDone.t < session.since) {
     const extreme = long ? session.low : session.high;
-    if (z.tapCount === 0 && !z.priceInside && (long ? extreme <= z.proximal : extreme >= z.proximal))
+    if (instant) {
+      // Only the stop matters: the zone and entry are being touched right now
+    } else if (z.tapCount === 0 && !z.priceInside && (long ? extreme <= z.proximal : extreme >= z.proximal))
       mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already traded into the zone`);
     else if (long ? extreme <= entryEdge : extreme >= entryEdge)
       mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already reached the entry ${round(entryEdge)}`);
@@ -660,7 +701,8 @@ function planForZone(
       stopHit = true;
       mitigation.push(`the stop-loss level ${round(stop)} was already hit (${when(c)})`);
     }
-    if (!entryTap && (long ? c.l <= entryEdge : c.h >= entryEdge)) {
+    // For a market entry the live touch is the fill; only candles before it could have tapped the entry earlier
+    if (!entryTap && !(instant && j >= (z.touchStart ?? candles.length)) && (long ? c.l <= entryEdge : c.h >= entryEdge)) {
       entryTap = c;
       mitigation.push(`the entry ${round(entryEdge)} was already tapped (${when(c)})`);
       continue; // targets count from the next candle after the entry fill
@@ -680,6 +722,7 @@ function planForZone(
   });
 
   return {
+    execution: instant ? 'MARKET' : 'LIMIT',
     mitigation,
     legEquilibrium: round(lvl(0.5)),
     inTerritory: rNear >= 0.5,
@@ -755,10 +798,9 @@ export function buildMarketMap(
     !!p &&
     rightTerritory(p) &&
     p.confluence !== 'ZONE_ONLY' &&
-    (p.confluence !== 'LEG_ORIGIN' || (p.zone.fresh && p.score >= 80)) &&
+    (p.confluence !== 'LEG_ORIGIN' || ((p.zone.fresh || p.execution === 'MARKET') && p.score >= 80)) &&
     // Institutional displacement: an unfilled fair value gap at the zone's doorstep
-    !!p.zone.fvg &&
-    !p.zone.fvg.filled &&
+    fvgOpenBefore(p.zone) &&
     // Counter-trend trades must clear a much higher bar
     p.score >= ((trend === 'BULLISH' && p.direction === 'SHORT') || (trend === 'BEARISH' && p.direction === 'LONG') ? 82 : 70) &&
     p.zone.distanceAtr <= MAX_ZONE_DISTANCE_ATR &&
@@ -800,7 +842,7 @@ export function buildMarketMap(
     else if (!bestLong && !bestShort) noSignalReason = 'No signal. Fresh zones exist, but none leaves room for a clean Fibonacci entry ahead of price with a valid stop.';
     else if (![...longs, ...shorts].some(rightTerritory))
       noSignalReason = 'No signal. The fresh zones sit on the wrong side of the 0.50 equilibrium (demand in premium or supply in discount), so there is no institutional-value entry right now.';
-    else if (![...longs, ...shorts].some(p => p.zone.fvg && !p.zone.fvg.filled))
+    else if (![...longs, ...shorts].some(p => fvgOpenBefore(p.zone)))
       noSignalReason = 'No signal. The fresh zones have no open fair value gap at their doorstep, so institutional displacement is not confirmed; wait for a cleaner zone.';
     else noSignalReason = 'No signal. The fresh zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
   }
@@ -840,10 +882,10 @@ const grouped = (p: number, dec: number) => p.toLocaleString('en-US', { minimumF
 
 export function describeZone(z: SDZone, dec: number, pretty = false): string {
   const f = (p: number) => (pretty ? grouped(p, dec) : p.toFixed(dec));
-  const state = z.priceInside ? 'price is inside it now' : z.fresh ? 'fresh, untouched' : `tapped ${z.tapCount}x and held`;
+  const state = z.liveFirstTouch ? 'first touch in progress now' : z.priceInside ? 'price is inside it now' : z.fresh ? 'fresh, untouched' : `tapped ${z.tapCount}x and held`;
   return `${z.kind} ${f(z.low)} – ${f(z.high)} (${PATTERN_NAME[z.pattern]}${z.territory ? `, ${z.territory.toLowerCase()}` : ''}, proximal ${f(z.proximal)}, distal ${f(z.distal)}, ${state}, departure ${z.departureAtr.toFixed(1)} ATR${
     z.brokeStructure ? ', broke structure' : ''
-  }${z.fvg ? `, FVG ${f(z.fvg.low)} to ${f(z.fvg.high)} ${z.fvg.filled ? 'filled' : 'open'}` : ', no FVG'}, score ${z.score}/100)`;
+  }${z.fvg ? `, FVG ${f(z.fvg.low)} to ${f(z.fvg.high)} ${fvgOpenBefore(z) ? (z.fvg.filled ? 'open until this touch' : 'open') : 'filled'}` : ', no FVG'}, score ${z.score}/100)`;
 }
 
 /** Compact, factual block for the AI prompt. */
@@ -870,10 +912,10 @@ export function poiList(map: MarketMap): PoiItem[] {
     name: `${z.kind === 'DEMAND' ? 'Demand order block' : 'Supply zone'} (${PATTERN_NAME[z.pattern]})`,
     low: z.low,
     high: z.high,
-    mitigated: z.tapCount > 0 || z.priceInside,
+    mitigated: !z.liveFirstTouch && (z.tapCount > 0 || z.priceInside),
     tapCount: z.tapCount,
     note: `${z.territory === 'DISCOUNT' ? 'Discount' : 'Premium'} (equilibrium ${f(map.equilibrium)}), ${
-      z.priceInside ? 'price inside it now' : z.tapCount > 0 ? `tapped ${z.tapCount}x and left` : 'untouched'
+      z.liveFirstTouch ? 'first touch in progress, price is at it now' : z.priceInside ? 'price inside it now' : z.tapCount > 0 ? `tapped ${z.tapCount}x and left` : 'untouched'
     }, departure ${z.departureAtr.toFixed(1)} ATR, score ${z.score}/100`,
   });
   const zones = [...map.demandZones, ...map.supplyZones];
@@ -885,9 +927,13 @@ export function poiList(map: MarketMap): PoiItem[] {
       name: `Fair value gap at the ${z.kind === 'DEMAND' ? 'demand' : 'supply'} zone`,
       low: Math.min(z.fvg.low, z.fvg.high),
       high: Math.max(z.fvg.low, z.fvg.high),
-      mitigated: z.fvg.filled,
-      tapCount: z.fvg.filled ? 1 : 0,
-      note: z.fvg.filled ? 'Filled, price has traded back through the imbalance' : 'Open 3-candle imbalance, a liquidity vacuum price has not revisited',
+      mitigated: !fvgOpenBefore(z),
+      tapCount: fvgOpenBefore(z) ? 0 : 1,
+      note: !z.fvg.filled
+        ? 'Open 3-candle imbalance, a liquidity vacuum price has not revisited'
+        : fvgOpenBefore(z)
+          ? 'Open until the current first touch of the zone, price is filling it on the way in now'
+          : 'Filled, price has traded back through the imbalance',
     });
   }
   const setup = map.plan || map.mitigatedSetup;
@@ -919,8 +965,12 @@ export function marketMapPromptBlock(map: MarketMap): string {
   if (p) {
     lines.push(`- SELECTED PLAN: ${p.direction} from the ${p.zone.kind.toLowerCase()} zone ${f(p.zone.low)} – ${f(p.zone.high)}.`);
     lines.push(`  Fibonacci drawn on the swing leg ${f(p.impulseFrom)} (100%) → ${f(p.impulseTo)} (0%): ${p.fib.map(l => `${l.ratio} = ${f(l.price)}`).join(', ')}. Golden pocket 0.618–0.705 = ${f(p.goldenPocket.from)} – ${f(p.goldenPocket.to)}. Confluence: ${p.confluence.replace(/_/g, ' ').toLowerCase()}${p.goldenPocketNear ? ' (within 0.3% of the zone)' : ''}.`);
-    if (p.zone.fvg) lines.push(`  Fair value gap at the zone: ${f(p.zone.fvg.low)} – ${f(p.zone.fvg.high)}, unfilled (institutional displacement confirmed).`);
-    lines.push(`  Pre-signal crosscheck passed: zone untouched (tapCount 0), entry, stop loss and every target still untouched and ahead of price.`);
+    if (p.zone.fvg) lines.push(`  Fair value gap at the zone: ${f(p.zone.fvg.low)} – ${f(p.zone.fvg.high)}, unfilled${p.execution === 'MARKET' ? ' until this first touch' : ''} (institutional displacement confirmed).`);
+    lines.push(
+      p.execution === 'MARKET'
+        ? `  EXECUTION: MARKET (instant). Price ${f(map.price)} is making the zone's FIRST touch right now (never touched before), so the trade is entered at the current market price, not as a pending order. Stop loss and every target are untouched and ahead of price. Say "${p.direction === 'LONG' ? 'buy' : 'sell'} now at market" in the writeup.`
+        : `  EXECUTION: LIMIT (pending order). Pre-signal crosscheck passed: zone untouched (tapCount 0), entry, stop loss and every target still untouched and ahead of price.`
+    );
     lines.push(`  Entry ${f(p.entry.min)} – ${f(p.entry.max)} (optimal ${f(p.entry.optimal)}), stop loss ${f(p.stopLoss)}, targets ${p.targets.map((t, i) => `TP${i + 1} ${f(t.price)} [${t.label}, 1:${t.rr}]`).join('; ')}. Plan score ${p.score}/100.`);
   } else {
     lines.push(`- SELECTED PLAN: NO_SIGNAL. ${map.noSignalReason}`);
@@ -959,16 +1009,24 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
             ? `The zone is the origin of the swing (Fibonacci 100%), a deep retest entry at the proximal edge.\n\n`
             : `The zone sits outside the key retracement band, so the entry is taken at the zone's proximal edge with reduced size.\n\n`;
     if (p.zone.fvg)
-      out += `**Displacement:** an open fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) sits at the zone's doorstep, so the zone is untouched and institutional orders are still resting there.\n\n`;
+      out +=
+        p.execution === 'MARKET'
+          ? `**Displacement:** the fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) stayed open until this first touch, so institutional orders were still resting in the zone when price arrived.\n\n`
+          : `**Displacement:** an open fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) sits at the zone's doorstep, so the zone is untouched and institutional orders are still resting there.\n\n`;
     const pois = poiList(map);
     out += `#### Points of Interest\n${pois
       .map(x => `- **${x.name}:** ${f(x.low)} to ${f(x.high)}, ${x.mitigated ? 'mitigated' : 'unmitigated'}`)
       .join('\n')}\n\n`;
     out += `#### Execution Plan · ${p.direction}\n`;
-    out += `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} to ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
+    out +=
+      p.execution === 'MARKET'
+        ? `- **Entry (${long ? 'buy' : 'sell'} now at market):** price is making the zone's first touch right now, enter at **${f(p.entry.optimal)}** (band ${f(p.entry.min)} to ${f(p.entry.max)})\n`
+        : `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} to ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
     out += `- **Stop loss:** ${f(p.stopLoss)}, beyond the zone's distal line (Fibonacci 100%)\n`;
     p.targets.forEach((t, i) => (out += `- **TP${i + 1}:** ${f(t.price)}, ${t.label} (1:${t.rr})\n`));
-    out += `\n**Invalidation:** a candle close ${long ? 'below' : 'above'} ${f(p.zone.distal)} breaks the zone; cancel the order if price reaches TP1 before filling.\n\n`;
+    out += `\n**Invalidation:** a candle close ${long ? 'below' : 'above'} ${f(p.zone.distal)} breaks the zone${
+      p.execution === 'MARKET' ? '; if price leaves the entry band before you fill, do not chase it' : '; cancel the order if price reaches TP1 before filling'
+    }.\n\n`;
   } else {
     const already = !!map.mitigatedSetup;
     out += `#### ${already ? 'No signal, already mitigated' : 'No signal'}\n${map.noSignalReason} ${
@@ -1044,4 +1102,239 @@ export function tightenStop(opts: {
   const p = long ? entry - fallbackRisk : entry + fallbackRisk;
   if (tighter(p)) return { stop: p, tightened: true, basis: '60% of the original risk, kept above half an ATR of this timeframe', minRisk };
   return { stop: originalStop, tightened: false, basis: 'already at the tightest valid level for this timeframe', minRisk };
+}
+
+// ---------------------------------------------------------------------------
+// Recheck: replay live candles over a signal's zone, entry, stop and targets
+// ---------------------------------------------------------------------------
+export interface RecheckSetup {
+  direction: 'LONG' | 'SHORT';
+  execution: 'LIMIT' | 'MARKET';
+  zone: { low: number; high: number };
+  entry: { min: number; max: number; optimal: number };
+  stop: number;
+  targets: number[];
+  /** Replay from here: the first candle after the zone's leg-out */
+  since: number;
+  /** When the signal was issued */
+  issuedAt: number;
+}
+
+export type RecheckLevelStatus = 'UNTOUCHED' | 'AT_PRICE' | 'TOUCHED' | 'HIT';
+
+export interface RecheckLevel {
+  key: string;
+  label: string;
+  low: number;
+  high: number;
+  status: RecheckLevelStatus;
+  at?: number;
+  note: string;
+}
+
+export interface RecheckResult {
+  state: 'VALID' | 'TRIGGERED' | 'TP_HIT' | 'SL_HIT' | 'MITIGATED';
+  headline: string;
+  details: string;
+  price: number;
+  levels: RecheckLevel[];
+  candlesChecked: number;
+}
+
+/**
+ * Checks a signal again against the latest candles and live price: has the zone been tapped, the entry filled,
+ * the stop hit or a target reached since the zone formed? Pure function, no I/O.
+ */
+export function recheckSetup(
+  candlesIn: Candle[],
+  price: number,
+  setup: RecheckSetup,
+  opts: { timeframeMinutes: number; decimals: number; now?: number; session?: SessionRange | null }
+): RecheckResult {
+  const long = setup.direction === 'LONG';
+  const now = opts.now ?? Date.now();
+  const tfMs = Math.max(1, opts.timeframeMinutes) * 60_000;
+  const f = (p: number) => grouped(p, opts.decimals);
+  const when = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  // Levels price reaches going against the trade (zone, entry, stop) and with it (targets)
+  const against = (c: Candle, lvl: number) => (long ? c.l <= lvl : c.h >= lvl);
+  const withTrade = (c: Candle, lvl: number) => (long ? c.h >= lvl : c.l <= lvl);
+  const proximal = long ? setup.zone.high : setup.zone.low;
+  const entryEdge = long ? setup.entry.max : setup.entry.min;
+  const market = setup.execution === 'MARKET';
+
+  const candles = candlesIn.filter(c => c.t >= setup.since && [c.o, c.h, c.l, c.c].every(v => Number.isFinite(v) && v > 0));
+  // The live price is the newest tick: treat it as a last candle
+  const live: Candle = { t: now, o: price, h: price, l: price, c: price };
+  const series = [...candles, live];
+
+  let zoneAt: number | undefined;
+  let fillAt: number | undefined;
+  let stopAt: number | undefined;
+  const tpAt: Array<number | undefined> = setup.targets.map(() => undefined);
+  let runAwayAt: number | undefined; // a target reached before the limit filled
+  let fillIdx = -1;
+  series.forEach((c, i) => {
+    if (zoneAt === undefined && against(c, proximal)) zoneAt = c.t;
+    if (stopAt === undefined && against(c, setup.stop)) stopAt = c.t;
+    if (market) return;
+    if (fillAt === undefined && against(c, entryEdge)) {
+      fillAt = c.t;
+      fillIdx = i;
+      return;
+    }
+    // Only after the signal: the impulse that created the zone naturally traded beyond TP1 before the pullback
+    if (fillAt === undefined && runAwayAt === undefined && c.t >= setup.issuedAt && setup.targets[0] && withTrade(c, setup.targets[0])) runAwayAt = c.t;
+  });
+  // Targets count after the fill (market orders fill when the signal was issued)
+  const fromIdx = market ? series.findIndex(c => c.t + tfMs > setup.issuedAt) : fillIdx >= 0 ? fillIdx + 1 : -1;
+  if (fromIdx >= 0) {
+    for (let i = fromIdx; i < series.length; i++) {
+      setup.targets.forEach((t, k) => {
+        if (tpAt[k] === undefined && withTrade(series[i], t)) tpAt[k] = series[i].t;
+      });
+    }
+  }
+  // The live 24h range can show a stop tap the candle feed has not printed yet
+  const session = opts.session;
+  let sessionStop = false;
+  if (session && session.since >= setup.since && stopAt === undefined) {
+    const extreme = long ? session.low : session.high;
+    if (long ? extreme <= setup.stop : extreme >= setup.stop) sessionStop = true;
+  }
+
+  const beforeIssue = (t?: number) => t !== undefined && t + tfMs <= setup.issuedAt;
+  const inZoneNow = price >= setup.zone.low && price <= setup.zone.high;
+  const inEntryNow = price >= Math.min(setup.entry.min, setup.entry.max) && price <= Math.max(setup.entry.min, setup.entry.max);
+  const tpHits = tpAt.map((t, k) => (t !== undefined ? k : -1)).filter(k => k >= 0);
+
+  // Level checklist
+  const levels: RecheckLevel[] = [];
+  levels.push({
+    key: 'ZONE',
+    label: long ? 'Demand zone' : 'Supply zone',
+    low: setup.zone.low,
+    high: setup.zone.high,
+    status: market ? 'AT_PRICE' : zoneAt === undefined ? 'UNTOUCHED' : inZoneNow && zoneAt === now ? 'AT_PRICE' : 'TOUCHED',
+    ...(zoneAt !== undefined && zoneAt !== now ? { at: zoneAt } : {}),
+    note: market
+      ? 'First touch was the entry signal'
+      : zoneAt === undefined
+        ? 'Untouched since it formed'
+        : zoneAt === now
+          ? 'Price is at the zone right now'
+          : `Tapped ${when(zoneAt)}`,
+  });
+  levels.push({
+    key: 'ENTRY',
+    label: market ? 'Entry (market)' : 'Entry (limit)',
+    low: Math.min(setup.entry.min, setup.entry.max),
+    high: Math.max(setup.entry.min, setup.entry.max),
+    status: market ? (inEntryNow ? 'AT_PRICE' : 'HIT') : fillAt === undefined ? 'UNTOUCHED' : fillAt === now ? 'AT_PRICE' : 'HIT',
+    ...(fillAt !== undefined && fillAt !== now ? { at: fillAt } : {}),
+    note: market
+      ? inEntryNow
+        ? 'Price is still inside the entry band'
+        : `Filled at market; price has moved ${long ? (price > setup.entry.optimal ? 'up' : 'down') : price < setup.entry.optimal ? 'down' : 'up'} since`
+      : fillAt === undefined
+        ? 'Not filled yet'
+        : fillAt === now
+          ? 'Price is at the entry right now'
+          : `Filled ${when(fillAt)}`,
+  });
+  levels.push({
+    key: 'STOP',
+    label: 'Stop loss',
+    low: setup.stop,
+    high: setup.stop,
+    status: stopAt !== undefined || sessionStop ? 'HIT' : 'UNTOUCHED',
+    ...(stopAt !== undefined ? { at: stopAt } : {}),
+    note: stopAt !== undefined ? `Hit ${when(stopAt)}` : sessionStop ? 'Reached inside the last 24 hours' : 'Untouched',
+  });
+  setup.targets.forEach((t, k) =>
+    levels.push({
+      key: `TP${k + 1}`,
+      label: `TP${k + 1}`,
+      low: t,
+      high: t,
+      status: tpAt[k] !== undefined ? 'HIT' : 'UNTOUCHED',
+      ...(tpAt[k] !== undefined ? { at: tpAt[k] } : {}),
+      note: tpAt[k] !== undefined ? `Reached ${when(tpAt[k]!)}` : k === 0 && runAwayAt !== undefined ? `Reached before the entry filled (${when(runAwayAt)})` : 'Untouched',
+    })
+  );
+
+  const base = { price, levels, candlesChecked: candles.length };
+  const side = long ? 'buy' : 'sell';
+  // Verdicts, most serious first
+  if (stopAt !== undefined || sessionStop) {
+    const filled = market || fillAt !== undefined;
+    return {
+      ...base,
+      state: 'SL_HIT',
+      headline: filled ? 'Stopped out' : 'Stop level already hit, setup invalid',
+      details: `The stop loss ${f(setup.stop)} ${stopAt !== undefined ? `was hit ${when(stopAt)}` : 'was reached inside the last 24 hours'}. ${
+        filled ? 'The trade is closed at a loss.' : 'Do not place this order.'
+      } Wait for a new, untouched zone.`,
+    };
+  }
+  if (tpHits.length) {
+    const last = tpHits[tpHits.length - 1];
+    return {
+      ...base,
+      state: 'TP_HIT',
+      headline: `TP${last + 1} reached`,
+      details: `${tpHits.map(k => `TP${k + 1} ${f(setup.targets[k])}`).join(', ')} reached after the entry filled. The move has played out${
+        last + 1 < setup.targets.length ? '; if you are in the trade, keep the stop at entry for the remaining targets' : ''
+      }. A new entry here is late, wait for a fresh setup.`,
+    };
+  }
+  if (!market) {
+    if (fillAt !== undefined && beforeIssue(fillAt)) {
+      return {
+        ...base,
+        state: 'MITIGATED',
+        headline: 'Already mitigated',
+        details: `The entry ${f(entryEdge)} was already tapped ${when(fillAt)}, before this signal. The zone is used; do not place this order.`,
+      };
+    }
+    if (fillAt !== undefined) {
+      return {
+        ...base,
+        state: 'TRIGGERED',
+        headline: fillAt === now ? `Entry reached now, ${side} limit filling` : 'Entry filled, trade is live',
+        details: `Price ${fillAt === now ? 'is at' : `filled`} the entry ${f(entryEdge)}${fillAt === now ? ' right now' : ` ${when(fillAt)}`}. The stop ${f(setup.stop)} and every target are untouched. Manage the position: stop at ${f(setup.stop)}, targets ${setup.targets.map(t => f(t)).join(', ')}.`,
+      };
+    }
+    if (zoneAt !== undefined && zoneAt !== now) {
+      return {
+        ...base,
+        state: 'MITIGATED',
+        headline: 'Already mitigated',
+        details: `Price entered the zone ${when(zoneAt)} without reaching the entry ${f(entryEdge)} and left. The resting orders have reacted; do not place this order.`,
+      };
+    }
+    if (runAwayAt !== undefined) {
+      return {
+        ...base,
+        state: 'MITIGATED',
+        headline: 'Price ran away',
+        details: `Price reached TP1 ${f(setup.targets[0])} before the limit entry filled. Cancel the order; the move went without you.`,
+      };
+    }
+    return {
+      ...base,
+      state: 'VALID',
+      headline: inZoneNow ? 'Still valid, price is at the zone now' : 'Still valid, zone untouched',
+      details: `The zone ${f(setup.zone.low)} to ${f(setup.zone.high)}, the entry ${f(entryEdge)}, the stop ${f(setup.stop)} and every target are untouched. The ${side} limit order is still good.`,
+    };
+  }
+  // Market execution, no stop and no target yet
+  return {
+    ...base,
+    state: 'TRIGGERED',
+    headline: inEntryNow ? `Still valid, ${side} at market` : 'Trade is live',
+    details: inEntryNow
+      ? `Price ${f(price)} is still inside the entry band ${f(Math.min(setup.entry.min, setup.entry.max))} to ${f(Math.max(setup.entry.min, setup.entry.max))}. The stop ${f(setup.stop)} and every target are untouched.`
+      : `The entry was taken at ${f(setup.entry.optimal)}; price is now ${f(price)}. The stop ${f(setup.stop)} and every target are untouched. If you are not in yet, do not chase it.`,
+  };
 }

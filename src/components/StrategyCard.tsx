@@ -179,7 +179,7 @@ Generated via MarketX AI (@_MarketXai) • https://marketx.world`;
               ) : (
                 <>
                   <Zap className="w-3.5 h-3.5 fill-current shrink-0" />
-                  <span>{isLong ? 'BUY ZONE / BUY LIMIT' : 'SELL ZONE / SELL LIMIT'}</span>
+                  <span>{strategy.execution === 'MARKET' ? (isLong ? 'BUY NOW / MARKET' : 'SELL NOW / MARKET') : isLong ? 'BUY ZONE / BUY LIMIT' : 'SELL ZONE / SELL LIMIT'}</span>
                 </>
               )}
             </div>

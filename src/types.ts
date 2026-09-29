@@ -5,7 +5,7 @@ export type BiasType = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type TradeType = 'LONG' | 'SHORT' | 'WAIT_CONFIRMATION' | 'NO_SIGNAL';
 
 export type MitigationStatus = 'UNMITIGATED' | 'MITIGATED';
-export type TouchStatus = 'UNTOUCHED' | 'TAPPED_AND_LEFT';
+export type TouchStatus = 'UNTOUCHED' | 'TAPPED_AND_LEFT' | 'FIRST_TOUCH_NOW';
 
 export interface POIZone {
   name: string; // e.g. "4H Unmitigated Demand Order Block", "1H Mitigated Supply FVG"
@@ -90,6 +90,10 @@ export interface StrategyResult {
   signalStatus?: SignalStatusInfo;
   /** NO_SIGNAL because the best setup's zone / entry / stop / targets were already tapped */
   alreadyMitigated?: boolean;
+  /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
+  execution?: 'LIMIT' | 'MARKET';
+  /** What the Recheck button replays (zone and the first candle after its leg-out) */
+  setupCheck?: { zone: { low: number; high: number }; since: number; issuedAt: number; timeframe: string };
   confidenceScore: number;
   entryZone: {
     min: number;
@@ -323,3 +327,17 @@ export interface AppNotification {
 }
 
 
+
+export type RecheckLevelStatus = 'UNTOUCHED' | 'AT_PRICE' | 'TOUCHED' | 'HIT';
+
+export interface RecheckResponse {
+  state: 'VALID' | 'TRIGGERED' | 'TP_HIT' | 'SL_HIT' | 'MITIGATED';
+  headline: string;
+  details: string;
+  price: number;
+  priceSource: 'live' | 'candle';
+  checkedAt: number;
+  timeframe: string;
+  candlesChecked: number;
+  levels: Array<{ key: string; label: string; low: number; high: number; status: RecheckLevelStatus; at?: number; note: string }>;
+}
