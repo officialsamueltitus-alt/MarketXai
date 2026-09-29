@@ -206,7 +206,11 @@ const SECTIONS: Section[] = [
         <Note title="Buy or sell only?">
           Say so in the prompt, for example short setup on gold 4H. If there is no valid setup in that direction, you get the best valid plan or a clear No signal.
         </Note>
-        <Note title="Questions work too">Ask things like what is a liquidity sweep? and you get a plain answer instead of a trade plan.</Note>
+        <Note title="Questions work too">
+          Ask anything about trading or the markets, such as what is a liquidity sweep?, why is gold rising today? or is EUR/USD bullish? You get a written
+          answer instead of a trade plan. When a question names a pair, the answer uses its live price and today's news. For a trade plan, ask for it, for
+          example Analyze EUR/USD on the 4H.
+        </Note>
         <Note title="Watch it work">
           After you send, the process report shows each step as it happens: reading your request, checking the live price, checking today's news and building
           the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
@@ -272,8 +276,13 @@ const SECTIONS: Section[] = [
         />
         <Note title="No signal">There is no clean, high probability setup right now. The card still shows the key zones to watch so you can check back later.</Note>
         <Note title="No signal, already mitigated" tone="amber">
-          A setup existed, but price has already reached its zone, entry, stop loss or first target. The trade has played out, so it is not offered again. The note
-          names which level was reached and when.
+          Before any signal, every candle since the zone formed is checked on the timeframe you asked for. If price has already entered the zone and returned,
+          touched the entry, hit the stop loss or reached any target (TP1, TP2 or TP3), the trade has played out and is not offered. The note names which level
+          was reached and when.
+        </Note>
+        <Note title="Only the current price range">
+          Zones are taken only from the most recent price action on your timeframe, inside the range price is trading in now, and ranked by strength, freshness
+          and Fibonacci confluence. If the live candles can't be loaded to check the levels, you get No signal rather than an unverified trade.
         </Note>
         <P>Use the copy buttons on the card to copy the trade parameters or the full write up.</P>
       </>

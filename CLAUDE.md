@@ -32,6 +32,11 @@
   Fibonacci retracement tool, on whatever timeframe is prompted. `server/strategy.ts` computes zones, freshness, the
   swing-leg Fibonacci, entry/stop/targets from real candles (`fetchCandlesForAsset` in `server.ts`: Binance, Yahoo,
   Deriv); those levels are authoritative over the model's numbers, and the model writes the thesis around them.
+  Strict (owner-specified): zones only from the last `RECENT_ZONE_BARS` candles inside the current price range; a signal needs
+  the zone, entry band, stop and every TP untouched since the zone formed (plus the live 24h range), else "No signal, already
+  mitigated". Without a verified candle map (text analyses) the result is NO_SIGNAL, never an unverified trade.
+- Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
+  price and today's news for any pair they name; only analysis requests return trade cards.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
   scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced

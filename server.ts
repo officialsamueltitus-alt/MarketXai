@@ -10,6 +10,7 @@ import { readSessionCookie, verifySessionToken } from './server/session';
 import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
 import { WORKERS, perWorker } from './server/workers';
 import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
+import { classifyPrompt } from './src/utils/promptIntent';
 import {
   refreshNewsFeeds,
   refreshNewsFeedsWithin,
@@ -1158,6 +1159,30 @@ function enforcePreSignalCrosscheck<T extends Record<string, any>>(strategy: T):
   return strategy;
 }
 
+/**
+ * Strict rule: a trade is only signalled when real candles have verified that its zone, entry, stop loss and
+ * targets are still untouched. Without that verification (candle feed down) the result is NO_SIGNAL.
+ */
+function enforceVerifiedSignal<T extends Record<string, any>>(strategy: T, timeframe: string): T {
+  const s: any = strategy;
+  if (!s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT')) return strategy;
+  console.log(`[MarketX Strategy] No verified candle map for ${s.symbol || ''} ${timeframe}; ${s.tradeType} withheld (NO_SIGNAL).`);
+  s.tradeType = 'NO_SIGNAL';
+  s.bias = 'NEUTRAL';
+  s.confidenceScore = 50;
+  s.riskRewardRatio = '1 : 0';
+  s.unverified = true;
+  if (s.stopLoss) s.stopLoss = { ...s.stopLoss, riskPercent: 0, rationale: 'No position, the levels could not be verified' };
+  s.signalStatus = {
+    state: 'PENDING_CONFIRMATION',
+    verdict: 'No Signal Opportunity',
+    details: `No signal. The live ${timeframe} candles could not be loaded to check that the zone, entry, stop loss and targets are still untouched, so no unverified signal is given. Try again in a moment.`,
+  };
+  const note = `#### No signal\n${s.signalStatus.details}\n\n`;
+  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.startsWith('#### No signal')) s.detailedThesis = note + s.detailedThesis;
+  return strategy;
+}
+
 // Generate algorithmic strategy using real-time market data
 function generateAlgorithmicStrategy(
   asset: ReturnType<typeof extractAssetInfo>,
@@ -2173,6 +2198,7 @@ async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketT
       volume24h: 'Deterministic Random Walk Algorithm (Deriv)',
       currency: 'pts',
       type: 'synthetic',
+      live: false, // placeholder, not a real quote
     };
   }
 
@@ -2191,6 +2217,7 @@ async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketT
     volume24h: 'Verified Global Exchange Feed',
     currency: isForex ? (cleanSym.split('/')[1] || 'USD') : 'USD',
     type: asset.type,
+    live: false, // placeholder, not a real quote
   };
 }
 
@@ -2508,12 +2535,19 @@ app.get('/api/market/news', generalApiRateLimiter, async (req: Request, res: Res
 });
 
 // Classify user intent: MarketX is built to analyze the market properly for every prompt
-function classifyPromptIntent(prompt: string, requestedSymbol?: string): {
+/** True when the prompt itself names a market (the asset parser falls back to Bitcoin when it finds none). */
+function promptNamesAsset(prompt: string): boolean {
+  const a = extractAssetInfo(prompt);
+  return a.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(prompt);
+}
+
+// Trade analysis vs a question about trading / the markets (questions get a written answer, not a trade card)
+function classifyPromptIntent(prompt: string, requestedSymbol?: string, hasChartImage = false): {
   isAnalysis: boolean;
   detectedSymbol?: string;
 } {
-  // Always trigger market analysis as the AI was purpose-built to analyze the market
-  return { isAnalysis: true, detectedSymbol: requestedSymbol };
+  const intent = classifyPrompt(prompt, { hasChartImage, namesAsset: promptNamesAsset(prompt) });
+  return { isAnalysis: intent === 'analysis', detectedSymbol: requestedSymbol };
 }
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
@@ -2701,7 +2735,7 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       }
     }
 
-    const intent = classifyPromptIntent(cleanPrompt, safeSymbol);
+    const intent = classifyPromptIntent(cleanPrompt, safeSymbol, chartMode);
     const ai = getGeminiClient();
 
     // -------------------------------------------------------------
@@ -2710,8 +2744,26 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     if (!intent.isAnalysis) {
       console.log(`[MarketX] Detected NORMAL CHAT QUESTION: "${cleanPrompt.slice(0, 50)}"`);
 
+      // A question that names a market is answered with its live price and today's news (never from memory)
+      const chatAsset = promptNamesAsset(cleanPrompt) ? extractAssetInfo(cleanPrompt) : null;
+      let marketContext = '';
+      if (chatAsset) {
+        const newsReady = refreshNewsFeedsWithin(2000).catch(() => {});
+        const quote = await resolveAccurateAssetQuote(chatAsset.symbol).catch(() => null);
+        await newsReady;
+        const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);
+        const live = !!quote && quote.price > 0 && quote.live !== false;
+        marketContext = [
+          `LIVE MARKET DATA for ${chatAsset.name} (${chatAsset.symbol}), fetched ${new Date().toISOString()}:`,
+          live
+            ? `- Price ${quote!.price} (${quote!.currency || 'USD'}), 24h change ${quote!.change24h}%, 24h high ${quote!.high24h}, 24h low ${quote!.low24h}`
+            : '- Live price unavailable right now; do not quote a price.',
+          brief ? `- Today's news: ${brief.summary}. ${brief.guidance}` : '- Today: nothing on the economic calendar or the wires that could move it.',
+        ].join('\n');
+      }
+
       if (!ai) {
-        const fallbackMessage = generateFallbackChatResponse(cleanPrompt);
+        const fallbackMessage = (marketContext ? `${marketContext.replace(/^LIVE MARKET DATA/, '**Live market data**')}\n\n` : '') + generateFallbackChatResponse(cleanPrompt);
         return res.json({
           success: true,
           isAnalysis: false,
@@ -2720,18 +2772,21 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       }
 
       const chatSystemInstruction = `You are "MarketX", an elite institutional hedge fund quant analyst and trading mentor.
-You have mastery in Crypto, Forex, Commodities (Gold/XAU), Equities, and Synthetic Indices. Your one strategy, on any timeframe: identify high-probability institutional Supply & Demand zones, then time the entry with the Fibonacci retracement tool (0.618–0.705 golden pocket overlapping the zone), with the stop beyond the zone's distal line and targets at swing liquidity and Fibonacci extensions.
+You have mastery in Crypto, Forex, Commodities (Gold/XAU), Equities, Indices and Synthetic Indices. Your one strategy, on any timeframe: identify high-probability institutional Supply & Demand zones within the most recent price range, then time the entry with the Fibonacci retracement tool (0.618–0.705 golden pocket overlapping the zone), with the stop beyond the zone's distal line and targets at swing liquidity and Fibonacci extensions. A zone, entry, stop or target that price has already touched is mitigated and never traded.
 
-The user is asking a conversational or educational question: "${cleanPrompt}".
-Provide a clear, engaging, highly knowledgeable response.
-- Format with clean Markdown: use headers, bold text, and bullet points for effortless readability.
+The user is asking a question about trading or the markets: "${cleanPrompt}".
+Answer it directly and accurately: trading concepts, risk management, market structure, how any pair, index, commodity, stock or crypto behaves, what drives it, sessions, correlations, and today's context.
+- When LIVE MARKET DATA is provided below, use those exact numbers for current price and today's news; never invent prices, levels or news.
+- Do not give an entry, stop loss or targets in this answer. If the user wants a trade plan, tell them to ask for one, for example "Analyze ${chatAsset ? chatAsset.symbol : 'EUR/USD'} on the 4H".
+- Format with clean Markdown: short headers, bold key terms and bullet points. Be concise and practical.
 - Maintain a professional, encouraging, institutional mentor tone.
-- At the conclusion of your explanation, invite them to test the concept on any live asset (e.g., "Would you like me to analyze Bitcoin, Gold, or Solana right now?").
-Do NOT output structured trade card JSON unless specifically asked to analyze a live ticker.`;
+Do NOT output structured trade card JSON.`;
 
-      const chatKey = cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 400);
-      let chatReply = chatAnswerCache.get(chatKey) || '';
+      // Only general lessons are reused; answers about a specific market always use live data
+      const chatKey = chatAsset ? '' : cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 400);
+      let chatReply = (chatKey && chatAnswerCache.get(chatKey)) || '';
       const chatModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+      const chatContents = marketContext ? `${marketContext}\n\nUser asks: "${cleanPrompt}"` : `User asks: "${cleanPrompt}"`;
 
       for (const modelId of chatReply ? [] : chatModels) {
         try {
@@ -2740,7 +2795,7 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
               withTimeout(
                 ai.models.generateContent({
                   model: modelId,
-                  contents: `User asks: "${cleanPrompt}"`,
+                  contents: chatContents,
                   config: {
                     systemInstruction: chatSystemInstruction,
                   },
@@ -2752,7 +2807,7 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
           );
           if (response?.text && response.text.trim().length > 0) {
             chatReply = response.text.trim();
-            chatAnswerCache.set(chatKey, chatReply);
+            if (chatKey) chatAnswerCache.set(chatKey, chatReply);
             break;
           }
         } catch (err: any) {
@@ -2803,6 +2858,8 @@ Do NOT output structured trade card JSON unless specifically asked to analyze a 
         applyStructureMap(s, structureMap, structureMap.plan?.direction || null);
         // Today's news is shown (and expires) in the process report, not baked into the write-up
         s.detailedThesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
+      } else {
+        enforceVerifiedSignal(s, analysisTimeframe);
       }
       return enforcePreSignalCrosscheck(s);
     };
@@ -2835,6 +2892,7 @@ STEP 1 — IDENTIFY HIGH-PROBABILITY INSTITUTIONAL SUPPLY & DEMAND ZONES
 - Proximal line = the edge of the base bodies nearest price (entry side). Distal line = the base's wick extreme (invalidation side).
 - Grade every zone: strength of departure, freshness (untouched zones are strongest; one retest weakens a zone; two or more retests mean the orders are absorbed — do not trade it), time spent at the base (fewer candles = stronger imbalance), whether the leg-out broke structure, alignment with the timeframe's trend, and distance from price.
 - Demand must sit below price and supply above price. A zone that price has closed through is invalid.
+- Only use zones formed within the most recent price action, inside the current price range. Ignore zones from old history far from where price trades now.
 
 STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
 - Draw the Fibonacci on the most recent swing leg: swing low (100%) → swing high (0%) for buys; swing high (100%) → swing low (0%) for sells.
@@ -2848,7 +2906,7 @@ STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
 ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold):
 1. Spatial placement ahead of price. BUY: the fresh demand POI sits strictly below current price, TP1, TP2 and TP3 sit strictly above current price (into overhead premium liquidity), and the stop loss sits below the demand base (distal line). SELL: the fresh supply POI sits strictly above current price, TP1, TP2 and TP3 sit strictly below current price (into discount liquidity), and the stop loss sits above the supply ceiling (distal line). A zone price is trading inside right now is not a fresh entry.
 2. Tap detection. Cross-check the zone against every candle wick since its displacement and the session's 24h high and low. UNMITIGATED / UNTOUCHED (tapCount 0): price has never re-entered the zone, resting limit orders are unfilled, so it is the primary execution zone for a pending limit order. MITIGATED / TAPPED AND LEFT (tapCount 1 or more): price already wicked in and displaced away, the liquidity is absorbed, never recommend entering there again.
-3. Pre-signal crosscheck. Before presenting any setup, confirm price has not already reached TP1 (or any target), has not wicked through the stop loss (invalidation), and has not already traded through the entry. If it has, the opportunity has played out: output NO_SIGNAL ("No signal, already mitigated") and tell the trader to stand aside until a new unmitigated zone forms.
+3. Pre-signal crosscheck (strict, every timeframe). Before presenting any setup, check every candle since the zone formed: price must never have re-entered the zone, never touched the entry, never reached the stop loss, and never reached TP1, TP2 or TP3. If any of these happened, including price entering the zone and returning, the opportunity has played out: output NO_SIGNAL ("No signal, already mitigated"), name the level that was hit, and tell the trader to stand aside until a new unmitigated zone forms.
 4. Confluence. A virgin zone is high-probability only with (a) the 0.618 golden pocket of the swing leg inside the zone or within 0.3% of it, and (b) an unfilled 3-candle fair value gap (FVG) at the zone's doorstep, proving institutional displacement.
 Actionable rule: anchor entries only to unmitigated, virgin POIs with limit execution; never chase a move that has already occurred.
 
@@ -3409,6 +3467,9 @@ INSTRUCTIONS:
         }
       }
 
+      // Strict: in text mode a signal needs the verified candle map (chart mode is verified against the chart itself)
+      if (!structureMap && !chartMode) enforceVerifiedSignal(fullStrategy, analysisTimeframe);
+
       // Pre-Signal Crosscheck on the final parameters: a setup that already played out becomes NO_SIGNAL.
       // A computed NO_SIGNAL keeps its specific reason ("No signal" / "No signal, already mitigated").
       enforcePreSignalCrosscheck(fullStrategy);
@@ -3456,7 +3517,10 @@ INSTRUCTIONS:
       const tickers = await getLiveMarketTickers();
       const ticker = tickers.find(t => t.symbol === asset.symbol) || tickers[0];
       const fallback = enforcePreSignalCrosscheck(
-        generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode, undefined, buildDailyNewsBrief(asset, resolveTimeZone(req.body?.timeZone)))
+        enforceVerifiedSignal(
+          generateAlgorithmicStrategy(asset, ticker, safeTimeframe, safePrompt, safeSlMode, undefined, buildDailyNewsBrief(asset, resolveTimeZone(req.body?.timeZone))),
+          safeTimeframe
+        )
       );
       return res.json({
         success: true,
