@@ -5,8 +5,10 @@ import { safeBroadcastImage } from './AnnouncementModal';
 // Campaigns shown in the Rewards tab. Listed here only: nobody gets a notification, badge or email about them.
 const EXPLAIN_CAMPAIGN_ENDS = Date.parse('2026-10-30T23:59:59+01:00');
 
+const explainCampaignLive = () => Date.now() <= EXPLAIN_CAMPAIGN_ENDS;
+
 const ExplainCampaignCard: React.FC = () => {
-  if (Date.now() > EXPLAIN_CAMPAIGN_ENDS) return null;
+  if (!explainCampaignLive()) return null;
   const days = Math.max(0, Math.floor((EXPLAIN_CAMPAIGN_ENDS - Date.now()) / 86400000));
   return (
     <a
@@ -253,6 +255,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         <div className="flex-1 min-h-[240px] overflow-y-auto overscroll-contain px-3 pb-3 border-t border-white/[0.05]">
           {filter === 'rewards' && <ExplainCampaignCard />}
           {groups.length === 0 ? (
+            // The Rewards tab already shows a live campaign: no "Nothing here yet" under it
+            filter === 'rewards' && explainCampaignLive() ? null : (
             <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center px-8">
               <span className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center text-slate-500">
                 <Bell className="w-5 h-5" />
@@ -260,6 +264,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
               <p className="mt-3 text-sm font-medium text-slate-200">{filter === 'unread' ? "You're all caught up" : 'Nothing here yet'}</p>
               <p className="mt-1 text-xs text-slate-500">Analyses, sign-ins, payments and rewards will show up here.</p>
             </div>
+            )
           ) : (
             groups.map(group => (
               <div key={group.label}>
