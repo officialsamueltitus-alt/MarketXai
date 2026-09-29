@@ -15,6 +15,7 @@ import {
   RotateCcw,
   RefreshCw,
   MessageCircle,
+  Gift,
 } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -23,17 +24,19 @@ import { Overview } from './Overview';
 import { UsersSection } from './Users';
 import { UsageSection } from './Usage';
 import { SubscriptionsSection } from './Subscriptions';
+import { CampaignSection } from './Campaign';
 import { BroadcastSection } from './Broadcast';
 import { SupportSection } from './Support';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'usage' | 'subscriptions' | 'support' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'usage' | 'subscriptions' | 'campaign' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'usage', label: 'Usage', icon: BarChart3 },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+  { id: 'campaign', label: 'Campaign', icon: Gift },
   { id: 'support', label: 'Support', icon: MessageCircle },
   { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
   { id: 'security', label: 'Security', icon: ShieldCheck },
@@ -429,6 +432,7 @@ export default function AdminApp() {
             )}
             {section === 'usage' && <UsageSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}
+            {section === 'campaign' && <CampaignSection />}
             {section === 'support' && <SupportSection />}
             {section === 'broadcast' && <BroadcastSection initialTarget={messageTarget} />}
             {section === 'security' && <SecuritySection session={session} onChanged={loadSession} />}
