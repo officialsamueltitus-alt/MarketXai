@@ -48,8 +48,9 @@ export interface EmailOptions {
   code?: string;
   /** 'low' for activity mail (paced, deduplicated, droppable); everything else is 'high' */
   priority?: MailPriority;
-  /** A picture embedded in the message (sent as an inline attachment, so it shows without loading remote images) */
-  image?: { data: Buffer; contentType: string; alt?: string };
+  /** A picture embedded in the message (sent as an inline attachment, so it shows without loading remote images);
+   *  href opens the full original when tapped */
+  image?: { data: Buffer; contentType: string; alt?: string; href?: string };
 }
 
 // Transactional email; failures are logged and never break the request. Resolves true when sent.
@@ -84,7 +85,14 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
         <h1 style="margin:0 0 16px;color:#fafafa;font-size:20px;line-height:1.35;font-weight:700">${escapeHtml(subject)}</h1>
         ${
           options.image
-            ? `<img src="cid:${IMAGE_CID}" alt="${escapeHtml(options.image.alt || '')}" width="472" style="display:block;width:100%;max-width:472px;height:auto;margin:0 0 18px;border-radius:14px;border:0">`
+            ? (() => {
+                // The whole picture always shows (full width, natural height, never cropped); tapping opens the original
+                const img = `<img src="cid:${IMAGE_CID}" alt="${escapeHtml(options.image.alt || '')}" width="472" style="display:block;width:100%;max-width:472px;height:auto;border-radius:14px;border:0">`;
+                const href = options.image.href && /^https:\/\//.test(options.image.href) ? escapeHtml(options.image.href) : '';
+                return href
+                  ? `<a href="${href}" target="_blank" style="display:block;text-decoration:none">${img}</a><p style="margin:8px 0 18px;font-size:12px"><a href="${href}" target="_blank" style="color:#a78bfa">Tap to view the full picture</a></p>`
+                  : `<div style="margin:0 0 18px">${img}</div>`;
+              })()
             : ''
         }
         ${lines.map(para).join('')}
@@ -104,6 +112,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
     subject,
     '',
     ...lines,
+    ...(options.image?.href ? ['', `View the full picture: ${options.image.href}`] : []),
     ...(options.code ? ['', `    ${options.code}`, ''] : []),
     ...(options.rows || []).map(([k, v]) => `${k}: ${v}`),
     '',

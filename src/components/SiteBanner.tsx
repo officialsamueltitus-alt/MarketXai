@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Info, CheckCircle2, AlertTriangle, X, ArrowUpRight } from 'lucide-react';
 import { getApiUrl } from '../utils/api';
-import { safeBroadcastImage } from './AnnouncementModal';
+import { fullBroadcastImage, safeBroadcastImage } from './AnnouncementModal';
 
 interface Banner {
   id: string;
@@ -59,7 +59,7 @@ export const SiteBanner: React.FC = () => {
     <div className="mx-fade-in relative z-20 px-2 sm:px-4 pt-2" role="status" aria-label="Announcement">
       <div className={`max-w-5xl mx-auto rounded-2xl border ${cls} flex items-start gap-2.5 sm:gap-3 pl-3 pr-1.5 py-2 sm:py-2.5`}>
         {image ? (
-          <a href={image} target="_blank" rel="noopener noreferrer" className="shrink-0" aria-label="Open the banner picture">
+          <a href={fullBroadcastImage(banner.image) || image} target="_blank" rel="noopener noreferrer" className="shrink-0" aria-label="Open the full banner picture">
             <img src={image} alt="" className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl object-cover border border-white/[0.1] bg-black/20" />
           </a>
         ) : (

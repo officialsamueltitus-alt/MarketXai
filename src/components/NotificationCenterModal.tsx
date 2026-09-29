@@ -297,7 +297,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                                 src={safeBroadcastImage(n.image)!}
                                 alt=""
                                 loading="lazy"
-                                className="mt-2 block w-full max-h-40 object-cover rounded-xl border border-white/[0.06] bg-black/20"
+                                className="mt-2 block w-full h-auto max-h-64 object-contain rounded-xl border border-white/[0.06] bg-black/30"
                               />
                             )}
                             {n.message && <span className="mt-1 block text-xs text-slate-400 leading-relaxed line-clamp-3 break-words">{n.message}</span>}

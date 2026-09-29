@@ -5,11 +5,24 @@ import { AnnouncementBody, safeBroadcastImage } from '../components/Announcement
 
 const MAX_IMAGE_BYTES = 700 * 1024;
 const MAX_IMAGE_SIDE = 1400;
+const MAX_FULL_BYTES = 10 * 1024 * 1024;
 
-/** Shrinks a picture in the browser (longest side 1400px, JPEG) so it fits the 700 KB upload limit. */
-async function prepareImage(file: File): Promise<string> {
+const dataUrlBytes = (d: string) => (d.length - d.indexOf(',') - 1) * 0.75;
+const readDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('That file could not be read.'));
+    r.readAsDataURL(file);
+  });
+
+/**
+ * Two copies of a picture: a light display copy (longest side 1400px, JPEG, 700 KB max) for notifications, the banner
+ * and emails, and the full original (kept byte for byte up to 10 MB; larger files are re-saved at very high quality to fit)
+ * that opens when someone taps the picture.
+ */
+async function prepareImages(file: File): Promise<{ display: string; full: string }> {
   if (!/^image\/(jpeg|png|gif|webp)$/.test(file.type)) throw new Error('Choose a JPG, PNG, GIF or WebP picture.');
-  if (file.size > 15 * 1024 * 1024) throw new Error('That picture is over 15 MB.');
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -26,17 +39,43 @@ async function prepareImage(file: File): Promise<string> {
     ctx.fillStyle = '#ffffff'; // transparent areas become white (JPEG has no transparency)
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    let display = '';
     for (const q of [0.86, 0.78, 0.68, 0.58, 0.48]) {
       const data = canvas.toDataURL('image/jpeg', q);
-      if ((data.length - data.indexOf(',') - 1) * 0.75 <= MAX_IMAGE_BYTES) return data;
+      if (dataUrlBytes(data) <= MAX_IMAGE_BYTES) {
+        display = data;
+        break;
+      }
     }
-    throw new Error('That picture is too detailed to shrink under 700 KB. Try a smaller one.');
+    if (!display) throw new Error('That picture is too detailed to prepare. Try another one.');
+
+    // Full original: untouched when it fits, otherwise re-saved at the highest quality that fits 10 MB
+    if (file.size <= MAX_FULL_BYTES) return { display, full: await readDataUrl(file) };
+    for (const side of [Math.max(img.naturalWidth, img.naturalHeight), 8000, 6000, 4800, 4000]) {
+      const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k));
+      c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      const cx = c.getContext('2d')!;
+      cx.fillStyle = '#ffffff';
+      cx.fillRect(0, 0, c.width, c.height);
+      cx.drawImage(img, 0, 0, c.width, c.height);
+      for (const q of [0.95, 0.9, 0.85]) {
+        const data = c.toDataURL('image/jpeg', q);
+        if (data.length > 22 && dataUrlBytes(data) <= MAX_FULL_BYTES) return { display, full: data };
+      }
+    }
+    return { display, full: display };
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
-const kb = (dataUrl: string) => Math.round(((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75) / 1024);
+const kb = (dataUrl: string) => Math.round(dataUrlBytes(dataUrl) / 1024);
+const size = (dataUrl: string) => {
+  const b = dataUrlBytes(dataUrl);
+  return b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`;
+};
 import { Badge, Card, ConfirmDialog, Empty, fmtDateTime, useAdminData } from './ui';
 
 type Mode = 'banner' | 'general' | 'individual';
@@ -77,6 +116,7 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
   const [link, setLink] = useState('');
   const [email, setEmail] = useState(true);
   const [image, setImage] = useState<string | null>(null);
+  const [imageFull, setImageFull] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,7 +126,9 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
     setImageBusy(true);
     setImageError(null);
     try {
-      setImage(await prepareImage(file));
+      const { display, full } = await prepareImages(file);
+      setImage(display);
+      setImageFull(full);
     } catch (e: any) {
       setImageError(e?.message || 'Could not use that picture.');
     } finally {
@@ -115,7 +157,7 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
     try {
       const r = await apiFetch<any>('/api/admin/broadcast', {
         method: 'POST',
-        body: JSON.stringify({ mode, title, message, target, tone, durationHours: Number(duration) || 0, link, email, ...(image ? { image } : {}) }),
+        body: JSON.stringify({ mode, title, message, target, tone, durationHours: Number(duration) || 0, link, email, ...(image ? { image, ...(imageFull && imageFull !== image ? { imageFull } : {}) } : {}) }),
       });
       setResult({
         ok: true,
@@ -128,6 +170,7 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
       setMessage('');
       setLink('');
       setImage(null);
+      setImageFull(null);
       history.reload();
     } catch (e: any) {
       setResult({ ok: false, text: e?.message || 'Could not send.' });
@@ -275,12 +318,17 @@ export const BroadcastSection: React.FC<{ initialTarget?: string | null }> = ({ 
               <div className="mt-1.5 flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2.5 min-w-0">
                 <img src={image} alt="Selected picture" className="w-16 h-16 rounded-xl object-cover shrink-0" />
                 <span className="min-w-0 flex-1 text-xs text-slate-400">
-                  <span className="block text-slate-200">Picture attached · {kb(image)} KB</span>
-                  {mode === 'banner' ? 'Shown as a thumbnail on the banner.' : `Shown in the notification${email ? ' and embedded in the email' : ''}.`}
+                  <span className="block text-slate-200">Picture attached · full original {size(imageFull || image)}</span>
+                  {mode === 'banner'
+                    ? 'Thumbnail on the banner; tapping it opens the full original.'
+                    : `Shown whole in the notification${email ? ' and the email' : ''}; tapping it opens the full original.`}
                 </span>
                 <button
                   type="button"
-                  onClick={() => setImage(null)}
+                  onClick={() => {
+                    setImage(null);
+                    setImageFull(null);
+                  }}
                   className="w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.08] inline-flex items-center justify-center shrink-0 cursor-pointer"
                   aria-label="Remove picture"
                 >
