@@ -274,3 +274,72 @@ export function batchFullMessage(): string {
     ACCESS_BATCH + 1
   } to access MarketX. Thank you for your patience; we'll be opening new seats soon.`;
 }
+
+// ---------------------------------------------------------------------------
+// Admin report: live counts for the current batch, read from the code records themselves
+// ---------------------------------------------------------------------------
+export interface PasscodeReport {
+  batch: number;
+  size: number;
+  /** The batch's codes have been generated (happens on the first sign-up) */
+  generated: boolean;
+  /** Codes used: the account was created */
+  redeemed: number;
+  /** Codes reserved for a sign-up that has not entered it yet (still inside its 48 hours) */
+  waiting: number;
+  /** Seats a new sign-up can take right now */
+  available: number;
+  /** Codes that lapsed unused; each seat went back to the batch with a fresh code */
+  expiredReturned: number;
+  full: boolean;
+  ttlHours: number;
+  /** The batch counter agrees with the code records */
+  consistent: boolean;
+  waitingList: Array<{ email: string; code: string; reservedAt: number; expiresAt: number; emailSent: boolean; attempts: number; locked: boolean }>;
+  recentRedeemed: Array<{ email: string; code: string; redeemedAt: number }>;
+  updatedAt: number;
+}
+
+export async function passcodeReport(): Promise<PasscodeReport> {
+  // Bring the numbers up to date first: codes whose 48 hours are up go back to the batch now, not at the next hourly sweep
+  await releaseExpiredPasscodes().catch(() => 0);
+  const now = Date.now();
+  const [batchSnap, codesSnap, pendingSnap] = await Promise.all([
+    batchRef().get(),
+    db().collection('accessCodes').where('batch', '==', ACCESS_BATCH).get(),
+    db().collection('pendingSignups').get(),
+  ]);
+  const batch = batchSnap.exists ? (batchSnap.data() as BatchDoc) : null;
+  const size = batch?.size || BATCH_SIZE;
+  const codes = codesSnap.docs.map(d => ({ code: d.id, ...(d.data() as any) }));
+  const redeemedCodes = codes.filter(c => c.status === 'redeemed').sort((a, b) => (b.redeemedAt || 0) - (a.redeemedAt || 0));
+  const pending = pendingSnap.docs
+    .map(d => d.data() as PendingSignup)
+    .filter(p => p?.email && (p.batch || ACCESS_BATCH) === ACCESS_BATCH && !isPendingExpired(p, now))
+    .sort((a, b) => expiryOf(a) - expiryOf(b));
+  const used = redeemedCodes.length + pending.length;
+  const available = Math.max(0, size - used);
+  return {
+    batch: ACCESS_BATCH,
+    size,
+    generated: !!batch,
+    redeemed: redeemedCodes.length,
+    waiting: pending.length,
+    available,
+    expiredReturned: codes.filter(c => c.status === 'expired').length,
+    full: available === 0,
+    ttlHours: PASSCODE_TTL_HOURS,
+    consistent: !batch || allocatedSeats(batch) === used,
+    waitingList: pending.map(p => ({
+      email: p.email,
+      code: p.code,
+      reservedAt: p.createdAt,
+      expiresAt: expiryOf(p),
+      emailSent: !!p.codeEmailSentAt,
+      attempts: p.attempts || 0,
+      locked: (p.lockedUntil || 0) > now,
+    })),
+    recentRedeemed: redeemedCodes.slice(0, 10).map(c => ({ email: String(c.email || ''), code: c.code, redeemedAt: Number(c.redeemedAt) || 0 })),
+    updatedAt: now,
+  };
+}

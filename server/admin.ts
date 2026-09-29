@@ -7,7 +7,7 @@ import { sendEmail } from './mailer';
 import { perWorkerAtLeast } from './workers';
 import { addNotification, invalidateAuthCache, UserDoc, userRef, usernameRef } from './account';
 import { deleteAccountData, setEmailBanned } from './auth';
-import { ACCESS_BATCH, ACCESS_BATCH_SIZE, allocatedSeats } from './access';
+import { passcodeReport } from './access';
 import { dayKey, logActivity } from './tracking';
 import { clientIp } from './security';
 
@@ -438,11 +438,11 @@ export function registerAdminRoutes(app: Express) {
   // --- Overview -----------------------------------------------------------
   app.get('/api/admin/overview', requireAdmin, wrap(async (req, res) => {
     const now = Date.now();
-    const [users, days, paySnap, batchSnap, recentSnap] = await Promise.all([
+    const [users, days, paySnap, codes, recentSnap] = await Promise.all([
       allUsers(),
       dailyDocs(lastDays(30)),
       db().collection('payments').limit(2000).get(),
-      db().collection('accessBatches').doc(`batch-${ACCESS_BATCH}`).get(),
+      passcodeReport(),
       db().collection('activityLog').orderBy('ts', 'desc').limit(15).get(),
     ]);
     const sum = (rows: typeof days, f: 'analyses' | 'chats' | 'signups' | 'signins') => rows.reduce((a, r) => a + r[f], 0);
@@ -450,7 +450,6 @@ export function registerAdminRoutes(app: Express) {
     const payments = paySnap.docs.map(d => d.data() as any).filter(p => p.status === 'fulfilled');
     const revenueUsd = payments.reduce((a, p) => a + (Number(p.usdAmount) || 0), 0);
     const revenueUsd30 = payments.filter(p => (p.fulfilledAt || 0) > now - 30 * 86400000).reduce((a, p) => a + (Number(p.usdAmount) || 0), 0);
-    const batch: any = batchSnap.exists ? batchSnap.data() : null;
 
     res.json({
       users: {
@@ -468,10 +467,15 @@ export function registerAdminRoutes(app: Express) {
         series: days.map(d => ({ day: d.day, prompts: d.analyses + d.chats, signups: d.signups })),
       },
       revenue: { totalUsd: Math.round(revenueUsd * 100) / 100, last30Usd: Math.round(revenueUsd30 * 100) / 100, payments: payments.length },
-      passcodes: { batch: ACCESS_BATCH, size: batch?.size || ACCESS_BATCH_SIZE, allocated: allocatedSeats(batch as any) },
+      passcodes: { batch: codes.batch, size: codes.size, redeemed: codes.redeemed, waiting: codes.waiting, available: codes.available, full: codes.full },
       topPairs: topPairs(days.slice(-7), 6),
       recent: recentSnap.docs.map(d => d.data()),
     });
+  }));
+
+  // --- Pass codes: live counts, codes waiting to be entered and recent redemptions ---
+  app.get('/api/admin/passcodes', requireAdmin, wrap(async (req, res) => {
+    res.json(await passcodeReport());
   }));
 
   // --- Users --------------------------------------------------------------

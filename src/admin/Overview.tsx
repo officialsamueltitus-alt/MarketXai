@@ -1,6 +1,7 @@
 import React from 'react';
 import { Users, Crown, DollarSign, KeyRound, UserPlus } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
+import { PasscodesCard } from './Passcodes';
 import { Card, ColumnChart, ErrorNote, RankBars, Spinner, Stat, fmtNum, fmtUsd, timeAgo, useAdminData } from './ui';
 
 export const ACTIVITY_LABEL: Record<string, string> = {
@@ -50,13 +51,15 @@ export const Overview: React.FC = () => {
         <Stat label="Pro users" value={fmtNum(users.pro)} hint={`${users.suspended} suspended · ${users.banned} banned`} icon={Crown} tone="bg-amber-500/15 text-amber-300" />
         <Stat label="Revenue (30d)" value={fmtUsd(revenue.last30Usd)} hint={`${fmtUsd(revenue.totalUsd)} all time`} icon={DollarSign} tone="bg-emerald-500/15 text-emerald-300" />
         <Stat
-          label="Pass codes"
-          value={`${passcodes.allocated}/${passcodes.size}`}
-          hint={`Batch ${passcodes.batch} · ${passcodes.size - passcodes.allocated} left`}
+          label="Pass codes open"
+          value={`${passcodes.available} of ${passcodes.size}`}
+          hint={`Batch ${passcodes.batch} · ${passcodes.redeemed} redeemed · ${passcodes.waiting} waiting${passcodes.full ? ' · full' : ''}`}
           icon={KeyRound}
           tone="bg-cyan-500/15 text-cyan-300"
         />
       </div>
+
+      <PasscodesCard />
 
       <div className="grid grid-cols-3 gap-3">
         <Stat label="Prompts today" value={fmtNum(usage.today)} />
