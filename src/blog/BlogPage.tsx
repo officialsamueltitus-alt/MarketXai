@@ -16,7 +16,6 @@ import {
   UserCog,
   Activity,
   ImagePlus,
-  Database,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -318,32 +317,6 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
-      </>
-    ),
-  },
-  {
-    id: 'data-sources',
-    title: 'Where the data comes from',
-    icon: Database,
-    lead: 'MarketX reads raw prices and candles straight from exchange and market data feeds, not from third party signal providers.',
-    body: (
-      <>
-        <Table
-          head={['Market', 'Source']}
-          rows={[
-            ['Crypto', 'Binance spot market (24h ticker for prices, candles for analyses).'],
-            ['Gold', 'Binance PAXG/USDT, backed 1:1 by London Good Delivery gold, live 24/7. Gold futures are the backup.'],
-            ['Silver, oil and other commodities', 'Global futures benchmarks via Yahoo Finance.'],
-            ['Forex', 'Live intraday quotes via Yahoo Finance, with interbank reference rates (open.er-api.com) as the backup.'],
-            ['Stocks and indices', 'Yahoo Finance: live price, previous close and day range.'],
-            ['Synthetic indices', "Deriv's own live feed."],
-            ['News', 'ForexFactory economic calendar and the MarketWatch / Dow Jones wire, for today only.'],
-          ]}
-        />
-        <P>
-          Every analysis starts from the live price and the fresh candles of the timeframe you asked for; the zones, Fibonacci levels, stop loss and targets
-          are computed from them. You can ask the AI about the sources at any time, for example where does the gold price come from?
-        </P>
       </>
     ),
   },
