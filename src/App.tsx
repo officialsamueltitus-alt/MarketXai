@@ -1573,6 +1573,11 @@ export default function App() {
         }}
         emailActivity={userProfile.emailActivity !== false}
         onToggleEmailActivity={authUser ? handleToggleEmailActivity : undefined}
+        shareReward={xShareReward}
+        onOpenShareCampaign={() => {
+          setIsNotificationCenterOpen(false);
+          setIsShareModalOpen(true);
+        }}
       />
       </Deferred>
 

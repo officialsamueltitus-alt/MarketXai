@@ -3704,6 +3704,14 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Never serve server code, source maps or dotfiles, even if a stale build left them in dist/
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const p = req.path.toLowerCase();
+      if (/\.(c?js\.map|map|cjs|mjs|ts|env)$/.test(p) || /(^|\/)\./.test(p) || /^\/server/.test(p)) {
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      next();
+    });
     // Pre-compressed bundles (built by scripts/precompress.mjs): serve .br/.gz straight from disk, no CPU per request
     const PRECOMPRESSED_TYPES: Record<string, string> = {
       '.js': 'application/javascript; charset=utf-8',

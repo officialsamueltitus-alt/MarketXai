@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppNotification, NotificationType } from '../types';
+import { AppNotification, NotificationType, XShareReward } from '../types';
 import { safeBroadcastImage } from './AnnouncementModal';
 
 // Campaigns shown in the Rewards tab. Listed here only: nobody gets a notification, badge or email about them.
@@ -44,6 +44,61 @@ const ExplainCampaignCard: React.FC = () => {
     </a>
   );
 };
+// The standing "Share on X" campaign (+10 credits once, unlocked 10 hours after posting)
+const ShareCampaignCard: React.FC<{ reward?: XShareReward | null; onOpen?: () => void }> = ({ reward, onOpen }) => {
+  const [now, setNow] = useState(() => Date.now());
+  const waiting = reward?.status === 'pending' && !reward.previouslyClaimed;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, [waiting]);
+  if (!onOpen) return null;
+  const left = waiting ? Math.max(0, reward!.unlockAt - now) : 0;
+  const h = Math.floor(left / 3600000);
+  const m = Math.ceil((left % 3600000) / 60000);
+  const done = !!reward && (reward.status === 'credited' || !!reward.previouslyClaimed);
+  const status = done
+    ? reward!.previouslyClaimed ? 'Already claimed' : 'Credited'
+    : waiting ? (left > 0 ? `Unlocks in ${h > 0 ? `${h}h ` : ''}${m}m` : 'Unlocking now') : 'Open';
+  const body = done
+    ? 'You completed this campaign. It can only be claimed once per person.'
+    : waiting
+      ? 'Thanks for posting! Your 10 credits are added automatically when the 10 hour timer ends.'
+      : 'Follow @_MarketXai, comment and repost the pinned post, then share your trader card. 10 credits unlock 10 hours after you post.';
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative mt-3 block w-full text-left overflow-hidden rounded-2xl border border-sky-400/25 p-3.5 transition hover:border-sky-300/40"
+      aria-label="Open the Share on X campaign: earn 10 credits"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 bg-[radial-gradient(120%_140%_at_0%_0%,rgba(56,189,248,0.26),transparent_60%),radial-gradient(120%_140%_at_100%_100%,rgba(16,185,129,0.2),transparent_60%)]"
+      />
+      <span className="relative flex items-center gap-2">
+        <span className="h-5 px-2 rounded-full bg-white/[0.12] text-[10px] font-semibold uppercase tracking-wider text-white inline-flex items-center gap-1">
+          <Gift className="w-3 h-3" /> Campaign
+        </span>
+        <span className={`ml-auto text-[11px] tabular-nums ${done ? 'text-emerald-300' : waiting ? 'text-amber-300' : 'text-slate-300'}`}>{status}</span>
+      </span>
+      <span className="relative mt-2.5 flex items-start justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block text-[15px] font-semibold text-white leading-snug">Share on X, earn 10 credits</span>
+          <span className="mt-1 block text-xs text-slate-300 leading-relaxed">{body}</span>
+        </span>
+        <span className="shrink-0 h-10 px-2.5 rounded-xl bg-white/[0.1] text-white inline-flex flex-col items-center justify-center leading-none">
+          <span className="text-sm font-bold tabular-nums">+10</span>
+          <span className="text-[9px] uppercase tracking-wider text-slate-300 mt-0.5">credits</span>
+        </span>
+      </span>
+      <span className="relative mt-3 inline-flex items-center gap-1 text-xs font-semibold text-white">
+        {done ? 'View campaign' : waiting ? 'View status' : 'Share now'} <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </button>
+  );
+};
 import { Bell, CheckCheck, Trash2, X, Sparkles, TrendingUp, ShieldCheck, Gift, LineChart, ChevronRight, Mail, Megaphone } from 'lucide-react';
 
 interface NotificationCenterModalProps {
@@ -60,6 +115,9 @@ interface NotificationCenterModalProps {
   onToggleEmailActivity?: (enabled: boolean) => void;
   /** Opens an announcement from the MarketX team in full */
   onOpenAnnouncement?: (notification: AppNotification) => void;
+  /** The Share on X campaign (Rewards tab card) */
+  shareReward?: XShareReward | null;
+  onOpenShareCampaign?: () => void;
 }
 
 type Filter = 'all' | 'unread' | 'updates' | 'activity' | 'account' | 'rewards';
@@ -151,6 +209,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   emailActivity = true,
   onToggleEmailActivity,
   onOpenAnnouncement,
+  shareReward,
+  onOpenShareCampaign,
 }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [confirmClear, setConfirmClear] = useState(false);
@@ -254,9 +314,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         {/* List */}
         <div className="flex-1 min-h-[240px] overflow-y-auto overscroll-contain px-3 pb-3 border-t border-white/[0.05]">
           {filter === 'rewards' && <ExplainCampaignCard />}
+          {filter === 'rewards' && <ShareCampaignCard reward={shareReward} onOpen={onOpenShareCampaign} />}
           {groups.length === 0 ? (
             // The Rewards tab already shows a live campaign: no "Nothing here yet" under it
-            filter === 'rewards' && explainCampaignLive() ? null : (
+            filter === 'rewards' && (explainCampaignLive() || !!onOpenShareCampaign) ? null : (
             <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center px-8">
               <span className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center text-slate-500">
                 <Bell className="w-5 h-5" />
