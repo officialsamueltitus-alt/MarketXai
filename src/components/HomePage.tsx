@@ -700,13 +700,13 @@ export const HomePage: React.FC<HomePageProps> = ({
 
             {/* Filter Tabs & Auto-Cycle Carousel Indicator with Hold to Pause status */}
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.06] text-xs">
+              <div className="flex flex-wrap items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.06] text-xs max-w-full">
                 {(['all', 'forex', 'stock', 'crypto', 'commodity'] as const).map(tab => (
                   <button
                     key={tab}
                     type="button"
                     onClick={() => setActiveCategory(tab)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
                       activeCategory === tab
                         ? 'bg-[var(--mx-surface-3)] text-white shadow-xs font-semibold'
                         : 'text-slate-400 hover:text-slate-200'

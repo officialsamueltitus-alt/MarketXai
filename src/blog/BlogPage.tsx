@@ -14,7 +14,6 @@ import {
   SlidersHorizontal,
   Target,
   UserCog,
-  Activity,
   ImagePlus,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -291,32 +290,6 @@ const SECTIONS: Section[] = [
           and Fibonacci confluence. If the live candles can't be loaded to check the levels, you get No signal rather than an unverified trade.
         </Note>
         <P>Use the copy buttons on the card to copy the trade parameters or the full write up.</P>
-      </>
-    ),
-  },
-  {
-    id: 'live-prices',
-    title: 'Live prices',
-    icon: Activity,
-    lead: 'Prices on MarketX are live: they stream to your screen as the market moves, and every analysis fetches its price and candles at the moment you send it.',
-    body: (
-      <>
-        <Points
-          items={[
-            <>
-              <B>Crypto and gold</B> update about every second. <B>Forex, stocks and indices</B> update every few seconds, at the pace of their data source.
-            </>,
-            <>
-              <B>Analyses never reuse old data.</B> Each one reads the live price and fresh candles, including the candle that is still forming.
-            </>,
-            <>
-              <B>Saving battery.</B> When the tab is in the background, prices pause and pick up again the moment you come back.
-            </>,
-            <>
-              <B>If a feed is briefly down</B>, the last real price is shown for at most a minute, never an old or made up one.
-            </>,
-          ]}
-        />
       </>
     ),
   },

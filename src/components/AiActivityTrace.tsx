@@ -308,28 +308,32 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
-        className="group inline-flex items-center gap-1.5 h-7 -ml-1 px-1 rounded-lg text-[13px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+        className="group inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 min-h-7 -ml-1 px-1 rounded-lg text-[13px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-left"
       >
-        <span>
+        {/* Each part stays on one line; on narrow phones the step count steps aside instead of breaking words */}
+        <span className="whitespace-nowrap">
           {stopped ? 'Stopped after' : failed ? 'Ran into a problem after' : 'Worked for'} {formatElapsed(total)}
         </span>
-        <span className="text-slate-600">·</span>
-        <span className="text-slate-500">
+        <span className="text-slate-600 max-[419px]:hidden" aria-hidden="true">·</span>
+        <span className="text-slate-500 whitespace-nowrap max-[419px]:hidden">
           {list.length} step{list.length === 1 ? '' : 's'}
         </span>
-        {tokens && (
-          <>
-            <span className="text-slate-600">·</span>
-            <span className="text-slate-500 tabular-nums">{formatTokens(tokenTotal || promptTokenBudget(tokenSeed))} tokens</span>
-          </>
-        )}
-        {currentNews && (
-          <span className="inline-flex items-center pl-0.5" title={`${newsCount} news item${newsCount === 1 ? '' : 's'} today`}>
-            <NewsDot pulse={!open} />
-            <span className="sr-only">{`, ${newsCount} news item${newsCount === 1 ? '' : 's'} for today`}</span>
-          </span>
-        )}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        {/* Tokens, news dot and chevron stay together on one line */}
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          {tokens && (
+            <>
+              <span className="text-slate-600" aria-hidden="true">·</span>
+              <span className="text-slate-500 tabular-nums">{formatTokens(tokenTotal || promptTokenBudget(tokenSeed))} tokens</span>
+            </>
+          )}
+          {currentNews && (
+            <span className="inline-flex items-center pl-0.5" title={`${newsCount} news item${newsCount === 1 ? '' : 's'} today`}>
+              <NewsDot pulse={!open} />
+              <span className="sr-only">{`, ${newsCount} news item${newsCount === 1 ? '' : 's'} for today`}</span>
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </span>
       </button>
       {/* Smooth expand/collapse (grid rows 0fr -> 1fr) */}
       <div
