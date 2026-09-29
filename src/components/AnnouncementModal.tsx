@@ -3,6 +3,11 @@ import { createPortal } from 'react-dom';
 import { ArrowUpRight, Megaphone, X } from 'lucide-react';
 import { AppNotification } from '../types';
 import { MarketXIcon } from './MarketXIcon';
+import { getApiUrl } from '../utils/api';
+
+/** A broadcast picture: only the site's own image endpoint is ever loaded */
+export const safeBroadcastImage = (src: unknown): string | null =>
+  typeof src === 'string' && /^\/api\/broadcast-image\/bc-\d{10,15}-[0-9a-f]{6}$/.test(src) ? getApiUrl(src) : null;
 
 /** https links in plain text become safe anchors; everything else stays text (never HTML). */
 export const LinkifiedText: React.FC<{ text: string; className?: string }> = ({ text, className = '' }) => {
@@ -70,6 +75,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({ announceme
 
   if (!announcement || typeof document === 'undefined') return null;
   const link = safeAnnouncementLink(announcement);
+  const image = safeBroadcastImage(announcement.image);
 
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-5" role="dialog" aria-modal="true" aria-label="Announcement">
@@ -106,6 +112,11 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({ announceme
 
         {/* Message */}
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 py-4 text-[15px] text-slate-300 leading-relaxed">
+          {image && (
+            <a href={image} target="_blank" rel="noopener noreferrer" className="block mb-4" aria-label="Open the full picture">
+              <img src={image} alt="" loading="lazy" className="w-full max-h-[50dvh] object-contain rounded-2xl border border-white/[0.08] bg-black/30" />
+            </a>
+          )}
           <AnnouncementBody message={announcement.message || ''} />
         </div>
 

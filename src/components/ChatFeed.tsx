@@ -848,7 +848,10 @@ Rationale: ${strategy.entryZone.rationale}
                         </div>
 
                         {/* Recheck: live candles and price replayed over the zone, entry, stop and targets */}
-                        <RecheckPanel strategy={strategy} />
+                        <RecheckPanel
+                          strategy={strategy}
+                          onReanalyze={() => onSelectPromptRef.current(`Analyze ${strategy.symbol} on the ${strategy.timeframe} chart`, strategy.timeframe)}
+                        />
 
                         {/* Action Row: Share to 𝕏, Download as Image, & Copy Parameters */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">

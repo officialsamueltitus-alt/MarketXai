@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Info, CheckCircle2, AlertTriangle, X, ArrowUpRight } from 'lucide-react';
 import { getApiUrl } from '../utils/api';
+import { safeBroadcastImage } from './AnnouncementModal';
 
 interface Banner {
   id: string;
@@ -8,6 +9,7 @@ interface Banner {
   message: string;
   tone: 'info' | 'success' | 'warning';
   link?: string | null;
+  image?: string | null;
 }
 
 const TONES = {
@@ -51,13 +53,20 @@ export const SiteBanner: React.FC = () => {
   const { cls, icon: Icon } = TONES[banner.tone] || TONES.info;
   const link = banner.link && /^https:\/\/[^\s<>"']+$/i.test(banner.link) ? banner.link : null;
   const long = (banner.message || '').length > 70;
+  const image = safeBroadcastImage(banner.image);
 
   return (
-    <div className="mx-fade-in relative z-40 px-2 sm:px-4 pt-2" role="status" aria-label="Announcement">
+    <div className="mx-fade-in relative z-20 px-2 sm:px-4 pt-2" role="status" aria-label="Announcement">
       <div className={`max-w-5xl mx-auto rounded-2xl border ${cls} flex items-start gap-2.5 sm:gap-3 pl-3 pr-1.5 py-2 sm:py-2.5`}>
-        <span className="mt-0.5 w-6 h-6 rounded-lg bg-white/[0.08] flex items-center justify-center shrink-0">
-          <Icon className="w-3.5 h-3.5" />
-        </span>
+        {image ? (
+          <a href={image} target="_blank" rel="noopener noreferrer" className="shrink-0" aria-label="Open the banner picture">
+            <img src={image} alt="" className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl object-cover border border-white/[0.1] bg-black/20" />
+          </a>
+        ) : (
+          <span className="mt-0.5 w-6 h-6 rounded-lg bg-white/[0.08] flex items-center justify-center shrink-0">
+            <Icon className="w-3.5 h-3.5" />
+          </span>
+        )}
         <div className="min-w-0 flex-1 text-[13px] leading-snug">
           <p className="min-w-0">
             <span className="font-semibold break-words">{banner.title}</span>

@@ -324,6 +324,8 @@ export interface AppNotification {
   actionPayload?: any;
   /** Announcements: an optional https link attached by the MarketX team */
   link?: string;
+  /** Announcements: an optional picture (same-site URL) attached by the MarketX team */
+  image?: string;
 }
 
 
@@ -331,7 +333,7 @@ export interface AppNotification {
 export type RecheckLevelStatus = 'UNTOUCHED' | 'AT_PRICE' | 'TOUCHED' | 'HIT';
 
 export interface RecheckResponse {
-  state: 'VALID' | 'TRIGGERED' | 'TP_HIT' | 'SL_HIT' | 'MITIGATED';
+  state: 'VALID' | 'TRIGGERED' | 'TP_HIT' | 'SL_HIT' | 'MITIGATED' | 'NO_SIGNAL' | 'SETUP_FORMED';
   headline: string;
   details: string;
   price: number;

@@ -35,6 +35,8 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
+const IMAGE_CID = 'announcement-image@marketx';
+
 export interface EmailOptions {
   /** Main call-to-action button */
   cta?: { label: string; url: string };
@@ -46,6 +48,8 @@ export interface EmailOptions {
   code?: string;
   /** 'low' for activity mail (paced, deduplicated, droppable); everything else is 'high' */
   priority?: MailPriority;
+  /** A picture embedded in the message (sent as an inline attachment, so it shows without loading remote images) */
+  image?: { data: Buffer; contentType: string; alt?: string };
 }
 
 // Transactional email; failures are logged and never break the request. Resolves true when sent.
@@ -78,6 +82,11 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
       </div>
       <div style="background:#131316;border:1px solid #27272a;border-radius:20px;padding:28px 24px">
         <h1 style="margin:0 0 16px;color:#fafafa;font-size:20px;line-height:1.35;font-weight:700">${escapeHtml(subject)}</h1>
+        ${
+          options.image
+            ? `<img src="cid:${IMAGE_CID}" alt="${escapeHtml(options.image.alt || '')}" width="472" style="display:block;width:100%;max-width:472px;height:auto;margin:0 0 18px;border-radius:14px;border:0">`
+            : ''
+        }
         ${lines.map(para).join('')}
         ${
           options.code
@@ -103,7 +112,11 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   ].join('\n');
   return mailQueue.enqueue(to, options.priority === 'low' || options.priority === 'bulk' ? options.priority : 'high', async () => {
     try {
-      await t.sendMail({ from, to, subject, text, html });
+      const ext = options.image ? options.image.contentType.split('/')[1].replace('jpeg', 'jpg') : '';
+      const attachments = options.image
+        ? [{ filename: `marketx-announcement.${ext}`, content: options.image.data, contentType: options.image.contentType, cid: IMAGE_CID }]
+        : undefined;
+      await t.sendMail({ from, to, subject, text, html, ...(attachments ? { attachments } : {}) });
       return true;
     } catch (err: any) {
       console.warn(`[MarketX Mail] Failed to send "${subject}" to ${to}: ${err?.message || err}`);

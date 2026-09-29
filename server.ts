@@ -43,6 +43,7 @@ import {
   computeAtr,
   estimateAtrFraction,
   priceDecimals,
+  recheckNoSignal,
   recheckSetup,
   tightenStop,
   timeframeFromPrompt,
@@ -154,7 +155,7 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat']);
 // AI-written content never names the underlying model
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
-const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/admin/broadcast'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
@@ -2538,8 +2539,47 @@ app.post('/api/market/recheck', recheckRateLimiter, requireAuth, async (req: Req
   const now = Date.now();
   const since = Number.isFinite(b.since) ? Math.max(now - 400 * 24 * 3600e3, Math.min(now, Number(b.since))) : NaN;
   const issuedAt = Number.isFinite(b.issuedAt) ? Math.max(since || 0, Math.min(now, Number(b.issuedAt))) : now;
+  if (!direction) {
+    // "No signal" results: check the zones they listed and whether a fresh setup has formed since
+    const zones = (Array.isArray(b.zones) ? b.zones : [])
+      .slice(0, 8)
+      .map((z: any) => ({ kind: z?.kind === 'SUPPLY' ? 'SUPPLY' : 'DEMAND', low: num(z?.low), high: num(z?.high), label: typeof z?.label === 'string' ? z.label.slice(0, 60) : undefined }))
+      .filter((z: any) => !Number.isNaN(z.low) && !Number.isNaN(z.high) && z.low <= z.high) as Array<{ kind: 'DEMAND' | 'SUPPLY'; low: number; high: number; label?: string }>;
+    if (!symbol) return res.status(400).json({ error: 'BAD_SETUP', message: 'This result cannot be rechecked.' });
+    try {
+      const asset = extractAssetInfo(symbol, symbol);
+      const [quote, candles] = await Promise.all([
+        resolveAccurateAssetQuote(asset.symbol).catch(() => null),
+        Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(resolve => setTimeout(() => resolve(null), 8000))]),
+      ]);
+      if (!candles || candles.length < 40) {
+        return res.status(503).json({ error: 'NO_LIVE_DATA', message: `Couldn't load live ${tf} candles for ${asset.symbol} right now. Try again in a moment.` });
+      }
+      const lastClose = candles[candles.length - 1].c;
+      const liveQuote = quote && quote.price > 0 && quote.live !== false && Math.abs(quote.price - lastClose) / lastClose < 0.2 ? quote : null;
+      const price = liveQuote ? liveQuote.price : lastClose;
+      const jpy = asset.symbol.toUpperCase().includes('JPY');
+      const session =
+        liveQuote && Number(liveQuote.high24h) > 0 && Number(liveQuote.low24h) > 0 && liveQuote.low24h <= price && liveQuote.high24h >= price
+          ? { high: Number(liveQuote.high24h), low: Number(liveQuote.low24h), since: now - 24 * 3600e3 }
+          : null;
+      const result = recheckNoSignal(candles, price, zones, {
+        timeframe: tf,
+        issuedAt: Number.isFinite(b.issuedAt) ? Math.min(now, Number(b.issuedAt)) : now,
+        decimals: priceDecimals(price, jpy, asset.type === 'forex'),
+        now,
+        jpy,
+        forex: asset.type === 'forex',
+        session,
+      });
+      return res.json({ success: true, symbol: asset.symbol, timeframe: tf, checkedAt: now, priceSource: liveQuote ? 'live' : 'candle', ...result });
+    } catch (err: any) {
+      console.warn('[MarketX Recheck] failed:', err?.message || err);
+      return res.status(500).json({ error: 'RECHECK_FAILED', message: 'Recheck failed. Please try again.' });
+    }
+  }
   const levels = [zone.low, zone.high, entry.min, entry.max, entry.optimal, stop];
-  if (!direction || !symbol || levels.some(Number.isNaN) || !targets.length || Number.isNaN(since) || zone.low > zone.high) {
+  if (!symbol || levels.some(Number.isNaN) || !targets.length || Number.isNaN(since) || zone.low > zone.high) {
     return res.status(400).json({ error: 'BAD_SETUP', message: 'This signal cannot be rechecked.' });
   }
   const long = direction === 'LONG';

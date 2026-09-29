@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { formatTokens, TOKENS_PER_USAGE } from '../utils/tokens';
 import { useTheme, ThemePref } from '../utils/theme';
 import { createPortal } from 'react-dom';
 import { ChatSession, SavedAnalysis, UserProfile, CreditState, XShareReward } from '../types';
@@ -539,7 +538,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="block text-[10px] text-slate-400 font-mono truncate">
                         {isUnlimitedUser(userProfile.email)
                           ? 'Unlimited access'
-                          : `${creditState.availableCredits} credits • ${formatTokens(creditState.dailyUsageRemaining * TOKENS_PER_USAGE)} tokens left today`}
+                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining} ${creditState.dailyUsageRemaining === 1 ? 'analysis' : 'analyses'} left today`}
                       </span>
                     </span>
                   </span>

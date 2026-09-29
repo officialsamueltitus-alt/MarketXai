@@ -1133,7 +1133,7 @@ export interface RecheckLevel {
 }
 
 export interface RecheckResult {
-  state: 'VALID' | 'TRIGGERED' | 'TP_HIT' | 'SL_HIT' | 'MITIGATED';
+  state: 'VALID' | 'TRIGGERED' | 'TP_HIT' | 'SL_HIT' | 'MITIGATED' | 'NO_SIGNAL' | 'SETUP_FORMED';
   headline: string;
   details: string;
   price: number;
@@ -1336,5 +1336,62 @@ export function recheckSetup(
     details: inEntryNow
       ? `Price ${f(price)} is still inside the entry band ${f(Math.min(setup.entry.min, setup.entry.max))} to ${f(Math.max(setup.entry.min, setup.entry.max))}. The stop ${f(setup.stop)} and every target are untouched.`
       : `The entry was taken at ${f(setup.entry.optimal)}; price is now ${f(price)}. The stop ${f(setup.stop)} and every target are untouched. If you are not in yet, do not chase it.`,
+  };
+}
+
+/**
+ * Recheck for a "No signal" result: have the zones it listed been tapped since, and has a fresh, valid setup
+ * formed on live data? Never returns new trade levels (a new analysis gives those).
+ */
+export function recheckNoSignal(
+  candlesIn: Candle[],
+  price: number,
+  zones: Array<{ kind: ZoneKind; low: number; high: number; label?: string }>,
+  opts: { timeframe: string; issuedAt: number; decimals: number; now?: number; jpy?: boolean; forex?: boolean; session?: SessionRange | null }
+): RecheckResult {
+  const now = opts.now ?? Date.now();
+  const f = (p: number) => grouped(p, opts.decimals);
+  const when = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  const tfMs = timeframeMinutes(opts.timeframe) * 60_000;
+  const candles = candlesIn.filter(c => [c.o, c.h, c.l, c.c].every(v => Number.isFinite(v) && v > 0));
+  // Candles that closed after the result was given, plus the live price
+  const since = candles.filter(c => c.t + tfMs > opts.issuedAt);
+  const levels: RecheckLevel[] = zones.slice(0, 8).map((z, i) => {
+    const demand = z.kind === 'DEMAND';
+    const proximal = demand ? z.high : z.low;
+    const tap = since.find(c => (demand ? c.l <= proximal : c.h >= proximal));
+    const inside = price >= z.low && price <= z.high;
+    return {
+      key: `Z${i + 1}`,
+      label: z.label || (demand ? 'Demand zone' : 'Supply zone'),
+      low: z.low,
+      high: z.high,
+      status: inside ? 'AT_PRICE' : tap ? 'TOUCHED' : 'UNTOUCHED',
+      ...(tap && !inside ? { at: tap.t } : {}),
+      note: inside ? 'Price is inside it right now' : tap ? `Tapped ${when(tap.t)}` : 'Untouched since this result',
+    };
+  });
+  const map = buildMarketMap(candles, { price, timeframe: opts.timeframe, jpy: opts.jpy, forex: opts.forex, session: opts.session });
+  const base = { price, levels, candlesChecked: since.length };
+  if (map?.plan) {
+    const p = map.plan;
+    const side = p.direction === 'LONG' ? 'buy' : 'sell';
+    return {
+      ...base,
+      state: 'SETUP_FORMED',
+      headline: p.execution === 'MARKET' ? `A fresh ${side} setup is triggering now` : `A fresh ${side} setup has formed`,
+      details: `Live ${opts.timeframe} data now shows a valid ${side} setup from a fresh ${p.zone.kind === 'DEMAND' ? 'demand' : 'supply'} zone around ${f(p.zone.low)} to ${f(p.zone.high)}${
+        p.execution === 'MARKET' ? ', with price making its first touch right now' : ''
+      }. Run a new analysis to get the verified entry, stop and targets.`,
+    };
+  }
+  const touched = levels.filter(l => l.status !== 'UNTOUCHED').length;
+  return {
+    ...base,
+    state: 'NO_SIGNAL',
+    headline: 'Still no signal',
+    details: `${map?.noSignalReason || 'No fresh, untouched zone offers a valid setup right now.'}${
+      levels.length ? ` ${touched ? `${touched} of the ${levels.length} zones listed were touched since this result.` : 'None of the zones listed has been touched since this result.'}` : ''
+    }`,
   };
 }
