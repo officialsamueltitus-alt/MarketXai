@@ -16,6 +16,7 @@ import {
   UserCog,
   Activity,
   ImagePlus,
+  Database,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -270,6 +271,7 @@ const SECTIONS: Section[] = [
             ['TP1, TP2, TP3', 'Three targets, each with its reward to risk and a suggested share of the position to close.'],
             ['Risk : Reward', 'The ratio to the final target. Trade plans need at least 1 : 2.5.'],
             ['Zones', 'Levels to watch: Untouched ones are still valid, Mitigated ones have already been used by price.'],
+            ['Points of interest', 'Demand order blocks (discount), supply zones (premium), fair value gaps and the golden pocket pool, each marked unmitigated or mitigated.'],
             ['Write up', 'The full reasoning, the market structure and the timeframe used.'],
             ['High impact news', 'A warning when major news may move the market soon, with guidance.'],
           ]}
@@ -279,6 +281,11 @@ const SECTIONS: Section[] = [
           Before any signal, every candle since the zone formed is checked on the timeframe you asked for. If price has already entered the zone and returned,
           touched the entry, hit the stop loss or reached any target (TP1, TP2 or TP3), the trade has played out and is not offered. The note names which level
           was reached and when.
+        </Note>
+        <Note title="How the points of interest are found">
+          1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
+          golden pocket is measured on the swing. 3. Demand is only bought in discount and supply only sold in premium, next to their fair value gaps and the
+          golden pocket pool. 4. Every point is checked for taps; only untouched ones ahead of price, paying at least 1 : 2.5, can become a trade.
         </Note>
         <Note title="Only the current price range">
           Zones are taken only from the most recent price action on your timeframe, inside the range price is trading in now, and ranked by strength, freshness
@@ -311,6 +318,32 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
+      </>
+    ),
+  },
+  {
+    id: 'data-sources',
+    title: 'Where the data comes from',
+    icon: Database,
+    lead: 'MarketX reads raw prices and candles straight from exchange and market data feeds, not from third party signal providers.',
+    body: (
+      <>
+        <Table
+          head={['Market', 'Source']}
+          rows={[
+            ['Crypto', 'Binance spot market (24h ticker for prices, candles for analyses).'],
+            ['Gold', 'Binance PAXG/USDT, backed 1:1 by London Good Delivery gold, live 24/7. Gold futures are the backup.'],
+            ['Silver, oil and other commodities', 'Global futures benchmarks via Yahoo Finance.'],
+            ['Forex', 'Live intraday quotes via Yahoo Finance, with interbank reference rates (open.er-api.com) as the backup.'],
+            ['Stocks and indices', 'Yahoo Finance: live price, previous close and day range.'],
+            ['Synthetic indices', "Deriv's own live feed."],
+            ['News', 'ForexFactory economic calendar and the MarketWatch / Dow Jones wire, for today only.'],
+          ]}
+        />
+        <P>
+          Every analysis starts from the live price and the fresh candles of the timeframe you asked for; the zones, Fibonacci levels, stop loss and targets
+          are computed from them. You can ask the AI about the sources at any time, for example where does the gold price come from?
+        </P>
       </>
     ),
   },

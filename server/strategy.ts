@@ -12,7 +12,10 @@
 //      or an opposing fresh zone if it comes first.
 //   4. Only high-probability plans are signalled (score + minimum 1:2.5 reward to the final target);
 //      otherwise NO_SIGNAL with the levels to watch.
-//   5. Strict, on every timeframe: zones come only from the most recent candles and the current price range, and
+//   5. Premium / discount: the dealing range is the recent swing range; its 0.50 equilibrium splits premium from
+//      discount. Demand is only traded in discount (below 0.50), supply only in premium (above 0.50), both on the
+//      dealing range and on the swing leg the Fibonacci is drawn on.
+//   6. Strict, on every timeframe: zones come only from the most recent candles and the current price range, and
 //      before any signal the zone, the entry band, the stop loss and every target are checked against every candle
 //      since the zone formed (plus the live 24h range). Anything already tapped, smashed or entered-and-left makes
 //      the setup "No signal, already mitigated".
@@ -53,6 +56,8 @@ export interface SDZone {
   freshFrom: number;
   /** Candles since the base formed (lower = more recent) */
   ageBars: number;
+  /** Where the zone sits in the dealing range: discount (below the 0.50 equilibrium) or premium (above it) */
+  territory?: 'PREMIUM' | 'DISCOUNT';
 }
 
 export interface FibLevel {
@@ -80,6 +85,10 @@ export interface TradePlan {
   mitigation: string[];
   /** The golden pocket sits just outside the zone (within 0.3% of price) rather than inside it */
   goldenPocketNear?: boolean;
+  /** 0.50 equilibrium of the swing leg the Fibonacci is drawn on */
+  legEquilibrium: number;
+  /** The zone sits on the right side of the leg's equilibrium (demand in discount, supply in premium) */
+  inTerritory: boolean;
 }
 
 export interface MarketMap {
@@ -91,6 +100,8 @@ export interface MarketMap {
   trend: 'BULLISH' | 'BEARISH' | 'RANGING';
   swingHigh: number;
   swingLow: number;
+  /** 0.50 of the dealing range (recent swing range): below is discount, above is premium */
+  equilibrium: number;
   demandZones: SDZone[];
   supplyZones: SDZone[];
   plan: TradePlan | null; // chosen plan (null => NO_SIGNAL)
@@ -670,6 +681,8 @@ function planForZone(
 
   return {
     mitigation,
+    legEquilibrium: round(lvl(0.5)),
+    inTerritory: rNear >= 0.5,
     ...(goldenPocketNear ? { goldenPocketNear } : {}),
     direction: long ? 'LONG' : 'SHORT',
     zone: z,
@@ -710,6 +723,11 @@ export function buildMarketMap(
   const lookback = clean.slice(-120);
   const swingHigh = Math.max(...lookback.map(c => c.h));
   const swingLow = Math.min(...lookback.map(c => c.l));
+  // Dealing range equilibrium (0.50): demand must sit in discount below it, supply in premium above it
+  const equilibrium = (swingHigh + swingLow) / 2;
+  for (const z of [...demand, ...supply]) z.territory = z.proximal <= equilibrium ? 'DISCOUNT' : 'PREMIUM';
+  const rightTerritory = (p: TradePlan) =>
+    p.inTerritory && (p.direction === 'LONG' ? p.zone.territory === 'DISCOUNT' : p.zone.territory === 'PREMIUM');
 
   // Trust the live 24h range only when it is consistent with price and with the candles' own last-24h range
   // (a stale or placeholder quote must never mark a fresh zone as tapped)
@@ -735,6 +753,7 @@ export function buildMarketMap(
   // A deep retest of the leg's origin (Fib 100%) only counts when the zone is fresh and very strong.
   const qualifiesIgnoringMitigation = (p: TradePlan | null) =>
     !!p &&
+    rightTerritory(p) &&
     p.confluence !== 'ZONE_ONLY' &&
     (p.confluence !== 'LEG_ORIGIN' || (p.zone.fresh && p.score >= 80)) &&
     // Institutional displacement: an unfilled fair value gap at the zone's doorstep
@@ -779,6 +798,8 @@ export function buildMarketMap(
     else if ([...demand, ...supply].every(z => z.tapCount >= 1))
       noSignalReason = 'No signal. Every zone in play has already been tapped since it formed, so none is fresh; wait for a new, untouched zone.';
     else if (!bestLong && !bestShort) noSignalReason = 'No signal. Fresh zones exist, but none leaves room for a clean Fibonacci entry ahead of price with a valid stop.';
+    else if (![...longs, ...shorts].some(rightTerritory))
+      noSignalReason = 'No signal. The fresh zones sit on the wrong side of the 0.50 equilibrium (demand in premium or supply in discount), so there is no institutional-value entry right now.';
     else if (![...longs, ...shorts].some(p => p.zone.fvg && !p.zone.fvg.filled))
       noSignalReason = 'No signal. The fresh zones have no open fair value gap at their doorstep, so institutional displacement is not confirmed; wait for a cleaner zone.';
     else noSignalReason = 'No signal. The fresh zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
@@ -793,6 +814,7 @@ export function buildMarketMap(
     trend,
     swingHigh: Number(swingHigh.toFixed(dec)),
     swingLow: Number(swingLow.toFixed(dec)),
+    equilibrium: Number(equilibrium.toFixed(dec)),
     demandZones: demand.slice(0, 4),
     supplyZones: supply.slice(0, 4),
     plan,
@@ -819,17 +841,76 @@ const grouped = (p: number, dec: number) => p.toLocaleString('en-US', { minimumF
 export function describeZone(z: SDZone, dec: number, pretty = false): string {
   const f = (p: number) => (pretty ? grouped(p, dec) : p.toFixed(dec));
   const state = z.priceInside ? 'price is inside it now' : z.fresh ? 'fresh, untouched' : `tapped ${z.tapCount}x and held`;
-  return `${z.kind} ${f(z.low)} – ${f(z.high)} (${PATTERN_NAME[z.pattern]}, proximal ${f(z.proximal)}, distal ${f(z.distal)}, ${state}, departure ${z.departureAtr.toFixed(1)} ATR${
+  return `${z.kind} ${f(z.low)} – ${f(z.high)} (${PATTERN_NAME[z.pattern]}${z.territory ? `, ${z.territory.toLowerCase()}` : ''}, proximal ${f(z.proximal)}, distal ${f(z.distal)}, ${state}, departure ${z.departureAtr.toFixed(1)} ATR${
     z.brokeStructure ? ', broke structure' : ''
   }${z.fvg ? `, FVG ${f(z.fvg.low)} to ${f(z.fvg.high)} ${z.fvg.filled ? 'filled' : 'open'}` : ', no FVG'}, score ${z.score}/100)`;
 }
 
 /** Compact, factual block for the AI prompt. */
+export interface PoiItem {
+  type: 'DEMAND_ORDER_BLOCK' | 'SUPPLY_ZONE' | 'FAIR_VALUE_GAP' | 'GOLDEN_POCKET';
+  name: string;
+  low: number;
+  high: number;
+  mitigated: boolean;
+  tapCount: number;
+  note: string;
+}
+
+/**
+ * The institutional POI map: demand order blocks (discount), supply zones (premium), the fair value gaps at their
+ * doorsteps and the golden pocket pool of the selected (or best mitigated) setup, each with its mitigation status.
+ */
+export function poiList(map: MarketMap): PoiItem[] {
+  const dec = map.decimals;
+  const f = (p: number) => p.toFixed(dec);
+  const out: PoiItem[] = [];
+  const zoneItem = (z: SDZone): PoiItem => ({
+    type: z.kind === 'DEMAND' ? 'DEMAND_ORDER_BLOCK' : 'SUPPLY_ZONE',
+    name: `${z.kind === 'DEMAND' ? 'Demand order block' : 'Supply zone'} (${PATTERN_NAME[z.pattern]})`,
+    low: z.low,
+    high: z.high,
+    mitigated: z.tapCount > 0 || z.priceInside,
+    tapCount: z.tapCount,
+    note: `${z.territory === 'DISCOUNT' ? 'Discount' : 'Premium'} (equilibrium ${f(map.equilibrium)}), ${
+      z.priceInside ? 'price inside it now' : z.tapCount > 0 ? `tapped ${z.tapCount}x and left` : 'untouched'
+    }, departure ${z.departureAtr.toFixed(1)} ATR, score ${z.score}/100`,
+  });
+  const zones = [...map.demandZones, ...map.supplyZones];
+  for (const z of zones) out.push(zoneItem(z));
+  for (const z of zones) {
+    if (!z.fvg) continue;
+    out.push({
+      type: 'FAIR_VALUE_GAP',
+      name: `Fair value gap at the ${z.kind === 'DEMAND' ? 'demand' : 'supply'} zone`,
+      low: Math.min(z.fvg.low, z.fvg.high),
+      high: Math.max(z.fvg.low, z.fvg.high),
+      mitigated: z.fvg.filled,
+      tapCount: z.fvg.filled ? 1 : 0,
+      note: z.fvg.filled ? 'Filled, price has traded back through the imbalance' : 'Open 3-candle imbalance, a liquidity vacuum price has not revisited',
+    });
+  }
+  const setup = map.plan || map.mitigatedSetup;
+  if (setup) {
+    out.push({
+      type: 'GOLDEN_POCKET',
+      name: 'Golden pocket pool (0.618 to 0.705)',
+      low: Math.min(setup.goldenPocket.from, setup.goldenPocket.to),
+      high: Math.max(setup.goldenPocket.from, setup.goldenPocket.to),
+      mitigated: setup.mitigation.length > 0,
+      tapCount: setup.mitigation.length > 0 ? 1 : 0,
+      note: `On the swing leg ${f(setup.impulseFrom)} (100%) to ${f(setup.impulseTo)} (0%), equilibrium ${f(setup.legEquilibrium)}`,
+    });
+  }
+  return out;
+}
+
 export function marketMapPromptBlock(map: MarketMap): string {
   const f = (p: number) => p.toFixed(map.decimals);
   const lines: string[] = [];
   lines.push(`COMPUTED MARKET MAP (from ${map.candles} real ${map.timeframe} candles; ATR(14) ${f(map.atr)}):`);
   lines.push(`- Market structure: ${map.trend}. Recent range ${f(map.swingLow)} – ${f(map.swingHigh)}. Last close ${f(map.lastClose)}.`);
+  lines.push(`- Dealing range equilibrium (0.50): ${f(map.equilibrium)}. Below it is discount (demand only), above it is premium (supply only). Price is in ${map.price <= map.equilibrium ? 'discount' : 'premium'}.`);
   lines.push(`- Demand zones below price: ${map.demandZones.length ? '' : 'none valid'}`);
   map.demandZones.forEach((z, i) => lines.push(`  ${i + 1}. ${describeZone(z, map.decimals)}`));
   lines.push(`- Supply zones above price: ${map.supplyZones.length ? '' : 'none valid'}`);
@@ -844,6 +925,9 @@ export function marketMapPromptBlock(map: MarketMap): string {
   } else {
     lines.push(`- SELECTED PLAN: NO_SIGNAL. ${map.noSignalReason}`);
   }
+  const pois = poiList(map);
+  lines.push(`- POI MAP (${pois.length} points of interest, mitigation verified against every candle since each formed):`);
+  pois.forEach(p2 => lines.push(`  • ${p2.name} ${f(p2.low)} – ${f(p2.high)}: ${p2.mitigated ? 'MITIGATED' : 'UNMITIGATED'} (tapCount ${p2.tapCount}). ${p2.note}.`));
   if (map.alternate) {
     const a = map.alternate;
     lines.push(`- Alternate ${a.direction} plan: entry ${f(a.entry.optimal)} in ${f(a.zone.low)} – ${f(a.zone.high)}, stop ${f(a.stopLoss)}, final target ${f(a.targets[2].price)} (1:${a.rrFinal}).`);
@@ -858,6 +942,7 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
   const p = map.plan;
   let out = `### ${assetLabel} · ${map.timeframe} Supply & Demand + Fibonacci Map\n\n`;
   out += `**Market structure:** ${map.trend.toLowerCase()} · recent range ${f(map.swingLow)} to ${f(map.swingHigh)} · ATR ${f(map.atr)} · built from ${map.candles} live ${map.timeframe} candles.\n\n`;
+  out += `**Premium and discount:** the 0.50 equilibrium of the range is ${f(map.equilibrium)}; price is in ${map.price <= map.equilibrium ? 'discount' : 'premium'}. Demand is only bought in discount and supply only sold in premium.\n\n`;
   out += `#### Institutional Demand (below price)\n${zoneLines(map.demandZones)}\n\n#### Institutional Supply (above price)\n${zoneLines(map.supplyZones)}\n\n`;
   if (p) {
     const long = p.direction === 'LONG';
@@ -875,6 +960,10 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
             : `The zone sits outside the key retracement band, so the entry is taken at the zone's proximal edge with reduced size.\n\n`;
     if (p.zone.fvg)
       out += `**Displacement:** an open fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) sits at the zone's doorstep, so the zone is untouched and institutional orders are still resting there.\n\n`;
+    const pois = poiList(map);
+    out += `#### Points of Interest\n${pois
+      .map(x => `- **${x.name}:** ${f(x.low)} to ${f(x.high)}, ${x.mitigated ? 'mitigated' : 'unmitigated'}`)
+      .join('\n')}\n\n`;
     out += `#### Execution Plan · ${p.direction}\n`;
     out += `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} to ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
     out += `- **Stop loss:** ${f(p.stopLoss)}, beyond the zone's distal line (Fibonacci 100%)\n`;
