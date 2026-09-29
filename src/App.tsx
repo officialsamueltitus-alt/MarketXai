@@ -49,6 +49,7 @@ import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
 import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
+import { classifyPrompt } from './utils/promptIntent';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
@@ -1005,8 +1006,6 @@ export default function App() {
     // Only consider a tighten prompt if user explicitly used tightening language AND a baseStrategy was provided (e.g. from a card action)
     const hasTightenKeywords =
       /tighten.*(sl|stop\s*loss)|tighter.*(sl|stop\s*loss)|tight.*(sl|stop\s*loss)|reduce.*(risk|sl|stop)|make.*(sl|stop).*tight/i.test(promptText);
-    const hasNewAnalysisDirectives =
-      /\b(analyze|chart|pair|setup|forecast|outlook|buy|sell|long|short)\b/i.test(promptText);
 
     // A setup is only ever passed by the "Tighten SL" actions on a result, so a setup plus tight mode (or
     // tightening words) means: keep this exact setup and tighten its stop. The words "setup"/"analyze" in the
@@ -1119,10 +1118,9 @@ export default function App() {
       publishActivity();
     };
 
-    const looksLikeAnalysis =
-      Boolean(chartImage) ||
-      hasNewAnalysisDirectives ||
-      /\b(eur|gbp|usd|aud|nzd|cad|chf|jpy|xau|xag|gold|silver|oil|btc|bitcoin|eth|ethereum|sol|solana|xrp|bnb|doge|sui|link|nvda|tsla|aapl|googl|volatility|boom|crash|nasdaq|us30|spx)\b/i.test(promptText);
+    // Same rules as the server: a trade analysis, or a question about trading / the markets
+    const namesAsset = assetInfo.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(promptText);
+    const looksLikeAnalysis = classifyPrompt(promptText, { hasChartImage: Boolean(chartImage), namesAsset }) === 'analysis';
     // Minutes read as lowercase "m" (15m), so 1M never looks like one month
     const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframe);
 

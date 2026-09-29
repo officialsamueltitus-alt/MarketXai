@@ -12,6 +12,10 @@
 //      or an opposing fresh zone if it comes first.
 //   4. Only high-probability plans are signalled (score + minimum 1:2.5 reward to the final target);
 //      otherwise NO_SIGNAL with the levels to watch.
+//   5. Strict, on every timeframe: zones come only from the most recent candles and the current price range, and
+//      before any signal the zone, the entry band, the stop loss and every target are checked against every candle
+//      since the zone formed (plus the live 24h range). Anything already tapped, smashed or entered-and-left makes
+//      the setup "No signal, already mitigated".
 // Pure functions only (no I/O) so it can be tested with fixture candles.
 // ===========================================================================
 
@@ -45,6 +49,10 @@ export interface SDZone {
   priceInside: boolean;
   /** 3-candle fair value gap (imbalance) at the zone's doorstep; filled = price has since traded through it */
   fvg: { low: number; high: number; filled: boolean } | null;
+  /** First candle after the leg-out: every tap/mitigation check replays from here */
+  freshFrom: number;
+  /** Candles since the base formed (lower = more recent) */
+  ageBars: number;
 }
 
 export interface FibLevel {
@@ -229,6 +237,11 @@ function trendFromSwings(swings: Swing[]): 'BULLISH' | 'BEARISH' | 'RANGING' {
 // ---------------------------------------------------------------------------
 // 1-2. Supply & Demand zones with freshness
 // ---------------------------------------------------------------------------
+/** Zones are only taken from the most recent candles of the timeframe (the current price range), never old history. */
+export const RECENT_ZONE_BARS = 120;
+/** A zone further than this from price (in ATRs) is too far to trigger soon and is never signalled. */
+export const MAX_ZONE_DISTANCE_ATR = 12;
+
 function isBasing(c: Candle, atr: number) {
   return body(c) <= range(c) * 0.5 || range(c) <= atr * 0.7;
 }
@@ -245,7 +258,13 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     return xs.length ? xs[Math.floor(xs.length / 2)] : 0;
   };
 
-  for (let i = 2; i < n - 1; i++) {
+  // Most recent candles only: a zone must form inside the current range, not somewhere far back in history
+  const firstRecent = Math.max(2, n - RECENT_ZONE_BARS);
+  const recent = candles.slice(firstRecent - 2);
+  const recentHigh = Math.max(...recent.map(c => c.h));
+  const recentLow = Math.min(...recent.map(c => c.l));
+
+  for (let i = firstRecent; i < n - 1; i++) {
     const leg = candles[i];
     const a = atrs[i - 1] || atr;
     const typical = medianBody(i);
@@ -296,6 +315,8 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     }
     // Ignore zones too wide to trade with a sensible stop
     if (Math.abs(proximal - distal) > a * 2.5) continue;
+    // The zone must sit inside the current price range
+    if (Math.max(proximal, distal) < recentLow - atr * 0.5 || Math.min(proximal, distal) > recentHigh + atr * 0.5) continue;
 
     // Pattern: what came into the base (drop or rally) decides reversal vs continuation
     const before = candles[Math.max(0, base[0] - 1)];
@@ -347,6 +368,8 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     if (broken) continue;
 
     zones.push({
+      freshFrom: i + (strongPair ? 2 : 1),
+      ageBars: n - 1 - base[0],
       kind: up ? 'DEMAND' : 'SUPPLY',
       pattern,
       proximal,
@@ -388,6 +411,7 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     if ((z.kind === 'DEMAND' && trend === 'BULLISH') || (z.kind === 'SUPPLY' && trend === 'BEARISH')) s += 8;
     if ((z.kind === 'DEMAND' && trend === 'BEARISH') || (z.kind === 'SUPPLY' && trend === 'BULLISH')) s -= 6;
     s -= Math.max(0, z.distanceAtr - 6) * 2; // far-away zones are less actionable
+    s += Math.round(6 * (1 - Math.min(1, z.ageBars / RECENT_ZONE_BARS))); // the most recent zones reflect current order flow
     z.score = Math.max(0, Math.min(100, Math.round(s)));
   }
 
@@ -597,41 +621,52 @@ function planForZone(
   score += Math.max(0, 6 - z.distanceAtr); // closer = more likely to trigger soon
   score = Math.max(0, Math.min(100, Math.round(score)));
 
-  // Mitigation check: replay the candles for THIS setup. The zone must be untouched since it formed, and since
-  // the impulse extreme (where the pullback to the entry begins) price must not have tapped the entry, the stop
-  // or — after an entry fill — the first target. Any of these means the setup has already played out.
+  // Mitigation check (strict, every timeframe): replay every candle since the zone formed. The setup is only clean
+  // if price has never re-entered the zone, never touched the entry band, never reached the stop loss, and, once the
+  // entry was touched, never reached any target. Anything else means the move has already played out.
   const mitigation: string[] = [];
   const when = (c: Candle) => new Date(c.t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-  if (z.tapCount > 0) mitigation.push(`the ${long ? 'demand' : 'supply'} zone was already tapped ${z.tapCount}x since it formed`);
+  const entryEdge = long ? eMax : eMin; // the side of the entry band price reaches first
+  if (z.tapCount > 0) mitigation.push(`the ${long ? 'demand' : 'supply'} zone was already tapped ${z.tapCount}x since it formed (price entered it and returned)`);
   else if (z.priceInside) mitigation.push(`price is trading inside the ${long ? 'demand' : 'supply'} zone right now`);
   // The live 24h range can show a tap the candle feed has not printed yet. Only used when the window opens after the
   // zone's leg-out, so the displacement candles themselves are never mistaken for a tap.
-  const legOutDone = candles[Math.min(candles.length - 1, z.legOutIndex + 2)];
+  const legOutDone = candles[Math.min(candles.length - 1, z.freshFrom)];
   if (session && legOutDone.t < session.since) {
     const extreme = long ? session.low : session.high;
     if (z.tapCount === 0 && !z.priceInside && (long ? extreme <= z.proximal : extreme >= z.proximal))
       mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already traded into the zone`);
+    else if (long ? extreme <= entryEdge : extreme >= entryEdge)
+      mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already reached the entry ${round(entryEdge)}`);
     if (long ? extreme <= stop : extreme >= stop) mitigation.push(`the 24h ${long ? 'low' : 'high'} ${round(extreme)} already reached the stop-loss level ${round(stop)}`);
   }
   let entryTap: Candle | null = null;
-  for (let j = Math.max(extIndex + 1, z.legOutIndex + 1); j < candles.length; j++) {
+  let stopHit = false;
+  const tpHit = new Set<number>();
+  for (let j = Math.max(z.freshFrom, 0); j < candles.length; j++) {
     const c = candles[j];
-    if (!entryTap && (long ? c.l <= optimal : c.h >= optimal)) {
-      entryTap = c;
-      mitigation.push(`the entry ${round(optimal)} was already tapped (${when(c)})`);
-    }
-    if (entryTap && (long ? c.h >= targets[0].price : c.l <= targets[0].price) && c.t > entryTap.t) {
-      mitigation.push(`TP1 ${targets[0].price} was then reached (${when(c)})`);
-      break;
-    }
-  }
-  for (let j = z.legOutIndex + 1; j < candles.length; j++) {
-    const c = candles[j];
-    if (long ? c.l <= stop : c.h >= stop) {
+    if (!stopHit && (long ? c.l <= stop : c.h >= stop)) {
+      stopHit = true;
       mitigation.push(`the stop-loss level ${round(stop)} was already hit (${when(c)})`);
-      break;
+    }
+    if (!entryTap && (long ? c.l <= entryEdge : c.h >= entryEdge)) {
+      entryTap = c;
+      mitigation.push(`the entry ${round(entryEdge)} was already tapped (${when(c)})`);
+      continue; // targets count from the next candle after the entry fill
+    }
+    if (entryTap) {
+      targets.forEach((t, k) => {
+        if (!tpHit.has(k) && (long ? c.h >= t.price : c.l <= t.price)) {
+          tpHit.add(k);
+          mitigation.push(`TP${k + 1} ${t.price} was then reached (${when(c)})`);
+        }
+      });
     }
   }
+  // Every target must still be ahead of live price (a smashed target means the move already happened)
+  targets.forEach((t, k) => {
+    if (!tpHit.has(k) && (long ? price >= t.price : price <= t.price)) mitigation.push(`TP${k + 1} ${t.price} has already been reached by price`);
+  });
 
   return {
     mitigation,
@@ -707,7 +742,7 @@ export function buildMarketMap(
     !p.zone.fvg.filled &&
     // Counter-trend trades must clear a much higher bar
     p.score >= ((trend === 'BULLISH' && p.direction === 'SHORT') || (trend === 'BEARISH' && p.direction === 'LONG') ? 82 : 70) &&
-    p.zone.distanceAtr <= 12 &&
+    p.zone.distanceAtr <= MAX_ZONE_DISTANCE_ATR &&
     p.rrFinal >= 2.5;
   const qualifies = (p: TradePlan | null) => qualifiesIgnoringMitigation(p) && p!.mitigation.length === 0;
   let plan: TradePlan | null = null;
