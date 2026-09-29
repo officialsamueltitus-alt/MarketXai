@@ -5,7 +5,7 @@ import { db, isFirebaseConfigured } from './firebase';
 import { hashPassword, signWithServerSecret, verifyPassword } from './session';
 import { sendEmail } from './mailer';
 import { perWorkerAtLeast } from './workers';
-import { addNotification, invalidateAuthCache, UserDoc, userRef, usernameRef } from './account';
+import { addNotification, invalidateAuthCache, siteLink, UserDoc, userRef, usernameRef } from './account';
 import { deleteAccountData, setEmailBanned } from './auth';
 import { passcodeReport } from './access';
 import { approveSubmission, listSubmissions, rejectSubmission } from './campaigns';
@@ -33,22 +33,26 @@ const authRef = () => db().collection('adminConfig').doc('auth');
 const bannerRef = () => db().collection('siteConfig').doc('banner');
 const broadcastImageRef = (id: string) => db().collection('broadcastImages').doc(id);
 
-// Broadcast pictures: raster images only (no SVG, which can carry script), checked by their file signature,
-// at most 700 KB so one fits in a single Firestore document. The admin page shrinks photos before upload.
+// Broadcast pictures: raster images only (no SVG, which can carry script), checked by their file signature.
+// Two copies: a light display copy (at most 700 KB, one Firestore document) shown in notifications, the banner and
+// embedded in emails, and the untouched original (up to 10 MB, split across 700 KB documents) opened on tap.
 export const BROADCAST_IMAGE_MAX_BYTES = 700 * 1024;
+export const BROADCAST_FULL_MAX_BYTES = 10 * 1024 * 1024;
+const FULL_CHUNK_BYTES = 700 * 1024;
+const fullChunkRef = (id: string, n: number) => db().collection('broadcastImages').doc(`${id}__full_${n}`);
 const IMAGE_SIGNATURES: Array<[string, (b: Buffer) => boolean]> = [
   ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
   ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
   ['image/gif', b => b.subarray(0, 4).toString('latin1') === 'GIF8'],
   ['image/webp', b => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
 ];
-export function parseBroadcastImage(raw: unknown): { data: Buffer; contentType: string } | { error: string } | null {
+export function parseBroadcastImage(raw: unknown, maxBytes = BROADCAST_IMAGE_MAX_BYTES): { data: Buffer; contentType: string } | { error: string } | null {
   if (raw === undefined || raw === null || raw === '') return null;
   const m = typeof raw === 'string' ? /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(raw) : null;
   if (!m) return { error: 'The picture must be a JPG, PNG, GIF or WebP image.' };
   const data = Buffer.from(m[2], 'base64');
   if (!data.length) return { error: 'The picture is empty.' };
-  if (data.length > BROADCAST_IMAGE_MAX_BYTES) return { error: 'The picture is too large (700 KB max after resizing).' };
+  if (data.length > maxBytes) return { error: `The picture is too large (${maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / 1048576)} MB` : `${Math.round(maxBytes / 1024)} KB`} max).` };
   const sig = IMAGE_SIGNATURES.find(([, test]) => test(data));
   if (!sig) return { error: 'That file is not a valid image.' };
   // Trust the bytes, not the label
@@ -354,6 +358,35 @@ export function registerAdminRoutes(app: Express) {
     const live = b && b.active && (!b.expiresAt || b.expiresAt > Date.now());
     res.setHeader('Cache-Control', 'public, max-age=30');
     res.json({ banner: live ? { id: b.id, title: b.title, message: b.message, tone: b.tone, link: b.link || null, image: b.image || null } : null });
+  }));
+
+  const sendImage = (res: Response, contentType: string, data: Buffer, name: string) => {
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${name}.${contentType.split('/')[1].replace('jpeg', 'jpg')}"`);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(data);
+  };
+  const IMAGE_TYPE = /^image\/(jpeg|png|gif|webp)$/;
+
+  // Public: the full, original picture (opened when someone taps it); falls back to the display copy
+  app.get('/api/broadcast-image/:id/full', wrap(async (req, res) => {
+    const id = String(req.params.id || '');
+    if (!/^bc-\d{10,15}-[0-9a-f]{6}$/.test(id) || !isFirebaseConfigured()) return res.status(404).end();
+    const snap = await broadcastImageRef(id).get();
+    const img: any = snap.exists ? snap.data() : null;
+    if (!img) return res.status(404).end();
+    const chunks = Math.min(20, Math.floor(Number(img.fullChunks) || 0));
+    if (chunks > 0 && IMAGE_TYPE.test(img.fullContentType)) {
+      const parts = await Promise.all(Array.from({ length: chunks }, (_, n) => fullChunkRef(id, n).get()));
+      if (parts.every(p => p.exists && typeof (p.data() as any)?.data === 'string')) {
+        return sendImage(res, img.fullContentType, Buffer.concat(parts.map(p => Buffer.from((p.data() as any).data, 'base64'))), `marketx-${id}`);
+      }
+    }
+    if (typeof img.data !== 'string' || !IMAGE_TYPE.test(img.contentType)) return res.status(404).end();
+    sendImage(res, img.contentType, Buffer.from(img.data, 'base64'), `marketx-${id}`);
   }));
 
   // Public: a broadcast picture (shown in notifications, the banner and email clients)
@@ -715,12 +748,27 @@ export function registerAdminRoutes(app: Express) {
     const parsed = parseBroadcastImage(req.body?.image);
     if (parsed && 'error' in parsed) return res.status(400).json({ error: 'INVALID_IMAGE', message: parsed.error });
     const picture = parsed as { data: Buffer; contentType: string } | null;
+    // The untouched original, opened in full when tapped (optional; the display copy stands in without it)
+    const parsedFull = picture ? parseBroadcastImage(req.body?.imageFull, BROADCAST_FULL_MAX_BYTES) : null;
+    if (parsedFull && 'error' in parsedFull) return res.status(400).json({ error: 'INVALID_IMAGE', message: parsedFull.error });
+    const full = parsedFull as { data: Buffer; contentType: string } | null;
     let image: string | null = null;
     if (picture) {
-      await broadcastImageRef(id).set({ id, contentType: picture.contentType, data: picture.data.toString('base64'), bytes: picture.data.length, createdAt: Date.now() });
+      const fullChunks = full ? Math.ceil(full.data.length / FULL_CHUNK_BYTES) : 0;
+      for (let n = 0; n < fullChunks; n++) {
+        await fullChunkRef(id, n).set({ id, n, data: full!.data.subarray(n * FULL_CHUNK_BYTES, (n + 1) * FULL_CHUNK_BYTES).toString('base64') });
+      }
+      await broadcastImageRef(id).set({
+        id,
+        contentType: picture.contentType,
+        data: picture.data.toString('base64'),
+        bytes: picture.data.length,
+        ...(full ? { fullContentType: full.contentType, fullBytes: full.data.length, fullChunks } : {}),
+        createdAt: Date.now(),
+      });
       image = `/api/broadcast-image/${id}`;
     }
-    const mailImage = picture ? { data: picture.data, contentType: picture.contentType, alt: title } : undefined;
+    const mailImage = picture ? { data: picture.data, contentType: picture.contentType, alt: title, href: siteLink(`/api/broadcast-image/${id}/full`) } : undefined;
 
     if (mode === 'banner') {
       const tone = ['info', 'success', 'warning'].includes(req.body?.tone) ? req.body.tone : 'info';

@@ -153,10 +153,10 @@ app.use(corsAndOriginGuard);
 const keepRawBody = (req: any, _res: any, buf: Buffer) => {
   req.rawBody = buf;
 };
-const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat']);
+const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat', '/api/admin/broadcast']);
 // AI-written content never names the underlying model
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
-const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/admin/broadcast'];
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
