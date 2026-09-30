@@ -92,7 +92,9 @@
   memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
   (entry zone, TP1-3, stop, or MISSED if a target comes before entry), then a notification + activity email. Unused signals get
   one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 30s
-  only while they have an active alert and the tab is visible.
+  only while they have an active alert and the tab is visible. The panel has a Refresh button: `GET /api/alerts?live=1` reloads the alerts and
+  returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
+  price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
 - Emails (`server/mailer.ts`, the only template): always dark with white text, in every mail app: table `bgcolor` + background
   colour + a solid gradient image (Gmail apps don't recolour images), `color-scheme: dark only`, and a Gmail iOS blend fix. No
   white backgrounds or white buttons (the button is violet).

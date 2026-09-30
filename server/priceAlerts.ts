@@ -58,6 +58,8 @@ export interface Bar { t: number; o: number; h: number; l: number; c: number }
 export interface PriceAlertDeps {
   /** Recent 1-minute candles for a symbol (oldest first), or null when the feed is unavailable */
   getBars: (symbol: string) => Promise<Bar[] | null>;
+  /** Live quote for a symbol (shown on the trader's active alerts when they refresh), or null */
+  getQuote?: (symbol: string) => Promise<{ price: number; change24h: number } | null>;
 }
 
 const OFFERS = 'alertOffers';
@@ -467,7 +469,18 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
   app.get('/api/alerts', limiter, requireAuth, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const [snap, alerts] = await Promise.all([userRef(uid).get(), listAlerts(uid)]);
-    res.json({ enabled: !!(snap.data() as UserDoc | undefined)?.alerts?.enabled, alerts });
+    // ?live=1 (the panel's refresh): the live price of every market with an active alert, fetched now
+    const live: Record<string, { price: number; change24h: number }> = {};
+    if (req.query.live === '1' && deps.getQuote) {
+      const symbols = [...new Set(alerts.filter(a => a.active).map(a => a.symbol))].slice(0, 12);
+      await Promise.all(
+        symbols.map(async sym => {
+          const q = await Promise.race([deps.getQuote!(sym).catch(() => null), new Promise<null>(r => setTimeout(() => r(null), 5000))]);
+          if (q && finite(q.price)) live[sym] = { price: q.price, change24h: Number(q.change24h) || 0 };
+        })
+      );
+    }
+    res.json({ enabled: !!(snap.data() as UserDoc | undefined)?.alerts?.enabled, alerts, live, checkedAt: Date.now() });
   }));
 
   app.post('/api/alerts/consent', limiter, requireAuth, guard, wrap(async (req, res) => {

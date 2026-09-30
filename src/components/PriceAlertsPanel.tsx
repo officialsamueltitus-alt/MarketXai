@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles } from 'lucide-react';
-import type { PriceAlertItem } from '../types';
+import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles, RefreshCw } from 'lucide-react';
+import type { PriceAlertItem, AlertLiveQuote } from '../types';
 import { formatMarketPrice } from '../utils/formatPrice';
 
 interface PriceAlertsPanelProps {
@@ -14,6 +14,12 @@ interface PriceAlertsPanelProps {
   onRemove: (id: string) => Promise<void>;
   /** A setup waiting for approval (from an email link or a result card) */
   pendingSymbol?: string | null;
+  /** Live prices of the markets being watched (from the last refresh) */
+  liveQuotes?: Record<string, AlertLiveQuote>;
+  /** When the list and prices were last loaded */
+  checkedAt?: number | null;
+  /** Reloads the alerts and live prices */
+  onRefresh?: () => Promise<void>;
 }
 
 const fmt = (p: number) => (Number.isFinite(p) ? formatMarketPrice(p) : '');
@@ -66,8 +72,37 @@ const Rail: React.FC<{ a: PriceAlertItem }> = ({ a }) => {
   );
 };
 
-export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onClose, enabled, alerts, loading, onConsent, onRemove, pendingSymbol }) => {
+/** Where price sits now against the trade: distance to the entry zone, or to the next target and the stop */
+function livePosition(a: PriceAlertItem, price: number): { text: string; tone: string } {
+  const long = a.direction === 'LONG';
+  const pct = (to: number) => Math.abs(((to - price) / price) * 100);
+  const f = (n: number) => (n < 0.1 ? n.toFixed(2) : n.toFixed(1));
+  const has = (k: string) => a.hits.some(h => h.kind === k);
+  if (!a.entered) {
+    const inZone = price >= a.entry.min && price <= a.entry.max;
+    if (inZone) return { text: 'Inside the entry zone now', tone: 'text-sky-300' };
+    const edge = long ? a.entry.max : a.entry.min;
+    return { text: `${f(pct(edge))}% from the entry zone`, tone: 'text-slate-300' };
+  }
+  const next = a.tps.findIndex((_, i) => !has(`TP${i + 1}`));
+  const inProfit = long ? price >= a.entry.optimal : price <= a.entry.optimal;
+  const pnl = ((price - a.entry.optimal) / a.entry.optimal) * 100 * (long ? 1 : -1);
+  const parts = [`${pnl >= 0 ? '+' : ''}${f(pnl)}% from entry`];
+  if (next >= 0) parts.push(`${f(pct(a.tps[next]))}% to TP${next + 1}`);
+  parts.push(`${f(pct(a.stop))}% to SL`);
+  return { text: parts.join(' · '), tone: inProfit ? 'text-emerald-300' : 'text-amber-300' };
+}
+
+export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onClose, enabled, alerts, loading, onConsent, onRemove, pendingSymbol, liveQuotes = {}, checkedAt, onRefresh }) => {
   const [busy, setBusy] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  // Re-render the "updated … ago" label every 15s while the panel is open
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!isOpen) return;
+    const t = setInterval(() => setTick(x => x + 1), 15000);
+    return () => clearInterval(t);
+  }, [isOpen]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -88,6 +123,16 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
   };
   const active = alerts.filter(a => a.active);
   const recent = alerts.filter(a => !a.active).slice(0, 8);
+  const refresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  const updated = checkedAt ? (Date.now() - checkedAt < 30000 ? 'Updated just now' : `Updated ${ago(checkedAt)}`) : '';
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Price alerts">
@@ -187,8 +232,28 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
             <div className="pt-3 space-y-5">
               {active.length > 0 && (
                 <div>
-                  <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">Watching now</div>
-                  <div className="space-y-2.5">{active.map(a => <AlertCard key={a.id} a={a} busy={busy === a.id} onRemove={() => run(a.id, () => onRemove(a.id))} />)}</div>
+                  <div className="px-1 pb-2 flex items-center gap-2">
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Watching now</span>
+                    {updated && <span className="text-[11px] text-slate-500 normal-case">· {refreshing ? 'Updating…' : updated}</span>}
+                    {onRefresh && (
+                      <button
+                        type="button"
+                        onClick={refresh}
+                        disabled={refreshing}
+                        aria-label="Refresh your alerts and live prices"
+                        title="Refresh"
+                        className="ml-auto h-7 pl-2 pr-2.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-slate-200 hover:text-white hover:bg-white/[0.09] inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-70"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2.5">
+                    {active.map(a => (
+                      <AlertCard key={a.id} a={a} quote={liveQuotes[a.symbol]} busy={busy === a.id} onRemove={() => run(a.id, () => onRemove(a.id))} />
+                    ))}
+                  </div>
                 </div>
               )}
               {recent.length > 0 && (
@@ -205,8 +270,9 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
   );
 };
 
-const AlertCard: React.FC<{ a: PriceAlertItem; busy?: boolean; onRemove?: () => void }> = ({ a, busy, onRemove }) => {
+const AlertCard: React.FC<{ a: PriceAlertItem; quote?: AlertLiveQuote; busy?: boolean; onRemove?: () => void }> = ({ a, quote, busy, onRemove }) => {
   const s = status(a);
+  const pos = a.active && quote ? livePosition(a, quote.price) : null;
   const long = a.direction === 'LONG';
   return (
     <div className={`relative p-3.5 rounded-2xl border ${a.active ? 'bg-white/[0.035] border-white/[0.08]' : 'bg-white/[0.02] border-white/[0.05]'}`}>
@@ -225,6 +291,17 @@ const AlertCard: React.FC<{ a: PriceAlertItem; busy?: boolean; onRemove?: () => 
         )}
       </div>
       <div className={`mt-1.5 text-xs font-medium ${s.tone}`}>{s.text}</div>
+      {quote && pos && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Live</span>
+          <span className="text-xs font-mono font-semibold text-white">{fmt(quote.price)}</span>
+          <span className={`text-[11px] font-mono ${quote.change24h >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {quote.change24h >= 0 ? '+' : ''}
+            {quote.change24h.toFixed(2)}% today
+          </span>
+          <span className={`basis-full text-[11px] ${pos.tone}`}>{pos.text}</span>
+        </div>
+      )}
       <Rail a={a} />
     </div>
   );

@@ -2033,7 +2033,17 @@ registerAdminRoutes(app);
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
 // Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
-registerPriceAlertRoutes(app, { getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M') }, generalApiRateLimiter);
+registerPriceAlertRoutes(
+  app,
+  {
+    getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M'),
+    getQuote: async symbol => {
+      const q = await resolveAccurateAssetQuote(await resolveAssetInfo(symbol, symbol));
+      return q && q.price > 0 && q.live !== false ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
+    },
+  },
+  generalApiRateLimiter
+);
 // Every coin listed on Binance, Bybit and MEXC (refreshed every 6 hours), so any listed coin or meme can be analyzed
 startCryptoUniverse();
 // Stored answers: expired ones are removed hourly (one worker does it)

@@ -322,6 +322,12 @@ export interface PriceAlertItem {
   endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | null;
 }
 
+/** Live price of a market with an active alert, fetched when the trader refreshes the panel */
+export interface AlertLiveQuote {
+  price: number;
+  change24h: number;
+}
+
 export interface CreditState {
   availableCredits: number;
   dailyUsageLimit: number; // 10 per day for subscribers

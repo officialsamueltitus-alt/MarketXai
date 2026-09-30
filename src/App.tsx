@@ -15,6 +15,7 @@ import {
   ResearchInfo,
   ActivityStep,
   PriceAlertItem,
+  AlertLiveQuote,
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -153,6 +154,8 @@ export default function App() {
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertQuotes, setAlertQuotes] = useState<Record<string, AlertLiveQuote>>({});
+  const [alertsCheckedAt, setAlertsCheckedAt] = useState<number | null>(null);
   const [pendingAlertOffer, setPendingAlertOffer] = useState<{ id: string; symbol: string } | null>(null);
   // An alert link from an email (?alert=<setup> or ?alerts=1), handled once the session is restored
   const alertLinkRef = useRef<{ offerId?: string; open?: boolean } | null>(null);
@@ -995,11 +998,16 @@ export default function App() {
     }
     setIsAlertsOpen(true);
   }, [authUser]);
-  const fetchAlerts = useCallback(async () => {
+  const fetchAlerts = useCallback(async (live = false) => {
     setAlertsLoading(true);
     try {
-      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts');
+      // live=1: the server also fetches the live price of each market being watched
+      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[]; live?: Record<string, AlertLiveQuote>; checkedAt?: number }>(
+        live ? '/api/alerts?live=1' : '/api/alerts'
+      );
       setPriceAlerts(data.alerts || []);
+      if (live) setAlertQuotes(data.live || {});
+      setAlertsCheckedAt(data.checkedAt || Date.now());
       setUserProfile(p => (p.alertsEnabled === data.enabled ? p : { ...p, alertsEnabled: data.enabled }));
     } catch {
     } finally {
@@ -1081,7 +1089,7 @@ export default function App() {
   }, [authUser]);
   // Opening the panel always shows the latest state
   useEffect(() => {
-    if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts();
+    if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts(true);
   }, [isAlertsOpen, authUser, alertsEnabled, fetchAlerts]);
   // While an alert is active, new alert notifications are picked up every 30s (only while the tab is visible)
   const hasActiveAlerts = priceAlerts.some(a => a.active);
@@ -1886,6 +1894,9 @@ export default function App() {
           enabled={alertsEnabled}
           alerts={priceAlerts}
           loading={alertsLoading}
+          liveQuotes={alertQuotes}
+          checkedAt={alertsCheckedAt}
+          onRefresh={() => fetchAlerts(true)}
           pendingSymbol={pendingAlertOffer?.symbol || null}
           onConsent={handleAlertsConsent}
           onRemove={removeAlert}
