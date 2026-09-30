@@ -45,6 +45,14 @@
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
   price and today's news for any pair they name; only analysis requests return trade cards.
+- Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once
+  (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Every signal served is recorded as an
+  `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and
+  alerts (`priceAlerts`, id `al_{offerId}`) only ever use those stored levels. Only the lead worker monitors: active alerts in
+  memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
+  (entry zone, TP1-3, stop, or MISSED if a target comes before entry), then a notification + activity email. Unused signals get
+  one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 30s
+  only while they have an active alert and the tab is visible.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced

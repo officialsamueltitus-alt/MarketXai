@@ -28,6 +28,7 @@ import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
+import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerSupportRoutes } from './server/support';
 import { isMailerConfigured } from './server/mailer';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
@@ -156,6 +157,8 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat', '/api/admin/broadcast']);
 // AI-written content never names the underlying model
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
+// Every LONG / SHORT signal served is recorded as a price-alert offer (levels kept server-side; the analysis is untouched)
+app.use('/api/market/analyze', alertOfferMiddleware);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -1875,6 +1878,8 @@ registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
+// Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
+registerPriceAlertRoutes(app, { getBars: symbol => fetchCandlesForAsset(extractAssetInfo(symbol), '1M') });
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 

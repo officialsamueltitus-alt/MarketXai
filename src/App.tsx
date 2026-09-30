@@ -12,6 +12,7 @@ import {
   XShareReward,
   AppNotification,
   ActivityStep,
+  PriceAlertItem,
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -31,9 +32,10 @@ const SupportChat = lazyWithReload(() => import('./components/SupportChat').then
 const RewardEmailNotificationModal = lazyWithReload(() =>
   import('./components/RewardEmailNotificationModal').then(m => ({ default: m.RewardEmailNotificationModal }))
 );
+const PriceAlertsPanel = lazyWithReload(() => import('./components/PriceAlertsPanel').then(m => ({ default: m.PriceAlertsPanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -144,6 +146,13 @@ export default function App() {
   const [openAnnouncement, setOpenAnnouncement] = useState<AppNotification | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  // Price alerts (/price-alerts): watched on the server; the client only lists them and toggles them
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [pendingAlertOffer, setPendingAlertOffer] = useState<{ id: string; symbol: string } | null>(null);
+  // An alert link from an email (?alert=<setup> or ?alerts=1), handled once the session is restored
+  const alertLinkRef = useRef<{ offerId?: string; open?: boolean } | null>(null);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' | 'info' } | null>(null);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -272,7 +281,12 @@ export default function App() {
     if (params.has('reset')) setIsAuthModalOpen(true);
     // "Open the conversation" link in support reply emails
     if (params.get('support') === '1') setIsSupportOpen(true);
-    if (params.has('verified') || params.has('reset') || params.has('support')) {
+    // "Turn on price alert" / "Open price alerts" links in alert emails
+    const alertOffer = params.get('alert');
+    if ((alertOffer && /^of_[a-z0-9]{8,40}$/.test(alertOffer)) || params.get('alerts') === '1') {
+      alertLinkRef.current = { offerId: alertOffer || undefined, open: true };
+    }
+    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -969,6 +983,129 @@ export default function App() {
     setOpenAnnouncement(fresh);
   }, [notifications, authUser, openAnnouncement]);
 
+  // ---------------- Price alerts ----------------
+  const alertsEnabled = !!userProfile.alertsEnabled;
+  const openAlerts = useCallback(() => {
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsAlertsOpen(true);
+  }, [authUser]);
+  const fetchAlerts = useCallback(async () => {
+    setAlertsLoading(true);
+    try {
+      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts');
+      setPriceAlerts(data.alerts || []);
+      setUserProfile(p => (p.alertsEnabled === data.enabled ? p : { ...p, alertsEnabled: data.enabled }));
+    } catch {
+    } finally {
+      setAlertsLoading(false);
+    }
+  }, []);
+  const createAlert = useCallback(async (offerId: string, symbol: string) => {
+    try {
+      const data = await apiFetch<{ alerts: PriceAlertItem[] }>('/api/alerts', { method: 'POST', body: JSON.stringify({ offerId }) });
+      setPriceAlerts(data.alerts || []);
+      setToastNotification({ message: `🔔 Alert on for ${symbol}. You'll be notified at the entry zone, stop loss and every target.`, type: 'success' });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === 'ALERTS_OFF') {
+        setPendingAlertOffer({ id: offerId, symbol });
+        setIsAlertsOpen(true);
+        return;
+      }
+      setToastNotification({ message: err?.message || 'Could not turn on the alert. Please try again.', type: 'info' });
+    }
+  }, []);
+  const removeAlert = useCallback(async (id: string) => {
+    try {
+      const data = await apiFetch<{ alerts: PriceAlertItem[] }>(`/api/alerts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setPriceAlerts(data.alerts || []);
+    } catch (err: any) {
+      setToastNotification({ message: err?.message || 'Could not turn off the alert.', type: 'info' });
+    }
+  }, []);
+  const handleAlertsConsent = useCallback(async (enabled: boolean) => {
+    try {
+      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts/consent', { method: 'POST', body: JSON.stringify({ enabled }) });
+      setUserProfile(p => ({ ...p, alertsEnabled: data.enabled }));
+      setPriceAlerts(data.alerts || []);
+      if (enabled && pendingAlertOffer) {
+        const pending = pendingAlertOffer;
+        setPendingAlertOffer(null);
+        await createAlert(pending.id, pending.symbol);
+      } else if (enabled) {
+        setToastNotification({ message: '🔔 Price alerts are on. Tap "Get price alert" on any analysis to watch it.', type: 'success' });
+      }
+    } catch (err: any) {
+      setToastNotification({ message: err?.message || 'Could not update price alerts.', type: 'info' });
+    }
+  }, [pendingAlertOffer, createAlert]);
+  // Status of each result card's alert, by the setup it belongs to
+  const alertByOffer = React.useMemo(() => {
+    const m: Record<string, 'on' | 'ended'> = {};
+    // Switched off by the trader: the setup can be watched again; played out or expired: finished
+    for (const a of priceAlerts) {
+      if (a.active) m[a.offerId] = 'on';
+      else if (a.endedReason !== 'TURNED_OFF' && !m[a.offerId]) m[a.offerId] = 'ended';
+    }
+    return m;
+  }, [priceAlerts]);
+  const toggleAlertForStrategy = useCallback((strategy: StrategyResult) => {
+    const offerId = strategy.alertOffer?.id;
+    if (!offerId) return;
+    const current = priceAlerts.find(a => a.offerId === offerId && a.active);
+    if (current) removeAlert(current.id);
+    else createAlert(offerId, strategy.symbol);
+  }, [priceAlerts, removeAlert, createAlert]);
+  // Signed in: load the alert states (for the result cards) and handle an alert link from an email
+  useEffect(() => {
+    if (!authUser) {
+      setPriceAlerts([]);
+      return;
+    }
+    if (userProfile.alertsEnabled) fetchAlerts();
+    const link = alertLinkRef.current;
+    if (link) {
+      alertLinkRef.current = null;
+      if (link.offerId) {
+        if (userProfile.alertsEnabled) createAlert(link.offerId, 'this setup');
+        else setPendingAlertOffer({ id: link.offerId, symbol: '' });
+      }
+      setIsAlertsOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
+  // Opening the panel always shows the latest state
+  useEffect(() => {
+    if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts();
+  }, [isAlertsOpen, authUser, alertsEnabled, fetchAlerts]);
+  // While an alert is active, new alert notifications are picked up every 30s (only while the tab is visible)
+  const hasActiveAlerts = priceAlerts.some(a => a.active);
+  useEffect(() => {
+    if (!authUser || !hasActiveAlerts) return;
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      refreshNotifications(true);
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [authUser, hasActiveAlerts, refreshNotifications]);
+  // A new alert notification: a short toast, and the alert list refreshes
+  const seenAlertNotifsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const alertNotifs = notifications.filter(n => n.actionType === 'open_alerts');
+    if (!seenAlertNotifsRef.current) {
+      seenAlertNotifsRef.current = new Set(alertNotifs.map(n => n.id));
+      return;
+    }
+    const fresh = alertNotifs.filter(n => !seenAlertNotifsRef.current!.has(n.id) && !n.read);
+    alertNotifs.forEach(n => seenAlertNotifsRef.current!.add(n.id));
+    if (fresh.length) {
+      setToastNotification({ message: fresh[0].title, type: 'info' });
+      fetchAlerts();
+    }
+  }, [notifications, fetchAlerts]);
+
   const handleUpdateNotificationAction = (notif: AppNotification) => {
     markNotificationRead(notif.id);
     if (notif.type === 'announcement') {
@@ -979,6 +1116,8 @@ export default function App() {
       setIsSupportOpen(true);
     } else if (notif.actionType === 'open_campaign') {
       setIsShareModalOpen(true);
+    } else if (notif.actionType === 'open_alerts') {
+      openAlerts();
     } else if (notif.type === 'reward' || notif.type === 'credit') {
       openAccountTab('credits');
     } else {
@@ -1594,6 +1733,8 @@ export default function App() {
             setIsSupportOpen(true);
           } else if (notif.actionType === 'open_campaign') {
             setIsShareModalOpen(true);
+          } else if (notif.actionType === 'open_alerts') {
+            openAlerts();
           } else if (notif.type === 'reward' || notif.type === 'credit') {
             openAccountTab('credits');
           } else {
@@ -1608,6 +1749,23 @@ export default function App() {
           setIsShareModalOpen(true);
         }}
       />
+      </Deferred>
+
+      {/* Price alerts (/price-alerts) */}
+      <Deferred when={isAlertsOpen}>
+        <PriceAlertsPanel
+          isOpen={isAlertsOpen}
+          onClose={() => {
+            setIsAlertsOpen(false);
+            setPendingAlertOffer(null);
+          }}
+          enabled={alertsEnabled}
+          alerts={priceAlerts}
+          loading={alertsLoading}
+          pendingSymbol={pendingAlertOffer?.symbol || null}
+          onConsent={handleAlertsConsent}
+          onRemove={removeAlert}
+        />
       </Deferred>
 
       {/* Institutional Terms & Privacy Policy Modal */}
@@ -1796,6 +1954,9 @@ export default function App() {
                   userProfile={userProfile}
                   targetMessageId={targetSignalMessageId}
                   onClearTargetMessage={() => setTargetSignalMessageId(null)}
+                  alertsEnabled={alertsEnabled}
+                  alertByOffer={alertByOffer}
+                  onToggleAlert={toggleAlertForStrategy}
                   onSelectPrompt={(prompt, tf, sl, base) =>
                     handleSendMessage(prompt, tf || getSavedTimeframe(), sl || 'normal', base)
                   }
@@ -1829,6 +1990,7 @@ export default function App() {
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
+                    onCommand={id => (id === 'alerts' ? (openAlerts(), true) : false)}
                     isLoading={isLoading}
                     credits={isUnlimitedUser(userProfile.email) ? 999999 : promptsLeft(creditState)}
                     refillLabel={formatDailyResetTime(creditState)}

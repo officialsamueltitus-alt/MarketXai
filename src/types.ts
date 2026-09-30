@@ -92,6 +92,8 @@ export interface StrategyResult {
   alreadyMitigated?: boolean;
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';
+  /** Set by the server on LONG / SHORT signals: the id to turn on a price alert for this exact setup */
+  alertOffer?: { id: string };
   /** What the Recheck button replays (zone and the first candle after its leg-out) */
   setupCheck?: { zone: { low: number; high: number }; since: number; issuedAt: number; timeframe: string };
   confidenceScore: number;
@@ -271,7 +273,30 @@ export interface UserProfile {
   emailVerified?: boolean;
   /** Receive activity emails (analyses, profile changes, gifts). Security emails always send. */
   emailActivity?: boolean;
+  /** The trader approved live price alerts (/price-alerts) */
+  alertsEnabled?: boolean;
   subscription: UserSubscription;
+}
+
+export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED';
+/** A price alert the server watches for the trader (see server/priceAlerts.ts) */
+export interface PriceAlertItem {
+  id: string;
+  offerId: string;
+  symbol: string;
+  name: string;
+  timeframe: string;
+  direction: 'LONG' | 'SHORT';
+  execution: 'LIMIT' | 'MARKET';
+  entry: { min: number; max: number; optimal: number };
+  stop: number;
+  tps: number[];
+  createdAt: number;
+  expiresAt: number;
+  active: boolean;
+  entered: boolean;
+  hits: { kind: PriceAlertKind; at: number; price: number }[];
+  endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | null;
 }
 
 export interface CreditState {
@@ -320,7 +345,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   actionPrompt?: string;
-  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support';
+  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support' | 'open_alerts';
   actionPayload?: any;
   /** Announcements: an optional https link attached by the MarketX team */
   link?: string;

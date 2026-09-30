@@ -92,6 +92,8 @@ const SLASH_COMMANDS = [
   { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
 ] as const;
+// Commands that already work (the rest are in private testing)
+const LIVE_COMMANDS = new Set<string>(['alerts']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -103,6 +105,8 @@ interface ChatInputProps {
     chartFileName?: string
   ) => void;
   onStopAnalysis?: () => void;
+  /** A live slash command was chosen (e.g. 'alerts'); return true when it was handled */
+  onCommand?: (id: string) => boolean;
   isLoading: boolean;
   /** Analyses left today; at 0 new prompts are paused until the refill */
   credits: number;
@@ -116,6 +120,7 @@ interface ChatInputProps {
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   onStopAnalysis,
+  onCommand,
   isLoading,
   credits,
   refillLabel = '3:00 AM',
@@ -196,9 +201,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => clearTimeout(timer);
   }, [comingSoonLabel]);
 
-  const selectSlashCommand = (label: string) => {
+  const selectSlashCommand = (cmd: (typeof SLASH_COMMANDS)[number]) => {
     setInput('');
-    setComingSoonLabel(label);
+    if (LIVE_COMMANDS.has(cmd.id) && onCommand?.(cmd.id)) {
+      textareaRef.current?.blur();
+      return;
+    }
+    setComingSoonLabel(cmd.label);
     textareaRef.current?.focus();
   };
 
@@ -379,7 +388,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         const cmd = filteredCommands[Math.min(slashIndex, filteredCommands.length - 1)];
-        if (cmd) selectSlashCommand(cmd.label);
+        if (cmd) selectSlashCommand(cmd);
         return;
       }
       if (e.key === 'Escape') {
@@ -548,7 +557,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     aria-selected={active}
                     onMouseDown={e => e.preventDefault()}
                     onMouseEnter={() => setSlashIndex(i)}
-                    onClick={() => selectSlashCommand(cmd.label)}
+                    onClick={() => selectSlashCommand(cmd)}
                     className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
                       active ? 'bg-white/[0.06] text-white' : 'text-slate-300'
                     }`}
@@ -559,7 +568,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2 text-sm font-medium">
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
-                        <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
+                        {LIVE_COMMANDS.has(cmd.id) ? (
+                          <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />Live
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
+                        )}
                       </span>
                       <span className="block text-xs text-slate-500 truncate">{cmd.description}</span>
                     </span>

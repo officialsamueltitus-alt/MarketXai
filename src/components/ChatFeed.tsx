@@ -23,6 +23,7 @@ import {
   ArrowDownRight,
   Target,
   ShieldAlert,
+  BellRing,
   ChevronDown,
   ChevronUp,
   ArrowUp,
@@ -49,6 +50,11 @@ interface ChatFeedProps {
   userProfile?: UserProfile;
   targetMessageId?: string | null;
   onClearTargetMessage?: () => void;
+  /** Price alerts approved (/price-alerts): results show "Get price alert" */
+  alertsEnabled?: boolean;
+  /** Alert state per setup (strategy.alertOffer.id) */
+  alertByOffer?: Record<string, 'on' | 'ended'>;
+  onToggleAlert?: (strategy: StrategyResult) => void;
 }
 
 // Markdown only re-parses when its text changes (not on every live-price tick)
@@ -63,6 +69,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   userProfile,
   targetMessageId,
   onClearTargetMessage,
+  alertsEnabled,
+  alertByOffer,
+  onToggleAlert,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
@@ -867,6 +876,30 @@ Rationale: ${strategy.entryZone.rationale}
                                 <span>Tighten SL</span>
                               </button>
                             )}
+
+                            {alertsEnabled && strategy.alertOffer && (strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && (() => {
+                              const st = alertByOffer?.[strategy.alertOffer.id];
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => st !== 'ended' && onToggleAlert?.(strategy)}
+                                  disabled={st === 'ended'}
+                                  aria-pressed={st === 'on'}
+                                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer shadow-xs disabled:cursor-default ${
+                                    st === 'on'
+                                      ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/25'
+                                      : st === 'ended'
+                                        ? 'bg-white/[0.03] text-slate-500 border-white/[0.08]'
+                                        : 'bg-gradient-to-r from-sky-500/25 to-violet-500/25 text-white border-sky-400/40 hover:from-sky-500/35 hover:to-violet-500/35 hover:scale-[1.02]'
+                                  }`}
+                                  title={st === 'on' ? 'Alert on: tap to turn it off' : st === 'ended' ? 'This alert has finished' : 'Get notified at the entry zone, stop loss and targets'}
+                                >
+                                  {st === 'on' && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,.2)]" aria-hidden="true" />}
+                                  <BellRing className={`w-3.5 h-3.5 ${st === 'on' ? 'text-emerald-300' : 'text-sky-300'}`} />
+                                  <span>{st === 'on' ? 'Alert on' : st === 'ended' ? 'Alert ended' : 'Get price alert'}</span>
+                                </button>
+                              );
+                            })()}
 
                             <button
                               type="button"

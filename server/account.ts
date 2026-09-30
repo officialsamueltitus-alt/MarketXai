@@ -75,6 +75,9 @@ export interface UserDoc {
   // Activity summary for the admin console
   lastActiveAt?: number;
   usageTotal?: number;
+  // Price alerts: the trader's approval, and when the last "Want an alert?" email went out
+  alerts?: { enabled: boolean; at: number };
+  alertMailAt?: number;
 }
 
 export function blockedStatusMessage(status?: string): { code: string; message: string } | null {
@@ -160,6 +163,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     isVerified: vip || doc.subscription.active,
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
+    alertsEnabled: !!doc.alerts?.enabled,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }
       : doc.subscription,
