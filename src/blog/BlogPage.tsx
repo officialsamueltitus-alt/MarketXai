@@ -225,6 +225,12 @@ const SECTIONS: Section[] = [
           contract address, liquidity, trading volume, market cap and how long the pool has existed. For a trade plan, ask for it: <B>Analyze EUR/USD on the
           4H</B>.
         </Note>
+        <Note title="Exact answers, checked on the web" tone="emerald">
+          MarketX answers the exact question you ask, with the direct answer first. When the answer depends on facts that change (a listing, a launch,
+          token supply, a company's news, economic data or anything recent), it searches the web as it writes, and the process report shows{' '}
+          <B>Searching the web</B> while it looks, then the sites it used. Those sites are also listed under the answer. Live prices always come from
+          the live market, never from a web page.
+        </Note>
         <Note title="Just typed a pair?" tone="emerald">
           Send only a pair, like <B>EURUSD</B>, <B>gold</B> or <B>$WIF</B>, and MarketX asks what you want to know about it, with two buttons:{' '}
           <B>Analyze</B> for a trade plan, or <B>Info</B> for the pair's details. Asking is free; a credit is only used once you pick one. Add a timeframe or
