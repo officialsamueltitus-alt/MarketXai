@@ -41,12 +41,12 @@
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
-  notification Rewards tab; nobody is notified about the campaign itself.
+  notification Rewards tab (next to the 10 credit Share on X card); nobody is notified about the campaign itself.
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
   price and today's news for any pair they name; only analysis requests return trade cards.
-- Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (default, or a custom
-  scrypt hash in `adminConfig/auth`), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
+- Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
+  hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
 
@@ -54,4 +54,5 @@
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
   and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
-- Build: `npm install && npm run build` — Start: `npm start`.
+- Build: `npm install && npm run build` — Start: `npm start`. The server bundle builds to `server-dist/` (never inside the
+  public `dist/`); the static server 404s `.map`, `.cjs`, `.ts`, dotfiles and `/server*` paths so source never ships.

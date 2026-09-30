@@ -26,7 +26,7 @@ import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './serv
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
-import { registerAdminRoutes } from './server/admin';
+import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
 import { registerSupportRoutes } from './server/support';
 import { isMailerConfigured } from './server/mailer';
@@ -161,8 +161,19 @@ const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
 app.use((req, res, next) => {
-  if (LARGE_BODY_ROUTES.has(req.path)) return largeJson(req, res, next);
-  if (MEDIUM_BODY_PREFIXES.some(p => req.path.startsWith(p))) return mediumJson(req, res, next);
+  const large = LARGE_BODY_ROUTES.has(req.path);
+  const medium = !large && MEDIUM_BODY_PREFIXES.some(p => req.path.startsWith(p));
+  if ((large || medium) && req.method !== 'GET' && req.method !== 'HEAD') {
+    // Big bodies are only for signed-in users (admins on the broadcast route): turn anyone else away before
+    // a single byte is read, so large junk uploads can't tie up the server
+    const ok = req.path === '/api/admin/broadcast' ? hasValidAdminCookie(req) : !!verifySessionToken(readSessionCookie(req) || '');
+    if (!ok) {
+      res.setHeader('Connection', 'close');
+      return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Please sign in to continue.' });
+    }
+  }
+  if (large) return largeJson(req, res, next);
+  if (medium) return mediumJson(req, res, next);
   return smallJson(req, res, next);
 });
 
@@ -3693,6 +3704,14 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Never serve server code, source maps or dotfiles, even if a stale build left them in dist/
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const p = req.path.toLowerCase();
+      if (/\.(c?js\.map|map|cjs|mjs|ts|env)$/.test(p) || /(^|\/)\./.test(p) || /^\/server/.test(p)) {
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      next();
+    });
     // Pre-compressed bundles (built by scripts/precompress.mjs): serve .br/.gz straight from disk, no CPU per request
     const PRECOMPRESSED_TYPES: Record<string, string> = {
       '.js': 'application/javascript; charset=utf-8',
