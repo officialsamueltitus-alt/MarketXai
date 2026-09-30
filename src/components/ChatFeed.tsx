@@ -708,10 +708,16 @@ Rationale: ${strategy.entryZone.rationale}
                               I've analyzed live order books and market depth for <strong className="text-white font-mono">{strategy.symbol}</strong> ({strategy.name}) on the <strong className="text-indigo-300 font-mono">{strategy.timeframe}</strong> timeframe.
                               <span className="text-amber-300 font-semibold block mt-1.5 flex items-center gap-1.5">
                                 <AlertCircle className="w-4 h-4 inline shrink-0" />
-                                {strategy.alreadyMitigated ? 'No signal, already mitigated.' : 'No signal.'}
+                                {strategy.alreadyMoved
+                                  ? strategy.alreadyMoved === 'NEAR_SL'
+                                    ? 'No signal, already moved (close to the stop loss).'
+                                    : 'No signal, already moved (close to TP).'
+                                  : strategy.alreadyMitigated
+                                    ? 'No signal, already mitigated.'
+                                    : 'No signal.'}
                               </span>
                               {strategy.signalStatus?.details && /^No signal/i.test(strategy.signalStatus.details)
-                                ? strategy.signalStatus.details.replace(/^No signal(?:, already mitigated)?\.\s*/i, '')
+                                ? strategy.signalStatus.details.replace(/^No signal(?:, already mitigated|, already moved(?:, close to (?:TP|the stop loss))?)?\.\s*/i, '')
                                 : 'No fresh, untouched zone offers a clean setup right now. Recommended action: stand aside and wait for a fresh zone to form.'}
                             </p>
                           ) : strategy.tradeType === 'SHORT' ? (
@@ -752,7 +758,7 @@ Rationale: ${strategy.entryZone.rationale}
                             {strategy.tradeType === 'NO_SIGNAL' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs">
                                 <AlertCircle className="w-3.5 h-3.5" />
-                                <span>{strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
+                                <span>{strategy.alreadyMoved ? (strategy.alreadyMoved === 'NEAR_SL' ? 'NO SIGNAL · CLOSE TO SL' : 'NO SIGNAL · ALREADY MOVED') : strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
                               </span>
                             ) : strategy.tradeType === 'LONG' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs">

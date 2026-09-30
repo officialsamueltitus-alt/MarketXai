@@ -67,7 +67,7 @@ export interface HighImpactNewsAlert {
   executionGuidance: string;
 }
 
-export type SignalExecutionState = 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE';
+export type SignalExecutionState = 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE' | 'ALREADY_MOVED';
 
 export interface SignalStatusInfo {
   state: SignalExecutionState;
@@ -90,6 +90,10 @@ export interface StrategyResult {
   signalStatus?: SignalStatusInfo;
   /** NO_SIGNAL because the best setup's zone / entry / stop / targets were already tapped */
   alreadyMitigated?: boolean;
+  /** NO_SIGNAL because price already moved close to TP1 (or to the stop loss) */
+  alreadyMoved?: 'NEAR_TP' | 'NEAR_SL';
+  /** Tools the engine ran for this analysis (live candles, zones, RSI 14, EMA 50) */
+  toolsUsed?: { candles: number; zones: number; rsi: number | null; emaTrend: 'RISING' | 'FALLING' | 'FLAT' | null; divergence: 'BULLISH' | 'BEARISH' | null };
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';
   /** Set by the server on LONG / SHORT signals: the id to turn on a price alert for this exact setup */

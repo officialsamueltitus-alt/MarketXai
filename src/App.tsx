@@ -56,6 +56,7 @@ import { formatPriceShort } from './components/AiActivityTrace';
 import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
 import { classifyPrompt } from './utils/promptIntent';
+import { timeframeFromPrompt } from './utils/timeframe';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
@@ -1262,7 +1263,15 @@ export default function App() {
       updateAssistant({ activity: snapshot, searchStep: snapshot.filter(st => st.status === 'active').pop()?.title });
     };
     const startStep = (id: string, title: string, detail?: string) => {
-      activity = [...activity, { id, title, detail, status: 'active', startedAt: Date.now() }];
+      const step: ActivityStep = { id, title, detail, status: 'active', startedAt: Date.now() };
+      if (id.startsWith('tools-')) {
+        // The tool steps always read first, right after the request is understood ("Finding tools", then "Using tools")
+        let at = 0;
+        activity.forEach((st, i) => {
+          if (st.id === 'read' || st.id === 'chart' || st.id.startsWith('tools-')) at = i + 1;
+        });
+        activity = [...activity.slice(0, at), step, ...activity.slice(at)];
+      } else activity = [...activity, step];
       publishActivity();
     };
     const endStep = (id: string, patch: Partial<ActivityStep> = {}) => {
@@ -1279,7 +1288,8 @@ export default function App() {
     const namesAsset = assetInfo.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(promptText);
     const looksLikeAnalysis = classifyPrompt(promptText, { hasChartImage: Boolean(chartImage), namesAsset }) === 'analysis';
     // Minutes read as lowercase "m" (15m), so 1M never looks like one month
-    const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframe);
+    // A timeframe named in the prompt wins over the picker, exactly as on the server
+    const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframeFromPrompt(promptText) || timeframe);
 
     // Step: understand the request (done on this device, instantly)
     if (resolvedBaseStrategy) {
@@ -1296,6 +1306,38 @@ export default function App() {
     if (chartImage) {
       addDoneStep('chart', 'Attached your chart', `${chartFileName || 'Chart image'} · ${Math.max(1, Math.round((chartImage.length * 0.75) / 1024))} KB`);
     }
+
+    // Steps: find the tools for this market and timeframe, then use them (they run with the analysis on the server)
+    const usesTools = looksLikeAnalysis && !resolvedBaseStrategy;
+    let toolsSettled = false;
+    let toolsTimer: ReturnType<typeof setTimeout> | null = null;
+    if (usesTools) {
+      startStep('tools-find', 'Finding tools', `Picking the tools for ${assetInfo.symbol} on ${analysisTimeframe}`);
+      toolsTimer = setTimeout(() => {
+        if (toolsSettled || controller.signal.aborted) return;
+        endStep('tools-find', { detail: chartImage ? 'Chart reader, supply and demand zones, Fibonacci, RSI 14, EMA 50' : 'Live candles, supply and demand zones, Fibonacci, RSI 14, EMA 50' });
+        startStep('tools-use', 'Using tools', 'Scanning fresh zones, drawing the Fibonacci, reading RSI and EMA, checking the entry, stop and TP1');
+      }, 700);
+    }
+    const settleTools = (strategy?: StrategyResult | null, failed = false) => {
+      if (!usesTools || toolsSettled) return;
+      toolsSettled = true;
+      if (toolsTimer) clearTimeout(toolsTimer);
+      endStep('tools-find', { detail: 'Live candles, supply and demand zones, Fibonacci, RSI 14, EMA 50' });
+      if (!activity.some(st => st.id === 'tools-use')) startStep('tools-use', 'Using tools');
+      const t = strategy?.toolsUsed;
+      const detail = t
+        ? [
+            `${t.candles} candles`,
+            `${t.zones} zone${t.zones === 1 ? '' : 's'} checked`,
+            t.rsi !== null ? `RSI ${t.rsi}${t.divergence ? `, ${t.divergence.toLowerCase()} divergence` : ''}` : '',
+            t.emaTrend ? `EMA 50 ${t.emaTrend.toLowerCase()}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : undefined;
+      endStep('tools-use', failed ? { status: 'error', detail: 'The tools could not finish' } : detail ? { detail } : {});
+    };
 
     // Step: live price check, running alongside the analysis
     if (looksLikeAnalysis && !resolvedBaseStrategy) {
@@ -1412,6 +1454,7 @@ export default function App() {
       }
       const requestEndTime = Date.now();
       const actualDuration = parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1));
+      settleTools(result.kind === 'strategy' ? result.strategy : null, result.kind === 'error');
       if (result.kind === 'error') {
         endStep('analyze', { status: 'error', detail: result.message });
       } else {
@@ -1558,6 +1601,8 @@ export default function App() {
       updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity });
     } finally {
       clearTimeout(requestTimer);
+      toolsSettled = true;
+      if (toolsTimer) clearTimeout(toolsTimer);
       controller.signal.removeEventListener('abort', onUserStop);
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;

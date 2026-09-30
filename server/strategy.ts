@@ -97,6 +97,13 @@ export interface TradePlan {
   inTerritory: boolean;
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution: 'LIMIT' | 'MARKET';
+  /**
+   * Proximity guard: price already moved toward TP1 (at least half-way from the entry, or within 1 ATR of it),
+   * sits close to the stop loss, or already reacted just short of the entry and left. Any of these = no fresh trade.
+   */
+  moved?: { kind: 'NEAR_TP' | 'NEAR_SL' | 'LEFT_ZONE'; text: string } | null;
+  /** RSI(14) entry confirmation and EMA(50) crosscheck (set by buildMarketMap) */
+  confirmation?: { ok: boolean; rsiOk: boolean; emaOk: boolean; divergence: boolean; note: string };
 }
 
 export interface MarketMap {
@@ -118,58 +125,18 @@ export interface MarketMap {
   noSignalReason?: string;
   /** Best setup that would have qualified but whose levels were already tapped (reason for "already mitigated") */
   mitigatedSetup?: TradePlan | null;
+  /** Best clean setup that price has already moved away from (close to TP1 / the stop, or reacted and left) */
+  movedSetup?: TradePlan | null;
+  /** RSI(14) / EMA(50) read on the latest candle */
+  indicators?: IndicatorRead;
   decimals: number;
 }
 
 // ---------------------------------------------------------------------------
 // Timeframes
 // ---------------------------------------------------------------------------
-const SUPPORTED = ['1M', '3M', '5M', '15M', '30M', '1H', '2H', '4H', '6H', '8H', '12H', '1D', '1W'];
-
-/** Minutes in a normalised timeframe ("15M", "4H", "1D", "1W"). */
-export function timeframeMinutes(tf: string): number {
-  const m = /^(\d+)([MHDW])$/.exec(tf);
-  if (!m) return 240;
-  const n = Number(m[1]);
-  return m[2] === 'M' ? n : m[2] === 'H' ? n * 60 : m[2] === 'D' ? n * 1440 : n * 10080;
-}
-
-/** Snaps any timeframe to the nearest supported one (e.g. "3H" → "4H", "45M" → "30M"). */
-export function normalizeTimeframe(tf: string | null | undefined): string {
-  const clean = String(tf || '').trim().toUpperCase();
-  if (SUPPORTED.includes(clean)) return clean;
-  if (!/^\d+[MHDW]$/.test(clean)) return '4H';
-  const target = timeframeMinutes(clean);
-  let best = '4H';
-  let bestDiff = Infinity;
-  for (const s of SUPPORTED) {
-    const d = Math.abs(Math.log(timeframeMinutes(s) / target));
-    if (d < bestDiff) {
-      bestDiff = d;
-      best = s;
-    }
-  }
-  return best;
-}
-
-/** Reads a timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily", "weekly"). */
-export function timeframeFromPrompt(text: string): string | null {
-  const t = ` ${String(text || '').toLowerCase()} `;
-  let m = /(?:^|[^a-z0-9])(\d{1,2})\s*(?:m|min|mins|minute|minutes)(?![a-z0-9])/.exec(t);
-  if (m) return normalizeTimeframe(`${m[1]}M`);
-  m = /(?:^|[^a-z0-9])(\d{1,2})\s*(?:h|hr|hrs|hour|hours)(?![a-z0-9])/.exec(t);
-  if (m) return normalizeTimeframe(`${m[1]}H`);
-  m = /(?:^|[^a-z0-9])(\d)\s*(?:d|day|days)(?![a-z0-9])/.exec(t);
-  if (m) return normalizeTimeframe(`${m[1]}D`);
-  m = /(?:^|[^a-z0-9])(\d)\s*(?:w|wk|week|weeks)(?![a-z0-9])/.exec(t);
-  if (m) return normalizeTimeframe(`${m[1]}W`);
-  m = /(?:^|[^a-z0-9])([mhdw])(\d{1,2})(?![a-z0-9])/.exec(t); // MT4 style: M15, H1, H4, D1, W1
-  if (m) return normalizeTimeframe(`${m[2]}${m[1].toUpperCase()}`);
-  if (/\bhourly\b/.test(t)) return '1H';
-  if (/\bdaily\b/.test(t)) return '1D';
-  if (/\bweekly\b/.test(t)) return '1W';
-  return null;
-}
+export { timeframeMinutes, normalizeTimeframe, timeframeFromPrompt } from '../src/utils/timeframe';
+import { timeframeMinutes, normalizeTimeframe } from '../src/utils/timeframe';
 
 /** Merges candles into larger buckets (e.g. 1H → 4H), aligned to UTC. */
 export function aggregateCandles(candles: Candle[], bucketMinutes: number): Candle[] {
@@ -251,6 +218,112 @@ function trendFromSwings(swings: Swing[]): 'BULLISH' | 'BEARISH' | 'RANGING' {
   if (hh && hl) return 'BULLISH';
   if (!hh && !hl) return 'BEARISH';
   return 'RANGING';
+}
+
+// ---------------------------------------------------------------------------
+// Indicators: RSI(14) is the leading entry confirmation, EMA(50) the signal crosscheck
+// ---------------------------------------------------------------------------
+/** Wilder's RSI on closes (NaN until `period` candles exist). */
+export function rsiSeries(candles: Candle[], period = 14): number[] {
+  const out: number[] = new Array(candles.length).fill(NaN);
+  if (candles.length <= period) return out;
+  let gain = 0;
+  let loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = candles[i].c - candles[i - 1].c;
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  gain /= period;
+  loss /= period;
+  const val = () => (loss === 0 ? (gain === 0 ? 50 : 100) : 100 - 100 / (1 + gain / loss));
+  out[period] = val();
+  for (let i = period + 1; i < candles.length; i++) {
+    const d = candles[i].c - candles[i - 1].c;
+    gain = (gain * (period - 1) + Math.max(d, 0)) / period;
+    loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = val();
+  }
+  return out;
+}
+
+/** Exponential moving average of closes (seeded with the first close). */
+export function emaSeries(candles: Candle[], period = 50): number[] {
+  const k = 2 / (period + 1);
+  const out: number[] = [];
+  candles.forEach((c, i) => out.push(i === 0 ? c.c : c.c * k + out[i - 1] * (1 - k)));
+  return out;
+}
+
+export interface IndicatorRead {
+  /** RSI(14) on the latest candle */
+  rsi: number;
+  /** Price made a lower low while RSI made a higher low on the last two swing lows (recent) */
+  bullishDivergence: boolean;
+  /** Price made a higher high while RSI made a lower high on the last two swing highs (recent) */
+  bearishDivergence: boolean;
+  /** EMA(50) on the latest candle (null with too few candles) */
+  ema50: number | null;
+  /** EMA(50) slope over the last 10 candles, in ATRs */
+  emaSlopeAtr: number;
+  emaTrend: 'RISING' | 'FALLING' | 'FLAT';
+}
+
+/** RSI oversold / overbought bands: a buy is never taken into an overbought RSI, a sell never into an oversold one */
+export const RSI_OVERBOUGHT = 70;
+export const RSI_OVERSOLD = 30;
+/** EMA(50) slope (ATRs per 10 candles) beyond which the trend is counted as clearly rising or falling */
+export const EMA_SLOPE_ATR = 0.5;
+
+export function readIndicators(candles: Candle[], swings: Swing[], atr: number): IndicatorRead {
+  const n = candles.length;
+  const rsi = rsiSeries(candles);
+  const rsiNow = Number.isFinite(rsi[n - 1]) ? rsi[n - 1] : 50;
+  // Divergence: compare the last two swing lows (highs) of the recent candles, the newer one within the last 25
+  const div = (kind: 'H' | 'L') => {
+    const pts = swings.filter(s => s.kind === kind && s.i >= n - 80 && Number.isFinite(rsi[s.i])).slice(-2);
+    if (pts.length < 2 || pts[1].i < n - 25) return false;
+    const [a, b] = pts;
+    return kind === 'L' ? b.price < a.price && rsi[b.i] > rsi[a.i] + 2 : b.price > a.price && rsi[b.i] < rsi[a.i] - 2;
+  };
+  const enough = n >= 60;
+  const ema = enough ? emaSeries(candles) : [];
+  const emaSlopeAtr = enough && atr > 0 ? (ema[n - 1] - ema[n - 11]) / atr : 0;
+  return {
+    rsi: Number(rsiNow.toFixed(1)),
+    bullishDivergence: div('L'),
+    bearishDivergence: div('H'),
+    ema50: enough ? ema[n - 1] : null,
+    emaSlopeAtr: Number(emaSlopeAtr.toFixed(2)),
+    emaTrend: emaSlopeAtr > EMA_SLOPE_ATR ? 'RISING' : emaSlopeAtr < -EMA_SLOPE_ATR ? 'FALLING' : 'FLAT',
+  };
+}
+
+/**
+ * Indicator confirmation of one setup (every timeframe and market):
+ * 1. RSI(14), the leading entry indicator: a buy is refused into an overbought RSI (price is running away from the
+ *    zone), a sell into an oversold one. A market entry (first touch now) also needs RSI at or below 50 for buys
+ *    (at or above 50 for sells) or a divergence in the trade's favour.
+ * 2. EMA(50), the crosscheck: the trade must not fight a clearly falling (buys) or rising (sells) EMA, unless an RSI
+ *    divergence confirms the reversal.
+ */
+export function confirmWithIndicators(p: { direction: 'LONG' | 'SHORT'; execution: 'LIMIT' | 'MARKET' }, ind: IndicatorRead): TradePlan['confirmation'] {
+  const long = p.direction === 'LONG';
+  const div = long ? ind.bullishDivergence : ind.bearishDivergence;
+  let rsiOk = long ? ind.rsi < RSI_OVERBOUGHT : ind.rsi > RSI_OVERSOLD;
+  let rsiNote = `RSI(14) ${ind.rsi}`;
+  if (!rsiOk) rsiNote += long ? ' is overbought, price is running away from the demand zone' : ' is oversold, price is running away from the supply zone';
+  else if (p.execution === 'MARKET' && !div && (long ? ind.rsi > 50 : ind.rsi < 50)) {
+    rsiOk = false;
+    rsiNote += long ? ' has not pulled back below 50 on this touch' : ' has not pushed above 50 on this touch';
+  } else rsiNote += div ? `, ${long ? 'bullish' : 'bearish'} divergence confirms the turn` : long ? ', room to rise' : ', room to fall';
+  const against = long ? ind.emaTrend === 'FALLING' : ind.emaTrend === 'RISING';
+  const emaOk = ind.ema50 === null || !against || div;
+  const emaNote =
+    ind.ema50 === null
+      ? 'EMA(50) needs more candles, skipped'
+      : `EMA(50) ${ind.emaTrend.toLowerCase()}${against ? (div ? ', counter-trend but the RSI divergence confirms the reversal' : `, the trade fights it`) : ', agrees with the trade'}`;
+  return { ok: rsiOk && emaOk, rsiOk, emaOk, divergence: div, note: `${rsiNote}; ${emaNote}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -721,8 +794,34 @@ function planForZone(
     if (!tpHit.has(k) && (long ? price >= t.price : price <= t.price)) mitigation.push(`TP${k + 1} ${t.price} has already been reached by price`);
   });
 
+  // Proximity guard (strict, every timeframe): a fresh trade needs price well away from TP1 and the stop loss.
+  let moved: TradePlan['moved'] = null;
+  const tp1 = targets[0].price;
+  const toTp1 = long ? tp1 - price : price - tp1;
+  const span = Math.abs(tp1 - optimal);
+  const progress = span > 0 ? 1 - toTp1 / span : 1; // 0 = price at the entry, 1 = price at TP1
+  const toStop = Math.abs(price - stop);
+  if (toStop < Math.max(risk * 0.5, atr * 0.5)) {
+    moved = { kind: 'NEAR_SL', text: `price ${round(price)} is already close to the stop loss ${round(stop)}` };
+  } else if (toTp1 > 0 && (progress >= 0.5 || toTp1 < atr)) {
+    moved = {
+      kind: 'NEAR_TP',
+      text: `price ${round(price)} has already moved ${Math.round(Math.min(progress, 0.99) * 100)}% of the way from the entry ${round(optimal)} to TP1 ${round(tp1)} and is close to TP1`,
+    };
+  } else if (!instant) {
+    // Price turned just short of the entry after the pullback and has since left the zone: the reaction already happened
+    let nearest = long ? Infinity : -Infinity;
+    for (let j = Math.max(extIndex + 1, z.freshFrom, 0); j < candles.length; j++) nearest = long ? Math.min(nearest, candles[j].l) : Math.max(nearest, candles[j].h);
+    const gap = long ? nearest - entryEdge : entryEdge - nearest;
+    const away = long ? price - nearest : nearest - price;
+    if (Number.isFinite(nearest) && gap > 0 && gap <= atr * 0.25 && away >= atr) {
+      moved = { kind: 'LEFT_ZONE', text: `price already turned at ${round(nearest)}, just ${long ? 'above' : 'below'} the entry ${round(entryEdge)}, and has left the zone` };
+    }
+  }
+
   return {
     execution: instant ? 'MARKET' : 'LIMIT',
+    moved,
     mitigation,
     legEquilibrium: round(lvl(0.5)),
     inTerritory: rNear >= 0.5,
@@ -786,9 +885,17 @@ export function buildMarketMap(
   }
   const allLongs = demand.map(z => planForZone(z, clean, price, atr, supply, slMode, dec, session)).filter(Boolean) as TradePlan[];
   const allShorts = supply.map(z => planForZone(z, clean, price, atr, demand, slMode, dec, session)).filter(Boolean) as TradePlan[];
-  // Only clean setups can become signals: fresh zone, and entry / stop / targets never tapped for this setup
-  const longs = allLongs.filter(p => p.mitigation.length === 0);
-  const shorts = allShorts.filter(p => p.mitigation.length === 0);
+  const indicators = readIndicators(clean, swings, atr);
+  for (const p of [...allLongs, ...allShorts]) {
+    p.confirmation = confirmWithIndicators(p, indicators);
+    // An RSI divergence in the trade's favour is the strongest leading confirmation
+    if (p.confirmation.divergence) p.score = Math.min(100, p.score + 5);
+  }
+  // Only clean setups can become signals: fresh zone, entry / stop / targets never tapped for this setup, price still
+  // well away from TP1 and the stop, and the RSI / EMA crosscheck passed
+  const ready = (p: TradePlan) => p.mitigation.length === 0 && !p.moved && !!p.confirmation?.ok;
+  const longs = allLongs.filter(ready);
+  const shorts = allShorts.filter(ready);
   const bestLong = longs.sort((a, b) => b.score - a.score)[0] || null;
   const bestShort = shorts.sort((a, b) => b.score - a.score)[0] || null;
 
@@ -805,7 +912,7 @@ export function buildMarketMap(
     p.score >= ((trend === 'BULLISH' && p.direction === 'SHORT') || (trend === 'BEARISH' && p.direction === 'LONG') ? 82 : 70) &&
     p.zone.distanceAtr <= MAX_ZONE_DISTANCE_ATR &&
     p.rrFinal >= 2.5;
-  const qualifies = (p: TradePlan | null) => qualifiesIgnoringMitigation(p) && p!.mitigation.length === 0;
+  const qualifies = (p: TradePlan | null) => qualifiesIgnoringMitigation(p) && ready(p!);
   let plan: TradePlan | null = null;
   let alternate: TradePlan | null = null;
   const preferred = opts.prefer === 'LONG' ? bestLong : opts.prefer === 'SHORT' ? bestShort : null;
@@ -820,7 +927,17 @@ export function buildMarketMap(
 
   let noSignalReason: string | undefined;
   let mitigatedSetup: TradePlan | null = null;
+  let movedSetup: TradePlan | null = null;
+  let unconfirmed: TradePlan | null = null;
   if (!plan) {
+    // A clean, valid setup that price has already moved away from (close to TP1 or the stop): flag it as already moved
+    const all = [...allLongs, ...allShorts].sort((a, b) => b.score - a.score);
+    movedSetup = all.find(p => p.mitigation.length === 0 && p.moved && qualifiesIgnoringMitigation(p)) || null;
+    unconfirmed = all.find(p => p.mitigation.length === 0 && !p.moved && !p.confirmation?.ok && qualifiesIgnoringMitigation(p)) || null;
+  }
+  // Setups whose levels are untouched (quality, not proximity or indicators, decides the reason below)
+  const untouched = [...allLongs, ...allShorts].filter(p => p.mitigation.length === 0);
+  if (!plan && !movedSetup && !unconfirmed) {
     // The best setup would have qualified, but its levels were already tapped: say so explicitly
     // Prefer a setup that would otherwise have been a signal, then any Fibonacci-confirmed one, then any tapped setup
     const mitigated = [...allLongs, ...allShorts].filter(p => p.mitigation.length > 0).sort((a, b) => b.score - a.score);
@@ -830,7 +947,14 @@ export function buildMarketMap(
       mitigated[0] ||
       null;
   }
-  if (!plan && mitigatedSetup) {
+  const zoneText = (m: TradePlan) => `${m.direction === 'LONG' ? 'buy' : 'sell'} setup from the fresh ${m.zone.kind === 'DEMAND' ? 'demand' : 'supply'} zone ${m.zone.low.toFixed(dec)} to ${m.zone.high.toFixed(dec)}`;
+  if (!plan && movedSetup) {
+    const m = movedSetup;
+    const label = m.moved!.kind === 'NEAR_SL' ? 'already moved, close to the stop loss' : 'already moved, close to TP';
+    noSignalReason = `No signal, ${label}. The ${zoneText(m)} is valid, but ${m.moved!.text}, so it is no longer a fresh entry. Wait for a new, untouched zone.`;
+  } else if (!plan && unconfirmed) {
+    noSignalReason = `No signal. The ${zoneText(unconfirmed)} failed the indicator crosscheck: ${unconfirmed.confirmation!.note}. Stand aside until the indicators confirm a fresh zone.`;
+  } else if (!plan && mitigatedSetup) {
     const m = mitigatedSetup;
     noSignalReason = `No signal, already mitigated. The ${m.direction === 'LONG' ? 'buy' : 'sell'} setup from the ${
       m.zone.kind === 'DEMAND' ? 'demand' : 'supply'
@@ -839,10 +963,10 @@ export function buildMarketMap(
     if (!demand.length && !supply.length) noSignalReason = 'No signal. No fresh, unbroken institutional supply or demand zone is in play on this timeframe.';
     else if ([...demand, ...supply].every(z => z.tapCount >= 1))
       noSignalReason = 'No signal. Every zone in play has already been tapped since it formed, so none is fresh; wait for a new, untouched zone.';
-    else if (!bestLong && !bestShort) noSignalReason = 'No signal. Fresh zones exist, but none leaves room for a clean Fibonacci entry ahead of price with a valid stop.';
-    else if (![...longs, ...shorts].some(rightTerritory))
+    else if (!untouched.length) noSignalReason = 'No signal. Fresh zones exist, but none leaves room for a clean Fibonacci entry ahead of price with a valid stop.';
+    else if (!untouched.some(rightTerritory))
       noSignalReason = 'No signal. The fresh zones sit on the wrong side of the 0.50 equilibrium (demand in premium or supply in discount), so there is no institutional-value entry right now.';
-    else if (![...longs, ...shorts].some(p => fvgOpenBefore(p.zone)))
+    else if (!untouched.some(p => fvgOpenBefore(p.zone)))
       noSignalReason = 'No signal. The fresh zones have no open fair value gap at their doorstep, so institutional displacement is not confirmed; wait for a cleaner zone.';
     else noSignalReason = 'No signal. The fresh zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
   }
@@ -864,6 +988,8 @@ export function buildMarketMap(
     confidence: plan ? Math.max(55, Math.min(92, plan.score)) : 50,
     noSignalReason,
     mitigatedSetup,
+    movedSetup,
+    indicators,
     decimals: dec,
   };
 }
@@ -936,7 +1062,7 @@ export function poiList(map: MarketMap): PoiItem[] {
           : 'Filled, price has traded back through the imbalance',
     });
   }
-  const setup = map.plan || map.mitigatedSetup;
+  const setup = map.plan || map.movedSetup || map.mitigatedSetup;
   if (setup) {
     out.push({
       type: 'GOLDEN_POCKET',
@@ -956,6 +1082,10 @@ export function marketMapPromptBlock(map: MarketMap): string {
   const lines: string[] = [];
   lines.push(`COMPUTED MARKET MAP (from ${map.candles} real ${map.timeframe} candles; ATR(14) ${f(map.atr)}):`);
   lines.push(`- Market structure: ${map.trend}. Recent range ${f(map.swingLow)} – ${f(map.swingHigh)}. Last close ${f(map.lastClose)}.`);
+  if (map.indicators) {
+    const ind = map.indicators;
+    lines.push(`- Indicators (latest candle): RSI(14) ${ind.rsi}${ind.bullishDivergence ? ', bullish divergence' : ''}${ind.bearishDivergence ? ', bearish divergence' : ''}; EMA(50) ${ind.ema50 === null ? 'n/a' : `${f(ind.ema50)} ${ind.emaTrend.toLowerCase()}`}.`);
+  }
   lines.push(`- Dealing range equilibrium (0.50): ${f(map.equilibrium)}. Below it is discount (demand only), above it is premium (supply only). Price is in ${map.price <= map.equilibrium ? 'discount' : 'premium'}.`);
   lines.push(`- Demand zones below price: ${map.demandZones.length ? '' : 'none valid'}`);
   map.demandZones.forEach((z, i) => lines.push(`  ${i + 1}. ${describeZone(z, map.decimals)}`));
@@ -971,6 +1101,7 @@ export function marketMapPromptBlock(map: MarketMap): string {
         ? `  EXECUTION: MARKET (instant). Price ${f(map.price)} is making the zone's FIRST touch right now (never touched before), so the trade is entered at the current market price, not as a pending order. Stop loss and every target are untouched and ahead of price. Say "${p.direction === 'LONG' ? 'buy' : 'sell'} now at market" in the writeup.`
         : `  EXECUTION: LIMIT (pending order). Pre-signal crosscheck passed: zone untouched (tapCount 0), entry, stop loss and every target still untouched and ahead of price.`
     );
+    if (p.confirmation) lines.push(`  INDICATOR CROSSCHECK passed: ${p.confirmation.note}. PROXIMITY CHECK passed: price ${f(map.price)} is still well away from TP1 and the stop loss (fresh entry).`);
     lines.push(`  Entry ${f(p.entry.min)} – ${f(p.entry.max)} (optimal ${f(p.entry.optimal)}), stop loss ${f(p.stopLoss)}, targets ${p.targets.map((t, i) => `TP${i + 1} ${f(t.price)} [${t.label}, 1:${t.rr}]`).join('; ')}. Plan score ${p.score}/100.`);
   } else {
     lines.push(`- SELECTED PLAN: NO_SIGNAL. ${map.noSignalReason}`);
@@ -1013,6 +1144,7 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
         p.execution === 'MARKET'
           ? `**Displacement:** the fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) stayed open until this first touch, so institutional orders were still resting in the zone when price arrived.\n\n`
           : `**Displacement:** an open fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) sits at the zone's doorstep, so the zone is untouched and institutional orders are still resting there.\n\n`;
+    if (p.confirmation) out += `**Indicator crosscheck:** ${p.confirmation.note}. Price is still well away from TP1 and the stop loss, so this is a fresh entry.\n\n`;
     const pois = poiList(map);
     out += `#### Points of Interest\n${pois
       .map(x => `- **${x.name}:** ${f(x.low)} to ${f(x.high)}, ${x.mitigated ? 'mitigated' : 'unmitigated'}`)
@@ -1029,9 +1161,10 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
     }.\n\n`;
   } else {
     const already = !!map.mitigatedSetup;
-    out += `#### ${already ? 'No signal, already mitigated' : 'No signal'}\n${map.noSignalReason} ${
-      already
-        ? 'Signals are only called from fresh zones whose entry, stop loss and targets are still untouched.'
+    const moved = map.movedSetup?.moved;
+    out += `#### ${moved ? (moved.kind === 'NEAR_SL' ? 'No signal, already moved (close to the stop loss)' : 'No signal, already moved (close to TP)') : already ? 'No signal, already mitigated' : 'No signal'}\n${map.noSignalReason} ${
+      already || moved
+        ? 'Signals are only called from fresh zones whose entry, stop loss and targets are still untouched, with price still well away from TP1 and the stop.'
         : 'Wait for price to form a fresh, untouched zone and a new impulse to anchor the Fibonacci retracement.'
     }\n\n`;
   }

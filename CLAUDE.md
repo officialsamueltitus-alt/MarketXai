@@ -35,6 +35,13 @@
   Strict (owner-specified): zones only from the last `RECENT_ZONE_BARS` candles inside the current price range; a signal needs
   the zone, entry band, stop and every TP untouched since the zone formed (plus the live 24h range), else "No signal, already
   mitigated". Without a verified candle map (text analyses) the result is NO_SIGNAL, never an unverified trade.
+  Confirmation (owner-specified, every timeframe, market and session): RSI(14) is the leading entry indicator (no buy into
+  RSI 70+, no sell into RSI 30-; a market entry also needs RSI on the right side of 50 or a divergence) and EMA(50) is the
+  crosscheck (no trade against a clearly sloping EMA unless an RSI divergence confirms the reversal). Proximity guard: price
+  must be under half-way from the entry to TP1, more than 1 ATR from TP1, clear of the stop, and must not have already turned
+  just short of the entry; else "No signal, already moved, close to TP" (or "close to the stop loss"), `alreadyMoved` on the
+  result. `evaluateSignalExecutionStatus` applies the same half-way rule to every served trade. The client activity shows
+  "Finding tools" then "Using tools" (RSI, EMA, zones from `strategy.toolsUsed`) before the other steps.
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.

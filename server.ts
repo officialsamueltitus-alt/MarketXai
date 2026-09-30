@@ -1104,7 +1104,7 @@ function evaluateSignalExecutionStatus(
   stopLossPrice: number,
   takeProfits: Array<{ level: string; price: number }>
 ): {
-  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE';
+  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE' | 'ALREADY_MOVED';
   verdict: 'Active Signal (Fresh Untapped Levels)' | 'No Signal Opportunity' | string;
   details: string;
   tpHitLevel?: 'TP1' | 'TP2' | 'TP3' | 'ALL_TPS';
@@ -1142,6 +1142,24 @@ function evaluateSignalExecutionStatus(
     return stale('TP_SMASHED', `Price ${fmt(price)} is already ${hit >= tps.length ? 'beyond every target' : `beyond TP${hit} ${fmt(tps[hit - 1])}`}.`, lvl);
   }
   if (tps.some(tp => !beyond(tp, entry))) return stale('MITIGATED_ZONE_STALE', `A target is not ${long ? 'above' : 'below'} the entry ${fmt(entry)}.`);
+  // Proximity guard: a fresh trade needs price well away from TP1 and the stop loss
+  const risk = Math.abs(entry - stop);
+  if (Math.abs(price - stop) < risk * 0.5) {
+    return {
+      state: 'ALREADY_MOVED' as const,
+      verdict: 'No Signal, Already Moved',
+      details: `No signal, already moved, close to the stop loss. Price ${fmt(price)} is already close to the stop loss ${fmt(stop)}, so this is no longer a fresh entry. Wait for a new, untouched zone.`,
+    };
+  }
+  const span = Math.abs(tps[0] - entry);
+  const progress = span > 0 ? 1 - Math.abs(tps[0] - price) / span : 1;
+  if (beyond(price, entry) && progress >= 0.5) {
+    return {
+      state: 'ALREADY_MOVED' as const,
+      verdict: 'No Signal, Already Moved',
+      details: `No signal, already moved, close to TP. Price ${fmt(price)} has already covered ${Math.round(Math.min(progress, 0.99) * 100)}% of the way from the entry ${fmt(entry)} to TP1 ${fmt(tps[0])}, so the move is under way and this is no longer a fresh entry. Wait for a new, untouched zone.`,
+    };
+  }
   // A limit entry sits in the zone ahead of price; price already on the far side of it means the entry was tapped
   if (beyond(entry, price) && Math.abs(entry - price) / price > 0.0005) {
     return stale('MITIGATED_ZONE_STALE', `Price ${fmt(price)} has already traded through the entry ${fmt(entry)}.`);
@@ -1171,10 +1189,13 @@ function enforcePreSignalCrosscheck<T extends Record<string, any>>(strategy: T):
   s.bias = 'NEUTRAL';
   s.confidenceScore = 50;
   s.riskRewardRatio = '1 : 0';
-  s.alreadyMitigated = true;
+  const moved = status.state === 'ALREADY_MOVED';
+  if (moved) s.alreadyMoved = /stop loss/.test(status.details) ? 'NEAR_SL' : 'NEAR_TP';
+  else s.alreadyMitigated = true;
   if (s.stopLoss) s.stopLoss = { ...s.stopLoss, riskPercent: 0, rationale: 'No position, the setup has already played out' };
-  const note = `#### No signal, already mitigated\n${status.details}\n\n`;
-  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes('No signal, already mitigated')) s.detailedThesis = note + s.detailedThesis;
+  const heading = moved ? (s.alreadyMoved === 'NEAR_SL' ? 'No signal, already moved (close to the stop loss)' : 'No signal, already moved (close to TP)') : 'No signal, already mitigated';
+  const note = `#### ${heading}\n${status.details}\n\n`;
+  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes(heading)) s.detailedThesis = note + s.detailedThesis;
   return strategy;
 }
 
@@ -2463,6 +2484,14 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   strategy.swingLow = map.swingLow;
   strategy.timeframe = map.timeframe;
   strategy.strategyEngine = { method: 'SUPPLY_DEMAND_FIBONACCI', candles: map.candles, timeframe: map.timeframe, trend: map.trend };
+  // Tools the engine used (shown in the analysis activity: "Using tools")
+  strategy.toolsUsed = {
+    candles: map.candles,
+    zones: map.demandZones.length + map.supplyZones.length,
+    rsi: map.indicators?.rsi ?? null,
+    emaTrend: map.indicators?.ema50 != null ? map.indicators.emaTrend : null,
+    divergence: map.indicators ? (map.indicators.bullishDivergence ? 'BULLISH' : map.indicators.bearishDivergence ? 'BEARISH' : null) : null,
+  };
 
   if (plan) {
     const long = plan.direction === 'LONG';
@@ -2531,12 +2560,15 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   if (!plan) {
     // Say exactly why there is no signal (e.g. "No signal — already mitigated: the entry was already tapped …")
     const already = !!map.mitigatedSetup;
+    const moved = map.movedSetup?.moved;
     strategy.signalStatus = {
       ...strategy.signalStatus,
-      verdict: already ? 'No Signal, Already Mitigated' : 'No Signal Opportunity',
+      ...(moved ? { state: 'ALREADY_MOVED' } : {}),
+      verdict: moved ? 'No Signal, Already Moved' : already ? 'No Signal, Already Mitigated' : 'No Signal Opportunity',
       details: map.noSignalReason || strategy.signalStatus?.details,
     };
     strategy.alreadyMitigated = already;
+    if (moved) strategy.alreadyMoved = moved.kind === 'NEAR_SL' ? 'NEAR_SL' : 'NEAR_TP';
   }
   return strategy;
 }
@@ -3057,6 +3089,15 @@ STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
 STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
 - Signal only when a strong zone has Fibonacci confluence and the final target pays at least 1:2.5. Otherwise output NO_SIGNAL and name the zones and prices to watch.
 - NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal, already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
+
+STEP 4 — CONFIRM WITH ONE LEADING INDICATOR AND ONE CROSSCHECK (every timeframe, every market, every session)
+- Leading entry indicator, RSI(14): never buy into an overbought RSI (70 or above) or sell into an oversold one (30 or below), because price is running away from the zone. A market entry on the zone's first touch also needs RSI at or below 50 for buys (at or above 50 for sells), or an RSI divergence in the trade's favour. A divergence (lower low with a higher RSI low for buys, higher high with a lower RSI high for sells) is the strongest confirmation.
+- Crosscheck, EMA(50): the trade must not fight a clearly falling EMA(50) (buys) or a clearly rising one (sells), unless an RSI divergence confirms the reversal. If the crosscheck fails, output NO_SIGNAL and name the indicator that failed.
+
+STEP 5 — PROXIMITY CHECK BEFORE ANY OUTPUT
+- Confirm the entry, the stop loss and every target, above all TP1, have not been tapped since the zone formed.
+- Price must not be anywhere near TP1 or the stop loss for a fresh trade: if price has already covered half or more of the distance from the entry to TP1, is within about one ATR of TP1, sits close to the stop loss, or already turned just short of the entry and left the zone, output NO_SIGNAL and flag it "No signal, already moved, close to TP" (or "close to the stop loss"), naming the prices.
+- Only after the zone, the Fibonacci entry, the untouched levels, the indicators and the proximity check all pass, output the trade.
 
 ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold):
 1. Spatial placement ahead of price. BUY: the fresh demand POI sits strictly below current price, TP1, TP2 and TP3 sit strictly above current price (into overhead premium liquidity), and the stop loss sits below the demand base (distal line). SELL: the fresh supply POI sits strictly above current price, TP1, TP2 and TP3 sit strictly below current price (into discount liquidity), and the stop loss sits above the supply ceiling (distal line). A zone price is trading inside right now is not a fresh entry.
