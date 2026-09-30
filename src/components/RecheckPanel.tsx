@@ -77,7 +77,7 @@ export const RecheckPanel: React.FC<{ strategy: StrategyResult; onReanalyze?: ()
     setBusy(true);
     setError(null);
     try {
-      setResult(await apiFetch<RecheckResponse>('/api/market/recheck', { method: 'POST', body: JSON.stringify(recheckBody(strategy)) }));
+      setResult(await apiFetch<RecheckResponse>('/api/market/recheck', { method: 'POST', body: JSON.stringify(recheckBody(strategy)), timeoutMs: 45_000 }));
     } catch (err: any) {
       setError(err?.message || 'Recheck failed. Please try again.');
     } finally {

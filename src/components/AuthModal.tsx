@@ -1,4 +1,5 @@
-import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
+import { lazyWithReload } from '../utils/lazyReload';
 import { deviceSignals } from '../utils/device';
 import { createPortal } from 'react-dom';
 import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check } from 'lucide-react';
@@ -6,7 +7,7 @@ import { apiFetch } from '../utils/apiClient';
 import { MarketXText } from './MarketXText';
 import { MarketXIcon } from './MarketXIcon';
 
-const TermsAndPrivacyModal = lazy(() => import('./TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
+const TermsAndPrivacyModal = lazyWithReload(() => import('./TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'reset';
 

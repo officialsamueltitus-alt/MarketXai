@@ -3751,6 +3751,12 @@ async function startServer() {
     }));
     app.get('*', (req: Request, res: Response) => {
       if (req.path.startsWith('/api/')) return apiNotFound(req, res);
+      // A missing file (e.g. a script from an older deploy) is a real 404, never the app page: browsers then report
+      // a load failure the app can recover from, instead of trying to run HTML as JavaScript
+      if (req.path.startsWith('/assets/') || /\.[a-z0-9]{1,8}$/i.test(req.path)) {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(404).type('text/plain').send('Not found');
+      }
       res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });

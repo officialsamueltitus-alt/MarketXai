@@ -1,18 +1,19 @@
-import { StrictMode, Component, ReactNode, Suspense, lazy } from 'react';
+import { StrictMode, Component, ReactNode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import { isChunkLoadError, lazyWithReload, reloadForNewVersion } from './utils/lazyReload';
 
 // The admin console is its own lazily-loaded bundle, only fetched on /admin
-const AdminApp = lazy(() => import('./admin/AdminApp'));
+const AdminApp = lazyWithReload(() => import('./admin/AdminApp'));
 const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
 // The Site Guide is a standalone page at /blog (any letter case, optional trailing slash)
-const BlogPage = lazy(() => import('./blog/BlogPage'));
+const BlogPage = lazyWithReload(() => import('./blog/BlogPage'));
 const isBlogRoute = /^\/blog\/?$/i.test(window.location.pathname);
 if (isBlogRoute && window.location.pathname !== '/blog') {
   history.replaceState(null, '', '/blog' + window.location.search + window.location.hash);
 }
 // Campaign pages are standalone too (e.g. /campaigns/explain-marketx)
-const ExplainCampaignPage = lazy(() => import('./campaign/ExplainCampaignPage'));
+const ExplainCampaignPage = lazyWithReload(() => import('./campaign/ExplainCampaignPage'));
 const isCampaignRoute = /^\/campaigns\/explain-marketx\/?$/i.test(window.location.pathname);
 if (isCampaignRoute && window.location.pathname !== '/campaigns/explain-marketx') {
   history.replaceState(null, '', '/campaigns/explain-marketx' + window.location.search + window.location.hash);
@@ -40,6 +41,8 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 
   componentDidCatch(error: Error) {
     console.error('MarketX crashed:', error);
+    // A screen from an older deploy could not load: reload onto the new version (once) instead of showing an error
+    if (isChunkLoadError(error)) reloadForNewVersion();
   }
 
   render() {

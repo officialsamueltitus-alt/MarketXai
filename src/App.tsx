@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import {
   ChatSession,
   ChatMessage,
@@ -19,17 +19,21 @@ import { HomePage } from './components/HomePage';
 import { ChatFeed } from './components/ChatFeed';
 import { ChatInput } from './components/ChatInput';
 import { preloadMarkdown } from './components/LazyMarkdown';
+import { lazyWithReload } from './utils/lazyReload';
 
 // Modals load on first open (smaller first download); once loaded they stay mounted
-const PricingModal = lazy(() => import('./components/PricingModal').then(m => ({ default: m.PricingModal })));
-const GiftCreditsModal = lazy(() => import('./components/GiftCreditsModal').then(m => ({ default: m.GiftCreditsModal })));
-const NotificationCenterModal = lazy(() => import('./components/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
-const TermsAndPrivacyModal = lazy(() => import('./components/TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
-const ShareProfileModal = lazy(() => import('./components/ShareProfileModal').then(m => ({ default: m.ShareProfileModal })));
-const SupportChat = lazy(() => import('./components/SupportChat').then(m => ({ default: m.SupportChat })));
-const RewardEmailNotificationModal = lazy(() =>
+const PricingModal = lazyWithReload(() => import('./components/PricingModal').then(m => ({ default: m.PricingModal })));
+const GiftCreditsModal = lazyWithReload(() => import('./components/GiftCreditsModal').then(m => ({ default: m.GiftCreditsModal })));
+const NotificationCenterModal = lazyWithReload(() => import('./components/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
+const TermsAndPrivacyModal = lazyWithReload(() => import('./components/TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
+const ShareProfileModal = lazyWithReload(() => import('./components/ShareProfileModal').then(m => ({ default: m.ShareProfileModal })));
+const SupportChat = lazyWithReload(() => import('./components/SupportChat').then(m => ({ default: m.SupportChat })));
+const RewardEmailNotificationModal = lazyWithReload(() =>
   import('./components/RewardEmailNotificationModal').then(m => ({ default: m.RewardEmailNotificationModal }))
 );
+// Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
+// on a slow mobile connection) and still works if a new version is deployed while the tab stays open
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -126,7 +130,10 @@ export default function App() {
   // Warm up the Markdown parser in idle time so answers render instantly, without slowing first paint
   useEffect(() => {
     const w = window as any;
-    const run = () => preloadMarkdown();
+    const run = () => {
+      preloadMarkdown();
+      PRELOADED_SCREENS.forEach(c => c.preload());
+    };
     const id = w.requestIdleCallback ? w.requestIdleCallback(run, { timeout: 6000 }) : setTimeout(run, 3500);
     return () => (w.cancelIdleCallback ? w.cancelIdleCallback(id) : clearTimeout(id));
   }, []);
@@ -1082,6 +1089,17 @@ export default function App() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setIsLoading(true);
+    // Phones can silently drop a long request (screen locks, app switch, network change) and never report it,
+    // which left the answer loading forever. Give up well after the server's own worst case and say so.
+    const requestLimitMs = chartImage ? 180_000 : 110_000;
+    const requestController = new AbortController();
+    let requestTimedOut = false;
+    const onUserStop = () => requestController.abort();
+    controller.signal.addEventListener('abort', onUserStop, { once: true });
+    const requestTimer = setTimeout(() => {
+      requestTimedOut = true;
+      requestController.abort();
+    }, requestLimitMs);
 
     const updateAssistant = (patch: Partial<ChatMessage>, sessionPatch?: Partial<ChatSession>) => {
       setSessions(prev =>
@@ -1205,7 +1223,7 @@ export default function App() {
             }
           })(),
         }),
-        signal: controller.signal,
+        signal: requestController.signal,
       })
         .then((data): BackendResult => {
           if (data?.strategy) {
@@ -1220,6 +1238,15 @@ export default function App() {
           return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
         })
         .catch((err: any): BackendResult | null => {
+          if (requestTimedOut && !controller.signal.aborted) {
+            return {
+              kind: 'error',
+              status: 0,
+              code: 'TIMEOUT',
+              message:
+                "MarketX didn't get the answer back in time. This usually means the connection dropped (for example your phone locked or you switched apps during the analysis). Please try again.",
+            };
+          }
           if (err?.name === 'AbortError' || controller.signal.aborted) return null;
           if (err instanceof ApiError) return { kind: 'error', status: err.status, code: err.code, message: err.message };
           return { kind: 'error', status: 0, code: 'NETWORK', message: 'Could not reach the MarketX server. Check your connection and try again.' };
@@ -1391,6 +1418,8 @@ export default function App() {
       activity = activity.map(st => (st.status === 'active' ? { ...st, status: 'error', endedAt: Date.now() } : st));
       updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity });
     } finally {
+      clearTimeout(requestTimer);
+      controller.signal.removeEventListener('abort', onUserStop);
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }

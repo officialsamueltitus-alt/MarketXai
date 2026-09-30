@@ -1,7 +1,8 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
+import { lazyWithReload } from '../utils/lazyReload';
 
 // The Markdown parser (~100 kB) is only fetched once an answer is on screen, keeping first load light.
-const ReactMarkdown = lazy(() => import('react-markdown'));
+const ReactMarkdown = lazyWithReload(() => import('react-markdown'));
 
 /** Renders Markdown; shows the plain text until the parser has loaded (no layout jump for short text). */
 export const LazyMarkdown: React.FC<{ children: string }> = React.memo(({ children }) => (
@@ -12,5 +13,5 @@ export const LazyMarkdown: React.FC<{ children: string }> = React.memo(({ childr
 
 /** Starts downloading the parser early (e.g. when the user sends a prompt). */
 export const preloadMarkdown = () => {
-  import('react-markdown').catch(() => {});
+  ReactMarkdown.preload();
 };
