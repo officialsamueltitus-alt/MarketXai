@@ -143,6 +143,15 @@ export interface ReasoningStep {
 }
 
 // One real, timed step of work shown in the live activity trace
+/** What the server looked up to answer a question (shown in the thinking steps) */
+export interface ResearchInfo {
+  web: boolean;
+  queries: string[];
+  sources: Array<{ domain: string }>;
+  data: string[];
+  cached?: boolean;
+}
+
 export interface ActivityStep {
   id: string;
   title: string;

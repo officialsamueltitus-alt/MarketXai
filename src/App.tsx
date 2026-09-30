@@ -12,6 +12,7 @@ import {
   XShareReward,
   AppNotification,
   MessageChoice,
+  ResearchInfo,
   ActivityStep,
   PriceAlertItem,
 } from './types';
@@ -1334,7 +1335,7 @@ export default function App() {
     } else if (looksLikeAnalysis) {
       addDoneStep('read', 'Understood your request', `${assetInfo.name} (${assetInfo.symbol}) · ${tfText}`);
     } else {
-      addDoneStep('read', 'Understood your question', 'General trading question');
+      addDoneStep('read', 'Understood your question', namesAsset ? `About ${assetInfo.name} (${assetInfo.symbol})` : 'Trading or market question');
     }
     if (chartImage) {
       addDoneStep('chart', 'Attached your chart', `${chartFileName || 'Chart image'} · ${Math.max(1, Math.round((chartImage.length * 0.75) / 1024))} KB`);
@@ -1397,6 +1398,15 @@ export default function App() {
       startStep('news', `Checking today's news for ${newsSymbol}`, 'Economic calendar and live market wires, for today only');
     }
 
+    // Steps for a question: live market data for a named pair, then a web search for the exact question
+    const asksQuestion = !looksLikeAnalysis && !resolvedBaseStrategy;
+    if (asksQuestion && namesAsset) {
+      startStep('sources', `Checking live ${assetInfo.symbol} data`, 'Live price, exchange and on-chain listings, today\'s news');
+    }
+    if (asksQuestion) {
+      startStep('web', 'Searching the web', 'Looking up current, reputable sources for your exact question');
+    }
+
     startStep(
       'analyze',
       resolvedBaseStrategy
@@ -1419,7 +1429,7 @@ export default function App() {
       // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
       type BackendResult =
         | { kind: 'strategy'; strategy: StrategyResult; text: string }
-        | { kind: 'chat'; text: string; choices?: MessageChoice[] }
+        | { kind: 'chat'; text: string; choices?: MessageChoice[]; research?: ResearchInfo }
         | { kind: 'error'; status: number; code: string; message: string };
 
       const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
@@ -1452,7 +1462,13 @@ export default function App() {
             };
           }
           const text = data?.content || data?.message;
-          if (text) return { kind: 'chat', text, ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}) };
+          if (text)
+            return {
+              kind: 'chat',
+              text,
+              ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}),
+              ...(data?.research && typeof data.research === 'object' ? { research: data.research as ResearchInfo } : {}),
+            };
           return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
         })
         .catch((err: any): BackendResult | null => {
@@ -1492,6 +1508,32 @@ export default function App() {
       const requestEndTime = Date.now();
       const actualDuration = parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1));
       settleTools(result.kind === 'strategy' ? result.strategy : null, result.kind === 'error');
+      // What the server actually looked up for a question: live data, the web search and the sites it used
+      if (asksQuestion) {
+        const r = result.kind === 'chat' ? result.research : undefined;
+        const failed = result.kind === 'error';
+        const list = (items: string[], max: number) => items.slice(0, max).join(' · ') + (items.length > max ? ` +${items.length - max} more` : '');
+        endStep('sources', failed ? { status: 'stopped', detail: 'Skipped, the answer did not finish' } : r?.data?.length ? { detail: list(r.data, 3) } : {});
+        const sites = (r?.sources || []).map(x => x.domain).filter(Boolean);
+        const webPatch: Partial<ActivityStep> = failed
+          ? { status: 'stopped', detail: 'Skipped, the answer did not finish' }
+          : r?.cached
+            ? { title: 'Found an earlier answer', detail: namesAsset ? 'Asked before, reused it with the live price refreshed' : 'Asked before, reused the stored answer' }
+            : r?.web
+              ? {
+                  title: 'Searched the web',
+                  detail: sites.length
+                    ? `${sites.length} source${sites.length === 1 ? '' : 's'}: ${list(sites, 3)}`
+                    : r.queries?.length
+                      ? `Searched: ${list(r.queries.map(q => `"${q}"`), 2)}`
+                      : 'Checked current sources',
+                  tokenWeight: 1 + Math.min(sites.length, 8) * 0.25,
+                }
+              : r
+                ? { title: 'Web search not needed', detail: 'Answered from MarketX knowledge and live data' }
+                : { detail: 'Done' };
+        endStep('web', webPatch);
+      }
       if (result.kind === 'error') {
         endStep('analyze', { status: 'error', detail: result.message });
       } else {
