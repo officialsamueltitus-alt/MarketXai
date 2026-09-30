@@ -38,10 +38,14 @@
   Confirmation (owner-specified, every timeframe, market and session): RSI(14) is the leading entry indicator (no buy into
   RSI 70+, no sell into RSI 30-; a market entry also needs RSI on the right side of 50 or a divergence) and EMA(50) is the
   crosscheck (no trade against a clearly sloping EMA unless an RSI divergence confirms the reversal). Proximity guard: price
-  must be under half-way from the entry to TP1, more than 1 ATR from TP1, clear of the stop, and must not have already turned
+  must be under half-way from the entry to TP1, at least 1.5 ATR and 1R from TP1 (buy entry at/below price, TP far above; sells
+  mirror; limit and market alike), clear of the stop, and must not have already turned
   just short of the entry; else "No signal, already moved, close to TP" (or "close to the stop loss"), `alreadyMoved` on the
   result. `evaluateSignalExecutionStatus` applies the same half-way rule to every served trade. The client activity shows
   "Finding tools" then "Using tools" (RSI, EMA, zones from `strategy.toolsUsed`) before the other steps.
+  RDM timeframe (composer option `RDM`): the analyze handler (`scanAllTimeframes` in `server.ts`) builds the map on every
+  supported timeframe, keeps plans scoring 75+, serves the strongest (slight edge to higher timeframes) and tags the result
+  `timeframeScan` + an "RDM scan" note; a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.

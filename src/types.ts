@@ -93,6 +93,8 @@ export interface StrategyResult {
   /** NO_SIGNAL because price already moved close to TP1 (or to the stop loss) */
   alreadyMoved?: 'NEAR_TP' | 'NEAR_SL';
   /** Tools the engine ran for this analysis (live candles, zones, RSI 14, EMA 50) */
+  /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
+  timeframeScan?: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null };
   toolsUsed?: { candles: number; zones: number; rsi: number | null; emaTrend: 'RISING' | 'FALLING' | 'FLAT' | null; divergence: 'BULLISH' | 'BEARISH' | null };
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';

@@ -35,7 +35,8 @@ import {
   ChevronRight,
   ChevronDown,
   MessageCircle,
-  FileText
+  FileText,
+  Puzzle
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -116,6 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const { pref: themePref, resolved: resolvedTheme, setTheme } = useTheme();
 
   // 'credits' / 'profile' now open as pop-up detail windows; 'history' is the only in-menu view
@@ -568,6 +570,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                   <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                 </button>
+
+                {/* Connectors / plugins: none available yet */}
+                <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setIsConnectorsOpen(v => !v)}
+                    aria-expanded={isConnectorsOpen}
+                    className="w-full flex items-center justify-between gap-2 p-2.5 hover:bg-white/[0.04] text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+                        <Puzzle className="w-3.5 h-3.5 text-sky-300" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-white">Connectors / Plugins</span>
+                        <span className="block text-[10px] text-slate-400 truncate">Apps and tools linked to MarketX</span>
+                      </span>
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${isConnectorsOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {isConnectorsOpen && (
+                    <div className="px-3 pb-3 pt-1 text-center" role="status">
+                      <div className="mx-auto w-9 h-9 rounded-xl bg-white/[0.04] border border-dashed border-white/[0.14] flex items-center justify-center">
+                        <Puzzle className="w-4 h-4 text-slate-500" />
+                      </div>
+                      <p className="mt-2 text-xs font-medium text-slate-300">Nothing here yet.</p>
+                    </div>
+                  )}
+                </div>
 
                 {onOpenSupport && (
                   <button

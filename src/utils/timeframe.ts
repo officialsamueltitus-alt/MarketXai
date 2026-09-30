@@ -1,5 +1,7 @@
 // Timeframe helpers shared by the server strategy engine and the client (same parsing on both sides)
-const SUPPORTED = ['1M', '3M', '5M', '15M', '30M', '1H', '2H', '4H', '6H', '8H', '12H', '1D', '1W'];
+/** Every timeframe the engine supports (also the order the RDM scan walks) */
+export const SUPPORTED_TIMEFRAMES = ['1M', '3M', '5M', '15M', '30M', '1H', '2H', '4H', '6H', '8H', '12H', '1D', '1W'];
+const SUPPORTED = SUPPORTED_TIMEFRAMES;
 
 /** Minutes in a normalised timeframe ("15M", "4H", "1D", "1W"). */
 export function timeframeMinutes(tf: string): number {

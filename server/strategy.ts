@@ -98,7 +98,7 @@ export interface TradePlan {
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution: 'LIMIT' | 'MARKET';
   /**
-   * Proximity guard: price already moved toward TP1 (at least half-way from the entry, or within 1 ATR of it),
+   * Proximity guard: price already moved toward TP1 (at least half-way from the entry, or closer than 1.5 ATR / 1R to it),
    * sits close to the stop loss, or already reacted just short of the entry and left. Any of these = no fresh trade.
    */
   moved?: { kind: 'NEAR_TP' | 'NEAR_SL' | 'LEFT_ZONE'; text: string } | null;
@@ -135,7 +135,7 @@ export interface MarketMap {
 // ---------------------------------------------------------------------------
 // Timeframes
 // ---------------------------------------------------------------------------
-export { timeframeMinutes, normalizeTimeframe, timeframeFromPrompt } from '../src/utils/timeframe';
+export { timeframeMinutes, normalizeTimeframe, timeframeFromPrompt, SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 import { timeframeMinutes, normalizeTimeframe } from '../src/utils/timeframe';
 
 /** Merges candles into larger buckets (e.g. 1H → 4H), aligned to UTC. */
@@ -803,7 +803,8 @@ function planForZone(
   const toStop = Math.abs(price - stop);
   if (toStop < Math.max(risk * 0.5, atr * 0.5)) {
     moved = { kind: 'NEAR_SL', text: `price ${round(price)} is already close to the stop loss ${round(stop)}` };
-  } else if (toTp1 > 0 && (progress >= 0.5 || toTp1 < atr)) {
+  } else if (toTp1 > 0 && (progress >= 0.5 || toTp1 < Math.max(atr * 1.5, risk))) {
+    // TP1 must sit far ahead of live price: at least 1.5 ATR and one full risk unit away, with price nearer the entry
     moved = {
       kind: 'NEAR_TP',
       text: `price ${round(price)} has already moved ${Math.round(Math.min(progress, 0.99) * 100)}% of the way from the entry ${round(optimal)} to TP1 ${round(tp1)} and is close to TP1`,

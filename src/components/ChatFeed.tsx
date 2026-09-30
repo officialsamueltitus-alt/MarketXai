@@ -743,6 +743,14 @@ Rationale: ${strategy.entryZone.rationale}
                             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/[0.06] text-slate-200 border border-white/[0.1]">
                               {strategy.timeframe} TF
                             </span>
+                            {strategy.timeframeScan && (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-200 border border-indigo-400/30"
+                                title={`RDM scanned ${strategy.timeframeScan.scanned} timeframes${strategy.timeframeScan.chosen ? ` and used ${strategy.timeframe}` : ''}`}
+                              >
+                                RDM · {strategy.timeframeScan.chosen ? `picked ${strategy.timeframe}` : `${strategy.timeframeScan.scanned} TFs scanned`}
+                              </span>
+                            )}
                             <span className="text-xs text-slate-400 hidden sm:inline font-sans">
                               {strategy.name}
                             </span>

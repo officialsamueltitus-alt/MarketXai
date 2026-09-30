@@ -158,7 +158,7 @@ const SECTIONS: Section[] = [
             ['Notifications', 'Top bar bell', 'Analyses, sign ins, payments, rewards and replies from support.'],
             ['Profile', 'Top bar avatar, or Sidebar, Settings, Profile', 'Your stats, plan, gifting, campaign and account options.'],
             ['History', 'Sidebar', 'Your saved trade setups and past chats.'],
-            ['Settings', 'Sidebar, Settings', 'Credits, Profile, Support chat, theme, and Terms and Privacy at the bottom.'],
+            ['Settings', 'Sidebar, Settings', 'Credits, Profile, Connectors / Plugins, Support chat, theme, and Terms and Privacy at the bottom.'],
             ['Support chat', 'Settings, or the Direct institutional desk on Markets', 'Message the MarketX team and read their replies.'],
             ['Site Guide', 'Direct institutional desk on Markets, or /blog', 'This guide.'],
           ]}
@@ -186,9 +186,9 @@ const SECTIONS: Section[] = [
               oil, crypto, stocks, major indices and synthetic indices.
             </>,
             <>
-              Tap the <B>timeframe</B> button on the input box to open the full row of timeframes: <B>1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 8H, 12H, 1D and 1W</B>.
-              The one you pick stays selected, even after you close the site, until you change it. A timeframe written in your prompt (such as 5m, 2H, daily or
-              weekly) takes priority for that prompt.
+              Tap the <B>timeframe</B> button on the input box to open the full row of timeframes: <B>RDM, 1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 8H, 12H, 1D and
+              1W</B>. The one you pick stays selected, even after you close the site, until you change it. A timeframe written in your prompt (such as 5m, 2H,
+              daily or weekly) takes priority for that prompt.
             </>,
             <>
               Optional: choose <B>Normal SL</B> or <B>Tight SL</B> on the input box (see Stop loss options).
@@ -202,6 +202,12 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
+        <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
+          Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you. It keeps only valid, high probability setups
+          where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The
+          result shows an <B>RDM · picked 1H</B> tag (or whichever timeframe it used) and the write up lists the timeframes that had a valid setup. If no timeframe
+          has one, you get a clear No signal. One analysis, one credit.
+        </Note>
         <Note title="Buy or sell only?">
           Say so in the prompt, for example short setup on gold 4H. If there is no valid setup in that direction, you get the best valid plan or a clear No signal.
         </Note>
@@ -211,12 +217,13 @@ const SECTIONS: Section[] = [
           example Analyze EUR/USD on the 4H.
         </Note>
         <Note title="Watch it work">
-          After you send, the process report shows each step as it happens: reading your request, checking the live price, checking today's news and building
-          the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
+          After you send, the process report shows each step as it happens: reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
+          live price, checking today's news and building the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
-          Type / in the input to see the tools in private testing: Strategy, Preference Mode, Trading Agent, MT5 Connector, Price Alerts, Backtest and Trade
-          Journal. They are marked Soon and open for everyone once testing ends.
+          Type / in the input to see the commands. <B>/price-alerts</B> is live (marked Live). Still in private testing and marked Soon: Strategy, Preference
+          Mode, Trading Agent, MT5 Connector, Backtest, Trade Journal, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. The count is not fixed: it runs up live while the analysis works and lands somewhere around 18.5k to 41.5k (30k on average). Either way, one analysis costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
       </>
@@ -257,7 +264,7 @@ const SECTIONS: Section[] = [
     id: 'reading-a-result',
     title: 'Reading a result',
     icon: Target,
-    lead: 'Every analysis ends in one of three outcomes: a trade plan, No signal, or No signal, already mitigated. MarketX only calls a trade from a fresh, untouched level with a strong reward to risk.',
+    lead: 'Every analysis ends in one of four outcomes: a trade plan, No signal, No signal, already mitigated, or No signal, already moved. MarketX only calls a trade from a fresh, untouched level with a strong reward to risk, while price is still near the entry.',
     body: (
       <>
         <Table
@@ -280,6 +287,12 @@ const SECTIONS: Section[] = [
           Before any signal, every candle since the zone formed is checked on the timeframe you asked for. If price has already entered the zone and returned,
           touched the entry, hit the stop loss or reached any target (TP1, TP2 or TP3), the trade has played out and is not offered. The note names which level
           was reached and when.
+        </Note>
+        <Note title="No signal, already moved" tone="amber">
+          A trade is only offered while price is still close to its entry. For a buy the entry is at or below the current price and the targets are well above
+          it; for a sell the entry is at or above the current price and the targets are well below it. This applies to pending (limit) and buy now or sell now
+          (market) trades alike. If price has already travelled a large part of the way toward TP1, or is sitting near the stop loss, the move is under way and
+          you get <B>No signal, already moved, close to TP</B> (or close to the stop loss) with the prices named, instead of a late entry.
         </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
@@ -391,6 +404,9 @@ const SECTIONS: Section[] = [
             </>,
             <>
               <B>Theme.</B> In Settings choose Light, Dark or System (follows your device).
+            </>,
+            <>
+              <B>Connectors / Plugins.</B> In Settings, the place where apps and tools you link to MarketX will appear. Nothing is available there yet.
             </>,
             <>
               <B>Notifications.</B> The bell shows analyses, sign ins, payments, rewards and support replies. Filter them, mark them read or clear them. Turn Email

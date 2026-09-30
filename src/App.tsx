@@ -74,7 +74,7 @@ interface AccountPayload {
 function getSavedTimeframe(): string {
   try {
     const v = localStorage.getItem('mx_timeframe');
-    if (v && /^\d{1,2}[MHDW]$/.test(v)) return v;
+    if (v && (/^\d{1,2}[MHDW]$/.test(v) || v === 'RDM')) return v;
   } catch {}
   return '4H';
 }
@@ -1290,6 +1290,9 @@ export default function App() {
     // Minutes read as lowercase "m" (15m), so 1M never looks like one month
     // A timeframe named in the prompt wins over the picker, exactly as on the server
     const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframeFromPrompt(promptText) || timeframe);
+    // RDM: the server scans every timeframe and reports the one it used
+    const scanAll = analysisTimeframe === 'RDM';
+    const tfText = scanAll ? 'every timeframe (RDM)' : `${analysisTimeframe} timeframe`;
 
     // Step: understand the request (done on this device, instantly)
     if (resolvedBaseStrategy) {
@@ -1299,7 +1302,7 @@ export default function App() {
         `${resolvedBaseStrategy.symbol} ${resolvedBaseStrategy.tradeType} · entry ${formatPriceShort(resolvedBaseStrategy.entryZone.optimal)}`
       );
     } else if (looksLikeAnalysis) {
-      addDoneStep('read', 'Understood your request', `${assetInfo.name} (${assetInfo.symbol}) · ${analysisTimeframe} timeframe`);
+      addDoneStep('read', 'Understood your request', `${assetInfo.name} (${assetInfo.symbol}) · ${tfText}`);
     } else {
       addDoneStep('read', 'Understood your question', 'General trading question');
     }
@@ -1312,7 +1315,7 @@ export default function App() {
     let toolsSettled = false;
     let toolsTimer: ReturnType<typeof setTimeout> | null = null;
     if (usesTools) {
-      startStep('tools-find', 'Finding tools', `Picking the tools for ${assetInfo.symbol} on ${analysisTimeframe}`);
+      startStep('tools-find', 'Finding tools', scanAll ? `Picking the tools to scan ${assetInfo.symbol} on every timeframe` : `Picking the tools for ${assetInfo.symbol} on ${analysisTimeframe}`);
       toolsTimer = setTimeout(() => {
         if (toolsSettled || controller.signal.aborted) return;
         endStep('tools-find', { detail: chartImage ? 'Chart reader, supply and demand zones, Fibonacci, RSI 14, EMA 50' : 'Live candles, supply and demand zones, Fibonacci, RSI 14, EMA 50' });
@@ -1326,8 +1329,10 @@ export default function App() {
       endStep('tools-find', { detail: 'Live candles, supply and demand zones, Fibonacci, RSI 14, EMA 50' });
       if (!activity.some(st => st.id === 'tools-use')) startStep('tools-use', 'Using tools');
       const t = strategy?.toolsUsed;
+      const scan = strategy?.timeframeScan;
       const detail = t
         ? [
+            scan ? (scan.chosen ? `RDM picked ${formatTimeframe(scan.chosen)} from ${scan.scanned} timeframes` : `RDM scanned ${scan.scanned} timeframes`) : '',
             `${t.candles} candles`,
             `${t.zones} zone${t.zones === 1 ? '' : 's'} checked`,
             t.rsi !== null ? `RSI ${t.rsi}${t.divergence ? `, ${t.divergence.toLowerCase()} divergence` : ''}` : '',
@@ -1367,7 +1372,9 @@ export default function App() {
       resolvedBaseStrategy
         ? `Tightening the ${resolvedBaseStrategy.symbol} stop loss`
         : looksLikeAnalysis
-          ? `Analyzing ${assetInfo.symbol} on ${analysisTimeframe}`
+          ? scanAll
+            ? `Scanning ${assetInfo.symbol} on every timeframe`
+            : `Analyzing ${assetInfo.symbol} on ${analysisTimeframe}`
           : 'Thinking',
       resolvedBaseStrategy
         ? 'Recalculating the invalidation level and risk/reward'

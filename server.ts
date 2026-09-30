@@ -50,6 +50,7 @@ import {
   tightenStop,
   timeframeFromPrompt,
   timeframeMinutes,
+  SUPPORTED_TIMEFRAMES,
 } from './server/strategy';
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
@@ -1153,7 +1154,8 @@ function evaluateSignalExecutionStatus(
   }
   const span = Math.abs(tps[0] - entry);
   const progress = span > 0 ? 1 - Math.abs(tps[0] - price) / span : 1;
-  if (beyond(price, entry) && progress >= 0.5) {
+  // Buy entry at or below price with TP1 far above it (sells mirror): TP1 at least one risk unit away from live price
+  if ((beyond(price, entry) && progress >= 0.5) || Math.abs(tps[0] - price) < risk) {
     return {
       state: 'ALREADY_MOVED' as const,
       verdict: 'No Signal, Already Moved',
@@ -2398,6 +2400,44 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   return candles;
 }
 
+/** A setup the RDM scan may serve must clear this plan score (the normal signal floor is 70) */
+const RDM_MIN_SCORE = 75;
+
+/**
+ * RDM (random timeframe): build the map on every supported timeframe and keep the strongest valid setup, one whose
+ * zone is fresh, levels untouched, indicators confirmed and live price sitting between the entry and TP1 (all enforced
+ * by buildMarketMap). Higher timeframes get a slight edge on near ties (less noise). No valid setup anywhere = NO_SIGNAL.
+ */
+async function scanAllTimeframes(
+  asset: ReturnType<typeof extractAssetInfo>,
+  price: number,
+  slMode: 'normal' | 'tight',
+  prompt: string,
+  currency?: string,
+  quote?: { high24h?: number; low24h?: number }
+): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null } }> {
+  const maps = await Promise.all(
+    SUPPORTED_TIMEFRAMES.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote).catch(() => null))
+  );
+  const loaded = maps.map((m, i) => ({ m, tf: SUPPORTED_TIMEFRAMES[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
+  const valid = loaded.filter(x => x.m.plan && x.m.plan.score >= RDM_MIN_SCORE);
+  const rank = (x: { m: MarketMap; tf: string }) => x.m.plan!.score + Math.log2(timeframeMinutes(x.tf)) * 0.5;
+  valid.sort((a, b) => rank(b) - rank(a));
+  const best = valid[0];
+  const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null };
+  if (best) return { map: best.m, tf: best.tf, info };
+  const fallback = loaded.find(x => x.tf === '4H') || loaded[0];
+  if (!fallback) return { map: null, tf: '4H', info };
+  const m = fallback.m;
+  // The reason covers the whole scan, not one timeframe
+  m.plan = null;
+  m.alternate = null;
+  m.movedSetup = null;
+  m.mitigatedSetup = null;
+  m.noSignalReason = `No signal on any timeframe. Scanned ${loaded.length} timeframes (1m to 1W) and none has a fresh, confirmed, high-probability setup with price sitting between its entry and TP1 right now. Stand aside and scan again later.`;
+  return { map: m, tf: fallback.tf, info };
+}
+
 /** Candles → supply/demand + Fibonacci map, bounded so a slow feed never delays an analysis for long. */
 async function buildStructureMap(
   asset: ReturnType<typeof extractAssetInfo>,
@@ -2860,7 +2900,9 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     // The reader's time zone decides which calendar day "today's news" belongs to
     const newsTimeZone = resolveTimeZone(req.body?.timeZone);
     // A timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily") wins over the selector
-    const analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
+    let analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
+    // RDM in the selector: scan every timeframe for the best valid setup (a timeframe named in the prompt still wins)
+    const randomTimeframe = typeof timeframe === 'string' && timeframe.trim().toUpperCase() === 'RDM' && !timeframeFromPrompt(cleanPrompt);
 
     // Validate chartImage: a real PNG / JPEG / WebP (checked by its file signature, not just the label), under 12MB
     let safeChartImage: string | undefined = undefined;
@@ -3021,7 +3063,7 @@ Do NOT output structured trade card JSON.`;
     console.log(`[MarketX] Detected ANALYSIS PROMPT REQUEST: "${cleanPrompt.slice(0, 50)}" (SL Mode: ${safeSlMode})`);
     const asset = extractAssetInfo(cleanPrompt, safeSymbol);
     // Candles for the requested timeframe load in parallel with the live quote
-    const candleWarmup = chartMode ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
+    const candleWarmup = chartMode || randomTimeframe ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
     const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
@@ -3029,9 +3071,32 @@ Do NOT output structured trade card JSON.`;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
     // In chart mode the levels come from the uploaded image, never from live candles
+    let rdmScan: Awaited<ReturnType<typeof scanAllTimeframes>> | null = null;
     const structureMap = chartMode
       ? null
-      : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+      : randomTimeframe
+        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker)).map
+        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+    if (rdmScan) {
+      analysisTimeframe = rdmScan.tf;
+      // Every analysis result served from here says which timeframe the scan used
+      const scanInfo = rdmScan.info;
+      const send = res.json.bind(res);
+      res.json = ((body: any) => {
+        if (body?.strategy && typeof body.strategy === 'object') {
+          body.strategy.timeframeScan = scanInfo;
+          const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+          const note = scanInfo.chosen
+            ? `> **RDM scan:** ${scanInfo.scanned} timeframes checked, valid setups on ${scanInfo.withSetup.map(label).join(', ')}. This trade uses **${label(scanInfo.chosen)}**, the strongest.\n\n`
+            : `> **RDM scan:** ${scanInfo.scanned} timeframes checked, none has a valid setup right now.\n\n`;
+          for (const [obj, key] of [[body.strategy, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
+            if (typeof obj[key] === 'string' && !obj[key].startsWith('> **RDM scan:**')) obj[key] = note + obj[key];
+          }
+        }
+        return send(body);
+      }) as typeof res.json;
+      console.log(`[MarketX Strategy] RDM scan ${asset.symbol}: ${scanInfo.scanned} timeframes, valid on [${scanInfo.withSetup.join(', ')}], using ${scanInfo.chosen || 'none'}`);
+    }
     console.log(
       `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
         structureMap ? `${structureMap.candles} candles, ${structureMap.demandZones.length}D/${structureMap.supplyZones.length}S zones, plan ${structureMap.plan?.direction || 'NO_SIGNAL'}` : 'candles unavailable'
@@ -3096,7 +3161,8 @@ STEP 4 — CONFIRM WITH ONE LEADING INDICATOR AND ONE CROSSCHECK (every timefram
 
 STEP 5 — PROXIMITY CHECK BEFORE ANY OUTPUT
 - Confirm the entry, the stop loss and every target, above all TP1, have not been tapped since the zone formed.
-- Price must not be anywhere near TP1 or the stop loss for a fresh trade: if price has already covered half or more of the distance from the entry to TP1, is within about one ATR of TP1, sits close to the stop loss, or already turned just short of the entry and left the zone, output NO_SIGNAL and flag it "No signal, already moved, close to TP" (or "close to the stop loss"), naming the prices.
+- Price must not be anywhere near TP1 or the stop loss for a fresh trade: if price has already covered half or more of the distance from the entry to TP1, is closer to TP1 than 1.5 ATR or one full risk unit, sits close to the stop loss, or already turned just short of the entry and left the zone, output NO_SIGNAL and flag it "No signal, already moved, close to TP" (or "close to the stop loss"), naming the prices.
+- Anchor every trade to the current price, pending (limit) or instant (market) alike: a buy's entry sits at or below current price with the stop below the entry and TP1 far above current price; a sell's entry sits at or above current price with the stop above the entry and TP1 far below current price. Price must sit between the entry/stop side and TP1, much nearer the entry, never on or near a target.
 - Only after the zone, the Fibonacci entry, the untouched levels, the indicators and the proximity check all pass, output the trade.
 
 ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold):

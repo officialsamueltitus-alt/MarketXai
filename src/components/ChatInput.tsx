@@ -23,10 +23,15 @@ import {
   BellRing,
   History,
   NotebookPen,
+  Activity,
+  LineChart,
+  Shuffle,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
 const TIMEFRAMES: { value: string; label: string }[] = [
+  // Random: the server scans every timeframe and serves the strongest valid setup, saying which timeframe it used
+  { value: 'RDM', label: 'RDM' },
   { value: '1M', label: '1m' },
   { value: '3M', label: '3m' },
   { value: '5M', label: '5m' },
@@ -91,6 +96,8 @@ const SLASH_COMMANDS = [
   { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
+  { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
+  { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
 const LIVE_COMMANDS = new Set<string>(['alerts']);
@@ -461,6 +468,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     buttons[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };
 
+  const renderTf = (t: { value: string; label: string }) => {
+    const active = t.value === timeframe;
+    return (
+      <button
+        key={t.value}
+        type="button"
+        role="option"
+        aria-selected={active}
+        tabIndex={active ? 0 : -1}
+        onClick={() => chooseTimeframe(t.value)}
+        className={`snap-start shrink-0 h-9 min-w-[3rem] px-3 rounded-xl text-[13px] font-medium font-mono transition-colors cursor-pointer border ${
+          active
+            ? 'bg-white text-slate-950 border-white'
+            : 'text-slate-300 border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] hover:text-white'
+        }`}
+      >
+        {t.value === 'RDM' ? (
+          <span className="inline-flex items-center gap-1.5" title="Random: scans every timeframe and picks the best valid setup">
+            <Shuffle className="w-3.5 h-3.5" />
+            RDM
+          </span>
+        ) : (
+          t.label
+        )}
+      </button>
+    );
+  };
+
   return (
     <div
       className="relative w-full"
@@ -484,35 +519,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         >
           <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
             <span className="text-[11px] font-medium text-slate-400">Timeframe</span>
-            <span className="text-[11px] text-slate-500">Stays selected until you change it</span>
+            <span className="text-[11px] text-slate-500">{timeframe === 'RDM' ? 'RDM scans every timeframe' : 'Stays selected until you change it'}</span>
           </div>
-          <div
-            role="listbox"
-            aria-label="Timeframe"
-            aria-orientation="horizontal"
-            onKeyDown={onTfKeyDown}
-            className="flex gap-1.5 overflow-x-auto overscroll-x-contain px-2.5 pb-2.5 pt-1 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {TIMEFRAMES.map(t => {
-              const active = t.value === timeframe;
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  tabIndex={active ? 0 : -1}
-                  onClick={() => chooseTimeframe(t.value)}
-                  className={`snap-start shrink-0 h-9 min-w-[3rem] px-3 rounded-xl text-[13px] font-medium font-mono transition-colors cursor-pointer border ${
-                    active
-                      ? 'bg-white text-slate-950 border-white'
-                      : 'text-slate-300 border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] hover:text-white'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
+          <div role="listbox" aria-label="Timeframe" aria-orientation="horizontal" onKeyDown={onTfKeyDown} className="flex items-center pb-2.5 pt-1">
+            {/* RDM stays pinned on the left so it is always in view; the timeframes scroll beside it */}
+            <div className="shrink-0 pl-2.5 pr-1.5 mr-0.5 border-r border-white/[0.08]">{TIMEFRAMES.filter(t => t.value === 'RDM').map(renderTf)}</div>
+            <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto overscroll-x-contain pl-1 pr-2.5 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {TIMEFRAMES.filter(t => t.value !== 'RDM').map(renderTf)}
+            </div>
           </div>
         </div>
       )}
