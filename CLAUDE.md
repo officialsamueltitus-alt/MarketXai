@@ -93,6 +93,9 @@
   (entry zone, TP1-3, stop, or MISSED if a target comes before entry), then a notification + activity email. Unused signals get
   one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 30s
   only while they have an active alert and the tab is visible.
+- Emails (`server/mailer.ts`, the only template): always dark with white text, in every mail app: table `bgcolor` + background
+  colour + a solid gradient image (Gmail apps don't recolour images), `color-scheme: dark only`, and a Gmail iOS blend fix. No
+  white backgrounds or white buttons (the button is violet).
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
