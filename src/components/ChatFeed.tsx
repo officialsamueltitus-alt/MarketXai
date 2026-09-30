@@ -1,3 +1,4 @@
+import { pickGreeting } from '../utils/greeting';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { LazyMarkdown } from './LazyMarkdown';
 import { ChatMessage, MarketQuote, StrategyResult } from '../types';
@@ -117,34 +118,20 @@ Rationale: ${strategy.entryZone.rationale}
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Real-time greeting based on local time and profile name (only shown in new chat sessions)
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    let timeGreeting = 'Good morning';
-    if (hour >= 12 && hour < 17) {
-      timeGreeting = 'Good afternoon';
-    } else if (hour >= 17 || hour < 5) {
-      timeGreeting = 'Good evening';
+  // Warm greeting for the reader's local time of day (midnight hours included), picked fresh for each new chat
+  const greetingName = useMemo(() => {
+    if (userProfile?.displayName && userProfile.displayName.trim() && userProfile.displayName.toLowerCase() !== 'guest trader') {
+      return userProfile.displayName.trim().split(' ')[0];
     }
-
-    let name = '';
-    if (
-      userProfile?.displayName &&
-      userProfile.displayName.trim() &&
-      userProfile.displayName.toLowerCase() !== 'guest trader'
-    ) {
-      name = userProfile.displayName.trim().split(' ')[0];
-    } else if (
-      userProfile?.username &&
-      userProfile.username.trim() &&
-      userProfile.username.toLowerCase() !== 'trader'
-    ) {
+    if (userProfile?.username && userProfile.username.trim() && userProfile.username.toLowerCase() !== 'trader') {
       const raw = userProfile.username.replace(/^@/, '').trim();
-      name = raw.charAt(0).toUpperCase() + raw.slice(1);
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
     }
-
-    return name ? `${timeGreeting}, ${name}` : `${timeGreeting}`;
+    return '';
   }, [userProfile?.displayName, userProfile?.username]);
+  const isEmptyChat = messages.length === 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const greeting = useMemo(() => pickGreeting(greetingName), [greetingName, isEmptyChat]);
 
   // Track scroll position to show arrow at the bottom (pointing to top) and at top (pointing to bottom)
   const [scrollArrow, setScrollArrow] = useState<{
@@ -460,10 +447,8 @@ Rationale: ${strategy.entryZone.rationale}
       {messages.length === 0 && !isLoading && (
         <div className="max-w-2xl mx-auto min-h-full flex flex-col justify-center py-10 px-1">
           <div className="text-center mb-8 mx-rise">
-            <h2 className="text-[1.75rem] leading-tight sm:text-4xl font-semibold tracking-tight text-white">{greeting}</h2>
-            <p className="text-sm sm:text-[15px] text-slate-400 mt-2.5">
-              What market should we analyze today?
-            </p>
+            <h2 className="text-[1.75rem] leading-tight sm:text-4xl font-semibold tracking-tight text-white">{greeting.title}</h2>
+            <p className="text-sm sm:text-[15px] text-slate-400 mt-2.5">{greeting.subtitle}</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
