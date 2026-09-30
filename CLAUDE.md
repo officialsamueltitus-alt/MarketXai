@@ -53,6 +53,9 @@
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
   notification Rewards tab (next to the 10 credit Share on X card); nobody is notified about the campaign itself.
+- Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
+  is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
+  server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
   price and today's news for any pair they name; only analysis requests return trade cards.

@@ -86,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
                   currentView === view ? 'text-white' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {view === 'home' ? 'Markets' : 'Ask AI'}
+                {view === 'home' ? 'Markets' : 'Ask SI'}
               </button>
             ))}
           </div>

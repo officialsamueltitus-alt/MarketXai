@@ -157,7 +157,7 @@ async function sendVerificationEmail(req: Request, uid: string, email: string) {
     email,
     'Welcome to MarketX: confirm your email',
     [
-      'Welcome to MarketX! Your account is ready, with free AI market analyses every day.',
+      'Welcome to MarketX! Your account is ready, with free SI market analyses every day.',
       'Please confirm your email address to secure your account and unlock everything.',
     ],
     { cta: { label: 'Confirm my email', url: link }, note: `This link expires in 3 days. If the button doesn't work, open: ${link}` }

@@ -800,7 +800,7 @@ export default function App() {
       });
       applyAccount(data);
       setToastNotification({
-        message: `🎁 Successfully gifted ${amount} AI Credits to @${toUsername.replace(/^@/, '')}!`,
+        message: `🎁 Successfully gifted ${amount} SI Credits to @${toUsername.replace(/^@/, '')}!`,
         type: 'gift',
       });
       return null;

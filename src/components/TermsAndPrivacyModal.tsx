@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileText, Lock, AlertTriangle, X, Mail, MessageCircle } from 'lucide-react';
+import { TelegramIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL } from '../utils/campaign';
 
 type Tab = 'terms' | 'privacy' | 'risk';
 
@@ -23,7 +25,7 @@ const DOCS: Record<Tab, Doc> = {
   terms: {
     tone: 'indigo',
     summary:
-      'MarketX is an AI market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research, not advice.',
+      'MarketX is a Super Intelligence (SI) market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research, not advice.',
     sections: [
       {
         title: 'Using MarketX',
@@ -80,7 +82,7 @@ const DOCS: Record<Tab, Doc> = {
     sections: [
       {
         title: 'Not financial advice',
-        body: 'Levels, signals, trade plans and commentary are produced by quantitative models and AI for research and educational purposes. Nothing on MarketX is investment advice or an offer to buy or sell any asset.',
+        body: 'Levels, signals, trade plans and commentary are produced by quantitative models and Super Intelligence (SI) for research and educational purposes. Nothing on MarketX is investment advice or an offer to buy or sell any asset.',
       },
       {
         title: 'Your responsibility',
@@ -213,8 +215,11 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({ isOp
             <a href="mailto:help.marketx@gmail.com?subject=MarketX%20Support" className="inline-flex items-center gap-1 hover:text-white transition-colors">
               <Mail className="w-3.5 h-3.5" /> Email
             </a>
-            <a href="https://x.com/_MarketXai" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
-              @_MarketXai
+            <a href="https://x.com/_MarketX" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+              @_MarketX
+            </a>
+            <a href={MARKETX_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              <TelegramIcon className="w-3.5 h-3.5" /> Telegram
             </a>
           </span>
         </footer>

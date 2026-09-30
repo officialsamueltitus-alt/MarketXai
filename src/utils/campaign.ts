@@ -1,7 +1,10 @@
 // X campaign: shared step definitions + per-user progress for the manual (link-out) steps.
 // Progress is a convenience stored on this device only; the reward itself is timed and granted by the server.
 
-export const MARKETX_X_URL = 'https://x.com/_MarketXai';
+export const MARKETX_X_HANDLE = '@_MarketX';
+export const MARKETX_X_URL = 'https://x.com/_MarketX';
+/** Opens the MarketX Telegram channel (the server redirects to the invite link, which never ships in the page) */
+export const MARKETX_TELEGRAM_URL = '/go/telegram';
 
 export type CampaignStepId = 'follow' | 'engage' | 'download' | 'post' | 'reward';
 
@@ -12,7 +15,7 @@ export interface CampaignProgress {
 }
 
 export const CAMPAIGN_STEPS: Array<{ id: CampaignStepId; title: string; detail: string }> = [
-  { id: 'follow', title: 'Follow MarketX', detail: 'Follow @_MarketXai on X' },
+  { id: 'follow', title: 'Follow MarketX', detail: 'Follow @_MarketX on X' },
   { id: 'engage', title: 'Comment, tag & repost', detail: 'Comment on the pinned post, tag 2 trader friends and repost it' },
   { id: 'download', title: 'Download your card', detail: 'Save your personal HD trader card' },
   { id: 'post', title: 'Post on X', detail: 'Share your card with the pre-written post' },

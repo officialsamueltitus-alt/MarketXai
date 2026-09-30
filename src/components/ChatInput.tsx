@@ -756,7 +756,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       </form>
 
       <p className="text-center text-[11px] text-slate-500 mt-2 max-sm:mt-1.5 max-sm:text-[10px]">
-        <MarketXText className="text-[11px]" /> is AI and can make mistakes. Always manage your risk.
+        <MarketXText className="text-[11px]" /> is SI and can make mistakes. Always manage your risk.
       </p>
     </div>
   );

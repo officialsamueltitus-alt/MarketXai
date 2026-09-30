@@ -38,6 +38,8 @@ import {
   FileText,
   Puzzle
 } from 'lucide-react';
+import { TelegramIcon, XLogoIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL, MARKETX_X_URL } from '../utils/campaign';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -684,15 +686,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
               <a
-                href="https://x.com/_MarketXai"
+                href={MARKETX_TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0"
+                title="Join the MarketX Telegram community"
+                aria-label="Join the MarketX Telegram community"
+              >
+                <TelegramIcon className="w-4 h-4" />
+              </a>
+              <a
+                href={MARKETX_X_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/[0.06] shrink-0"
-                title="Follow @_MarketXai on X"
+                title="Follow @_MarketX on X"
+                aria-label="Follow @_MarketX on X"
               >
-                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                </svg>
+                <XLogoIcon className="w-3.5 h-3.5" />
               </a>
             </div>
           </div>

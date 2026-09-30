@@ -1875,7 +1875,7 @@ ${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.re
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
-    service: 'MarketX AI Strategy Engine',
+    service: 'MarketX SI Strategy Engine',
     aiConfigured: Boolean(process.env.GEMINI_API_KEY),
     accountsConfigured: isAuthConfigured(),
     storageConfigured: !firebaseStatus(),
@@ -1903,6 +1903,18 @@ registerAdminRoutes(app);
 registerCampaignRoutes(app, generalApiRateLimiter);
 // Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
 registerPriceAlertRoutes(app, { getBars: symbol => fetchCandlesForAsset(extractAssetInfo(symbol), '1M') }, generalApiRateLimiter);
+
+// Telegram channel: the site links to /go/telegram and the server redirects to the invite link, so the link itself is
+// never in the page or the client bundle (set TELEGRAM_INVITE_URL to change it; only t.me links are accepted)
+const TELEGRAM_INVITE_URL = (() => {
+  const v = String(process.env.TELEGRAM_INVITE_URL || '').trim();
+  return /^https:\/\/t\.me\/[A-Za-z0-9_+\-/]{2,120}$/.test(v) ? v : 'https://t.me/+DnG70znoUHowYWQ0';
+})();
+app.get('/go/telegram', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.redirect(302, TELEGRAM_INVITE_URL);
+});
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 

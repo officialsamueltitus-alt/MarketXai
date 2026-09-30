@@ -178,14 +178,14 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const payLabel = yearly ? chargeLabel || yearlyDiscountedPrice : chargeLabel || monthlyPrice;
 
   const freeFeatures: [string, boolean][] = [
-    [`${benefits.freeDailyAnalyses} AI analyses every day`, true],
+    [`${benefits.freeDailyAnalyses} SI analyses every day`, true],
     ['Full trade plans: entry, stop & targets', true],
     ['Live market prices', true],
     ['Gift credits & X rewards', true],
     ['Verified trader badge', false],
   ];
   const proFeatures: string[] = [
-    `${benefits.proDailyAnalyses} AI analyses every day`,
+    `${benefits.proDailyAnalyses} SI analyses every day`,
     'Full trade plans: entry, stop & targets',
     'Live market prices',
     'Gift credits & X rewards',

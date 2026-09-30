@@ -56,7 +56,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
 
   if (!isOpen) return null;
 
-  const xWriteup = `I Trade with @_MarketXai ⚡\n\nTrader: @${userProfile.username || 'trader'}\nWebsite: https://marketx.world\n\n#MarketX #Trading #AI`;
+  const xWriteup = `I Trade with @_MarketX ⚡\n\nTrader: @${userProfile.username || 'trader'}\nWebsite: https://marketx.world\n\n#MarketX #Trading #SI`;
 
   const done = {
     follow: progress.follow || !!existingReward,
@@ -144,13 +144,13 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
                     openExternal(MARKETX_X_URL);
                   }}
                   className="font-semibold underline decoration-indigo-400/60 underline-offset-4 hover:decoration-indigo-300 cursor-pointer"
-                  title="Open @_MarketXai on X"
+                  title="Open @_MarketX on X"
                 >
                   Market<span className="text-indigo-300">X</span>
                 </button>{' '}
                 on X
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">Tap MarketX to open @_MarketXai and hit Follow.</p>
+              <p className="text-xs text-slate-500 mt-0.5">Tap MarketX to open @_MarketX and hit Follow.</p>
             </div>
           </div>
 
@@ -159,7 +159,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
             <StepDot n={2} isDone={done.engage} isActive={activeId === 'engage'} />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white">Comment, tag 2 trader friends & repost</div>
-              <p className="text-xs text-slate-500 mt-0.5">On the pinned post at @_MarketXai.</p>
+              <p className="text-xs text-slate-500 mt-0.5">On the pinned post at @_MarketX.</p>
             </div>
             <button
               type="button"

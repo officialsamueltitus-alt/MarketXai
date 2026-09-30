@@ -92,14 +92,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const handleCopyText = (id: string, text: string) => {
     const formattedText = text.includes('marketx.world')
       ? text
-      : `${text}\n\nAnalyzed with MarketX AI (@_MarketXai) · https://marketx.world`;
+      : `${text}\n\nAnalyzed with MarketX SI (@_MarketX) · https://marketx.world`;
     navigator.clipboard.writeText(formattedText);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleCopyTradeSetup = (strategy: any, msgId: string) => {
-    const summary = `📊 MARKETX (@_MarketXai) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
+    const summary = `📊 MARKETX (@_MarketX) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
 Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
 🎯 Optimal Entry: $${strategy.entryZone.optimal}
 🛑 Invalidation Stop Loss: $${strategy.stopLoss.price} (-${strategy.stopLoss.riskPercent}%)
@@ -107,7 +107,7 @@ Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
 ⚖️ Risk / Reward: ${strategy.riskRewardRatio}
 Rationale: ${strategy.entryZone.rationale}
 
-🔗 Trade with MarketX AI (@_MarketXai): https://marketx.world`;
+🔗 Trade with MarketX SI (@_MarketX): https://marketx.world`;
 
     navigator.clipboard.writeText(summary);
     setCopiedId(`setup-${msgId}`);
@@ -644,7 +644,7 @@ Rationale: ${strategy.entryZone.rationale}
                               type="button"
                               onClick={() => handleCopyText(`writeup-${message.id}`, message.content || strategy.entryZone.rationale)}
                               className="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded hover:bg-white/[0.06] flex items-center gap-1 text-[11px] font-mono cursor-pointer whitespace-nowrap"
-                              title="Copy AI Analysis Writeup"
+                              title="Copy SI Analysis Writeup"
                               aria-label="Copy writeup"
                             >
                               {copiedId === `writeup-${message.id}` ? (
@@ -986,7 +986,7 @@ Rationale: ${strategy.entryZone.rationale}
                       <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
                         <div className="flex items-center gap-2 text-indigo-300 font-semibold text-xs">
                           <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                          <span><MarketXText className="text-xs" /> Frontier AI Assistant</span>
+                          <span><MarketXText className="text-xs" /> Frontier SI Assistant</span>
                         </div>
                         <button
                           type="button"

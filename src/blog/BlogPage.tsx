@@ -151,8 +151,8 @@ const SECTIONS: Section[] = [
           head={['Section', 'Where to find it', 'What it does']}
           rows={[
             ['Markets', 'Top bar, view switch', 'Live prices and ready made prompts for forex, gold, crypto, stocks and indices. Tap any card to analyze it.'],
-            ['Ask AI', 'Top bar, view switch', 'The chat where you type prompts and get trade plans.'],
-            ['AI engines', 'Top bar, Models button', 'Shows the active MarketX Engine and engines coming soon.'],
+            ['Ask SI', 'Top bar, view switch', 'The chat where you type prompts and get trade plans.'],
+            ['SI engines', 'Top bar, Models button', 'Shows the active MarketX Engine and engines coming soon.'],
             ['New chat', 'Top bar or sidebar', 'Starts a fresh conversation.'],
             ['Credits', 'Top bar credit pill, or Sidebar, Settings, Credits', "Your balance, today's analyses, and plans."],
             ['Notifications', 'Top bar bell', 'Analyses, sign ins, payments, rewards and replies from support.'],
@@ -179,7 +179,7 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              Open <B>Ask AI</B>, or tap a card on <B>Markets</B>, which fills the prompt for you.
+              Open <B>Ask SI</B>, or tap a card on <B>Markets</B>, which fills the prompt for you.
             </>,
             <>
               Type what you want, for example <em>Analyze EUR/USD on the 1H</em> or <em>BTC 15 min setup</em>. Supported markets include forex pairs, gold and silver,
@@ -383,7 +383,7 @@ const SECTIONS: Section[] = [
             your balance and arrive in theirs straight away. You cannot gift to yourself.
           </>,
           <>
-            <B>Follow us.</B> Updates and new features are posted on X at @_MarketXai.
+            <B>Follow us.</B> Updates and new features are posted on X at @_MarketX and in the MarketX Telegram community (the Telegram button in the sidebar and on the Direct institutional desk).
           </>,
         ]}
       />

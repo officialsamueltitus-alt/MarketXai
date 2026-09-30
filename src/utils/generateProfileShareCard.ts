@@ -263,7 +263,7 @@ function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null, l
   ctx.fillText('X', L + 64 + mw + 1, 89);
 
   // Handle chip (top right)
-  pill(ctx, W - 72, 68, '@_MarketXai', {
+  pill(ctx, W - 72, 68, '@_MarketX', {
     h: 42,
     font: `500 17px ${SANS}`,
     fg: '#f4f4f5',
@@ -283,7 +283,7 @@ function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null, l
   // Auto-fit the headline to its column (fallback fonts can be wider than Geist)
   let headSize = 104;
   ctx.font = `800 ${headSize}px ${SANS}`;
-  while (ctx.measureText('MarketX AI').width > 560 && headSize > 60) {
+  while (ctx.measureText('MarketX SI').width > 560 && headSize > 60) {
     headSize -= 2;
     ctx.font = `800 ${headSize}px ${SANS}`;
   }
@@ -292,7 +292,7 @@ function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null, l
   hg.addColorStop(0.55, '#c4b5fd');
   hg.addColorStop(1, '#7dd3fc');
   ctx.fillStyle = hg;
-  ctx.fillText('MarketX AI', L - 4, 368);
+  ctx.fillText('MarketX SI', L - 4, 368);
 
   // Feature chips
   let cx = L;
@@ -380,7 +380,7 @@ function renderCard(userProfile: UserProfile, avatar: HTMLImageElement | null, l
 }
 
 /**
- * Draws the "I trade with MarketX AI" share card (2400×1350 PNG) personalised with the trader's name,
+ * Draws the "I trade with MarketX SI" share card (2400×1350 PNG) personalised with the trader's name,
  * handle, avatar and verified badge. Returns a PNG data URL.
  */
 export async function generateProfileShareCard(userProfile: UserProfile): Promise<string> {

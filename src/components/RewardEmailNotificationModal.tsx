@@ -86,7 +86,7 @@ export const RewardEmailNotificationModal: React.FC<RewardEmailNotificationModal
             </p>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Thank you for sharing your official MarketX profile card on <strong>X</strong> and tagging <span className="text-cyan-400 font-mono">@_MarketXai</span>.
+              Thank you for sharing your official MarketX profile card on <strong>X</strong> and tagging <span className="text-cyan-400 font-mono">@_MarketX</span>.
             </p>
 
             <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-950/60 via-slate-900/80 to-black border border-indigo-500/30 flex items-center justify-between">
@@ -107,7 +107,7 @@ export const RewardEmailNotificationModal: React.FC<RewardEmailNotificationModal
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Your 10 credits have been added directly to your account balance. You can use them immediately to run AI market analyses across crypto, forex, commodities, and equities.
+              Your 10 credits have been added directly to your account balance. You can use them immediately to run SI market analyses across crypto, forex, commodities, and equities.
             </p>
 
             <div className="pt-2 border-t border-white/[0.06] space-y-1 text-[11px] text-slate-400">
@@ -118,12 +118,12 @@ export const RewardEmailNotificationModal: React.FC<RewardEmailNotificationModal
                 </a>
                 <span>•</span>
                 <a
-                  href="https://x.com/_MarketXai"
+                  href="https://x.com/_MarketX"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-cyan-400 hover:underline flex items-center gap-1"
                 >
-                  <span>@_MarketXai</span>
+                  <span>@_MarketX</span>
                   <ExternalLink className="w-2.5 h-2.5" />
                 </a>
               </div>
