@@ -30,7 +30,7 @@ const ExplainCampaignCard: React.FC = () => {
         <span className="min-w-0">
           <span className="block text-[15px] font-semibold text-white leading-snug">Explain MarketX, earn 50 credits</span>
           <span className="mt-1 block text-xs text-slate-300 leading-relaxed">
-            Share a 1 minute video or a write up with screenshots on X, tag @_MarketXai and submit the link. Credits are added once approved.
+            Share a 1 minute video or a write up with screenshots on X, tag @_MarketX and submit the link. Credits are added once approved.
           </span>
         </span>
         <span className="shrink-0 h-10 px-2.5 rounded-xl bg-white/[0.1] text-white inline-flex flex-col items-center justify-center leading-none">
@@ -65,7 +65,7 @@ const ShareCampaignCard: React.FC<{ reward?: XShareReward | null; onOpen?: () =>
     ? 'You completed this campaign. It can only be claimed once per person.'
     : waiting
       ? 'Thanks for posting! Your 10 credits are added automatically when the 10 hour timer ends.'
-      : 'Follow @_MarketXai, comment and repost the pinned post, then share your trader card. 10 credits unlock 10 hours after you post.';
+      : 'Follow @_MarketX, comment and repost the pinned post, then share your trader card. 10 credits unlock 10 hours after you post.';
   return (
     <button
       type="button"

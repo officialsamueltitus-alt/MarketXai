@@ -1,5 +1,7 @@
 import React from 'react';
 import { Mail, ArrowUpRight, Headphones, LineChart, CreditCard, Plug, Clock, MessageCircle, BookOpen, ArrowRight } from 'lucide-react';
+import { TelegramIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL } from '../utils/campaign';
 
 interface InstitutionalMailSupportProps {
   className?: string;
@@ -16,7 +18,7 @@ const TOPICS = [
 
 export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> = ({ className = '', onOpenSupport, supportUnread = 0 }) => {
   const supportEmail = 'help.marketx@gmail.com';
-  const xHandleUrl = 'https://x.com/_MarketXai';
+  const xHandleUrl = 'https://x.com/_MarketX';
   const mailtoLink = `mailto:${supportEmail}?subject=MarketX%20Support%20Request&body=Hello%20MarketX%20Team%2C%0A%0AMy%20username%3A%20%0AHow%20can%20you%20help%3A%20%0A%0AThank%20you.`;
 
   return (
@@ -56,7 +58,7 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 md:w-60 shrink-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-2.5 md:w-60 shrink-0">
           {onOpenSupport && (
             <button
               type="button"
@@ -89,7 +91,16 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
             <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
             </svg>
-            Message @_MarketXai
+            Message @_MarketX
+          </a>
+          <a
+            href={MARKETX_TELEGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="h-12 px-5 rounded-2xl border border-[#2AABEE]/30 bg-[#2AABEE]/[0.08] text-slate-100 text-sm font-medium hover:bg-[#2AABEE]/[0.14] hover:border-[#2AABEE]/50 transition inline-flex items-center justify-center gap-2"
+          >
+            <TelegramIcon className="w-[18px] h-[18px]" />
+            Join our Telegram
           </a>
         </div>
       </div>

@@ -12,6 +12,7 @@ import {
   HighImpactNewsAlert,
   SignalStatusInfo,
 } from '../types';
+import { CRYPTO_ALIASES, detectCryptoTicker } from './cryptoTicker';
 
 interface AssetInfo {
   symbol: string;
@@ -231,6 +232,15 @@ export function extractAssetInfo(prompt: string, explicitSymbol?: string): Asset
     const s1 = forexSixMatch[1];
     const s2 = forexSixMatch[2];
     return { symbol: `${s1}/${s2}`, name: `${s1} / ${s2}`, type: 'forex' };
+  }
+
+  // 8b. ANY OTHER COIN OR MEME: cashtags ($WIF), pairs (BONK/USDT), known meme names, capitalised tickers, contract
+  // addresses. The server resolves it on Binance, Bybit, MEXC or its on-chain pool and returns the exact market.
+  const coin = detectCryptoTicker(raw);
+  if (coin) {
+    if (coin.address) return { symbol: coin.address, name: 'On-chain token', type: 'crypto' };
+    const alias = Object.keys(CRYPTO_ALIASES).find(k => CRYPTO_ALIASES[k] === coin.base && k.length > coin.base.length);
+    return { symbol: `${coin.base}/USDT`, name: alias ? alias.replace(/\b\w/g, c => c.toUpperCase()) : coin.base, type: 'crypto' };
   }
 
   // 9. IF NO ASSET IN PROMPT, FALL BACK TO EXPLICIT SYMBOL IF PROVIDED

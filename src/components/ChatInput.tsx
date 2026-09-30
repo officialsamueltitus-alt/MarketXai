@@ -23,10 +23,15 @@ import {
   BellRing,
   History,
   NotebookPen,
+  Activity,
+  LineChart,
+  Shuffle,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
 const TIMEFRAMES: { value: string; label: string }[] = [
+  // Random: the server scans every timeframe and serves the strongest valid setup, saying which timeframe it used
+  { value: 'RDM', label: 'RDM' },
   { value: '1M', label: '1m' },
   { value: '3M', label: '3m' },
   { value: '5M', label: '5m' },
@@ -91,7 +96,11 @@ const SLASH_COMMANDS = [
   { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
+  { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
+  { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
+// Commands that already work (the rest are in private testing)
+const LIVE_COMMANDS = new Set<string>(['alerts']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -103,6 +112,8 @@ interface ChatInputProps {
     chartFileName?: string
   ) => void;
   onStopAnalysis?: () => void;
+  /** A live slash command was chosen (e.g. 'alerts'); return true when it was handled */
+  onCommand?: (id: string) => boolean;
   isLoading: boolean;
   /** Analyses left today; at 0 new prompts are paused until the refill */
   credits: number;
@@ -116,6 +127,7 @@ interface ChatInputProps {
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   onStopAnalysis,
+  onCommand,
   isLoading,
   credits,
   refillLabel = '3:00 AM',
@@ -196,9 +208,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => clearTimeout(timer);
   }, [comingSoonLabel]);
 
-  const selectSlashCommand = (label: string) => {
+  const selectSlashCommand = (cmd: (typeof SLASH_COMMANDS)[number]) => {
     setInput('');
-    setComingSoonLabel(label);
+    if (LIVE_COMMANDS.has(cmd.id) && onCommand?.(cmd.id)) {
+      textareaRef.current?.blur();
+      return;
+    }
+    setComingSoonLabel(cmd.label);
     textareaRef.current?.focus();
   };
 
@@ -379,7 +395,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         const cmd = filteredCommands[Math.min(slashIndex, filteredCommands.length - 1)];
-        if (cmd) selectSlashCommand(cmd.label);
+        if (cmd) selectSlashCommand(cmd);
         return;
       }
       if (e.key === 'Escape') {
@@ -452,6 +468,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     buttons[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };
 
+  const renderTf = (t: { value: string; label: string }) => {
+    const active = t.value === timeframe;
+    return (
+      <button
+        key={t.value}
+        type="button"
+        role="option"
+        aria-selected={active}
+        tabIndex={active ? 0 : -1}
+        onClick={() => chooseTimeframe(t.value)}
+        className={`snap-start shrink-0 h-9 min-w-[3rem] px-3 rounded-xl text-[13px] font-medium font-mono transition-colors cursor-pointer border ${
+          active
+            ? 'bg-white text-slate-950 border-white'
+            : 'text-slate-300 border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] hover:text-white'
+        }`}
+      >
+        {t.value === 'RDM' ? (
+          <span className="inline-flex items-center gap-1.5" title="Random: scans every timeframe and picks the best valid setup">
+            <Shuffle className="w-3.5 h-3.5" />
+            RDM
+          </span>
+        ) : (
+          t.label
+        )}
+      </button>
+    );
+  };
+
   return (
     <div
       className="relative w-full"
@@ -475,35 +519,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         >
           <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
             <span className="text-[11px] font-medium text-slate-400">Timeframe</span>
-            <span className="text-[11px] text-slate-500">Stays selected until you change it</span>
+            <span className="text-[11px] text-slate-500">{timeframe === 'RDM' ? 'RDM scans every timeframe' : 'Stays selected until you change it'}</span>
           </div>
-          <div
-            role="listbox"
-            aria-label="Timeframe"
-            aria-orientation="horizontal"
-            onKeyDown={onTfKeyDown}
-            className="flex gap-1.5 overflow-x-auto overscroll-x-contain px-2.5 pb-2.5 pt-1 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {TIMEFRAMES.map(t => {
-              const active = t.value === timeframe;
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  tabIndex={active ? 0 : -1}
-                  onClick={() => chooseTimeframe(t.value)}
-                  className={`snap-start shrink-0 h-9 min-w-[3rem] px-3 rounded-xl text-[13px] font-medium font-mono transition-colors cursor-pointer border ${
-                    active
-                      ? 'bg-white text-slate-950 border-white'
-                      : 'text-slate-300 border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] hover:text-white'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
+          <div role="listbox" aria-label="Timeframe" aria-orientation="horizontal" onKeyDown={onTfKeyDown} className="flex items-center pb-2.5 pt-1">
+            {/* RDM stays pinned on the left so it is always in view; the timeframes scroll beside it */}
+            <div className="shrink-0 pl-2.5 pr-1.5 mr-0.5 border-r border-white/[0.08]">{TIMEFRAMES.filter(t => t.value === 'RDM').map(renderTf)}</div>
+            <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto overscroll-x-contain pl-1 pr-2.5 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {TIMEFRAMES.filter(t => t.value !== 'RDM').map(renderTf)}
+            </div>
           </div>
         </div>
       )}
@@ -548,7 +571,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     aria-selected={active}
                     onMouseDown={e => e.preventDefault()}
                     onMouseEnter={() => setSlashIndex(i)}
-                    onClick={() => selectSlashCommand(cmd.label)}
+                    onClick={() => selectSlashCommand(cmd)}
                     className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
                       active ? 'bg-white/[0.06] text-white' : 'text-slate-300'
                     }`}
@@ -559,7 +582,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2 text-sm font-medium">
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
-                        <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
+                        {LIVE_COMMANDS.has(cmd.id) ? (
+                          <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />Live
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
+                        )}
                       </span>
                       <span className="block text-xs text-slate-500 truncate">{cmd.description}</span>
                     </span>
@@ -727,7 +756,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       </form>
 
       <p className="text-center text-[11px] text-slate-500 mt-2 max-sm:mt-1.5 max-sm:text-[10px]">
-        <MarketXText className="text-[11px]" /> is AI and can make mistakes. Always manage your risk.
+        <MarketXText className="text-[11px]" /> is SI and can make mistakes. Always manage your risk.
       </p>
     </div>
   );

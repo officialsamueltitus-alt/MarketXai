@@ -72,7 +72,7 @@ export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({ onNoti
         onClick={toggle}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label="AI models"
+        aria-label="SI models"
         className="group flex items-center gap-1 min-[400px]:gap-2 h-8 pl-1 pr-1.5 min-[400px]:pr-2 sm:pr-2.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] transition-colors cursor-pointer active:scale-[0.97] shrink-0"
       >
         <span className="flex -space-x-1 min-[400px]:-space-x-1.5" aria-hidden="true">
@@ -97,12 +97,12 @@ export const ModelSelectorButton: React.FC<ModelSelectorButtonProps> = ({ onNoti
             <div className="fixed inset-0" onClick={() => setIsOpen(false)} aria-hidden="true" />
             <div
               role="dialog"
-              aria-label="AI models"
+              aria-label="SI models"
               className="mx-pop-in fixed rounded-2xl bg-[var(--mx-surface)] border border-white/[0.08] shadow-[0_24px_60px_-20px_var(--mx-shadow)] overflow-hidden"
               style={{ top: coords.top, left: coords.left, width: PANEL_W }}
             >
               <div className="px-4 pt-3.5 pb-2 flex items-center justify-between">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">AI engines</span>
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">SI engines</span>
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}

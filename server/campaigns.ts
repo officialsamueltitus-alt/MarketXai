@@ -7,7 +7,7 @@ import { addNotificationInTx, getUser, loadUserInTx, requireAuth, saveNormalized
 
 // ===========================================================================
 // "Explain MarketX" campaign: users post a short video or a written explainer about MarketX on X, tag
-// @_MarketXai and submit the post link here. Nothing is automatic: an admin reviews each post and approves
+// @_MarketX and submit the post link here. Nothing is automatic: an admin reviews each post and approves
 // (50 credits, added to the campaign pool so they work past the daily limit) or declines it with a reason.
 //   campaignSubmissions/{campaignId}_{uid} -> one submission per account (resubmittable after a decline)
 //   campaignClaims/explain_e_{emailHash}    -> one approved reward per person, even across deleted accounts
@@ -17,7 +17,7 @@ export const EXPLAIN_CAMPAIGN = {
   id: 'explain-marketx',
   title: 'Explain MarketX',
   reward: 50,
-  handle: '@_MarketXai',
+  handle: '@_MarketX',
   // Open until the end of 30 October 2026, Lagos time (UTC+1)
   endsAt: Date.parse('2026-10-30T23:59:59+01:00'),
   path: '/campaigns/explain-marketx',

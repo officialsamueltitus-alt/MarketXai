@@ -131,7 +131,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     const unlimited = isUnlimitedUser(p.userProfile.email);
     const isPro = p.userProfile.subscription.active;
     if (!p.isSignedIn) {
-      promo.push({ id: 'signin', tone: 'violet', icon: LogIn, label: 'MarketX', text: `Sign in to get ${B.freeDailyAnalyses} free AI analyses every day`, cta: 'Sign in', onAction: p.onSignIn });
+      promo.push({ id: 'signin', tone: 'violet', icon: LogIn, label: 'MarketX', text: `Sign in to get ${B.freeDailyAnalyses} free SI analyses every day`, cta: 'Sign in', onAction: p.onSignIn });
     } else if (!unlimited && !isPro) {
       promo.push({
         id: 'pro',

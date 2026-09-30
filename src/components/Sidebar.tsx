@@ -35,8 +35,12 @@ import {
   ChevronRight,
   ChevronDown,
   MessageCircle,
-  FileText
+  FileText,
+  Puzzle
 } from 'lucide-react';
+import { TelegramIcon, XLogoIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL, MARKETX_X_URL } from '../utils/campaign';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -116,6 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const { pref: themePref, resolved: resolvedTheme, setTheme } = useTheme();
 
   // 'credits' / 'profile' now open as pop-up detail windows; 'history' is the only in-menu view
@@ -139,10 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const formatPrice = (p: number) =>
-    p < 10
-      ? p.toFixed(4)
-      : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatPrice = (p: number) => formatMarketPrice(p);
 
   const isPremium = userProfile.subscription.active;
 
@@ -569,6 +571,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                 </button>
 
+                {/* Connectors / plugins: none available yet */}
+                <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setIsConnectorsOpen(v => !v)}
+                    aria-expanded={isConnectorsOpen}
+                    className="w-full flex items-center justify-between gap-2 p-2.5 hover:bg-white/[0.04] text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+                        <Puzzle className="w-3.5 h-3.5 text-sky-300" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-white">Connectors / Plugins</span>
+                        <span className="block text-[10px] text-slate-400 truncate">Apps and tools linked to MarketX</span>
+                      </span>
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${isConnectorsOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {isConnectorsOpen && (
+                    <div className="px-3 pb-3 pt-1 text-center" role="status">
+                      <div className="mx-auto w-9 h-9 rounded-xl bg-white/[0.04] border border-dashed border-white/[0.14] flex items-center justify-center">
+                        <Puzzle className="w-4 h-4 text-slate-500" />
+                      </div>
+                      <p className="mt-2 text-xs font-medium text-slate-300">Nothing here yet.</p>
+                    </div>
+                  )}
+                </div>
+
                 {onOpenSupport && (
                   <button
                     type="button"
@@ -653,15 +684,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
               <a
-                href="https://x.com/_MarketXai"
+                href={MARKETX_TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0"
+                title="Join the MarketX Telegram community"
+                aria-label="Join the MarketX Telegram community"
+              >
+                <TelegramIcon className="w-4 h-4" />
+              </a>
+              <a
+                href={MARKETX_X_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/[0.06] shrink-0"
-                title="Follow @_MarketXai on X"
+                title="Follow @_MarketX on X"
+                aria-label="Follow @_MarketX on X"
               >
-                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                </svg>
+                <XLogoIcon className="w-3.5 h-3.5" />
               </a>
             </div>
           </div>

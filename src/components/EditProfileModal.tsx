@@ -332,7 +332,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 />
               </div>
               <span className="text-[10px] text-slate-400 block px-1">
-                Used to receive AI credit gifts and identify your market setups.
+                Used to receive SI credit gifts and identify your market setups.
               </span>
             </div>
 

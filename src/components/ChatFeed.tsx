@@ -23,6 +23,7 @@ import {
   ArrowDownRight,
   Target,
   ShieldAlert,
+  BellRing,
   ChevronDown,
   ChevronUp,
   ArrowUp,
@@ -32,8 +33,11 @@ import {
   AlertCircle,
   Copy,
   Check,
-  Cpu
+  Cpu,
+  LineChart,
+  Info
 } from 'lucide-react';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface ChatFeedProps {
   messages: ChatMessage[];
@@ -49,6 +53,11 @@ interface ChatFeedProps {
   userProfile?: UserProfile;
   targetMessageId?: string | null;
   onClearTargetMessage?: () => void;
+  /** Price alerts approved (/price-alerts): results show "Get price alert" */
+  alertsEnabled?: boolean;
+  /** Alert state per setup (strategy.alertOffer.id) */
+  alertByOffer?: Record<string, 'on' | 'ended'>;
+  onToggleAlert?: (strategy: StrategyResult) => void;
 }
 
 // Markdown only re-parses when its text changes (not on every live-price tick)
@@ -63,6 +72,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   userProfile,
   targetMessageId,
   onClearTargetMessage,
+  alertsEnabled,
+  alertByOffer,
+  onToggleAlert,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
@@ -83,22 +95,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const handleCopyText = (id: string, text: string) => {
     const formattedText = text.includes('marketx.world')
       ? text
-      : `${text}\n\nAnalyzed with MarketX AI (@_MarketXai) · https://marketx.world`;
+      : `${text}\n\nAnalyzed with MarketX SI (@_MarketX) · https://marketx.world`;
     navigator.clipboard.writeText(formattedText);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleCopyTradeSetup = (strategy: any, msgId: string) => {
-    const summary = `📊 MARKETX (@_MarketXai) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
+    const summary = `📊 MARKETX (@_MarketX) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
 Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
-🎯 Optimal Entry: $${strategy.entryZone.optimal}
-🛑 Invalidation Stop Loss: $${strategy.stopLoss.price} (-${strategy.stopLoss.riskPercent}%)
-💰 Targets: ${strategy.takeProfits.map((tp: any) => `${tp.level}: $${tp.price} (${tp.rewardRatio})`).join(' | ')}
+🎯 Optimal Entry: $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}
+🛑 Invalidation Stop Loss: $${formatMarketPrice(strategy.stopLoss.price, strategy.currentPrice)} (-${strategy.stopLoss.riskPercent}%)
+💰 Targets: ${strategy.takeProfits.map((tp: any) => `${tp.level}: $${formatMarketPrice(tp.price, strategy.currentPrice)} (${tp.rewardRatio})`).join(' | ')}
 ⚖️ Risk / Reward: ${strategy.riskRewardRatio}
 Rationale: ${strategy.entryZone.rationale}
 
-🔗 Trade with MarketX AI (@_MarketXai): https://marketx.world`;
+🔗 Trade with MarketX SI (@_MarketX): https://marketx.world`;
 
     navigator.clipboard.writeText(summary);
     setCopiedId(`setup-${msgId}`);
@@ -635,7 +647,7 @@ Rationale: ${strategy.entryZone.rationale}
                               type="button"
                               onClick={() => handleCopyText(`writeup-${message.id}`, message.content || strategy.entryZone.rationale)}
                               className="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded hover:bg-white/[0.06] flex items-center gap-1 text-[11px] font-mono cursor-pointer whitespace-nowrap"
-                              title="Copy AI Analysis Writeup"
+                              title="Copy SI Analysis Writeup"
                               aria-label="Copy writeup"
                             >
                               {copiedId === `writeup-${message.id}` ? (
@@ -682,9 +694,9 @@ Rationale: ${strategy.entryZone.rationale}
                             </span>
                             <p className="text-[11px] opacity-90 leading-relaxed">
                               {strategy.tradeType === 'LONG'
-                                ? `Buyer absorption defended $${strategy.entryZone.optimal.toLocaleString()} with strong volume confluence. Targeting upside expansion.`
+                                ? `Buyer absorption defended $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)} with strong volume confluence. Targeting upside expansion.`
                                 : strategy.tradeType === 'SHORT'
-                                ? `Sellers defending key pivot above $${strategy.entryZone.optimal.toLocaleString()}. Invalidation anchored at structural high.`
+                                ? `Sellers defending key pivot above $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}. Invalidation anchored at structural high.`
                                 : 'Price action is consolidating in a neutral range. Recommended approach: Wait for directional confirmation.'}
                             </p>
                           </div>
@@ -699,10 +711,16 @@ Rationale: ${strategy.entryZone.rationale}
                               I've analyzed live order books and market depth for <strong className="text-white font-mono">{strategy.symbol}</strong> ({strategy.name}) on the <strong className="text-indigo-300 font-mono">{strategy.timeframe}</strong> timeframe.
                               <span className="text-amber-300 font-semibold block mt-1.5 flex items-center gap-1.5">
                                 <AlertCircle className="w-4 h-4 inline shrink-0" />
-                                {strategy.alreadyMitigated ? 'No signal, already mitigated.' : 'No signal.'}
+                                {strategy.alreadyMoved
+                                  ? strategy.alreadyMoved === 'NEAR_SL'
+                                    ? 'No signal, already moved (close to the stop loss).'
+                                    : 'No signal, already moved (close to TP).'
+                                  : strategy.alreadyMitigated
+                                    ? 'No signal, already mitigated.'
+                                    : 'No signal.'}
                               </span>
                               {strategy.signalStatus?.details && /^No signal/i.test(strategy.signalStatus.details)
-                                ? strategy.signalStatus.details.replace(/^No signal(?:, already mitigated)?\.\s*/i, '')
+                                ? strategy.signalStatus.details.replace(/^No signal(?:, already mitigated|, already moved(?:, close to (?:TP|the stop loss))?)?\.\s*/i, '')
                                 : 'No fresh, untouched zone offers a clean setup right now. Recommended action: stand aside and wait for a fresh zone to form.'}
                             </p>
                           ) : strategy.tradeType === 'SHORT' ? (
@@ -728,6 +746,14 @@ Rationale: ${strategy.entryZone.rationale}
                             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/[0.06] text-slate-200 border border-white/[0.1]">
                               {strategy.timeframe} TF
                             </span>
+                            {strategy.timeframeScan && (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-200 border border-indigo-400/30"
+                                title={`RDM scanned ${strategy.timeframeScan.scanned} timeframes${strategy.timeframeScan.chosen ? ` and used ${strategy.timeframe}` : ''}`}
+                              >
+                                RDM · {strategy.timeframeScan.chosen ? `picked ${strategy.timeframe}` : `${strategy.timeframeScan.scanned} TFs scanned`}
+                              </span>
+                            )}
                             <span className="text-xs text-slate-400 hidden sm:inline font-sans">
                               {strategy.name}
                             </span>
@@ -743,7 +769,7 @@ Rationale: ${strategy.entryZone.rationale}
                             {strategy.tradeType === 'NO_SIGNAL' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs">
                                 <AlertCircle className="w-3.5 h-3.5" />
-                                <span>{strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
+                                <span>{strategy.alreadyMoved ? (strategy.alreadyMoved === 'NEAR_SL' ? 'NO SIGNAL · CLOSE TO SL' : 'NO SIGNAL · ALREADY MOVED') : strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
                               </span>
                             ) : strategy.tradeType === 'LONG' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs">
@@ -772,7 +798,7 @@ Rationale: ${strategy.entryZone.rationale}
                               {strategy.execution === 'MARKET' ? 'Market Entry' : 'Optimal Entry'}
                             </span>
                             <span className="text-xs sm:text-base font-bold text-amber-200 mt-1 block truncate font-mono">
-                              ${strategy.currentPrice < 10 ? strategy.entryZone.optimal.toFixed(4) : strategy.entryZone.optimal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-amber-300/80 block mt-0.5 truncate font-mono">
                               ${strategy.entryZone.min} to ${strategy.entryZone.max}
@@ -786,7 +812,7 @@ Rationale: ${strategy.entryZone.rationale}
                               Stop Loss
                             </span>
                             <span className="text-xs sm:text-base font-bold text-rose-200 mt-1 block truncate font-mono">
-                              ${strategy.currentPrice < 10 ? strategy.stopLoss.price.toFixed(4) : strategy.stopLoss.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${formatMarketPrice(strategy.stopLoss.price, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-rose-300/80 block mt-0.5 truncate font-mono">
                               Risk: -{strategy.stopLoss.riskPercent}%
@@ -800,7 +826,7 @@ Rationale: ${strategy.entryZone.rationale}
                               TP1 Target
                             </span>
                             <span className="text-xs sm:text-base font-bold text-emerald-200 mt-1 block truncate font-mono">
-                              ${strategy.currentPrice < 10 ? strategy.takeProfits[0]?.price.toFixed(4) : strategy.takeProfits[0]?.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${formatMarketPrice(strategy.takeProfits[0]?.price, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-emerald-300/80 block mt-0.5 truncate font-mono">
                               {strategy.takeProfits[0]?.rewardRatio} ({strategy.takeProfits[0]?.exitPercent}%)
@@ -833,7 +859,7 @@ Rationale: ${strategy.entryZone.rationale}
                                   idx > 0 ? 'ml-3 sm:ml-4' : ''
                                 }`}
                               >
-                                {tp.level}: ${strategy.currentPrice < 10 ? tp.price.toFixed(4) : tp.price.toLocaleString(undefined, { minimumFractionDigits: 2 })} ({tp.rewardRatio})
+                                {tp.level}: ${formatMarketPrice(tp.price, strategy.currentPrice)} ({tp.rewardRatio})
                               </span>
                             ))}
                           </div>
@@ -867,6 +893,30 @@ Rationale: ${strategy.entryZone.rationale}
                                 <span>Tighten SL</span>
                               </button>
                             )}
+
+                            {alertsEnabled && strategy.alertOffer && (strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && (() => {
+                              const st = alertByOffer?.[strategy.alertOffer.id];
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => st !== 'ended' && onToggleAlert?.(strategy)}
+                                  disabled={st === 'ended'}
+                                  aria-pressed={st === 'on'}
+                                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer shadow-xs disabled:cursor-default ${
+                                    st === 'on'
+                                      ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/25'
+                                      : st === 'ended'
+                                        ? 'bg-white/[0.03] text-slate-500 border-white/[0.08]'
+                                        : 'bg-gradient-to-r from-sky-500/25 to-violet-500/25 text-white border-sky-400/40 hover:from-sky-500/35 hover:to-violet-500/35 hover:scale-[1.02]'
+                                  }`}
+                                  title={st === 'on' ? 'Alert on: tap to turn it off' : st === 'ended' ? 'This alert has finished' : 'Get notified at the entry zone, stop loss and targets'}
+                                >
+                                  {st === 'on' && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,.2)]" aria-hidden="true" />}
+                                  <BellRing className={`w-3.5 h-3.5 ${st === 'on' ? 'text-emerald-300' : 'text-sky-300'}`} />
+                                  <span>{st === 'on' ? 'Alert on' : st === 'ended' ? 'Alert ended' : 'Get price alert'}</span>
+                                </button>
+                              );
+                            })()}
 
                             <button
                               type="button"
@@ -939,7 +989,7 @@ Rationale: ${strategy.entryZone.rationale}
                       <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
                         <div className="flex items-center gap-2 text-indigo-300 font-semibold text-xs">
                           <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                          <span><MarketXText className="text-xs" /> Frontier AI Assistant</span>
+                          <span><MarketXText className="text-xs" /> Frontier SI Assistant</span>
                         </div>
                         <button
                           type="button"
@@ -962,6 +1012,26 @@ Rationale: ${strategy.entryZone.rationale}
                       <div className="prose prose-invert prose-xs sm:prose-sm max-w-none text-slate-200 leading-relaxed break-words">
                         <Markdown text={message.content} />
                       </div>
+                      {message.choices && message.choices.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Choose what you want">
+                          {message.choices.map(c => (
+                            <button
+                              key={c.kind + c.prompt}
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => onSelectPromptRef.current(c.prompt)}
+                              className={`h-10 px-4 rounded-xl text-[13px] font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                                c.kind === 'analysis'
+                                  ? 'bg-indigo-500 text-white hover:bg-indigo-400'
+                                  : 'border border-white/[0.14] text-slate-100 hover:bg-white/[0.06]'
+                              }`}
+                            >
+                              {c.kind === 'analysis' ? <LineChart className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

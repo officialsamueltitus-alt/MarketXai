@@ -157,7 +157,7 @@ async function sendVerificationEmail(req: Request, uid: string, email: string) {
     email,
     'Welcome to MarketX: confirm your email',
     [
-      'Welcome to MarketX! Your account is ready, with free AI market analyses every day.',
+      'Welcome to MarketX! Your account is ready, with free SI market analyses every day.',
       'Please confirm your email address to secure your account and unlock everything.',
     ],
     { cta: { label: 'Confirm my email', url: link }, note: `This link expires in 3 days. If the button doesn't work, open: ${link}` }
@@ -568,9 +568,12 @@ export function registerAuthRoutes(app: Express) {
     res.json({ success: true, ...state });
   }));
 
+  // Verification links are public: bounded token size and a per-address limit keep them from being hammered
+  const verifyThrottle = createKeyedThrottle({ windowMs: 60_000, max: 20 });
   app.get('/api/auth/verify-email', wrap(async (req, res) => {
     const token = String(req.query.token || '');
-    if (!isAuthConfigured() || !token) return res.redirect('/?verified=0');
+    if (!isAuthConfigured() || !token || token.length > 200) return res.redirect('/?verified=0');
+    if (verifyThrottle.hit(clientIp(req))) return res.redirect('/?verified=0');
     const ok = await db().runTransaction(async tx => {
       const ref = tokenRef(hashToken(token));
       const snap = await tx.get(ref);

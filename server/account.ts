@@ -75,6 +75,9 @@ export interface UserDoc {
   // Activity summary for the admin console
   lastActiveAt?: number;
   usageTotal?: number;
+  // Price alerts: the trader's approval, and when the last "Want an alert?" email went out
+  alerts?: { enabled: boolean; at: number };
+  alertMailAt?: number;
 }
 
 export function blockedStatusMessage(status?: string): { code: string; message: string } | null {
@@ -160,6 +163,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     isVerified: vip || doc.subscription.active,
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
+    alertsEnabled: !!doc.alerts?.enabled,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }
       : doc.subscription,
@@ -483,12 +487,12 @@ export async function createUserIfMissing(user: AuthedUser, requestedUsername?: 
         addNotificationInTx(tx, user.uid, {
           type: 'system',
           title: 'Welcome to MarketX',
-          message: `Your account is ready with ${STARTING_CREDITS} AI credits and ${FREE_DAILY_LIMIT} daily analyses.`,
+          message: `Your account is ready with ${STARTING_CREDITS} SI credits and ${FREE_DAILY_LIMIT} daily analyses.`,
         });
         addNotificationInTx(tx, user.uid, {
           type: 'reward',
           title: `Campaign: Share Your Profile on X (+${X_SHARE_CREDITS} Credits)`,
-          message: `Share your trader card on X to earn ${X_SHARE_CREDITS} AI credits after 10 hours.`,
+          message: `Share your trader card on X to earn ${X_SHARE_CREDITS} SI credits after 10 hours.`,
           actionType: 'open_campaign',
         });
         return doc;
@@ -517,7 +521,7 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
     addNotificationInTx(tx, user.uid, {
       type: 'reward',
       title: `+${reward.creditsAwarded} Credits Added to Your Account`,
-      message: `You have been credited with ${reward.creditsAwarded} AI credits for sharing your profile on X.`,
+      message: `You have been credited with ${reward.creditsAwarded} SI credits for sharing your profile on X.`,
     });
     return true;
   });
@@ -525,7 +529,7 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
     sendEmail(
       user.email,
       `You earned ${X_SHARE_CREDITS} MarketX credits`,
-      [`Thanks for sharing MarketX on X! ${X_SHARE_CREDITS} AI credits have been added to your account.`],
+      [`Thanks for sharing MarketX on X! ${X_SHARE_CREDITS} SI credits have been added to your account.`],
       { cta: { label: 'Use your credits', url: siteLink('/') } }
     );
   }
@@ -1023,7 +1027,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       addNotificationInTx(tx, toUid, {
         type: 'credit',
         title: `🎁 @${sender.doc.username} sent you ${amount} credits`,
-        message: note ? `"${note}"` : `${amount} AI credits have been added to your balance.`,
+        message: note ? `"${note}"` : `${amount} SI credits have been added to your balance.`,
       });
       return { gift, recipientEmail: recipient.doc.email, senderUsername: sender.doc.username };
     });
@@ -1035,7 +1039,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     sendEmail(
       result.recipientEmail,
       `@${result.senderUsername} gifted you ${amount} MarketX credits`,
-      [`@${result.senderUsername} just sent you ${amount} AI credits on MarketX.`, ...(note ? [`Their note: "${note}"`] : [])],
+      [`@${result.senderUsername} just sent you ${amount} SI credits on MarketX.`, ...(note ? [`Their note: "${note}"`] : [])],
       { cta: { label: 'Use your credits', url: siteLink('/') } }
     );
     logActivity(user.uid, { type: 'gift', title: `Gifted ${amount} credits to @${result.gift.toUsername}`, detail: note || '' }, result.senderUsername);
@@ -1044,7 +1048,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       { type: 'credit', title: `You sent ${amount} credits to @${result.gift.toUsername}`, message: note ? `Your note: "${note}"` : 'The credits are already in their balance.' },
       {
         subject: `You gifted ${amount} MarketX credits to @${result.gift.toUsername}`,
-        lines: [`${amount} AI credits were sent from your account to @${result.gift.toUsername}.`],
+        lines: [`${amount} SI credits were sent from your account to @${result.gift.toUsername}.`],
         options: { rows: [['Recipient', `@${result.gift.toUsername}`], ['Amount', `${amount} credits`]] },
       }
     );
@@ -1111,7 +1115,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       {
         subject: `You joined the MarketX X campaign (+${X_SHARE_CREDITS} credits)`,
         lines: [
-          `Thanks for sharing MarketX on X! Your ${X_SHARE_CREDITS} AI credits unlock 10 hours after you posted.`,
+          `Thanks for sharing MarketX on X! Your ${X_SHARE_CREDITS} SI credits unlock 10 hours after you posted.`,
           "We'll email you again the moment they land in your balance.",
         ],
       }

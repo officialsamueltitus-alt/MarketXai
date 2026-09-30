@@ -75,7 +75,7 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
       return;
     }
     {
-      setSuccessMsg(`Successfully gifted ${amount} AI Credits to @${cleanUsername}!`);
+      setSuccessMsg(`Successfully gifted ${amount} SI Credits to @${cleanUsername}!`);
       setRecipient('');
       setNote('');
       setTimeout(() => {
@@ -106,7 +106,7 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 to-cyan-400 mx-auto flex items-center justify-center shadow-lg shadow-indigo-950/50 border border-white/20">
               <Gift className="w-5 h-5 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-white">Gift AI Credits</h3>
+            <h3 className="text-xl font-bold text-white">Gift SI Credits</h3>
             <p className="text-xs text-slate-300">
               Transfer compute credits to any <MarketXText className="text-xs" /> trader using their username
             </p>
@@ -188,7 +188,7 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
                 type="text"
                 value={note}
                 onChange={e => setNote(e.target.value)}
-                placeholder="e.g., Happy trading! Enjoy these AI credits."
+                placeholder="e.g., Happy trading! Enjoy these SI credits."
                 maxLength={80}
                 className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/[0.1] text-white text-xs placeholder:text-slate-500 focus:border-indigo-500 outline-none"
               />
@@ -216,7 +216,7 @@ export const GiftCreditsModal: React.FC<GiftCreditsModalProps> = ({
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Send {amount} AI Credits</span>
+              <span>Send {amount} SI Credits</span>
             </button>
           </form>
 

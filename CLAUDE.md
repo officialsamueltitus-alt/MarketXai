@@ -35,6 +35,17 @@
   Strict (owner-specified): zones only from the last `RECENT_ZONE_BARS` candles inside the current price range; a signal needs
   the zone, entry band, stop and every TP untouched since the zone formed (plus the live 24h range), else "No signal, already
   mitigated". Without a verified candle map (text analyses) the result is NO_SIGNAL, never an unverified trade.
+  Confirmation (owner-specified, every timeframe, market and session): RSI(14) is the leading entry indicator (no buy into
+  RSI 70+, no sell into RSI 30-; a market entry also needs RSI on the right side of 50 or a divergence) and EMA(50) is the
+  crosscheck (no trade against a clearly sloping EMA unless an RSI divergence confirms the reversal). Proximity guard: price
+  must be under half-way from the entry to TP1, at least 1.5 ATR and 1R from TP1 (buy entry at/below price, TP far above; sells
+  mirror; limit and market alike), clear of the stop, and must not have already turned
+  just short of the entry; else "No signal, already moved, close to TP" (or "close to the stop loss"), `alreadyMoved` on the
+  result. `evaluateSignalExecutionStatus` applies the same half-way rule to every served trade. The client activity shows
+  "Finding tools" then "Using tools" (RSI, EMA, zones from `strategy.toolsUsed`) before the other steps.
+  RDM timeframe (composer option `RDM`): the analyze handler (`scanAllTimeframes` in `server.ts`) builds the map on every
+  supported timeframe, keeps plans scoring 75+, serves the strongest (slight edge to higher timeframes) and tags the result
+  `timeframeScan` + an "RDM scan" note; a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
@@ -42,9 +53,38 @@
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
   notification Rewards tab (next to the 10 credit Share on X card); nobody is notified about the campaign itself.
+- Every coin and meme (owner-specified): `server/cryptoUniverse.ts` loads the USDT spot lists of Binance, Bybit and MEXC (every 6h,
+  per worker) and resolves on-chain tokens by ticker or contract address via DexScreener (most liquid pool, `MIN_DEX_LIQUIDITY_USD`
+  default $20k) with GeckoTerminal candles (series shared across timeframes, 60s cache). `detectCryptoTicker` in
+  `src/utils/cryptoTicker.ts` (shared) finds cashtags, pairs, addresses, meme names (`CRYPTO_ALIASES`, incl. Ansem) and tickers;
+  `extractAssetInfo` runs it after majors/forex/stocks, `resolveAssetInfo` (async) finishes on-chain lookups. A coin listed nowhere
+  returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price. Prices below one cent keep 4 significant digits
+  (`priceDecimals`, `src/utils/formatPrice.ts`).
+- Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
+  is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
+  server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
-  price and today's news for any pair they name; only analysis requests return trade cards.
+  price, market details (`assetDetailLines` in `server.ts`: type, venue, and for on-chain tokens chain, DEX, contract, liquidity,
+  volume, market cap, pool age) and today's news for any pair they name; info wording ("tell me about", "info", "market cap",
+  "price") is a question. Only analysis requests return trade cards. A bare pair ("EURUSD", "gold", "$WIF") is intent `clarify`:
+  the client answers locally with "Analyze X" / "Info about X" buttons (`ChatMessage.choices`) and the server's `clarifyBarePair`
+  (before `chargeAnalysisCredit`) does the same, so asking never costs a credit.
+- Answer reuse (`server/answerCache.ts`): engine-written answers to questions are stored (memory + Firestore `answerCache`,
+  hourly sweep) keyed by the normalized question; general 7 days, time-sensitive wording 20 min, pair questions keyed to the
+  symbol and the reader's calendar day (6h, 1h if time-sensitive). A pair replay always fetches the live price and shows it
+  first ("Live now"), with the time the explanation was written. Analyses are never reused.
+- On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
+- The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
+  anti-abuse rules, providers or keys.
+- Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once
+  (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Every signal served is recorded as an
+  `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and
+  alerts (`priceAlerts`, id `al_{offerId}`) only ever use those stored levels. Only the lead worker monitors: active alerts in
+  memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
+  (entry zone, TP1-3, stop, or MISSED if a target comes before entry), then a notification + activity email. Unused signals get
+  one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 30s
+  only while they have an active alert and the tab is visible.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced

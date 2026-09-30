@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StrategyResult, POIZone } from '../types';
 import { TrendingUp, TrendingDown, Target, ShieldAlert, Layers, BarChart3, Sparkles, CheckCircle2, Zap, Radio, Eye } from 'lucide-react';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface TechnicalVisualizerProps {
   strategy: StrategyResult;
@@ -86,9 +87,7 @@ export const TechnicalVisualizer: React.FC<TechnicalVisualizerProps> = ({ strate
   const formatPrice = (p: number | undefined | null) => {
     const num = Number(p);
     if (isNaN(num)) return '0.00';
-    return currentPrice < 10
-      ? num.toFixed(4)
-      : num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatMarketPrice(num, currentPrice);
   };
 
   return (

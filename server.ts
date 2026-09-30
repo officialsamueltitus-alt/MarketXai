@@ -21,15 +21,15 @@ import {
   resolveTimeZone,
   getCalendar,
   type NewsBrief,
+  dayKey as newsDay,
 } from './server/news';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
-import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
+import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerSupportRoutes } from './server/support';
-import { isMailerConfigured } from './server/mailer';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
   aggregateCandles,
@@ -49,7 +49,12 @@ import {
   tightenStop,
   timeframeFromPrompt,
   timeframeMinutes,
+  SUPPORTED_TIMEFRAMES,
 } from './server/strategy';
+import { cryptoListing, fetchVenueCandles, fetchVenueQuote, isListedCoin, lookupDexToken, MIN_DEX_LIQUIDITY_USD, startCryptoUniverse, type CryptoListing, type DexToken } from './server/cryptoUniverse';
+import { CRYPTO_ALIASES, detectCryptoTicker } from './src/utils/cryptoTicker';
+import { IS_LEAD_WORKER } from './server/workers';
+import { answerKey, answerTtl, getCachedAnswer, saveAnswer, sweepExpiredAnswers } from './server/answerCache';
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
 const app = express();
@@ -63,7 +68,6 @@ const aiGate = createGate(perWorker(AI_MAX_CONCURRENCY));
 // same analysis is still being written share it: same market, timeframe, levels from the same live candles, and news.
 const AI_CACHE_TTL_MS = 0;
 const aiAnalysisCache = new SharedCache<{ text: string; label: string } | null>(AI_CACHE_TTL_MS, 500);
-const chatAnswerCache = new SharedCache<string>(10 * 60_000, 500);
 
 // Never let one stray promise take the whole server down under load
 process.on('unhandledRejection', reason => {
@@ -156,6 +160,8 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat', '/api/admin/broadcast']);
 // AI-written content never names the underlying model
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
+// Every LONG / SHORT signal served is recorded as a price-alert offer (levels kept server-side; the analysis is untouched)
+app.use('/api/market/analyze', alertOfferMiddleware);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -707,6 +713,90 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
       type: 'crypto',
     },
     {
+      symbol: 'PEPE/USDT',
+      name: 'Pepe',
+      price: 9.5e-06,
+      change24h: 0,
+      high24h: 9.5e-06,
+      low24h: 9.5e-06,
+      volume24h: '0',
+      marketCap: '-',
+      ratio: '9.5e-06',
+      sector: 'Meme',
+      currency: 'USD',
+      type: 'crypto',
+    },
+    {
+      symbol: 'WIF/USDT',
+      name: 'Dogwifhat',
+      price: 1.8,
+      change24h: 0,
+      high24h: 1.8,
+      low24h: 1.8,
+      volume24h: '0',
+      marketCap: '-',
+      ratio: '1.8',
+      sector: 'Meme',
+      currency: 'USD',
+      type: 'crypto',
+    },
+    {
+      symbol: 'BONK/USDT',
+      name: 'Bonk',
+      price: 2.2e-05,
+      change24h: 0,
+      high24h: 2.2e-05,
+      low24h: 2.2e-05,
+      volume24h: '0',
+      marketCap: '-',
+      ratio: '2.2e-05',
+      sector: 'Meme',
+      currency: 'USD',
+      type: 'crypto',
+    },
+    {
+      symbol: 'PENGU/USDT',
+      name: 'Pudgy Penguins',
+      price: 0.025,
+      change24h: 0,
+      high24h: 0.025,
+      low24h: 0.025,
+      volume24h: '0',
+      marketCap: '-',
+      ratio: '0.025',
+      sector: 'Meme',
+      currency: 'USD',
+      type: 'crypto',
+    },
+    {
+      symbol: 'TRUMP/USDT',
+      name: 'Official Trump',
+      price: 9.5,
+      change24h: 0,
+      high24h: 9.5,
+      low24h: 9.5,
+      volume24h: '0',
+      marketCap: '-',
+      ratio: '9.5',
+      sector: 'Meme',
+      currency: 'USD',
+      type: 'crypto',
+    },
+    {
+      symbol: 'FLOKI/USDT',
+      name: 'Floki',
+      price: 9e-05,
+      change24h: 0,
+      high24h: 9e-05,
+      low24h: 9e-05,
+      volume24h: '0',
+      marketCap: '-',
+      ratio: '9e-05',
+      sector: 'Meme',
+      currency: 'USD',
+      type: 'crypto',
+    },
+    {
       symbol: 'NVDA',
       name: 'NVIDIA Corp.',
       price: 217.76,
@@ -833,6 +923,8 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
     const cryptoSymbolsToFetch = [
       'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT',
       'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'SUIUSDT', 'LINKUSDT',
+      // Trending memes listed on Binance
+      'PEPEUSDT', 'WIFUSDT', 'BONKUSDT', 'PENGUUSDT', 'TRUMPUSDT', 'FLOKIUSDT',
       'PAXGUSDT'
     ];
     const forexItems = baseList.filter(b => b.type === 'forex');
@@ -927,8 +1019,43 @@ function hasRecentLiveQuote(symbol: string): boolean {
   return !!known && Date.now() - known.at < LIVE_QUOTE_MAX_AGE_MS;
 }
 
+export interface AssetInfo {
+  symbol: string;
+  name: string;
+  type: 'synthetic' | 'commodity' | 'stock' | 'forex' | 'crypto';
+  /** Binance pair (e.g. WIFUSDT) when the coin is listed there */
+  binance?: string;
+  /** Where a non-Binance coin is quoted and charted */
+  venue?: 'binance' | 'bybit' | 'mexc' | 'dex';
+  pair?: string;
+  dex?: DexToken;
+  /** A coin the prompt names clearly but no exchange list has (yet): looked up on-chain by resolveAssetInfo */
+  unresolved?: string;
+}
+
+// Display names for tickers that only come from the exchange lists (WIF -> Dogwifhat)
+const CRYPTO_NAME: Record<string, string> = {};
+for (const [alias, t] of Object.entries(CRYPTO_ALIASES)) {
+  if (!CRYPTO_NAME[t] && alias.length > t.length) CRYPTO_NAME[t] = alias.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function cryptoAssetFromListing(l: CryptoListing): AssetInfo {
+  if (l.venue === 'dex' && l.dex) return { symbol: `${l.dex.symbol}/USD`, name: l.dex.name, type: 'crypto', venue: 'dex', dex: l.dex };
+  const name = CRYPTO_NAME[l.base] || l.base;
+  if (l.venue === 'binance') return { symbol: `${l.base}/USDT`, name, type: 'crypto', binance: `${l.base}USDT`, venue: 'binance' };
+  return { symbol: `${l.base}/USDT`, name, type: 'crypto', venue: l.venue, pair: l.pair };
+}
+
+/** Asset for a prompt, resolving coins that only trade on-chain (by ticker or contract address). */
+async function resolveAssetInfo(prompt: string, defaultSymbol?: string): Promise<AssetInfo> {
+  const a = extractAssetInfo(prompt, defaultSymbol);
+  if (!a.unresolved) return a;
+  const token = await lookupDexToken(a.unresolved).catch(() => null);
+  return token ? cryptoAssetFromListing({ base: token.symbol, venue: 'dex', dex: token }) : a;
+}
+
 // Helper to determine asset symbol and details from user prompt
-function extractAssetInfo(prompt: string, defaultSymbol?: string) {
+function extractAssetInfo(prompt: string, defaultSymbol?: string): AssetInfo {
   const p = (prompt || '').trim();
   const cleanP = p.replace(/[^\w\s\/\-_]/g, ' ').toUpperCase();
   const explicitSymbol = defaultSymbol ? defaultSymbol.trim() : '';
@@ -1070,6 +1197,18 @@ function extractAssetInfo(prompt: string, defaultSymbol?: string) {
     return { symbol: `${s1}/${s2}`, name: `${s1} / ${s2}`, type: 'forex' as const };
   }
 
+  // 8b. ANY OTHER CRYPTO: every coin listed on Binance, Bybit or MEXC, on-chain tokens (by ticker or contract address)
+  const coin = detectCryptoTicker(p, isListedCoin);
+  if (coin) {
+    const listing = coin.address ? null : cryptoListing(coin.base);
+    if (listing) return cryptoAssetFromListing(listing);
+    if (coin.strong) {
+      return coin.address
+        ? { symbol: `${coin.address.slice(0, 6)}/USD`, name: 'On-chain token', type: 'crypto' as const, unresolved: coin.address }
+        : { symbol: `${coin.base}/USDT`, name: CRYPTO_NAME[coin.base] || coin.base, type: 'crypto' as const, unresolved: coin.base };
+    }
+  }
+
   // 9. IF NO ASSET IN PROMPT, FALL BACK TO EXPLICIT SYMBOL IF PROVIDED
   if (explicitSymbol) {
     const sym = explicitSymbol.toUpperCase();
@@ -1101,7 +1240,7 @@ function evaluateSignalExecutionStatus(
   stopLossPrice: number,
   takeProfits: Array<{ level: string; price: number }>
 ): {
-  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE';
+  state: 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE' | 'ALREADY_MOVED';
   verdict: 'Active Signal (Fresh Untapped Levels)' | 'No Signal Opportunity' | string;
   details: string;
   tpHitLevel?: 'TP1' | 'TP2' | 'TP3' | 'ALL_TPS';
@@ -1139,6 +1278,25 @@ function evaluateSignalExecutionStatus(
     return stale('TP_SMASHED', `Price ${fmt(price)} is already ${hit >= tps.length ? 'beyond every target' : `beyond TP${hit} ${fmt(tps[hit - 1])}`}.`, lvl);
   }
   if (tps.some(tp => !beyond(tp, entry))) return stale('MITIGATED_ZONE_STALE', `A target is not ${long ? 'above' : 'below'} the entry ${fmt(entry)}.`);
+  // Proximity guard: a fresh trade needs price well away from TP1 and the stop loss
+  const risk = Math.abs(entry - stop);
+  if (Math.abs(price - stop) < risk * 0.5) {
+    return {
+      state: 'ALREADY_MOVED' as const,
+      verdict: 'No Signal, Already Moved',
+      details: `No signal, already moved, close to the stop loss. Price ${fmt(price)} is already close to the stop loss ${fmt(stop)}, so this is no longer a fresh entry. Wait for a new, untouched zone.`,
+    };
+  }
+  const span = Math.abs(tps[0] - entry);
+  const progress = span > 0 ? 1 - Math.abs(tps[0] - price) / span : 1;
+  // Buy entry at or below price with TP1 far above it (sells mirror): TP1 at least one risk unit away from live price
+  if ((beyond(price, entry) && progress >= 0.5) || Math.abs(tps[0] - price) < risk) {
+    return {
+      state: 'ALREADY_MOVED' as const,
+      verdict: 'No Signal, Already Moved',
+      details: `No signal, already moved, close to TP. Price ${fmt(price)} has already covered ${Math.round(Math.min(progress, 0.99) * 100)}% of the way from the entry ${fmt(entry)} to TP1 ${fmt(tps[0])}, so the move is under way and this is no longer a fresh entry. Wait for a new, untouched zone.`,
+    };
+  }
   // A limit entry sits in the zone ahead of price; price already on the far side of it means the entry was tapped
   if (beyond(entry, price) && Math.abs(entry - price) / price > 0.0005) {
     return stale('MITIGATED_ZONE_STALE', `Price ${fmt(price)} has already traded through the entry ${fmt(entry)}.`);
@@ -1168,10 +1326,13 @@ function enforcePreSignalCrosscheck<T extends Record<string, any>>(strategy: T):
   s.bias = 'NEUTRAL';
   s.confidenceScore = 50;
   s.riskRewardRatio = '1 : 0';
-  s.alreadyMitigated = true;
+  const moved = status.state === 'ALREADY_MOVED';
+  if (moved) s.alreadyMoved = /stop loss/.test(status.details) ? 'NEAR_SL' : 'NEAR_TP';
+  else s.alreadyMitigated = true;
   if (s.stopLoss) s.stopLoss = { ...s.stopLoss, riskPercent: 0, rationale: 'No position, the setup has already played out' };
-  const note = `#### No signal, already mitigated\n${status.details}\n\n`;
-  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes('No signal, already mitigated')) s.detailedThesis = note + s.detailedThesis;
+  const heading = moved ? (s.alreadyMoved === 'NEAR_SL' ? 'No signal, already moved (close to the stop loss)' : 'No signal, already moved (close to TP)') : 'No signal, already mitigated';
+  const note = `#### ${heading}\n${status.details}\n\n`;
+  if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes(heading)) s.detailedThesis = note + s.detailedThesis;
   return strategy;
 }
 
@@ -1212,7 +1373,8 @@ function generateAlgorithmicStrategy(
   const currentPrice = currentTicker.price;
   const newsAlert = newsBriefToAlert(newsBrief, asset.symbol);
   const isJpyPair = asset.symbol.includes('JPY') || currentTicker.currency === 'JPY';
-  const priceDecimals = isJpyPair ? 3 : currentPrice < 10 ? 4 : 2;
+  // Sub-cent coins keep four significant digits (a meme at 0.0000081 must never show 0.0000)
+  const priceDecimals = isJpyPair ? 3 : currentPrice > 0 && currentPrice < 0.01 ? Math.min(12, Math.ceil(-Math.log10(currentPrice)) + 3) : currentPrice < 10 ? 4 : 2;
   const currSym = isJpyPair
     ? '¥'
     : currentTicker.currency === 'EUR' || asset.symbol.startsWith('EUR/')
@@ -1777,7 +1939,7 @@ async function buildTightenedStrategy(rawBase: any): Promise<any | null> {
   let atr = 0;
   let atrSource = 'estimated';
   try {
-    const asset = extractAssetInfo(base.symbol);
+    const asset = await resolveAssetInfo(base.symbol, base.symbol);
     const candles = await Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(r => setTimeout(() => r(null), 5000))]);
     if (candles && candles.length >= 20) {
       atr = computeAtr(candles);
@@ -1846,18 +2008,10 @@ ${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.re
 // -------------------------------------------------------------
 
 // Health check
+// Public liveness check only: which subsystems are configured is not advertised to the internet
 app.get('/api/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    service: 'MarketX AI Strategy Engine',
-    aiConfigured: Boolean(process.env.GEMINI_API_KEY),
-    accountsConfigured: isAuthConfigured(),
-    storageConfigured: !firebaseStatus(),
-    googleSignInConfigured: Boolean(getGoogleClientId()),
-    paymentsConfigured: getPaymentsPublicConfig().enabled,
-    emailConfigured: isMailerConfigured(),
-    supportedAssets: ['Forex', 'Gold (XAU/USD)', 'Synthetic Indices', 'Crypto', 'Stocks'],
-  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'ok', service: 'MarketX SI Strategy Engine' });
 });
 
 // Public runtime config for the browser (Google client ID & Paystack public key are not secrets)
@@ -1875,6 +2029,24 @@ registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
+// Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
+registerPriceAlertRoutes(app, { getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M') }, generalApiRateLimiter);
+// Every coin listed on Binance, Bybit and MEXC (refreshed every 6 hours), so any listed coin or meme can be analyzed
+startCryptoUniverse();
+// Stored answers: expired ones are removed hourly (one worker does it)
+if (IS_LEAD_WORKER) setInterval(() => sweepExpiredAnswers().catch(() => {}), 60 * 60 * 1000).unref();
+
+// Telegram channel: the site links to /go/telegram and the server redirects to the invite link, so the link itself is
+// never in the page or the client bundle (set TELEGRAM_INVITE_URL to change it; only t.me links are accepted)
+const TELEGRAM_INVITE_URL = (() => {
+  const v = String(process.env.TELEGRAM_INVITE_URL || '').trim();
+  return /^https:\/\/t\.me\/[A-Za-z0-9_+\-/]{2,120}$/.test(v) ? v : 'https://t.me/+DnG70znoUHowYWQ0';
+})();
+app.get('/go/telegram', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.redirect(302, TELEGRAM_INVITE_URL);
+});
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 
@@ -2056,9 +2228,11 @@ function getDefaultPriceForAsset(sym: string): number {
 // Always fetched live from the market's own source at the moment of the request; only requests arriving in the same
 // second share one lookup
 const quoteCache = new SharedCache<MarketTicker>(LIVE_FRESH_MS, 2_000);
-function resolveAccurateAssetQuote(query: string): Promise<MarketTicker> {
-  const key = extractAssetInfo(query).symbol.toUpperCase();
-  return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(query), q => !!q && q.price > 0);
+/** Live quote for an already-resolved asset (or a prompt / symbol, resolved first, on-chain tokens included). */
+async function resolveAccurateAssetQuote(query: string | AssetInfo): Promise<MarketTicker> {
+  const asset = typeof query === 'string' ? await resolveAssetInfo(query) : query;
+  const key = asset.venue === 'dex' && asset.dex ? `DEX:${asset.dex.chainId}:${asset.dex.pairAddress}` : asset.unresolved ? `?:${asset.unresolved}` : asset.symbol.toUpperCase();
+  return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(asset), q => !!q && q.price > 0);
 }
 
 /** The latest streamed ticker for this asset, only when it holds a real quote from the last minute. */
@@ -2069,12 +2243,24 @@ function recentTickerFor(asset: ReturnType<typeof extractAssetInfo>): MarketTick
   return t && t.price > 0 && hasRecentLiveQuote(t.symbol) ? t : undefined;
 }
 
-async function resolveAccurateAssetQuoteUncached(query: string): Promise<MarketTicker> {
-  const asset = extractAssetInfo(query);
+async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<MarketTicker> {
   const cleanSym = asset.symbol;
 
+  // 1. CRYPTO beyond Binance: Bybit / MEXC spot, or the token's most liquid on-chain pool
+  if (asset.type === 'crypto' && asset.unresolved) {
+    // Named clearly, but no exchange or on-chain pool lists it: never invent a price
+    return { symbol: cleanSym, name: asset.name, price: 0, change24h: 0, high24h: 0, low24h: 0, volume24h: '', currency: 'USD', type: 'crypto', live: false };
+  }
+  if (asset.type === 'crypto' && (asset.venue === 'bybit' || asset.venue === 'mexc' || asset.venue === 'dex')) {
+    const listing: CryptoListing = { base: cleanSym.split('/')[0], venue: asset.venue, pair: asset.pair, dex: asset.dex };
+    const q = await fetchVenueQuote(listing).catch(() => null);
+    if (q && q.price > 0) {
+      return { symbol: cleanSym, name: asset.name, price: q.price, change24h: Number(q.change24h.toFixed(2)), high24h: q.high24h, low24h: q.low24h, volume24h: `${q.volume24h} · ${q.source}`, currency: 'USD', type: 'crypto' };
+    }
+  }
+
   // 2. CRYPTOCURRENCY: Query live Binance order book
-  if (asset.type === 'crypto') {
+  if (asset.type === 'crypto' && !asset.venue?.match(/^(bybit|mexc|dex)$/)) {
     const binanceSym = (asset as any).binance || cleanSym.replace(/[^A-Z0-9]/g, '');
     const pair = binanceSym.endsWith('USDT') ? binanceSym : `${binanceSym}USDT`;
     const liveCrypto = await fetchBinanceTicker(pair);
@@ -2284,36 +2470,56 @@ async function fetchBinanceCandles(pair: string, tf: string): Promise<Candle[] |
   return rows.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }));
 }
 
+// Raw Yahoo series shared by every timeframe built from it (1m feeds 1m and 3m; 60m feeds 1H to 12H), so an RDM scan
+// across all timeframes makes one upstream request per series instead of one per timeframe
+const yahooRaw: Record<string, { at: number; p: Promise<Candle[] | null> }> = {};
+
+function fetchYahooRaw(yahooSym: string, interval: string, rangeParam: string): Promise<Candle[] | null> {
+  const key = `${yahooSym}|${interval}|${rangeParam}`;
+  const hit = yahooRaw[key];
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.p;
+  const p = (async () => {
+    for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
+      try {
+        const { status, data } = await fetchJsonWithTimeout(
+          `${host}/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${interval}&range=${rangeParam}`,
+          5000
+        );
+        const result = data?.chart?.result?.[0];
+        const q = result?.indicators?.quote?.[0];
+        const ts: number[] = result?.timestamp || [];
+        if (!q || !ts.length) {
+          warnFeed(`Yahoo candles ${host}`, `HTTP ${status} for ${yahooSym}`);
+          continue;
+        }
+        const candles: Candle[] = [];
+        for (let i = 0; i < ts.length; i++) {
+          const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+          if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c });
+        }
+        return candles;
+      } catch (err: any) {
+        warnFeed(`Yahoo candles ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
+      }
+    }
+    return null;
+  })();
+  yahooRaw[key] = { at: Date.now(), p };
+  // A failed fetch is not kept, so the next request retries
+  p.then(c => { if (!c && yahooRaw[key]?.p === p) delete yahooRaw[key]; });
+  const keys = Object.keys(yahooRaw);
+  if (keys.length > 1000) for (const k of keys) if (Date.now() - yahooRaw[k].at > CANDLE_TTL_MS) delete yahooRaw[k];
+  return p;
+}
+
 async function fetchYahooCandles(yahooSym: string, tf: string): Promise<Candle[] | null> {
   const plan = YAHOO_PLAN[tf];
   if (!plan) return null;
   const [interval, rangeParam, baseMinutes] = plan;
-  for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
-    try {
-      const { status, data } = await fetchJsonWithTimeout(
-        `${host}/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${interval}&range=${rangeParam}`,
-        5000
-      );
-      const result = data?.chart?.result?.[0];
-      const q = result?.indicators?.quote?.[0];
-      const ts: number[] = result?.timestamp || [];
-      if (!q || !ts.length) {
-        warnFeed(`Yahoo candles ${host}`, `HTTP ${status} for ${yahooSym}`);
-        continue;
-      }
-      let candles: Candle[] = [];
-      for (let i = 0; i < ts.length; i++) {
-        const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
-        if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c });
-      }
-      const want = timeframeMinutes(tf);
-      if (want > baseMinutes) candles = aggregateCandles(candles, want);
-      return candles.slice(-300);
-    } catch (err: any) {
-      warnFeed(`Yahoo candles ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
-    }
-  }
-  return null;
+  const raw = await fetchYahooRaw(yahooSym, interval, rangeParam);
+  if (!raw) return null;
+  const want = timeframeMinutes(tf);
+  return (want > baseMinutes ? aggregateCandles(raw, want) : raw).slice(-300);
 }
 
 async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] | null> {
@@ -2329,7 +2535,7 @@ const candleInflight: Record<string, Promise<Candle[] | null>> = {};
 
 /** Real OHLC candles for an asset on a timeframe; null when no feed answers (callers fall back gracefully). */
 function fetchCandlesForAsset(asset: ReturnType<typeof extractAssetInfo>, tf: string): Promise<Candle[] | null> {
-  const key = `${asset.type}:${asset.symbol}:${tf}`;
+  const key = `${asset.type}:${asset.venue === 'dex' && asset.dex ? `${asset.dex.chainId}:${asset.dex.pairAddress}` : asset.symbol}:${tf}`;
   const cached = candleCache[key];
   if (cached && Date.now() - cached.at < CANDLE_TTL_MS) return Promise.resolve(cached.candles);
   // Concurrent requests for the same series share one upstream fetch
@@ -2345,7 +2551,11 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   const compact = sym.replace(/[^A-Z0-9]/g, '');
   let candles: Candle[] | null = null;
   try {
-    if (asset.type === 'crypto') {
+    if (asset.type === 'crypto' && (asset.venue === 'bybit' || asset.venue === 'mexc' || asset.venue === 'dex')) {
+      candles = await fetchVenueCandles({ base: sym.split('/')[0], venue: asset.venue, pair: asset.pair, dex: asset.dex }, tf);
+    } else if (asset.type === 'crypto' && asset.unresolved) {
+      candles = null;
+    } else if (asset.type === 'crypto') {
       const binanceSym = (asset as any).binance || compact;
       const pair = binanceSym.endsWith('USDT') ? binanceSym : `${binanceSym.replace(/USD$/, '')}USDT`;
       candles = (await fetchBinanceCandles(pair, tf)) || (await fetchYahooCandles(`${pair.replace(/USDT$/, '')}-USD`, tf));
@@ -2370,6 +2580,44 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   const keys = Object.keys(candleCache);
   if (keys.length > 2000) for (const k of keys) if (Date.now() - candleCache[k].at > LAST_GOOD_MAX_MS) delete candleCache[k];
   return candles;
+}
+
+/** A setup the RDM scan may serve must clear this plan score (the normal signal floor is 70) */
+const RDM_MIN_SCORE = 75;
+
+/**
+ * RDM (random timeframe): build the map on every supported timeframe and keep the strongest valid setup, one whose
+ * zone is fresh, levels untouched, indicators confirmed and live price sitting between the entry and TP1 (all enforced
+ * by buildMarketMap). Higher timeframes get a slight edge on near ties (less noise). No valid setup anywhere = NO_SIGNAL.
+ */
+async function scanAllTimeframes(
+  asset: ReturnType<typeof extractAssetInfo>,
+  price: number,
+  slMode: 'normal' | 'tight',
+  prompt: string,
+  currency?: string,
+  quote?: { high24h?: number; low24h?: number }
+): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null } }> {
+  const maps = await Promise.all(
+    SUPPORTED_TIMEFRAMES.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote).catch(() => null))
+  );
+  const loaded = maps.map((m, i) => ({ m, tf: SUPPORTED_TIMEFRAMES[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
+  const valid = loaded.filter(x => x.m.plan && x.m.plan.score >= RDM_MIN_SCORE);
+  const rank = (x: { m: MarketMap; tf: string }) => x.m.plan!.score + Math.log2(timeframeMinutes(x.tf)) * 0.5;
+  valid.sort((a, b) => rank(b) - rank(a));
+  const best = valid[0];
+  const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null };
+  if (best) return { map: best.m, tf: best.tf, info };
+  const fallback = loaded.find(x => x.tf === '4H') || loaded[0];
+  if (!fallback) return { map: null, tf: '4H', info };
+  const m = fallback.m;
+  // The reason covers the whole scan, not one timeframe
+  m.plan = null;
+  m.alternate = null;
+  m.movedSetup = null;
+  m.mitigatedSetup = null;
+  m.noSignalReason = `No signal on any timeframe. Scanned ${loaded.length} timeframes (1m to 1W) and none has a fresh, confirmed, high-probability setup with price sitting between its entry and TP1 right now. Stand aside and scan again later.`;
+  return { map: m, tf: fallback.tf, info };
 }
 
 /** Candles → supply/demand + Fibonacci map, bounded so a slow feed never delays an analysis for long. */
@@ -2458,6 +2706,14 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   strategy.swingLow = map.swingLow;
   strategy.timeframe = map.timeframe;
   strategy.strategyEngine = { method: 'SUPPLY_DEMAND_FIBONACCI', candles: map.candles, timeframe: map.timeframe, trend: map.trend };
+  // Tools the engine used (shown in the analysis activity: "Using tools")
+  strategy.toolsUsed = {
+    candles: map.candles,
+    zones: map.demandZones.length + map.supplyZones.length,
+    rsi: map.indicators?.rsi ?? null,
+    emaTrend: map.indicators?.ema50 != null ? map.indicators.emaTrend : null,
+    divergence: map.indicators ? (map.indicators.bullishDivergence ? 'BULLISH' : map.indicators.bearishDivergence ? 'BEARISH' : null) : null,
+  };
 
   if (plan) {
     const long = plan.direction === 'LONG';
@@ -2526,12 +2782,15 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
   if (!plan) {
     // Say exactly why there is no signal (e.g. "No signal — already mitigated: the entry was already tapped …")
     const already = !!map.mitigatedSetup;
+    const moved = map.movedSetup?.moved;
     strategy.signalStatus = {
       ...strategy.signalStatus,
-      verdict: already ? 'No Signal, Already Mitigated' : 'No Signal Opportunity',
+      ...(moved ? { state: 'ALREADY_MOVED' } : {}),
+      verdict: moved ? 'No Signal, Already Moved' : already ? 'No Signal, Already Mitigated' : 'No Signal Opportunity',
       details: map.noSignalReason || strategy.signalStatus?.details,
     };
     strategy.alreadyMitigated = already;
+    if (moved) strategy.alreadyMoved = moved.kind === 'NEAR_SL' ? 'NEAR_SL' : 'NEAR_TP';
   }
   return strategy;
 }
@@ -2561,9 +2820,9 @@ app.post('/api/market/recheck', recheckRateLimiter, requireAuth, async (req: Req
       .filter((z: any) => !Number.isNaN(z.low) && !Number.isNaN(z.high) && z.low <= z.high) as Array<{ kind: 'DEMAND' | 'SUPPLY'; low: number; high: number; label?: string }>;
     if (!symbol) return res.status(400).json({ error: 'BAD_SETUP', message: 'This result cannot be rechecked.' });
     try {
-      const asset = extractAssetInfo(symbol, symbol);
+      const asset = await resolveAssetInfo(symbol, symbol);
       const [quote, candles] = await Promise.all([
-        resolveAccurateAssetQuote(asset.symbol).catch(() => null),
+        resolveAccurateAssetQuote(asset).catch(() => null),
         Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(resolve => setTimeout(() => resolve(null), 8000))]),
       ]);
       if (!candles || candles.length < 40) {
@@ -2602,9 +2861,9 @@ app.post('/api/market/recheck', recheckRateLimiter, requireAuth, async (req: Req
     return res.status(400).json({ error: 'BAD_SETUP', message: 'This signal cannot be rechecked.' });
   }
   try {
-    const asset = extractAssetInfo(symbol, symbol);
+    const asset = await resolveAssetInfo(symbol, symbol);
     const [quote, candles] = await Promise.all([
-      resolveAccurateAssetQuote(asset.symbol).catch(() => null),
+      resolveAccurateAssetQuote(asset).catch(() => null),
       Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(resolve => setTimeout(() => resolve(null), 8000))]),
     ]);
     if (!candles || candles.length < 2) {
@@ -2643,11 +2902,14 @@ function safeDecodeURIComponent(str: string): string {
 // Single market quote with dynamic live resolver
 app.get('/api/market/quote/:symbol', generalApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const rawParam = safeDecodeURIComponent(String(req.params.symbol || '')).slice(0, 32).trim();
+    // (64 chars: room for a Solana or EVM contract address)
+    const rawParam = safeDecodeURIComponent(String(req.params.symbol || '')).slice(0, 64).trim();
     if (!rawParam) {
       return res.status(400).json({ error: 'Valid symbol parameter is required' });
     }
-    const quote = await resolveAccurateAssetQuote(rawParam);
+    const asset = await resolveAssetInfo(rawParam, rawParam);
+    if (asset.unresolved) return res.status(404).json({ error: 'UNKNOWN_ASSET', message: `No exchange or liquid on-chain pool lists ${asset.unresolved} right now.` });
+    const quote = await resolveAccurateAssetQuote(asset);
     res.json({ success: true, quote });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch quote' });
@@ -2695,6 +2957,73 @@ function classifyPromptIntent(prompt: string, requestedSymbol?: string, hasChart
 } {
   const intent = classifyPrompt(prompt, { hasChartImage, namesAsset: promptNamesAsset(prompt) });
   return { isAnalysis: intent === 'analysis', detectedSymbol: requestedSymbol };
+}
+
+const compactUsd = (v: number) =>
+  !(v > 0) ? '' : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+const tinyNum = (v: number) => (v > 0 && v < 0.01 ? v.toFixed(Math.min(12, Math.ceil(-Math.log10(v)) + 3)) : String(v));
+const VENUE_NAME: Record<string, string> = { binance: 'Binance', bybit: 'Bybit', mexc: 'MEXC' };
+
+/** Factual details about a market for questions (what it is, where it trades, its live stats). Public data only. */
+function assetDetailLines(asset: AssetInfo, quote: MarketTicker | null): string[] {
+  const out: string[] = [];
+  const live = !!quote && quote.price > 0 && quote.live !== false;
+  if (live) {
+    out.push(`Price ${tinyNum(quote!.price)} ${quote!.currency || 'USD'}, 24h change ${quote!.change24h}%, 24h high ${tinyNum(quote!.high24h)}, 24h low ${tinyNum(quote!.low24h)}`);
+  }
+  if (asset.type === 'crypto' && asset.venue === 'dex' && asset.dex) {
+    const d = asset.dex;
+    const ageDays = d.pairCreatedAt > 0 ? Math.floor((Date.now() - d.pairCreatedAt) / 86400e3) : -1;
+    out.push(`On-chain token on ${d.chainId} (${d.name}, ${d.symbol}), traded on ${d.dexId} against ${d.quoteSymbol || 'its pair token'}; not listed on Binance, Bybit or MEXC`);
+    out.push(`Contract address ${d.address}`);
+    out.push(
+      [
+        d.liquidityUsd ? `pool liquidity ${compactUsd(d.liquidityUsd)}` : '',
+        d.volume24h ? `24h volume ${compactUsd(d.volume24h)}` : '',
+        d.marketCap ? `market cap ${compactUsd(d.marketCap)}` : '',
+        d.fdv ? `fully diluted value ${compactUsd(d.fdv)}` : '',
+        ageDays >= 0 ? `pool created ${ageDays === 0 ? 'today' : `${ageDays} day${ageDays === 1 ? '' : 's'} ago`}` : '',
+      ]
+        .filter(Boolean)
+        .join(', ')
+    );
+  } else if (asset.type === 'crypto') {
+    const venue = VENUE_NAME[asset.venue || 'binance'] || 'Binance';
+    out.push(`Cryptocurrency ${asset.name !== asset.symbol.split('/')[0] ? `(${asset.name}) ` : ''}traded as ${asset.symbol} on ${venue} spot${live && quote!.volume24h ? `, 24h volume ${String(quote!.volume24h).split(' · ')[0]}` : ''}`);
+  } else if (asset.type === 'forex') {
+    out.push(`Forex pair ${asset.symbol} (${asset.name}): price is how much of the second currency one unit of the first costs; trades 24 hours a day on weekdays, busiest in the London and New York sessions`);
+  } else if (asset.type === 'commodity') {
+    out.push(`Commodity ${asset.name} (${asset.symbol}), quoted in US dollars`);
+  } else if (asset.type === 'stock') {
+    out.push(`${/^(US30|NAS100|SPX|GER40|UK100|JP225)/.test(asset.symbol) ? 'Stock index' : 'Listed stock'} ${asset.name} (${asset.symbol}); moves most during its exchange's trading hours`);
+  } else if (asset.type === 'synthetic') {
+    out.push(`Synthetic index ${asset.name} from Deriv: simulated prices with a fixed volatility, trading 24/7 and not affected by real-world news`);
+  }
+  return out.filter(Boolean);
+}
+
+/**
+ * Just a pair ("EURUSD", "gold", "$WIF", "ansem"): ask whether the trader wants an analysis or information about it.
+ * Runs before the credit charge, so asking costs nothing; the two choices are sent back as ready-made prompts.
+ */
+function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  if (typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage || b.action) return next();
+  const prompt = b.prompt.trim().slice(0, 200);
+  if (classifyPrompt(prompt, { namesAsset: promptNamesAsset(prompt) }) !== 'clarify') return next();
+  const asset = extractAssetInfo(prompt);
+  const label = asset.symbol;
+  const message = `What would you like to know about **${asset.name !== label ? `${asset.name} (${label})` : label}**?\n\n- **Analysis:** a trade plan with the entry, stop loss and targets.\n- **Info:** the live price, today's move, market details and today's news.`;
+  res.json({
+    success: true,
+    isAnalysis: false,
+    clarify: { symbol: label, name: asset.name },
+    message,
+    choices: [
+      { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
+      { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+    ],
+  });
 }
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
@@ -2807,7 +3136,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -2823,7 +3152,9 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
     // The reader's time zone decides which calendar day "today's news" belongs to
     const newsTimeZone = resolveTimeZone(req.body?.timeZone);
     // A timeframe written in the prompt ("on the 1H", "15 min", "H4", "daily") wins over the selector
-    const analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
+    let analysisTimeframe = normalizeTimeframe(timeframeFromPrompt(cleanPrompt) || safeTimeframe);
+    // RDM in the selector: scan every timeframe for the best valid setup (a timeframe named in the prompt still wins)
+    const randomTimeframe = typeof timeframe === 'string' && timeframe.trim().toUpperCase() === 'RDM' && !timeframeFromPrompt(cleanPrompt);
 
     // Validate chartImage: a real PNG / JPEG / WebP (checked by its file signature, not just the label), under 12MB
     let safeChartImage: string | undefined = undefined;
@@ -2892,19 +3223,24 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       console.log(`[MarketX] Detected NORMAL CHAT QUESTION: "${cleanPrompt.slice(0, 50)}"`);
 
       // A question that names a market is answered with its live price and today's news (never from memory)
-      const chatAsset = promptNamesAsset(cleanPrompt) ? extractAssetInfo(cleanPrompt) : null;
+      const chatAsset = promptNamesAsset(cleanPrompt) ? await resolveAssetInfo(cleanPrompt) : null;
       let marketContext = '';
+      let liveQuoteForReplay: MarketTicker | null = null;
       if (chatAsset) {
         const newsReady = refreshNewsFeedsWithin(2000).catch(() => {});
-        const quote = await resolveAccurateAssetQuote(chatAsset.symbol).catch(() => null);
+        const quote = await resolveAccurateAssetQuote(chatAsset).catch(() => null);
+        liveQuoteForReplay = quote && quote.price > 0 && quote.live !== false ? quote : null;
         await newsReady;
         const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);
         const live = !!quote && quote.price > 0 && quote.live !== false;
         marketContext = [
           `LIVE MARKET DATA for ${chatAsset.name} (${chatAsset.symbol}), fetched ${new Date().toISOString()}:`,
-          live
-            ? `- Price ${quote!.price} (${quote!.currency || 'USD'}), 24h change ${quote!.change24h}%, 24h high ${quote!.high24h}, 24h low ${quote!.low24h}`
-            : '- Live price unavailable right now; do not quote a price.',
+          ...(chatAsset.unresolved
+            ? [`- ${chatAsset.unresolved} is not listed on Binance, Bybit or MEXC and has no liquid on-chain pool right now; say so plainly and do not invent a price.`]
+            : [
+                ...assetDetailLines(chatAsset, live ? quote : null).map(l => `- ${l}`),
+                ...(live ? [] : ['- Live price unavailable right now; do not quote a price.']),
+              ]),
           brief ? `- Today's news: ${brief.summary}. ${brief.guidance}` : '- Today: nothing on the economic calendar or the wires that could move it.',
         ].join('\n');
       }
@@ -2912,7 +3248,9 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       if (!ai) {
         const fallbackMessage = asksAboutDataSources(cleanPrompt)
           ? `### Where MarketX's live data comes from\n\n${DATA_SOURCES_FACTS.split('\n').slice(1).join('\n')}`
-          : (marketContext ? `${marketContext.replace(/^LIVE MARKET DATA/, '**Live market data**')}\n\n` : '') + generateFallbackChatResponse(cleanPrompt);
+          : chatAsset && marketContext
+            ? `### ${chatAsset.name} (${chatAsset.symbol})\n\n${marketContext.split('\n').slice(1).join('\n')}\n\nWant a trade plan? Ask **Analyze ${chatAsset.symbol}** and add a timeframe, for example on the 4H.`
+            : generateFallbackChatResponse(cleanPrompt);
         return res.json({
           success: true,
           isAnalysis: false,
@@ -2933,8 +3271,25 @@ ${asksAboutDataSources(cleanPrompt) ? `- The user asks about MarketX's data. Ans
 Do NOT output structured trade card JSON.`;
 
       // Only general lessons are reused; answers about a specific market always use live data
-      const chatKey = chatAsset ? '' : cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 400);
-      let chatReply = (chatKey && chatAnswerCache.get(chatKey)) || '';
+      // The same question asked again is answered from the stored answer (any worker, any restart). A question about a
+      // pair is keyed to that market and the reader's calendar day (today's news), and its live price is always fresh.
+      const pairScope = chatAsset && !chatAsset.unresolved ? `${chatAsset.symbol}|${newsDay(Date.now(), newsTimeZone)}` : '';
+      const chatKey = chatAsset?.unresolved ? '' : answerKey(cleanPrompt, pairScope);
+      const stored = chatKey ? await getCachedAnswer(chatKey) : null;
+      let chatReply = '';
+      if (stored && chatAsset) {
+        const q = liveQuoteForReplay;
+        const when = new Date(stored.at).toISOString().slice(11, 16);
+        chatReply = [
+          q ? `**Live now:** ${chatAsset.name} (${chatAsset.symbol}) at ${tinyNum(q.price)} ${q.currency || 'USD'}, ${q.change24h >= 0 ? '+' : ''}${q.change24h}% today (24h range ${tinyNum(q.low24h)} to ${tinyNum(q.high24h)}).` : '**Live now:** the live price is unavailable right now.',
+          '',
+          stored.text,
+          '',
+          `_Explanation first written at ${when} UTC today; the live price above is current._`,
+        ].join('\n');
+      } else if (stored) {
+        chatReply = stored.text;
+      }
       const chatModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
       const chatContents = marketContext ? `${marketContext}\n\nUser asks: "${cleanPrompt}"` : `User asks: "${cleanPrompt}"`;
 
@@ -2957,7 +3312,7 @@ Do NOT output structured trade card JSON.`;
           );
           if (response?.text && response.text.trim().length > 0) {
             chatReply = response.text.trim();
-            if (chatKey) chatAnswerCache.set(chatKey, chatReply);
+            if (chatKey) saveAnswer(chatKey, chatReply, answerTtl(cleanPrompt, !!chatAsset), { symbol: chatAsset?.symbol });
             break;
           }
         } catch (err: any) {
@@ -2982,19 +3337,50 @@ Do NOT output structured trade card JSON.`;
     // CASE B: ASSET ANALYSIS PROMPT REQUEST
     // -------------------------------------------------------------
     console.log(`[MarketX] Detected ANALYSIS PROMPT REQUEST: "${cleanPrompt.slice(0, 50)}" (SL Mode: ${safeSlMode})`);
-    const asset = extractAssetInfo(cleanPrompt, safeSymbol);
+    const asset = await resolveAssetInfo(cleanPrompt, safeSymbol);
+    if (asset.unresolved && !chartMode) {
+      // A coin named clearly but listed nowhere we can read (no exchange, no liquid on-chain pool): say so, no credit used
+      const what = /^(0x|[1-9A-HJ-NP-Za-km-z]{32,})/.test(asset.unresolved) ? `the token at ${asset.unresolved}` : `$${asset.unresolved}`;
+      return res.status(404).json({
+        error: 'UNKNOWN_ASSET',
+        message: `I couldn't find a live market for ${what}. It isn't listed on Binance, Bybit or MEXC, and no on-chain pool has at least $${MIN_DEX_LIQUIDITY_USD.toLocaleString('en-US')} of liquidity. Check the ticker, or paste the token's contract address. No credit was used.`,
+      });
+    }
     // Candles for the requested timeframe load in parallel with the live quote
-    const candleWarmup = chartMode ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
+    const candleWarmup = chartMode || randomTimeframe ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
-    const currentTicker = await resolveAccurateAssetQuote(asset.symbol);
+    const currentTicker = await resolveAccurateAssetQuote(asset);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
     // In chart mode the levels come from the uploaded image, never from live candles
+    let rdmScan: Awaited<ReturnType<typeof scanAllTimeframes>> | null = null;
     const structureMap = chartMode
       ? null
-      : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+      : randomTimeframe
+        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker)).map
+        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+    if (rdmScan) {
+      analysisTimeframe = rdmScan.tf;
+      // Every analysis result served from here says which timeframe the scan used
+      const scanInfo = rdmScan.info;
+      const send = res.json.bind(res);
+      res.json = ((body: any) => {
+        if (body?.strategy && typeof body.strategy === 'object') {
+          body.strategy.timeframeScan = scanInfo;
+          const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+          const note = scanInfo.chosen
+            ? `> **RDM scan:** ${scanInfo.scanned} timeframes checked, valid setups on ${scanInfo.withSetup.map(label).join(', ')}. This trade uses **${label(scanInfo.chosen)}**, the strongest.\n\n`
+            : `> **RDM scan:** ${scanInfo.scanned} timeframes checked, none has a valid setup right now.\n\n`;
+          for (const [obj, key] of [[body.strategy, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
+            if (typeof obj[key] === 'string' && !obj[key].startsWith('> **RDM scan:**')) obj[key] = note + obj[key];
+          }
+        }
+        return send(body);
+      }) as typeof res.json;
+      console.log(`[MarketX Strategy] RDM scan ${asset.symbol}: ${scanInfo.scanned} timeframes, valid on [${scanInfo.withSetup.join(', ')}], using ${scanInfo.chosen || 'none'}`);
+    }
     console.log(
       `[MarketX Strategy] ${asset.symbol} ${analysisTimeframe}: ${
         structureMap ? `${structureMap.candles} candles, ${structureMap.demandZones.length}D/${structureMap.supplyZones.length}S zones, plan ${structureMap.plan?.direction || 'NO_SIGNAL'}` : 'candles unavailable'
@@ -3052,6 +3438,16 @@ STEP 2 — FIND THE ENTRY WITH THE FIBONACCI RETRACEMENT TOOL
 STEP 3 — ONLY TAKE HIGH-PROBABILITY TRADES
 - Signal only when a strong zone has Fibonacci confluence and the final target pays at least 1:2.5. Otherwise output NO_SIGNAL and name the zones and prices to watch.
 - NEVER call a signal whose levels have already been mitigated for that setup: if price has already tapped the zone, the entry, the stop loss, or (after the entry) the targets, the setup has played out. Output NO_SIGNAL and state "No signal, already mitigated", naming which level was tapped. Only fresh, untouched zones produce signals; if none exists right now, output NO_SIGNAL and say "No signal".
+
+STEP 4 — CONFIRM WITH ONE LEADING INDICATOR AND ONE CROSSCHECK (every timeframe, every market, every session)
+- Leading entry indicator, RSI(14): never buy into an overbought RSI (70 or above) or sell into an oversold one (30 or below), because price is running away from the zone. A market entry on the zone's first touch also needs RSI at or below 50 for buys (at or above 50 for sells), or an RSI divergence in the trade's favour. A divergence (lower low with a higher RSI low for buys, higher high with a lower RSI high for sells) is the strongest confirmation.
+- Crosscheck, EMA(50): the trade must not fight a clearly falling EMA(50) (buys) or a clearly rising one (sells), unless an RSI divergence confirms the reversal. If the crosscheck fails, output NO_SIGNAL and name the indicator that failed.
+
+STEP 5 — PROXIMITY CHECK BEFORE ANY OUTPUT
+- Confirm the entry, the stop loss and every target, above all TP1, have not been tapped since the zone formed.
+- Price must not be anywhere near TP1 or the stop loss for a fresh trade: if price has already covered half or more of the distance from the entry to TP1, is closer to TP1 than 1.5 ATR or one full risk unit, sits close to the stop loss, or already turned just short of the entry and left the zone, output NO_SIGNAL and flag it "No signal, already moved, close to TP" (or "close to the stop loss"), naming the prices.
+- Anchor every trade to the current price, pending (limit) or instant (market) alike: a buy's entry sits at or below current price with the stop below the entry and TP1 far above current price; a sell's entry sits at or above current price with the stop above the entry and TP1 far below current price. Price must sit between the entry/stop side and TP1, much nearer the entry, never on or near a target.
+- Only after the zone, the Fibonacci entry, the untouched levels, the indicators and the proximity check all pass, output the trade.
 
 ACTIVE ZONE DETECTION (a zone is Untouched & Active only when ALL of these hold):
 1. Spatial placement ahead of price. BUY: the fresh demand POI sits strictly below current price, TP1, TP2 and TP3 sit strictly above current price (into overhead premium liquidity), and the stop loss sits below the demand base (distal line). SELL: the fresh supply POI sits strictly above current price, TP1, TP2 and TP3 sit strictly below current price (into discount liquidity), and the stop loss sits above the supply ceiling (distal line). A zone price is trading inside right now is not a fresh entry.

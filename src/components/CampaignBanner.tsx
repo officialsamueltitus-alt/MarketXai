@@ -188,7 +188,7 @@ export const CampaignBanner: React.FC<CampaignBannerProps> = ({
                           type="button"
                           onClick={() => stepAction('follow')}
                           className="font-semibold text-white underline decoration-indigo-400/60 underline-offset-4 hover:decoration-indigo-300 cursor-pointer"
-                          title="Open @_MarketXai on X"
+                          title="Open @_MarketX on X"
                         >
                           Market<span className="text-indigo-300">X</span>
                         </button>

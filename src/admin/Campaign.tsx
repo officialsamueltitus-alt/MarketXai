@@ -84,7 +84,7 @@ const REVIEW_BADGE: Record<ReviewStatus, { tone: 'green' | 'amber' | 'red'; labe
 };
 
 const REJECT_REASONS = [
-  'The post does not tag @_MarketXai.',
+  'The post does not tag @_MarketX.',
   'The post is not about MarketX, or does not explain it.',
   'The write up has no screenshots of MarketX.',
   'The link does not open, or the post was deleted or made private.',

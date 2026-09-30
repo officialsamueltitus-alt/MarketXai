@@ -67,7 +67,7 @@ export interface HighImpactNewsAlert {
   executionGuidance: string;
 }
 
-export type SignalExecutionState = 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE';
+export type SignalExecutionState = 'ACTIVE' | 'TP_SMASHED' | 'SL_TAKEN' | 'PENDING_CONFIRMATION' | 'MITIGATED_ZONE_STALE' | 'ALREADY_MOVED';
 
 export interface SignalStatusInfo {
   state: SignalExecutionState;
@@ -90,8 +90,16 @@ export interface StrategyResult {
   signalStatus?: SignalStatusInfo;
   /** NO_SIGNAL because the best setup's zone / entry / stop / targets were already tapped */
   alreadyMitigated?: boolean;
+  /** NO_SIGNAL because price already moved close to TP1 (or to the stop loss) */
+  alreadyMoved?: 'NEAR_TP' | 'NEAR_SL';
+  /** Tools the engine ran for this analysis (live candles, zones, RSI 14, EMA 50) */
+  /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
+  timeframeScan?: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null };
+  toolsUsed?: { candles: number; zones: number; rsi: number | null; emaTrend: 'RISING' | 'FALLING' | 'FLAT' | null; divergence: 'BULLISH' | 'BEARISH' | null };
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';
+  /** Set by the server on LONG / SHORT signals: the id to turn on a price alert for this exact setup */
+  alertOffer?: { id: string };
   /** What the Recheck button replays (zone and the first candle after its leg-out) */
   setupCheck?: { zone: { low: number; high: number }; since: number; issuedAt: number; timeframe: string };
   confidenceScore: number;
@@ -189,7 +197,15 @@ export interface ChatMessage {
   activity?: ActivityStep[];
   chartImage?: string; // base64 Data URL for uploaded chart image
   chartFileName?: string;
+  /** Quick replies under an answer, e.g. "Analyze EUR/USD" or "Info about EUR/USD" after a bare pair */
+  choices?: MessageChoice[];
   timestamp: number;
+}
+
+export interface MessageChoice {
+  kind: 'analysis' | 'info';
+  label: string;
+  prompt: string;
 }
 
 export interface ChatSession {
@@ -271,7 +287,30 @@ export interface UserProfile {
   emailVerified?: boolean;
   /** Receive activity emails (analyses, profile changes, gifts). Security emails always send. */
   emailActivity?: boolean;
+  /** The trader approved live price alerts (/price-alerts) */
+  alertsEnabled?: boolean;
   subscription: UserSubscription;
+}
+
+export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED';
+/** A price alert the server watches for the trader (see server/priceAlerts.ts) */
+export interface PriceAlertItem {
+  id: string;
+  offerId: string;
+  symbol: string;
+  name: string;
+  timeframe: string;
+  direction: 'LONG' | 'SHORT';
+  execution: 'LIMIT' | 'MARKET';
+  entry: { min: number; max: number; optimal: number };
+  stop: number;
+  tps: number[];
+  createdAt: number;
+  expiresAt: number;
+  active: boolean;
+  entered: boolean;
+  hits: { kind: PriceAlertKind; at: number; price: number }[];
+  endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | null;
 }
 
 export interface CreditState {
@@ -320,7 +359,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   actionPrompt?: string;
-  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support';
+  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support' | 'open_alerts';
   actionPayload?: any;
   /** Announcements: an optional https link attached by the MarketX team */
   link?: string;

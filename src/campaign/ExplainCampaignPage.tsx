@@ -49,7 +49,7 @@ const FALLBACK: CampaignInfo = {
   id: 'explain-marketx',
   title: 'Explain MarketX',
   reward: 50,
-  handle: '@_MarketXai',
+  handle: '@_MarketX',
   endsAt: Date.parse('2026-10-30T23:59:59+01:00'),
   open: Date.now() <= Date.parse('2026-10-30T23:59:59+01:00'),
 };
@@ -73,7 +73,7 @@ const IDEAS = [
 ];
 
 const RULES = [
-  'Your own original video or writing. Reposts, copied text and AI filler are declined.',
+  'Your own original video or writing. Reposts, copied text and machine-written filler are declined.',
   `The post is public on X and tags ${FALLBACK.handle}.`,
   'Videos run about 1 minute. Write ups explain clearly and include at least one screenshot of MarketX.',
   'Keep the post up until it has been reviewed.',

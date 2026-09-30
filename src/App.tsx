@@ -11,7 +11,9 @@ import {
   SubscriptionPlan,
   XShareReward,
   AppNotification,
+  MessageChoice,
   ActivityStep,
+  PriceAlertItem,
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -31,9 +33,10 @@ const SupportChat = lazyWithReload(() => import('./components/SupportChat').then
 const RewardEmailNotificationModal = lazyWithReload(() =>
   import('./components/RewardEmailNotificationModal').then(m => ({ default: m.RewardEmailNotificationModal }))
 );
+const PriceAlertsPanel = lazyWithReload(() => import('./components/PriceAlertsPanel').then(m => ({ default: m.PriceAlertsPanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -54,6 +57,7 @@ import { formatPriceShort } from './components/AiActivityTrace';
 import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
 import { classifyPrompt } from './utils/promptIntent';
+import { timeframeFromPrompt } from './utils/timeframe';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
@@ -71,7 +75,7 @@ interface AccountPayload {
 function getSavedTimeframe(): string {
   try {
     const v = localStorage.getItem('mx_timeframe');
-    if (v && /^\d{1,2}[MHDW]$/.test(v)) return v;
+    if (v && (/^\d{1,2}[MHDW]$/.test(v) || v === 'RDM')) return v;
   } catch {}
   return '4H';
 }
@@ -144,6 +148,13 @@ export default function App() {
   const [openAnnouncement, setOpenAnnouncement] = useState<AppNotification | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  // Price alerts (/price-alerts): watched on the server; the client only lists them and toggles them
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [pendingAlertOffer, setPendingAlertOffer] = useState<{ id: string; symbol: string } | null>(null);
+  // An alert link from an email (?alert=<setup> or ?alerts=1), handled once the session is restored
+  const alertLinkRef = useRef<{ offerId?: string; open?: boolean } | null>(null);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' | 'info' } | null>(null);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -272,7 +283,12 @@ export default function App() {
     if (params.has('reset')) setIsAuthModalOpen(true);
     // "Open the conversation" link in support reply emails
     if (params.get('support') === '1') setIsSupportOpen(true);
-    if (params.has('verified') || params.has('reset') || params.has('support')) {
+    // "Turn on price alert" / "Open price alerts" links in alert emails
+    const alertOffer = params.get('alert');
+    if ((alertOffer && /^of_[a-z0-9]{8,40}$/.test(alertOffer)) || params.get('alerts') === '1') {
+      alertLinkRef.current = { offerId: alertOffer || undefined, open: true };
+    }
+    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -785,7 +801,7 @@ export default function App() {
       });
       applyAccount(data);
       setToastNotification({
-        message: `🎁 Successfully gifted ${amount} AI Credits to @${toUsername.replace(/^@/, '')}!`,
+        message: `🎁 Successfully gifted ${amount} SI Credits to @${toUsername.replace(/^@/, '')}!`,
         type: 'gift',
       });
       return null;
@@ -969,6 +985,129 @@ export default function App() {
     setOpenAnnouncement(fresh);
   }, [notifications, authUser, openAnnouncement]);
 
+  // ---------------- Price alerts ----------------
+  const alertsEnabled = !!userProfile.alertsEnabled;
+  const openAlerts = useCallback(() => {
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsAlertsOpen(true);
+  }, [authUser]);
+  const fetchAlerts = useCallback(async () => {
+    setAlertsLoading(true);
+    try {
+      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts');
+      setPriceAlerts(data.alerts || []);
+      setUserProfile(p => (p.alertsEnabled === data.enabled ? p : { ...p, alertsEnabled: data.enabled }));
+    } catch {
+    } finally {
+      setAlertsLoading(false);
+    }
+  }, []);
+  const createAlert = useCallback(async (offerId: string, symbol: string) => {
+    try {
+      const data = await apiFetch<{ alerts: PriceAlertItem[] }>('/api/alerts', { method: 'POST', body: JSON.stringify({ offerId }) });
+      setPriceAlerts(data.alerts || []);
+      setToastNotification({ message: `🔔 Alert on for ${symbol}. You'll be notified at the entry zone, stop loss and every target.`, type: 'success' });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === 'ALERTS_OFF') {
+        setPendingAlertOffer({ id: offerId, symbol });
+        setIsAlertsOpen(true);
+        return;
+      }
+      setToastNotification({ message: err?.message || 'Could not turn on the alert. Please try again.', type: 'info' });
+    }
+  }, []);
+  const removeAlert = useCallback(async (id: string) => {
+    try {
+      const data = await apiFetch<{ alerts: PriceAlertItem[] }>(`/api/alerts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setPriceAlerts(data.alerts || []);
+    } catch (err: any) {
+      setToastNotification({ message: err?.message || 'Could not turn off the alert.', type: 'info' });
+    }
+  }, []);
+  const handleAlertsConsent = useCallback(async (enabled: boolean) => {
+    try {
+      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts/consent', { method: 'POST', body: JSON.stringify({ enabled }) });
+      setUserProfile(p => ({ ...p, alertsEnabled: data.enabled }));
+      setPriceAlerts(data.alerts || []);
+      if (enabled && pendingAlertOffer) {
+        const pending = pendingAlertOffer;
+        setPendingAlertOffer(null);
+        await createAlert(pending.id, pending.symbol);
+      } else if (enabled) {
+        setToastNotification({ message: '🔔 Price alerts are on. Tap "Get price alert" on any analysis to watch it.', type: 'success' });
+      }
+    } catch (err: any) {
+      setToastNotification({ message: err?.message || 'Could not update price alerts.', type: 'info' });
+    }
+  }, [pendingAlertOffer, createAlert]);
+  // Status of each result card's alert, by the setup it belongs to
+  const alertByOffer = React.useMemo(() => {
+    const m: Record<string, 'on' | 'ended'> = {};
+    // Switched off by the trader: the setup can be watched again; played out or expired: finished
+    for (const a of priceAlerts) {
+      if (a.active) m[a.offerId] = 'on';
+      else if (a.endedReason !== 'TURNED_OFF' && !m[a.offerId]) m[a.offerId] = 'ended';
+    }
+    return m;
+  }, [priceAlerts]);
+  const toggleAlertForStrategy = useCallback((strategy: StrategyResult) => {
+    const offerId = strategy.alertOffer?.id;
+    if (!offerId) return;
+    const current = priceAlerts.find(a => a.offerId === offerId && a.active);
+    if (current) removeAlert(current.id);
+    else createAlert(offerId, strategy.symbol);
+  }, [priceAlerts, removeAlert, createAlert]);
+  // Signed in: load the alert states (for the result cards) and handle an alert link from an email
+  useEffect(() => {
+    if (!authUser) {
+      setPriceAlerts([]);
+      return;
+    }
+    if (userProfile.alertsEnabled) fetchAlerts();
+    const link = alertLinkRef.current;
+    if (link) {
+      alertLinkRef.current = null;
+      if (link.offerId) {
+        if (userProfile.alertsEnabled) createAlert(link.offerId, 'this setup');
+        else setPendingAlertOffer({ id: link.offerId, symbol: '' });
+      }
+      setIsAlertsOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
+  // Opening the panel always shows the latest state
+  useEffect(() => {
+    if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts();
+  }, [isAlertsOpen, authUser, alertsEnabled, fetchAlerts]);
+  // While an alert is active, new alert notifications are picked up every 30s (only while the tab is visible)
+  const hasActiveAlerts = priceAlerts.some(a => a.active);
+  useEffect(() => {
+    if (!authUser || !hasActiveAlerts) return;
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      refreshNotifications(true);
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [authUser, hasActiveAlerts, refreshNotifications]);
+  // A new alert notification: a short toast, and the alert list refreshes
+  const seenAlertNotifsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const alertNotifs = notifications.filter(n => n.actionType === 'open_alerts');
+    if (!seenAlertNotifsRef.current) {
+      seenAlertNotifsRef.current = new Set(alertNotifs.map(n => n.id));
+      return;
+    }
+    const fresh = alertNotifs.filter(n => !seenAlertNotifsRef.current!.has(n.id) && !n.read);
+    alertNotifs.forEach(n => seenAlertNotifsRef.current!.add(n.id));
+    if (fresh.length) {
+      setToastNotification({ message: fresh[0].title, type: 'info' });
+      fetchAlerts();
+    }
+  }, [notifications, fetchAlerts]);
+
   const handleUpdateNotificationAction = (notif: AppNotification) => {
     markNotificationRead(notif.id);
     if (notif.type === 'announcement') {
@@ -979,6 +1118,8 @@ export default function App() {
       setIsSupportOpen(true);
     } else if (notif.actionType === 'open_campaign') {
       setIsShareModalOpen(true);
+    } else if (notif.actionType === 'open_alerts') {
+      openAlerts();
     } else if (notif.type === 'reward' || notif.type === 'credit') {
       openAccountTab('credits');
     } else {
@@ -1021,6 +1162,35 @@ export default function App() {
       baseStrategy && (slMode === 'tight' || hasTightenKeywords) && (baseStrategy.tradeType === 'LONG' || baseStrategy.tradeType === 'SHORT')
     );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
+
+    // Just a pair ("EURUSD", "gold", "$WIF"): ask whether they want an analysis or information. Answered right here,
+    // no request and no credit (the server does the same if a bare pair ever reaches it)
+    const namesAssetHere = assetInfo.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(promptText);
+    if (!resolvedBaseStrategy && !chartImage && classifyPrompt(promptText, { namesAsset: namesAssetHere }) === 'clarify') {
+      const now = Date.now();
+      const sessionId = currentSessionId || `session-${now}`;
+      if (!currentSessionId) setCurrentSessionId(sessionId);
+      const label = assetInfo.symbol;
+      const title = assetInfo.name && assetInfo.name !== label ? `${assetInfo.name} (${label})` : label;
+      const userMsg: ChatMessage = { id: `msg-user-${now}`, role: 'user', content: promptText, timestamp: now };
+      const askMsg: ChatMessage = {
+        id: `msg-assistant-${now + 1}`,
+        role: 'assistant',
+        content: `What would you like to know about **${title}**?\n\n- **Analysis:** a trade plan with the entry, stop loss and targets.\n- **Info:** the live price, today's move, market details and today's news.`,
+        status: 'completed',
+        choices: [
+          { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
+          { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+        ],
+        timestamp: now + 1,
+      };
+      setSessions(prev =>
+        prev.some(x => x.id === sessionId)
+          ? prev.map(x => (x.id === sessionId ? { ...x, lastMessage: promptText, updatedAt: now, messages: [...x.messages, userMsg, askMsg] } : x))
+          : [{ id: sessionId, title: promptText.slice(0, 32), lastMessage: promptText, updatedAt: now, messages: [userMsg, askMsg] }, ...prev]
+      );
+      return;
+    }
 
     // Daily limit reached: prompts are paused until the automatic 3:00 AM refill (the server enforces this too)
     if (isDailyLimitReached(creditState, userProfile.email)) {
@@ -1123,7 +1293,15 @@ export default function App() {
       updateAssistant({ activity: snapshot, searchStep: snapshot.filter(st => st.status === 'active').pop()?.title });
     };
     const startStep = (id: string, title: string, detail?: string) => {
-      activity = [...activity, { id, title, detail, status: 'active', startedAt: Date.now() }];
+      const step: ActivityStep = { id, title, detail, status: 'active', startedAt: Date.now() };
+      if (id.startsWith('tools-')) {
+        // The tool steps always read first, right after the request is understood ("Finding tools", then "Using tools")
+        let at = 0;
+        activity.forEach((st, i) => {
+          if (st.id === 'read' || st.id === 'chart' || st.id.startsWith('tools-')) at = i + 1;
+        });
+        activity = [...activity.slice(0, at), step, ...activity.slice(at)];
+      } else activity = [...activity, step];
       publishActivity();
     };
     const endStep = (id: string, patch: Partial<ActivityStep> = {}) => {
@@ -1140,7 +1318,11 @@ export default function App() {
     const namesAsset = assetInfo.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(promptText);
     const looksLikeAnalysis = classifyPrompt(promptText, { hasChartImage: Boolean(chartImage), namesAsset }) === 'analysis';
     // Minutes read as lowercase "m" (15m), so 1M never looks like one month
-    const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframe);
+    // A timeframe named in the prompt wins over the picker, exactly as on the server
+    const analysisTimeframe = formatTimeframe(resolvedBaseStrategy?.timeframe || timeframeFromPrompt(promptText) || timeframe);
+    // RDM: the server scans every timeframe and reports the one it used
+    const scanAll = analysisTimeframe === 'RDM';
+    const tfText = scanAll ? 'every timeframe (RDM)' : `${analysisTimeframe} timeframe`;
 
     // Step: understand the request (done on this device, instantly)
     if (resolvedBaseStrategy) {
@@ -1150,13 +1332,47 @@ export default function App() {
         `${resolvedBaseStrategy.symbol} ${resolvedBaseStrategy.tradeType} · entry ${formatPriceShort(resolvedBaseStrategy.entryZone.optimal)}`
       );
     } else if (looksLikeAnalysis) {
-      addDoneStep('read', 'Understood your request', `${assetInfo.name} (${assetInfo.symbol}) · ${analysisTimeframe} timeframe`);
+      addDoneStep('read', 'Understood your request', `${assetInfo.name} (${assetInfo.symbol}) · ${tfText}`);
     } else {
       addDoneStep('read', 'Understood your question', 'General trading question');
     }
     if (chartImage) {
       addDoneStep('chart', 'Attached your chart', `${chartFileName || 'Chart image'} · ${Math.max(1, Math.round((chartImage.length * 0.75) / 1024))} KB`);
     }
+
+    // Steps: find the tools for this market and timeframe, then use them (they run with the analysis on the server)
+    const usesTools = looksLikeAnalysis && !resolvedBaseStrategy;
+    let toolsSettled = false;
+    let toolsTimer: ReturnType<typeof setTimeout> | null = null;
+    if (usesTools) {
+      startStep('tools-find', 'Finding tools', scanAll ? `Picking the tools to scan ${assetInfo.symbol} on every timeframe` : `Picking the tools for ${assetInfo.symbol} on ${analysisTimeframe}`);
+      toolsTimer = setTimeout(() => {
+        if (toolsSettled || controller.signal.aborted) return;
+        endStep('tools-find', { detail: chartImage ? 'Chart reader, supply and demand zones, Fibonacci, RSI 14, EMA 50' : 'Live candles, supply and demand zones, Fibonacci, RSI 14, EMA 50' });
+        startStep('tools-use', 'Using tools', 'Scanning fresh zones, drawing the Fibonacci, reading RSI and EMA, checking the entry, stop and TP1');
+      }, 700);
+    }
+    const settleTools = (strategy?: StrategyResult | null, failed = false) => {
+      if (!usesTools || toolsSettled) return;
+      toolsSettled = true;
+      if (toolsTimer) clearTimeout(toolsTimer);
+      endStep('tools-find', { detail: 'Live candles, supply and demand zones, Fibonacci, RSI 14, EMA 50' });
+      if (!activity.some(st => st.id === 'tools-use')) startStep('tools-use', 'Using tools');
+      const t = strategy?.toolsUsed;
+      const scan = strategy?.timeframeScan;
+      const detail = t
+        ? [
+            scan ? (scan.chosen ? `RDM picked ${formatTimeframe(scan.chosen)} from ${scan.scanned} timeframes` : `RDM scanned ${scan.scanned} timeframes`) : '',
+            `${t.candles} candles`,
+            `${t.zones} zone${t.zones === 1 ? '' : 's'} checked`,
+            t.rsi !== null ? `RSI ${t.rsi}${t.divergence ? `, ${t.divergence.toLowerCase()} divergence` : ''}` : '',
+            t.emaTrend ? `EMA 50 ${t.emaTrend.toLowerCase()}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : undefined;
+      endStep('tools-use', failed ? { status: 'error', detail: 'The tools could not finish' } : detail ? { detail } : {});
+    };
 
     // Step: live price check, running alongside the analysis
     if (looksLikeAnalysis && !resolvedBaseStrategy) {
@@ -1186,7 +1402,9 @@ export default function App() {
       resolvedBaseStrategy
         ? `Tightening the ${resolvedBaseStrategy.symbol} stop loss`
         : looksLikeAnalysis
-          ? `Analyzing ${assetInfo.symbol} on ${analysisTimeframe}`
+          ? scanAll
+            ? `Scanning ${assetInfo.symbol} on every timeframe`
+            : `Analyzing ${assetInfo.symbol} on ${analysisTimeframe}`
           : 'Thinking',
       resolvedBaseStrategy
         ? 'Recalculating the invalidation level and risk/reward'
@@ -1201,7 +1419,7 @@ export default function App() {
       // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
       type BackendResult =
         | { kind: 'strategy'; strategy: StrategyResult; text: string }
-        | { kind: 'chat'; text: string }
+        | { kind: 'chat'; text: string; choices?: MessageChoice[] }
         | { kind: 'error'; status: number; code: string; message: string };
 
       const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
@@ -1234,7 +1452,7 @@ export default function App() {
             };
           }
           const text = data?.content || data?.message;
-          if (text) return { kind: 'chat', text };
+          if (text) return { kind: 'chat', text, ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}) };
           return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
         })
         .catch((err: any): BackendResult | null => {
@@ -1273,6 +1491,7 @@ export default function App() {
       }
       const requestEndTime = Date.now();
       const actualDuration = parseFloat(((requestEndTime - requestStartTime) / 1000).toFixed(1));
+      settleTools(result.kind === 'strategy' ? result.strategy : null, result.kind === 'error');
       if (result.kind === 'error') {
         endStep('analyze', { status: 'error', detail: result.message });
       } else {
@@ -1310,7 +1529,7 @@ export default function App() {
         const words = result.text.trim().split(/\s+/).length;
         addDoneStep('answer', 'Wrote the answer', `${words} words`);
         updateAssistant(
-          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity },
+          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity, ...(result.choices ? { choices: result.choices } : {}) },
           { lastMessage: promptText, updatedAt: Date.now() }
         );
         refreshAccount();
@@ -1419,6 +1638,8 @@ export default function App() {
       updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity });
     } finally {
       clearTimeout(requestTimer);
+      toolsSettled = true;
+      if (toolsTimer) clearTimeout(toolsTimer);
       controller.signal.removeEventListener('abort', onUserStop);
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
@@ -1594,6 +1815,8 @@ export default function App() {
             setIsSupportOpen(true);
           } else if (notif.actionType === 'open_campaign') {
             setIsShareModalOpen(true);
+          } else if (notif.actionType === 'open_alerts') {
+            openAlerts();
           } else if (notif.type === 'reward' || notif.type === 'credit') {
             openAccountTab('credits');
           } else {
@@ -1608,6 +1831,23 @@ export default function App() {
           setIsShareModalOpen(true);
         }}
       />
+      </Deferred>
+
+      {/* Price alerts (/price-alerts) */}
+      <Deferred when={isAlertsOpen}>
+        <PriceAlertsPanel
+          isOpen={isAlertsOpen}
+          onClose={() => {
+            setIsAlertsOpen(false);
+            setPendingAlertOffer(null);
+          }}
+          enabled={alertsEnabled}
+          alerts={priceAlerts}
+          loading={alertsLoading}
+          pendingSymbol={pendingAlertOffer?.symbol || null}
+          onConsent={handleAlertsConsent}
+          onRemove={removeAlert}
+        />
       </Deferred>
 
       {/* Institutional Terms & Privacy Policy Modal */}
@@ -1796,6 +2036,9 @@ export default function App() {
                   userProfile={userProfile}
                   targetMessageId={targetSignalMessageId}
                   onClearTargetMessage={() => setTargetSignalMessageId(null)}
+                  alertsEnabled={alertsEnabled}
+                  alertByOffer={alertByOffer}
+                  onToggleAlert={toggleAlertForStrategy}
                   onSelectPrompt={(prompt, tf, sl, base) =>
                     handleSendMessage(prompt, tf || getSavedTimeframe(), sl || 'normal', base)
                   }
@@ -1829,6 +2072,7 @@ export default function App() {
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
+                    onCommand={id => (id === 'alerts' ? (openAlerts(), true) : false)}
                     isLoading={isLoading}
                     credits={isUnlimitedUser(userProfile.email) ? 999999 : promptsLeft(creditState)}
                     refillLabel={formatDailyResetTime(creditState)}

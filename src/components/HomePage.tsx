@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Layers
 } from 'lucide-react';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 // Mini Candlestick Chart graphic component strictly matching image.png sample
 function MiniCandlestickChart({ isBullish }: { isBullish: boolean }) {
@@ -83,7 +84,7 @@ interface InstitutionalFeedItem {
 }
 
 function formatFeedPrice(price: number): string {
-  if (price < 10) return price.toFixed(4);
+  if (price < 10) return formatMarketPrice(price);
   if (price < 1000) return price.toFixed(2);
   return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -388,7 +389,7 @@ function generateFeedItemForTicker(
 }
 
 function formatTablePrice(price: number): string {
-  if (price < 10) return price.toFixed(4);
+  if (price < 10) return formatMarketPrice(price);
   if (price < 1000) return price.toFixed(2);
   return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

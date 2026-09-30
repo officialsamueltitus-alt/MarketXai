@@ -1,16 +1,16 @@
 import { StrategyResult } from '../types';
+import { formatMarketPrice } from './formatPrice';
 
 export function shareToX(strategy: StrategyResult, username?: string) {
   const isNoSignal = strategy.tradeType === 'NO_SIGNAL';
   const isLong = strategy.tradeType === 'LONG';
   const actionEmoji = isNoSignal ? '⚪ NO SIGNAL OPPORTUNITY' : isLong ? '🟢 BUY / LONG' : '🔴 SELL / SHORT';
-  const formatPrice = (p: number) =>
-    strategy.currentPrice < 10 ? p.toFixed(4) : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatPrice = (p: number) => formatMarketPrice(p, strategy.currentPrice);
 
   const cleanHandle = username ? username.replace(/^@/, '') : 'marketx_trader';
 
   const text = `📊 $${strategy.symbol.replace('/', '')} (${strategy.timeframe} TF)
-${actionEmoji} Setup via MarketX (@_MarketXai)
+${actionEmoji} Setup via MarketX (@_MarketX)
 👤 Trader: @${cleanHandle}
 
 🎯 Entry Zone: $${formatPrice(strategy.entryZone.optimal)} ($${formatPrice(strategy.entryZone.min)} - $${formatPrice(strategy.entryZone.max)})
@@ -18,7 +18,7 @@ ${actionEmoji} Setup via MarketX (@_MarketXai)
 💰 Primary Target (TP1): $${formatPrice(strategy.takeProfits[0]?.price || 0)} (${strategy.takeProfits[0]?.rewardRatio || ''})
 ⚖️ Risk / Reward: ${strategy.riskRewardRatio}
 
-🔗 Trade with MarketX AI (@_MarketXai): https://marketx.world
+🔗 Trade with MarketX SI (@_MarketX): https://marketx.world
 
 #MarketX #Trading #${strategy.symbol.split('/')[0]} #Crypto #Alpha`;
 

@@ -3,6 +3,7 @@ import { MarketQuote } from '../types';
 import { VerifiedBadge } from './VerifiedBadge';
 import { ModelSelectorButton } from './ModelSelectorButton';
 import { PanelLeft, Zap, Bell, SquarePen, Gift } from 'lucide-react';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -51,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
   const activeTickers = useMemo(() => tickers.filter(t => t.symbol !== 'SPY'), [tickers]);
 
   const formatPrice = (p: number) =>
-    p < 10 ? p.toFixed(p < 1 ? 4 : 3) : p.toLocaleString(undefined, { maximumFractionDigits: p < 1000 ? 2 : 0 });
+    p < 10 ? formatMarketPrice(p) : p.toLocaleString(undefined, { maximumFractionDigits: p < 1000 ? 2 : 0 });
 
   return (
     <header className="h-14 pl-1.5 pr-2.5 min-[400px]:px-3 sm:px-4 flex items-center justify-between gap-1.5 min-[400px]:gap-2 sm:gap-4 shrink-0 z-30 min-w-0">
@@ -86,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
                   currentView === view ? 'text-white' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {view === 'home' ? 'Markets' : 'Ask AI'}
+                {view === 'home' ? 'Markets' : 'Ask SI'}
               </button>
             ))}
           </div>

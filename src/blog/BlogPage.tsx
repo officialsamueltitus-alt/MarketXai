@@ -116,7 +116,7 @@ const SECTIONS: Section[] = [
               Privacy box; it is required to continue.
             </>,
             <>
-              Check your inbox for your <B>pass code</B> (format MX XXXX XXXX). It is sent once and stays valid for 48 hours. An unused code expires and your seat
+              Check your inbox for your personal <B>pass code</B>. It is sent once and stays valid for 48 hours. An unused code expires and your seat
               is released.
             </>,
             <>
@@ -151,14 +151,14 @@ const SECTIONS: Section[] = [
           head={['Section', 'Where to find it', 'What it does']}
           rows={[
             ['Markets', 'Top bar, view switch', 'Live prices and ready made prompts for forex, gold, crypto, stocks and indices. Tap any card to analyze it.'],
-            ['Ask AI', 'Top bar, view switch', 'The chat where you type prompts and get trade plans.'],
-            ['AI engines', 'Top bar, Models button', 'Shows the active MarketX Engine and engines coming soon.'],
+            ['Ask SI', 'Top bar, view switch', 'The chat where you type prompts and get trade plans.'],
+            ['SI engines', 'Top bar, Models button', 'Shows the active MarketX Engine and engines coming soon.'],
             ['New chat', 'Top bar or sidebar', 'Starts a fresh conversation.'],
             ['Credits', 'Top bar credit pill, or Sidebar, Settings, Credits', "Your balance, today's analyses, and plans."],
             ['Notifications', 'Top bar bell', 'Analyses, sign ins, payments, rewards and replies from support.'],
             ['Profile', 'Top bar avatar, or Sidebar, Settings, Profile', 'Your stats, plan, gifting, campaign and account options.'],
             ['History', 'Sidebar', 'Your saved trade setups and past chats.'],
-            ['Settings', 'Sidebar, Settings', 'Credits, Profile, Support chat, theme, and Terms and Privacy at the bottom.'],
+            ['Settings', 'Sidebar, Settings', 'Credits, Profile, Connectors / Plugins, Support chat, theme, and Terms and Privacy at the bottom.'],
             ['Support chat', 'Settings, or the Direct institutional desk on Markets', 'Message the MarketX team and read their replies.'],
             ['Site Guide', 'Direct institutional desk on Markets, or /blog', 'This guide.'],
           ]}
@@ -179,16 +179,16 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              Open <B>Ask AI</B>, or tap a card on <B>Markets</B>, which fills the prompt for you.
+              Open <B>Ask SI</B>, or tap a card on <B>Markets</B>, which fills the prompt for you.
             </>,
             <>
               Type what you want, for example <em>Analyze EUR/USD on the 1H</em> or <em>BTC 15 min setup</em>. Supported markets include forex pairs, gold and silver,
               oil, crypto, stocks, major indices and synthetic indices.
             </>,
             <>
-              Tap the <B>timeframe</B> button on the input box to open the full row of timeframes: <B>1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 8H, 12H, 1D and 1W</B>.
-              The one you pick stays selected, even after you close the site, until you change it. A timeframe written in your prompt (such as 5m, 2H, daily or
-              weekly) takes priority for that prompt.
+              Tap the <B>timeframe</B> button on the input box to open the full row of timeframes: <B>RDM, 1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 8H, 12H, 1D and
+              1W</B>. The one you pick stays selected, even after you close the site, until you change it. A timeframe written in your prompt (such as 5m, 2H,
+              daily or weekly) takes priority for that prompt.
             </>,
             <>
               Optional: choose <B>Normal SL</B> or <B>Tight SL</B> on the input box (see Stop loss options).
@@ -202,23 +202,44 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
+        <Note title="Any coin or meme" tone="emerald">
+          Beyond forex, gold, stocks and the big coins, you can analyze any cryptocurrency or meme that trades: coins listed on the major exchanges,
+          plus tokens that only trade on-chain on Solana, Base, Ethereum, BSC and more. Name it the way you would on X: <B>$WIF</B>,{' '}
+          <B>BONK/USDT</B>, <B>analyze ansem on the 1H</B>, <B>moo deng 4H</B>, or paste the token's <B>contract address</B>. MarketX finds the live
+          market, its live price and its candles. Tiny meme prices are shown in full, like $0.0000009645. If a coin isn't listed anywhere with enough
+          liquidity to trade, you're told so and no credit is used.
+        </Note>
+        <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
+          Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you. It keeps only valid, high probability setups
+          where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The
+          result shows an <B>RDM · picked 1H</B> tag (or whichever timeframe it used) and the write up lists the timeframes that had a valid setup. If no timeframe
+          has one, you get a clear No signal. One analysis, one credit.
+        </Note>
         <Note title="Buy or sell only?">
           Say so in the prompt, for example short setup on gold 4H. If there is no valid setup in that direction, you get the best valid plan or a clear No signal.
         </Note>
-        <Note title="Questions work too">
-          Ask anything about trading or the markets, such as what is a liquidity sweep?, why is gold rising today? or is EUR/USD bullish? You get a written
-          answer instead of a trade plan. When a question names a pair, the answer uses its live price and today's news. For a trade plan, ask for it, for
-          example Analyze EUR/USD on the 4H.
+        <Note title="Ask about any pair">
+          Questions get a written answer, not a trade plan. Ask about trading in general (what is a liquidity sweep?) or about any market: <B>tell me about
+          WIF</B>, <B>BONK market cap</B>, <B>EUR/USD price</B>, <B>why is gold rising today?</B>, <B>is BTC bullish?</B> The answer uses the pair's live
+          price and today's move, what the market is and where it trades, and today's news. For coins that trade on-chain it also covers the chain,
+          contract address, liquidity, trading volume, market cap and how long the pool has existed. For a trade plan, ask for it: <B>Analyze EUR/USD on the
+          4H</B>.
+        </Note>
+        <Note title="Just typed a pair?" tone="emerald">
+          Send only a pair, like <B>EURUSD</B>, <B>gold</B> or <B>$WIF</B>, and MarketX asks what you want to know about it, with two buttons:{' '}
+          <B>Analyze</B> for a trade plan, or <B>Info</B> for the pair's details. Asking is free; a credit is only used once you pick one. Add a timeframe or
+          a word like buy, sell, setup or outlook (gold 4H, sell BTC) to go straight to the analysis.
         </Note>
         <Note title="Watch it work">
-          After you send, the process report shows each step as it happens: reading your request, checking the live price, checking today's news and building
-          the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
+          After you send, the process report shows each step as it happens: reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
+          live price, checking today's news and building the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
-          Type / in the input to see the tools in private testing: Strategy, Preference Mode, Trading Agent, MT5 Connector, Price Alerts, Backtest and Trade
-          Journal. They are marked Soon and open for everyone once testing ends.
+          Type / in the input to see the commands. <B>/price-alerts</B> is live (marked Live). Still in private testing and marked Soon: Strategy, Preference
+          Mode, Trading Agent, MT5 Connector, Backtest, Trade Journal, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
-        <P>Each reply shows the tokens it used. The count is not fixed: it runs up live while the analysis works and lands somewhere around 18.5k to 41.5k (30k on average). Either way, one analysis costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
+        <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
       </>
     ),
   },
@@ -257,7 +278,7 @@ const SECTIONS: Section[] = [
     id: 'reading-a-result',
     title: 'Reading a result',
     icon: Target,
-    lead: 'Every analysis ends in one of three outcomes: a trade plan, No signal, or No signal, already mitigated. MarketX only calls a trade from a fresh, untouched level with a strong reward to risk.',
+    lead: 'Every analysis ends in one of four outcomes: a trade plan, No signal, No signal, already mitigated, or No signal, already moved. MarketX only calls a trade from a fresh, untouched level with a strong reward to risk, while price is still near the entry.',
     body: (
       <>
         <Table
@@ -280,6 +301,12 @@ const SECTIONS: Section[] = [
           Before any signal, every candle since the zone formed is checked on the timeframe you asked for. If price has already entered the zone and returned,
           touched the entry, hit the stop loss or reached any target (TP1, TP2 or TP3), the trade has played out and is not offered. The note names which level
           was reached and when.
+        </Note>
+        <Note title="No signal, already moved" tone="amber">
+          A trade is only offered while price is still close to its entry. For a buy the entry is at or below the current price and the targets are well above
+          it; for a sell the entry is at or above the current price and the targets are well below it. This applies to pending (limit) and buy now or sell now
+          (market) trades alike. If price has already travelled a large part of the way toward TP1, or is sitting near the stop loss, the move is under way and
+          you get <B>No signal, already moved, close to TP</B> (or close to the stop loss) with the prices named, instead of a late entry.
         </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
@@ -370,7 +397,7 @@ const SECTIONS: Section[] = [
             your balance and arrive in theirs straight away. You cannot gift to yourself.
           </>,
           <>
-            <B>Follow us.</B> Updates and new features are posted on X at @_MarketXai.
+            <B>Follow us.</B> Updates and new features are posted on X at @_MarketX and in the MarketX Telegram community (the Telegram button in the sidebar and on the Direct institutional desk).
           </>,
         ]}
       />
@@ -391,6 +418,9 @@ const SECTIONS: Section[] = [
             </>,
             <>
               <B>Theme.</B> In Settings choose Light, Dark or System (follows your device).
+            </>,
+            <>
+              <B>Connectors / Plugins.</B> In Settings, the place where apps and tools you link to MarketX will appear. Nothing is available there yet.
             </>,
             <>
               <B>Notifications.</B> The bell shows analyses, sign ins, payments, rewards and support replies. Filter them, mark them read or clear them. Turn Email

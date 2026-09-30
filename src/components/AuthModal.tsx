@@ -6,6 +6,8 @@ import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check } fr
 import { apiFetch } from '../utils/apiClient';
 import { MarketXText } from './MarketXText';
 import { MarketXIcon } from './MarketXIcon';
+import { TelegramIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL } from '../utils/campaign';
 
 const TermsAndPrivacyModal = lazyWithReload(() => import('./TermsAndPrivacyModal').then(m => ({ default: m.TermsAndPrivacyModal })));
 
@@ -299,12 +301,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <p className="mt-4 text-[15px] font-semibold text-white">Batch fully allocated</p>
             <p className="mt-2 text-sm text-zinc-400 leading-relaxed">{batchFull}</p>
             <a
-              href="https://x.com/_MarketXai"
+              href="https://x.com/_MarketX"
               target="_blank"
               rel="noopener noreferrer"
               className="mt-5 inline-flex items-center justify-center h-11 px-5 rounded-xl bg-white text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
             >
-              Follow @_MarketXai for updates
+              Follow @_MarketX for updates
+            </a>
+            <a
+              href={MARKETX_TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2.5 flex mx-auto w-fit items-center justify-center gap-2 h-11 px-5 rounded-xl border border-[#2AABEE]/40 text-sm font-semibold text-white hover:bg-[#2AABEE]/10 transition-colors"
+            >
+              <TelegramIcon className="w-[18px] h-[18px]" /> Join our Telegram
             </a>
             <button type="button" onClick={() => setBatchFull(null)} className="mt-3 block mx-auto text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer">
               Back
