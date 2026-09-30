@@ -70,6 +70,11 @@
   "price") is a question. Only analysis requests return trade cards. A bare pair ("EURUSD", "gold", "$WIF") is intent `clarify`:
   the client answers locally with "Analyze X" / "Info about X" buttons (`ChatMessage.choices`) and the server's `clarifyBarePair`
   (before `chargeAnalysisCredit`) does the same, so asking never costs a credit.
+- Answer reuse (`server/answerCache.ts`): engine-written answers to questions are stored (memory + Firestore `answerCache`,
+  hourly sweep) keyed by the normalized question; general 7 days, time-sensitive wording 20 min, pair questions keyed to the
+  symbol and the reader's calendar day (6h, 1h if time-sensitive). A pair replay always fetches the live price and shows it
+  first ("Live now"), with the time the explanation was written. Analyses are never reused.
+- On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
 - The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
   anti-abuse rules, providers or keys.
 - Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once

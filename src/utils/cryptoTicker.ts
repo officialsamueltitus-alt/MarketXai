@@ -20,6 +20,8 @@ export const CRYPTO_ALIASES: Record<string, string> = {
   'pudgy': 'PENGU', 'dog go to the moon': 'DOG', 'bitcoin cat': 'CAT', 'simon s cat': 'CAT', 'shiba inu': 'SHIB', dogecoin: 'DOGE',
 };
 
+const ALIASES_LONGEST_FIRST = Object.keys(CRYPTO_ALIASES).sort((a, b) => b.length - a.length);
+
 // Words that are also tickers somewhere but mean something else in a prompt
 const STOP = new Set(
   (
@@ -76,7 +78,7 @@ export function detectCryptoTicker(prompt: string, isListed?: (base: string) => 
   }
   // Known names ("dogwifhat", "moo deng", "ansem"), longest first so "pudgy penguins" beats "pudgy"
   const lower = ` ${text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ')} `;
-  for (const name of Object.keys(CRYPTO_ALIASES).sort((a, b) => b.length - a.length)) {
+  for (const name of ALIASES_LONGEST_FIRST) {
     if (lower.includes(` ${name} `)) return { base: CRYPTO_ALIASES[name], strong: true };
   }
   // Bare words: a ticker typed in capitals in a trading prompt (WIF 1H, PENGU setup), or (server only) a listed coin typed

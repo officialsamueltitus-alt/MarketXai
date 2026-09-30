@@ -21,6 +21,7 @@ import {
   resolveTimeZone,
   getCalendar,
   type NewsBrief,
+  dayKey as newsDay,
 } from './server/news';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
@@ -52,6 +53,8 @@ import {
 } from './server/strategy';
 import { cryptoListing, fetchVenueCandles, fetchVenueQuote, isListedCoin, lookupDexToken, MIN_DEX_LIQUIDITY_USD, startCryptoUniverse, type CryptoListing, type DexToken } from './server/cryptoUniverse';
 import { CRYPTO_ALIASES, detectCryptoTicker } from './src/utils/cryptoTicker';
+import { IS_LEAD_WORKER } from './server/workers';
+import { answerKey, answerTtl, getCachedAnswer, saveAnswer, sweepExpiredAnswers } from './server/answerCache';
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
 const app = express();
@@ -65,7 +68,6 @@ const aiGate = createGate(perWorker(AI_MAX_CONCURRENCY));
 // same analysis is still being written share it: same market, timeframe, levels from the same live candles, and news.
 const AI_CACHE_TTL_MS = 0;
 const aiAnalysisCache = new SharedCache<{ text: string; label: string } | null>(AI_CACHE_TTL_MS, 500);
-const chatAnswerCache = new SharedCache<string>(10 * 60_000, 500);
 
 // Never let one stray promise take the whole server down under load
 process.on('unhandledRejection', reason => {
@@ -2031,6 +2033,8 @@ registerCampaignRoutes(app, generalApiRateLimiter);
 registerPriceAlertRoutes(app, { getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M') }, generalApiRateLimiter);
 // Every coin listed on Binance, Bybit and MEXC (refreshed every 6 hours), so any listed coin or meme can be analyzed
 startCryptoUniverse();
+// Stored answers: expired ones are removed hourly (one worker does it)
+if (IS_LEAD_WORKER) setInterval(() => sweepExpiredAnswers().catch(() => {}), 60 * 60 * 1000).unref();
 
 // Telegram channel: the site links to /go/telegram and the server redirects to the invite link, so the link itself is
 // never in the page or the client bundle (set TELEGRAM_INVITE_URL to change it; only t.me links are accepted)
@@ -3221,9 +3225,11 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       // A question that names a market is answered with its live price and today's news (never from memory)
       const chatAsset = promptNamesAsset(cleanPrompt) ? await resolveAssetInfo(cleanPrompt) : null;
       let marketContext = '';
+      let liveQuoteForReplay: MarketTicker | null = null;
       if (chatAsset) {
         const newsReady = refreshNewsFeedsWithin(2000).catch(() => {});
         const quote = await resolveAccurateAssetQuote(chatAsset).catch(() => null);
+        liveQuoteForReplay = quote && quote.price > 0 && quote.live !== false ? quote : null;
         await newsReady;
         const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);
         const live = !!quote && quote.price > 0 && quote.live !== false;
@@ -3265,8 +3271,25 @@ ${asksAboutDataSources(cleanPrompt) ? `- The user asks about MarketX's data. Ans
 Do NOT output structured trade card JSON.`;
 
       // Only general lessons are reused; answers about a specific market always use live data
-      const chatKey = chatAsset ? '' : cleanPrompt.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 400);
-      let chatReply = (chatKey && chatAnswerCache.get(chatKey)) || '';
+      // The same question asked again is answered from the stored answer (any worker, any restart). A question about a
+      // pair is keyed to that market and the reader's calendar day (today's news), and its live price is always fresh.
+      const pairScope = chatAsset && !chatAsset.unresolved ? `${chatAsset.symbol}|${newsDay(Date.now(), newsTimeZone)}` : '';
+      const chatKey = chatAsset?.unresolved ? '' : answerKey(cleanPrompt, pairScope);
+      const stored = chatKey ? await getCachedAnswer(chatKey) : null;
+      let chatReply = '';
+      if (stored && chatAsset) {
+        const q = liveQuoteForReplay;
+        const when = new Date(stored.at).toISOString().slice(11, 16);
+        chatReply = [
+          q ? `**Live now:** ${chatAsset.name} (${chatAsset.symbol}) at ${tinyNum(q.price)} ${q.currency || 'USD'}, ${q.change24h >= 0 ? '+' : ''}${q.change24h}% today (24h range ${tinyNum(q.low24h)} to ${tinyNum(q.high24h)}).` : '**Live now:** the live price is unavailable right now.',
+          '',
+          stored.text,
+          '',
+          `_Explanation first written at ${when} UTC today; the live price above is current._`,
+        ].join('\n');
+      } else if (stored) {
+        chatReply = stored.text;
+      }
       const chatModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
       const chatContents = marketContext ? `${marketContext}\n\nUser asks: "${cleanPrompt}"` : `User asks: "${cleanPrompt}"`;
 
@@ -3289,7 +3312,7 @@ Do NOT output structured trade card JSON.`;
           );
           if (response?.text && response.text.trim().length > 0) {
             chatReply = response.text.trim();
-            if (chatKey) chatAnswerCache.set(chatKey, chatReply);
+            if (chatKey) saveAnswer(chatKey, chatReply, answerTtl(cleanPrompt, !!chatAsset), { symbol: chatAsset?.symbol });
             break;
           }
         } catch (err: any) {

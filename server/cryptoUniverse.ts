@@ -53,6 +53,27 @@ const DEX_SEARCH_TTL_MS = 10 * 60e3;
 const DEX_CANDLE_TTL_MS = 60e3; // GeckoTerminal allows ~30 calls a minute, so its candles are shared for a minute
 const CEX_CANDLE_TTL_MS = 5e3;
 
+/**
+ * Per-worker budgets for the free on-chain APIs (DexScreener allows ~300 calls a minute, GeckoTerminal ~30), so a burst
+ * of random tickers on the public quote endpoint can never exhaust them for everyone. Cached answers never count.
+ */
+function minuteBudget(perMinute: number) {
+  let windowStart = 0;
+  let used = 0;
+  return () => {
+    const now = Date.now();
+    if (now - windowStart >= 60e3) {
+      windowStart = now;
+      used = 0;
+    }
+    if (used >= perMinute) return false;
+    used++;
+    return true;
+  };
+}
+const dexSearchBudget = minuteBudget(Math.max(10, Number(process.env.DEX_SEARCH_PER_MIN) || 60));
+const geckoBudget = minuteBudget(Math.max(4, Number(process.env.GECKO_CALLS_PER_MIN) || 12));
+
 async function getJson(url: string, timeoutMs = 6000): Promise<any | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -181,6 +202,7 @@ export function lookupDexToken(query: string): Promise<DexToken | null> {
   const key = isAddress ? q : q.toUpperCase();
   const hit = dexSearchCache.get(key);
   if (hit && Date.now() - hit.at < DEX_SEARCH_TTL_MS) return hit.p;
+  if (!dexSearchBudget()) return Promise.resolve(null); // over this minute's budget: treated as not found, retried later
   const p = (async () => {
     const data = isAddress
       ? await getJson(`https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(q)}`)
@@ -290,6 +312,7 @@ export async function fetchVenueCandles(l: CryptoListing, tf: string): Promise<C
     const [frame, aggregate, baseMin] = plan;
     const { network, pairAddress } = l.dex;
     const raw = await cached(`gt|${network}|${pairAddress}|${frame}|${aggregate}`, DEX_CANDLE_TTL_MS, async () => {
+      if (!geckoBudget()) return null;
       const d = await getJson(
         `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(network)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${frame}?aggregate=${aggregate}&limit=1000&currency=usd&token=base`,
         7000
