@@ -20,6 +20,12 @@ export interface DexToken {
   change24h: number;
   liquidityUsd: number;
   volume24h: number;
+  /** Fully diluted valuation and market cap in USD (0 when the pool doesn't report them) */
+  fdv: number;
+  marketCap: number;
+  /** When the pool was created (ms, 0 if unknown) */
+  pairCreatedAt: number;
+  quoteSymbol: string;
 }
 
 export interface CryptoListing {
@@ -150,6 +156,10 @@ function toDexToken(p: any): DexToken | null {
     change24h: Number(p?.priceChange?.h24) || 0,
     liquidityUsd: Number(p?.liquidity?.usd) || 0,
     volume24h: Number(p?.volume?.h24) || 0,
+    fdv: Number(p?.fdv) || 0,
+    marketCap: Number(p?.marketCap) || 0,
+    pairCreatedAt: Number(p?.pairCreatedAt) || 0,
+    quoteSymbol: String(p?.quoteToken?.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12),
   };
 }
 

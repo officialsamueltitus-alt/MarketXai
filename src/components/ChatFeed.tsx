@@ -33,7 +33,9 @@ import {
   AlertCircle,
   Copy,
   Check,
-  Cpu
+  Cpu,
+  LineChart,
+  Info
 } from 'lucide-react';
 import { formatMarketPrice } from '../utils/formatPrice';
 
@@ -1010,6 +1012,26 @@ Rationale: ${strategy.entryZone.rationale}
                       <div className="prose prose-invert prose-xs sm:prose-sm max-w-none text-slate-200 leading-relaxed break-words">
                         <Markdown text={message.content} />
                       </div>
+                      {message.choices && message.choices.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Choose what you want">
+                          {message.choices.map(c => (
+                            <button
+                              key={c.kind + c.prompt}
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => onSelectPromptRef.current(c.prompt)}
+                              className={`h-10 px-4 rounded-xl text-[13px] font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                                c.kind === 'analysis'
+                                  ? 'bg-indigo-500 text-white hover:bg-indigo-400'
+                                  : 'border border-white/[0.14] text-slate-100 hover:bg-white/[0.06]'
+                              }`}
+                            >
+                              {c.kind === 'analysis' ? <LineChart className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

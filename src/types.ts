@@ -197,7 +197,15 @@ export interface ChatMessage {
   activity?: ActivityStep[];
   chartImage?: string; // base64 Data URL for uploaded chart image
   chartFileName?: string;
+  /** Quick replies under an answer, e.g. "Analyze EUR/USD" or "Info about EUR/USD" after a bare pair */
+  choices?: MessageChoice[];
   timestamp: number;
+}
+
+export interface MessageChoice {
+  kind: 'analysis' | 'info';
+  label: string;
+  prompt: string;
 }
 
 export interface ChatSession {

@@ -2955,6 +2955,73 @@ function classifyPromptIntent(prompt: string, requestedSymbol?: string, hasChart
   return { isAnalysis: intent === 'analysis', detectedSymbol: requestedSymbol };
 }
 
+const compactUsd = (v: number) =>
+  !(v > 0) ? '' : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+const tinyNum = (v: number) => (v > 0 && v < 0.01 ? v.toFixed(Math.min(12, Math.ceil(-Math.log10(v)) + 3)) : String(v));
+const VENUE_NAME: Record<string, string> = { binance: 'Binance', bybit: 'Bybit', mexc: 'MEXC' };
+
+/** Factual details about a market for questions (what it is, where it trades, its live stats). Public data only. */
+function assetDetailLines(asset: AssetInfo, quote: MarketTicker | null): string[] {
+  const out: string[] = [];
+  const live = !!quote && quote.price > 0 && quote.live !== false;
+  if (live) {
+    out.push(`Price ${tinyNum(quote!.price)} ${quote!.currency || 'USD'}, 24h change ${quote!.change24h}%, 24h high ${tinyNum(quote!.high24h)}, 24h low ${tinyNum(quote!.low24h)}`);
+  }
+  if (asset.type === 'crypto' && asset.venue === 'dex' && asset.dex) {
+    const d = asset.dex;
+    const ageDays = d.pairCreatedAt > 0 ? Math.floor((Date.now() - d.pairCreatedAt) / 86400e3) : -1;
+    out.push(`On-chain token on ${d.chainId} (${d.name}, ${d.symbol}), traded on ${d.dexId} against ${d.quoteSymbol || 'its pair token'}; not listed on Binance, Bybit or MEXC`);
+    out.push(`Contract address ${d.address}`);
+    out.push(
+      [
+        d.liquidityUsd ? `pool liquidity ${compactUsd(d.liquidityUsd)}` : '',
+        d.volume24h ? `24h volume ${compactUsd(d.volume24h)}` : '',
+        d.marketCap ? `market cap ${compactUsd(d.marketCap)}` : '',
+        d.fdv ? `fully diluted value ${compactUsd(d.fdv)}` : '',
+        ageDays >= 0 ? `pool created ${ageDays === 0 ? 'today' : `${ageDays} day${ageDays === 1 ? '' : 's'} ago`}` : '',
+      ]
+        .filter(Boolean)
+        .join(', ')
+    );
+  } else if (asset.type === 'crypto') {
+    const venue = VENUE_NAME[asset.venue || 'binance'] || 'Binance';
+    out.push(`Cryptocurrency ${asset.name !== asset.symbol.split('/')[0] ? `(${asset.name}) ` : ''}traded as ${asset.symbol} on ${venue} spot${live && quote!.volume24h ? `, 24h volume ${String(quote!.volume24h).split(' · ')[0]}` : ''}`);
+  } else if (asset.type === 'forex') {
+    out.push(`Forex pair ${asset.symbol} (${asset.name}): price is how much of the second currency one unit of the first costs; trades 24 hours a day on weekdays, busiest in the London and New York sessions`);
+  } else if (asset.type === 'commodity') {
+    out.push(`Commodity ${asset.name} (${asset.symbol}), quoted in US dollars`);
+  } else if (asset.type === 'stock') {
+    out.push(`${/^(US30|NAS100|SPX|GER40|UK100|JP225)/.test(asset.symbol) ? 'Stock index' : 'Listed stock'} ${asset.name} (${asset.symbol}); moves most during its exchange's trading hours`);
+  } else if (asset.type === 'synthetic') {
+    out.push(`Synthetic index ${asset.name} from Deriv: simulated prices with a fixed volatility, trading 24/7 and not affected by real-world news`);
+  }
+  return out.filter(Boolean);
+}
+
+/**
+ * Just a pair ("EURUSD", "gold", "$WIF", "ansem"): ask whether the trader wants an analysis or information about it.
+ * Runs before the credit charge, so asking costs nothing; the two choices are sent back as ready-made prompts.
+ */
+function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  if (typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage || b.action) return next();
+  const prompt = b.prompt.trim().slice(0, 200);
+  if (classifyPrompt(prompt, { namesAsset: promptNamesAsset(prompt) }) !== 'clarify') return next();
+  const asset = extractAssetInfo(prompt);
+  const label = asset.symbol;
+  const message = `What would you like to know about **${asset.name !== label ? `${asset.name} (${label})` : label}**?\n\n- **Analysis:** a trade plan with the entry, stop loss and targets.\n- **Info:** the live price, today's move, market details and today's news.`;
+  res.json({
+    success: true,
+    isAnalysis: false,
+    clarify: { symbol: label, name: asset.name },
+    message,
+    choices: [
+      { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
+      { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+    ],
+  });
+}
+
 // Fallback response for general conversational chat questions when Gemini is unavailable
 function generateFallbackChatResponse(prompt: string): string {
   const p = prompt.toLowerCase();
@@ -3065,7 +3132,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3162,9 +3229,12 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
         const live = !!quote && quote.price > 0 && quote.live !== false;
         marketContext = [
           `LIVE MARKET DATA for ${chatAsset.name} (${chatAsset.symbol}), fetched ${new Date().toISOString()}:`,
-          live
-            ? `- Price ${quote!.price} (${quote!.currency || 'USD'}), 24h change ${quote!.change24h}%, 24h high ${quote!.high24h}, 24h low ${quote!.low24h}`
-            : '- Live price unavailable right now; do not quote a price.',
+          ...(chatAsset.unresolved
+            ? [`- ${chatAsset.unresolved} is not listed on Binance, Bybit or MEXC and has no liquid on-chain pool right now; say so plainly and do not invent a price.`]
+            : [
+                ...assetDetailLines(chatAsset, live ? quote : null).map(l => `- ${l}`),
+                ...(live ? [] : ['- Live price unavailable right now; do not quote a price.']),
+              ]),
           brief ? `- Today's news: ${brief.summary}. ${brief.guidance}` : '- Today: nothing on the economic calendar or the wires that could move it.',
         ].join('\n');
       }
@@ -3172,7 +3242,9 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       if (!ai) {
         const fallbackMessage = asksAboutDataSources(cleanPrompt)
           ? `### Where MarketX's live data comes from\n\n${DATA_SOURCES_FACTS.split('\n').slice(1).join('\n')}`
-          : (marketContext ? `${marketContext.replace(/^LIVE MARKET DATA/, '**Live market data**')}\n\n` : '') + generateFallbackChatResponse(cleanPrompt);
+          : chatAsset && marketContext
+            ? `### ${chatAsset.name} (${chatAsset.symbol})\n\n${marketContext.split('\n').slice(1).join('\n')}\n\nWant a trade plan? Ask **Analyze ${chatAsset.symbol}** and add a timeframe, for example on the 4H.`
+            : generateFallbackChatResponse(cleanPrompt);
         return res.json({
           success: true,
           isAnalysis: false,

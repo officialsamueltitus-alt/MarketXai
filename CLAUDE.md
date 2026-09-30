@@ -65,7 +65,13 @@
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
-  price and today's news for any pair they name; only analysis requests return trade cards.
+  price, market details (`assetDetailLines` in `server.ts`: type, venue, and for on-chain tokens chain, DEX, contract, liquidity,
+  volume, market cap, pool age) and today's news for any pair they name; info wording ("tell me about", "info", "market cap",
+  "price") is a question. Only analysis requests return trade cards. A bare pair ("EURUSD", "gold", "$WIF") is intent `clarify`:
+  the client answers locally with "Analyze X" / "Info about X" buttons (`ChatMessage.choices`) and the server's `clarifyBarePair`
+  (before `chargeAnalysisCredit`) does the same, so asking never costs a credit.
+- The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
+  anti-abuse rules, providers or keys.
 - Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once
   (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Every signal served is recorded as an
   `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and

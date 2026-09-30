@@ -116,7 +116,7 @@ const SECTIONS: Section[] = [
               Privacy box; it is required to continue.
             </>,
             <>
-              Check your inbox for your <B>pass code</B> (format MX XXXX XXXX). It is sent once and stays valid for 48 hours. An unused code expires and your seat
+              Check your inbox for your personal <B>pass code</B>. It is sent once and stays valid for 48 hours. An unused code expires and your seat
               is released.
             </>,
             <>
@@ -203,8 +203,8 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Any coin or meme" tone="emerald">
-          Beyond forex, gold, stocks and the big coins, you can analyze any cryptocurrency or meme that trades: every coin listed on Binance, Bybit or
-          MEXC, plus tokens that only trade on-chain on Solana, Base, Ethereum, BSC and more. Name it the way you would on X: <B>$WIF</B>,{' '}
+          Beyond forex, gold, stocks and the big coins, you can analyze any cryptocurrency or meme that trades: coins listed on the major exchanges,
+          plus tokens that only trade on-chain on Solana, Base, Ethereum, BSC and more. Name it the way you would on X: <B>$WIF</B>,{' '}
           <B>BONK/USDT</B>, <B>analyze ansem on the 1H</B>, <B>moo deng 4H</B>, or paste the token's <B>contract address</B>. MarketX finds the live
           market, its live price and its candles. Tiny meme prices are shown in full, like $0.0000009645. If a coin isn't listed anywhere with enough
           liquidity to trade, you're told so and no credit is used.
@@ -218,10 +218,17 @@ const SECTIONS: Section[] = [
         <Note title="Buy or sell only?">
           Say so in the prompt, for example short setup on gold 4H. If there is no valid setup in that direction, you get the best valid plan or a clear No signal.
         </Note>
-        <Note title="Questions work too">
-          Ask anything about trading or the markets, such as what is a liquidity sweep?, why is gold rising today? or is EUR/USD bullish? You get a written
-          answer instead of a trade plan. When a question names a pair, the answer uses its live price and today's news. For a trade plan, ask for it, for
-          example Analyze EUR/USD on the 4H.
+        <Note title="Ask about any pair">
+          Questions get a written answer, not a trade plan. Ask about trading in general (what is a liquidity sweep?) or about any market: <B>tell me about
+          WIF</B>, <B>BONK market cap</B>, <B>EUR/USD price</B>, <B>why is gold rising today?</B>, <B>is BTC bullish?</B> The answer uses the pair's live
+          price and today's move, what the market is and where it trades, and today's news. For coins that trade on-chain it also covers the chain,
+          contract address, liquidity, trading volume, market cap and how long the pool has existed. For a trade plan, ask for it: <B>Analyze EUR/USD on the
+          4H</B>.
+        </Note>
+        <Note title="Just typed a pair?" tone="emerald">
+          Send only a pair, like <B>EURUSD</B>, <B>gold</B> or <B>$WIF</B>, and MarketX asks what you want to know about it, with two buttons:{' '}
+          <B>Analyze</B> for a trade plan, or <B>Info</B> for the pair's details. Asking is free; a credit is only used once you pick one. Add a timeframe or
+          a word like buy, sell, setup or outlook (gold 4H, sell BTC) to go straight to the analysis.
         </Note>
         <Note title="Watch it work">
           After you send, the process report shows each step as it happens: reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
@@ -232,7 +239,7 @@ const SECTIONS: Section[] = [
           Mode, Trading Agent, MT5 Connector, Backtest, Trade Journal, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
-        <P>Each reply shows the tokens it used. The count is not fixed: it runs up live while the analysis works and lands somewhere around 18.5k to 41.5k (30k on average). Either way, one analysis costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
+        <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
       </>
     ),
   },

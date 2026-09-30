@@ -11,6 +11,7 @@ import {
   SubscriptionPlan,
   XShareReward,
   AppNotification,
+  MessageChoice,
   ActivityStep,
   PriceAlertItem,
 } from './types';
@@ -1162,6 +1163,35 @@ export default function App() {
     );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
 
+    // Just a pair ("EURUSD", "gold", "$WIF"): ask whether they want an analysis or information. Answered right here,
+    // no request and no credit (the server does the same if a bare pair ever reaches it)
+    const namesAssetHere = assetInfo.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(promptText);
+    if (!resolvedBaseStrategy && !chartImage && classifyPrompt(promptText, { namesAsset: namesAssetHere }) === 'clarify') {
+      const now = Date.now();
+      const sessionId = currentSessionId || `session-${now}`;
+      if (!currentSessionId) setCurrentSessionId(sessionId);
+      const label = assetInfo.symbol;
+      const title = assetInfo.name && assetInfo.name !== label ? `${assetInfo.name} (${label})` : label;
+      const userMsg: ChatMessage = { id: `msg-user-${now}`, role: 'user', content: promptText, timestamp: now };
+      const askMsg: ChatMessage = {
+        id: `msg-assistant-${now + 1}`,
+        role: 'assistant',
+        content: `What would you like to know about **${title}**?\n\n- **Analysis:** a trade plan with the entry, stop loss and targets.\n- **Info:** the live price, today's move, market details and today's news.`,
+        status: 'completed',
+        choices: [
+          { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
+          { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+        ],
+        timestamp: now + 1,
+      };
+      setSessions(prev =>
+        prev.some(x => x.id === sessionId)
+          ? prev.map(x => (x.id === sessionId ? { ...x, lastMessage: promptText, updatedAt: now, messages: [...x.messages, userMsg, askMsg] } : x))
+          : [{ id: sessionId, title: promptText.slice(0, 32), lastMessage: promptText, updatedAt: now, messages: [userMsg, askMsg] }, ...prev]
+      );
+      return;
+    }
+
     // Daily limit reached: prompts are paused until the automatic 3:00 AM refill (the server enforces this too)
     if (isDailyLimitReached(creditState, userProfile.email)) {
       setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
@@ -1389,7 +1419,7 @@ export default function App() {
       // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
       type BackendResult =
         | { kind: 'strategy'; strategy: StrategyResult; text: string }
-        | { kind: 'chat'; text: string }
+        | { kind: 'chat'; text: string; choices?: MessageChoice[] }
         | { kind: 'error'; status: number; code: string; message: string };
 
       const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
@@ -1422,7 +1452,7 @@ export default function App() {
             };
           }
           const text = data?.content || data?.message;
-          if (text) return { kind: 'chat', text };
+          if (text) return { kind: 'chat', text, ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}) };
           return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
         })
         .catch((err: any): BackendResult | null => {
@@ -1499,7 +1529,7 @@ export default function App() {
         const words = result.text.trim().split(/\s+/).length;
         addDoneStep('answer', 'Wrote the answer', `${words} words`);
         updateAssistant(
-          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity },
+          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity, ...(result.choices ? { choices: result.choices } : {}) },
           { lastMessage: promptText, updatedAt: Date.now() }
         );
         refreshAccount();
