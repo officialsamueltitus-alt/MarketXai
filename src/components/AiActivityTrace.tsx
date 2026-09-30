@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown, X, Square, ArrowUpRight } from 'lucide-react';
 import { ActivityStep, NewsBrief, ReasoningStep } from '../types';
 import { allocateTokens, formatTokens, promptTokenBudget } from '../utils/tokens';
+import { priceDigits } from '../utils/formatPrice';
 
 interface AiActivityTraceProps {
   steps?: ActivityStep[];
@@ -26,6 +27,7 @@ export function formatElapsed(ms: number): string {
 export function formatPriceShort(n: number): string {
   if (!Number.isFinite(n)) return '-';
   const abs = Math.abs(n);
+  if (abs > 0 && abs < 0.01) return n.toFixed(priceDigits(abs));
   const digits = abs >= 1000 ? 2 : abs >= 10 ? 2 : abs >= 1 ? 4 : 5;
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }

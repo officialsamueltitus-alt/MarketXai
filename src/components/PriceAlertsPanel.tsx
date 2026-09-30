@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles } from 'lucide-react';
 import type { PriceAlertItem } from '../types';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface PriceAlertsPanelProps {
   isOpen: boolean;
@@ -15,11 +16,7 @@ interface PriceAlertsPanelProps {
   pendingSymbol?: string | null;
 }
 
-const fmt = (p: number) => {
-  if (!Number.isFinite(p)) return '';
-  const d = p >= 100 ? 2 : p >= 1 ? 4 : 6;
-  return p.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
-};
+const fmt = (p: number) => (Number.isFinite(p) ? formatMarketPrice(p) : '');
 const ago = (ts: number) => {
   const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
   if (m < 1) return 'just now';

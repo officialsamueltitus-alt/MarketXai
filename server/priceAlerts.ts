@@ -114,6 +114,8 @@ export function levelsFromStrategy(s: any): AlertLevels | null {
 
 export function fmtPrice(p: number): string {
   if (!Number.isFinite(p)) return String(p);
+  // Meme coins: four significant digits below one cent (never 0.000000)
+  if (p > 0 && p < 0.01) return p.toFixed(Math.min(12, Math.ceil(-Math.log10(p)) + 3));
   const d = p >= 1000 ? 2 : p >= 100 ? 2 : p >= 1 ? 4 : 6;
   return p.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }

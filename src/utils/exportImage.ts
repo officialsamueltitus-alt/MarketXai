@@ -1,11 +1,11 @@
 import { StrategyResult } from '../types';
+import { formatMarketPrice } from './formatPrice';
 
 export function shareToX(strategy: StrategyResult, username?: string) {
   const isNoSignal = strategy.tradeType === 'NO_SIGNAL';
   const isLong = strategy.tradeType === 'LONG';
   const actionEmoji = isNoSignal ? '⚪ NO SIGNAL OPPORTUNITY' : isLong ? '🟢 BUY / LONG' : '🔴 SELL / SHORT';
-  const formatPrice = (p: number) =>
-    strategy.currentPrice < 10 ? p.toFixed(4) : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatPrice = (p: number) => formatMarketPrice(p, strategy.currentPrice);
 
   const cleanHandle = username ? username.replace(/^@/, '') : 'marketx_trader';
 

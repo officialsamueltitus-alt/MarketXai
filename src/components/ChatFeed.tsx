@@ -35,6 +35,7 @@ import {
   Check,
   Cpu
 } from 'lucide-react';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface ChatFeedProps {
   messages: ChatMessage[];
@@ -101,9 +102,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const handleCopyTradeSetup = (strategy: any, msgId: string) => {
     const summary = `📊 MARKETX (@_MarketX) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
 Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
-🎯 Optimal Entry: $${strategy.entryZone.optimal}
-🛑 Invalidation Stop Loss: $${strategy.stopLoss.price} (-${strategy.stopLoss.riskPercent}%)
-💰 Targets: ${strategy.takeProfits.map((tp: any) => `${tp.level}: $${tp.price} (${tp.rewardRatio})`).join(' | ')}
+🎯 Optimal Entry: $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}
+🛑 Invalidation Stop Loss: $${formatMarketPrice(strategy.stopLoss.price, strategy.currentPrice)} (-${strategy.stopLoss.riskPercent}%)
+💰 Targets: ${strategy.takeProfits.map((tp: any) => `${tp.level}: $${formatMarketPrice(tp.price, strategy.currentPrice)} (${tp.rewardRatio})`).join(' | ')}
 ⚖️ Risk / Reward: ${strategy.riskRewardRatio}
 Rationale: ${strategy.entryZone.rationale}
 
@@ -691,9 +692,9 @@ Rationale: ${strategy.entryZone.rationale}
                             </span>
                             <p className="text-[11px] opacity-90 leading-relaxed">
                               {strategy.tradeType === 'LONG'
-                                ? `Buyer absorption defended $${strategy.entryZone.optimal.toLocaleString()} with strong volume confluence. Targeting upside expansion.`
+                                ? `Buyer absorption defended $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)} with strong volume confluence. Targeting upside expansion.`
                                 : strategy.tradeType === 'SHORT'
-                                ? `Sellers defending key pivot above $${strategy.entryZone.optimal.toLocaleString()}. Invalidation anchored at structural high.`
+                                ? `Sellers defending key pivot above $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}. Invalidation anchored at structural high.`
                                 : 'Price action is consolidating in a neutral range. Recommended approach: Wait for directional confirmation.'}
                             </p>
                           </div>
@@ -795,7 +796,7 @@ Rationale: ${strategy.entryZone.rationale}
                               {strategy.execution === 'MARKET' ? 'Market Entry' : 'Optimal Entry'}
                             </span>
                             <span className="text-xs sm:text-base font-bold text-amber-200 mt-1 block truncate font-mono">
-                              ${strategy.currentPrice < 10 ? strategy.entryZone.optimal.toFixed(4) : strategy.entryZone.optimal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-amber-300/80 block mt-0.5 truncate font-mono">
                               ${strategy.entryZone.min} to ${strategy.entryZone.max}
@@ -809,7 +810,7 @@ Rationale: ${strategy.entryZone.rationale}
                               Stop Loss
                             </span>
                             <span className="text-xs sm:text-base font-bold text-rose-200 mt-1 block truncate font-mono">
-                              ${strategy.currentPrice < 10 ? strategy.stopLoss.price.toFixed(4) : strategy.stopLoss.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${formatMarketPrice(strategy.stopLoss.price, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-rose-300/80 block mt-0.5 truncate font-mono">
                               Risk: -{strategy.stopLoss.riskPercent}%
@@ -823,7 +824,7 @@ Rationale: ${strategy.entryZone.rationale}
                               TP1 Target
                             </span>
                             <span className="text-xs sm:text-base font-bold text-emerald-200 mt-1 block truncate font-mono">
-                              ${strategy.currentPrice < 10 ? strategy.takeProfits[0]?.price.toFixed(4) : strategy.takeProfits[0]?.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${formatMarketPrice(strategy.takeProfits[0]?.price, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-emerald-300/80 block mt-0.5 truncate font-mono">
                               {strategy.takeProfits[0]?.rewardRatio} ({strategy.takeProfits[0]?.exitPercent}%)
@@ -856,7 +857,7 @@ Rationale: ${strategy.entryZone.rationale}
                                   idx > 0 ? 'ml-3 sm:ml-4' : ''
                                 }`}
                               >
-                                {tp.level}: ${strategy.currentPrice < 10 ? tp.price.toFixed(4) : tp.price.toLocaleString(undefined, { minimumFractionDigits: 2 })} ({tp.rewardRatio})
+                                {tp.level}: ${formatMarketPrice(tp.price, strategy.currentPrice)} ({tp.rewardRatio})
                               </span>
                             ))}
                           </div>

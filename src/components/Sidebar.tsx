@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { TelegramIcon, XLogoIcon } from './SocialIcons';
 import { MARKETX_TELEGRAM_URL, MARKETX_X_URL } from '../utils/campaign';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -143,10 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const formatPrice = (p: number) =>
-    p < 10
-      ? p.toFixed(4)
-      : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatPrice = (p: number) => formatMarketPrice(p);
 
   const isPremium = userProfile.subscription.active;
 

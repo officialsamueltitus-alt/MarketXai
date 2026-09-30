@@ -53,6 +53,13 @@
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
   notification Rewards tab (next to the 10 credit Share on X card); nobody is notified about the campaign itself.
+- Every coin and meme (owner-specified): `server/cryptoUniverse.ts` loads the USDT spot lists of Binance, Bybit and MEXC (every 6h,
+  per worker) and resolves on-chain tokens by ticker or contract address via DexScreener (most liquid pool, `MIN_DEX_LIQUIDITY_USD`
+  default $20k) with GeckoTerminal candles (series shared across timeframes, 60s cache). `detectCryptoTicker` in
+  `src/utils/cryptoTicker.ts` (shared) finds cashtags, pairs, addresses, meme names (`CRYPTO_ALIASES`, incl. Ansem) and tickers;
+  `extractAssetInfo` runs it after majors/forex/stocks, `resolveAssetInfo` (async) finishes on-chain lookups. A coin listed nowhere
+  returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price. Prices below one cent keep 4 significant digits
+  (`priceDecimals`, `src/utils/formatPrice.ts`).
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.

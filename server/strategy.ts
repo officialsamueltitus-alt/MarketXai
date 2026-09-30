@@ -162,7 +162,8 @@ export function aggregateCandles(candles: Candle[], bucketMinutes: number): Cand
 export function priceDecimals(price: number, jpy = false, forex = false): number {
   if (jpy) return 3;
   if (forex) return 5;
-  if (price < 0.01) return 7;
+  // Sub-cent coins and memes: four significant digits (a 0.00000004 price would round to 0 at a fixed 7)
+  if (price < 0.01) return Math.min(12, Math.max(7, Math.ceil(-Math.log10(price)) + 3));
   if (price < 1) return 5;
   if (price < 10) return 4;
   if (price < 1000) return 3;

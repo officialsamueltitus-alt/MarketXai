@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { RefreshCw, CheckCircle2, AlertTriangle, XCircle, Activity, Target, PauseCircle, Sparkles } from 'lucide-react';
 import { RecheckResponse, StrategyResult } from '../types';
 import { apiFetch } from '../utils/apiClient';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 const STATE_STYLE: Record<RecheckResponse['state'], { box: string; icon: React.ElementType; iconClass: string }> = {
   VALID: { box: 'bg-emerald-500/[0.08] border-emerald-400/30 text-emerald-100', icon: CheckCircle2, iconClass: 'text-emerald-400' },
@@ -69,8 +70,7 @@ export const RecheckPanel: React.FC<{ strategy: StrategyResult; onReanalyze?: ()
   const [error, setError] = useState<string | null>(null);
   const trade = isTrade(strategy);
 
-  const fmt = (p: number) =>
-    strategy.currentPrice < 10 ? p.toFixed(strategy.currentPrice < 1 ? 5 : 4) : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (p: number) => formatMarketPrice(p, strategy.currentPrice);
 
   const run = async () => {
     if (busy) return;

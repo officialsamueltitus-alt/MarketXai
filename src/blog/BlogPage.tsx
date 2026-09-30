@@ -202,6 +202,13 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
+        <Note title="Any coin or meme" tone="emerald">
+          Beyond forex, gold, stocks and the big coins, you can analyze any cryptocurrency or meme that trades: every coin listed on Binance, Bybit or
+          MEXC, plus tokens that only trade on-chain on Solana, Base, Ethereum, BSC and more. Name it the way you would on X: <B>$WIF</B>,{' '}
+          <B>BONK/USDT</B>, <B>analyze ansem on the 1H</B>, <B>moo deng 4H</B>, or paste the token's <B>contract address</B>. MarketX finds the live
+          market, its live price and its candles. Tiny meme prices are shown in full, like $0.0000009645. If a coin isn't listed anywhere with enough
+          liquidity to trade, you're told so and no credit is used.
+        </Note>
         <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
           Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you. It keeps only valid, high probability setups
           where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The

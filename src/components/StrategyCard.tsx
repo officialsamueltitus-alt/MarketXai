@@ -24,6 +24,7 @@ import {
   User,
   AlertCircle
 } from 'lucide-react';
+import { formatMarketPrice } from '../utils/formatPrice';
 
 interface StrategyCardProps {
   strategy: StrategyResult;
@@ -73,9 +74,7 @@ const StrategyCardView: React.FC<StrategyCardProps> = ({
   const formatPrice = (p: number | undefined | null) => {
     const num = Number(p);
     if (isNaN(num)) return '0.00';
-    return currentPrice < 10
-      ? num.toFixed(4)
-      : num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatMarketPrice(num, currentPrice);
   };
 
   const traderHandle = userProfile?.username ? `@${userProfile.username.replace(/^@/, '')}` : '@trader';
