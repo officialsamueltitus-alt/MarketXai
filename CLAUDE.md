@@ -79,6 +79,9 @@
   site names only, live data used, cached). Sources are listed under the answer; the provider's redirect links and name never
   ship. The client shows "Checking live X data" and "Searching the web" steps, then "Searched the web · N sources" (or
   "Found an earlier answer" / "Web search not needed"). The user's text never goes into the chat system instruction.
+  Question answers share one engine budget (`CHAT_BUDGET_MS`, default 85s, under the client's 110s). If the engine can't answer, a
+  pair question gets its live details, a matching canned lesson is used, else 503 `ANSWER_UNAVAILABLE` (credit refunded), never a
+  generic greeting. Chat Markdown opens only http(s)/relative links (new tab, noopener) and never loads remote images.
 - On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
 - The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
   anti-abuse rules, providers or keys.

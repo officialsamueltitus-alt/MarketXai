@@ -63,6 +63,8 @@ const app = express();
 // Capacity: at most AI_MAX_CONCURRENCY engine calls run at once; others wait up to AI_QUEUE_WAIT_MS, then the
 // request is served the computed (real-candle) analysis instead of an error.
 const AI_MAX_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.AI_MAX_CONCURRENCY) || 24));
+// Total time a question may spend on the answer engine (all attempts together)
+const CHAT_BUDGET_MS = Math.max(20000, Math.floor(Number(process.env.CHAT_BUDGET_MS) || 85000));
 const AI_QUEUE_WAIT_MS = Math.max(1000, Math.floor(Number(process.env.AI_QUEUE_WAIT_MS) || 9000));
 const aiGate = createGate(perWorker(AI_MAX_CONCURRENCY));
 // Analyses are never reused once finished (markets move every second). Only identical requests that arrive while the
@@ -3028,6 +3030,14 @@ function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
 }
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
+/** A written answer from live market data alone (no engine): what the pair is, its live stats and today's news. */
+function marketDataAnswer(asset: AssetInfo, marketContext: string): string {
+  return `### ${asset.name} (${asset.symbol})\n\n${marketContext.split('\n').slice(1).join('\n')}\n\nWant a trade plan? Ask **Analyze ${asset.symbol}** and add a timeframe, for example on the 4H.`;
+}
+
+const ANSWER_UNAVAILABLE = "Couldn't finish the answer to your question right now. Your credit was refunded, please try again in a moment.";
+
+// Canned lessons for a few common topics, used only when the answer engine is unavailable ('' when none fits)
 function generateFallbackChatResponse(prompt: string): string {
   const p = prompt.toLowerCase();
   if (p.includes('golden pocket') || p.includes('0.618') || p.includes('fibonacci')) {
@@ -3080,7 +3090,7 @@ In institutional trading, surviving drawdowns and compounding gains is entirely 
 *Try asking for an analysis on any market to see live risk-to-reward calculations tailored to current volatility!*`;
   }
 
-  if (p.includes('who are you') || p.includes('what are you') || p.includes('what can you do') || p.includes('help')) {
+  if (p.includes('who are you') || p.includes('what are you') || p.includes('what can you do') || /^\s*help\b/.test(p)) {
     return `### 👋 Welcome to MarketX, your Institutional Quant & Trading Mentor
 
 I am **MarketX SI**, a Super Intelligence market assistant built for quantitative traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
@@ -3098,17 +3108,8 @@ I am **MarketX SI**, a Super Intelligence market assistant built for quantitativ
 - *"Explain how to spot a fakeout liquidity sweep"*`;
   }
 
-  return `### 💬 MarketX Financial Intelligence
-
-Hello! I am your institutional trading intelligence assistant.
-
-Whether you need a **complete market setup** with institutional supply/demand and Fibonacci 0.618 golden pocket confluence, or you want to **discuss trading concepts, market mechanics, or risk management**, I am ready.
-
-#### How to use MarketX:
-- **For Market Analysis**: Mention any asset and timeframe (e.g. *"Analyze BTC 4H"*, *"Setup for Gold"*, *"Analyze NVDA"*).
-- **For Trading Questions**: Ask about any concept (e.g. *"What is a liquidity sweep?"*, *"How do I trade Fair Value Gaps?"*).
-
-What market or trading topic would you like to explore?`;
+  // No canned answer fits this question: the caller says so plainly (and refunds the credit) instead of a greeting
+  return '';
 }
 
 // Security inspection preventing model leakage, jailbreaks, and system probing
@@ -3262,9 +3263,13 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       if (!ai) {
         const fallbackMessage = asksAboutDataSources(cleanPrompt)
           ? `### Where MarketX's live data comes from\n\n${DATA_SOURCES_FACTS.split('\n').slice(1).join('\n')}`
-          : chatAsset && marketContext
-            ? `### ${chatAsset.name} (${chatAsset.symbol})\n\n${marketContext.split('\n').slice(1).join('\n')}\n\nWant a trade plan? Ask **Analyze ${chatAsset.symbol}** and add a timeframe, for example on the 4H.`
+          : chatAsset && marketContext && !chatAsset.unresolved
+            ? marketDataAnswer(chatAsset, marketContext)
             : generateFallbackChatResponse(cleanPrompt);
+        if (!fallbackMessage) {
+          console.warn('[MarketX Chat] Answer engine not configured; question could not be answered');
+          return res.status(503).json({ error: 'ANSWER_UNAVAILABLE', message: ANSWER_UNAVAILABLE });
+        }
         return res.json({
           success: true,
           isAnalysis: false,
@@ -3318,7 +3323,13 @@ Do NOT output structured trade card JSON.`;
       const attempts: Array<{ modelId: string; search: boolean }> = chatReply
         ? []
         : [...chatModels.map(modelId => ({ modelId, search: true })), { modelId: chatModels[0], search: false }];
+      // Thinking engines can take a while (longer with web search): one overall budget that stays under the client's
+      // 110s limit, shared by the attempts, instead of short per-call limits that cut every answer off
+      const chatDeadline = Date.now() + CHAT_BUDGET_MS;
       for (const { modelId, search } of attempts) {
+        const left = chatDeadline - Date.now();
+        if (left < 4000) break;
+        const limit = Math.min(left, search ? 45000 : 30000);
         try {
           const response: any = await aiGate.run(
             () =>
@@ -3331,8 +3342,8 @@ Do NOT output structured trade card JSON.`;
                     ...(search ? { tools: [{ googleSearch: {} }] } : {}),
                   },
                 }),
-                search ? 22000 : 10000,
-                `Chat model request timed out (${search ? 22 : 10}s limit)`
+                limit,
+                `Chat model request timed out (${Math.round(limit / 1000)}s limit)`
               ),
             AI_QUEUE_WAIT_MS
           );
@@ -3348,13 +3359,18 @@ Do NOT output structured trade card JSON.`;
             break;
           }
         } catch (err: any) {
-          if (err instanceof BusyError) break;
-          console.warn(`[MarketX Chat] ${modelId}${search ? ' (web)' : ''} unavailable, trying next engine...`);
+          if (err instanceof BusyError) {
+            console.warn(`[MarketX Chat] Engine at capacity (${JSON.stringify(aiGate.stats())})`);
+            break;
+          }
+          console.warn(`[MarketX Chat] ${modelId}${search ? ' (web)' : ''} failed: ${String(err?.message || err).slice(0, 200)}`);
         }
       }
 
       if (!chatReply) {
-        chatReply = generateFallbackChatResponse(cleanPrompt);
+        // The engine could not answer: a pair question still gets its live details; otherwise say so and refund
+        chatReply = chatAsset && marketContext && !chatAsset.unresolved ? marketDataAnswer(chatAsset, marketContext) : generateFallbackChatResponse(cleanPrompt);
+        if (!chatReply) return res.status(503).json({ error: 'ANSWER_UNAVAILABLE', message: ANSWER_UNAVAILABLE });
       }
 
       return res.json({
