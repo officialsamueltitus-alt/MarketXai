@@ -24,13 +24,11 @@ import {
 } from './server/news';
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
-import { firebaseStatus } from './server/firebase';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerSupportRoutes } from './server/support';
-import { isMailerConfigured } from './server/mailer';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
   aggregateCandles,
@@ -1872,18 +1870,10 @@ ${takeProfits.map((tp: any) => `- **${tp.level}:** ${fmt(tp.price)} (R:R ${tp.re
 // -------------------------------------------------------------
 
 // Health check
+// Public liveness check only: which subsystems are configured is not advertised to the internet
 app.get('/api/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    service: 'MarketX SI Strategy Engine',
-    aiConfigured: Boolean(process.env.GEMINI_API_KEY),
-    accountsConfigured: isAuthConfigured(),
-    storageConfigured: !firebaseStatus(),
-    googleSignInConfigured: Boolean(getGoogleClientId()),
-    paymentsConfigured: getPaymentsPublicConfig().enabled,
-    emailConfigured: isMailerConfigured(),
-    supportedAssets: ['Forex', 'Gold (XAU/USD)', 'Synthetic Indices', 'Crypto', 'Stocks'],
-  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'ok', service: 'MarketX SI Strategy Engine' });
 });
 
 // Public runtime config for the browser (Google client ID & Paystack public key are not secrets)
