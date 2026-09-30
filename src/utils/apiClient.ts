@@ -71,12 +71,34 @@ export class ApiError extends Error {
   }
 }
 
-// The session lives in an httpOnly cookie, sent automatically with same-origin requests
-export async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+// The session lives in an httpOnly cookie, sent automatically with same-origin requests.
+// `timeoutMs` gives up on a request a phone silently dropped (screen lock, app switch), so nothing loads forever.
+export async function apiFetch<T = any>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+  const { timeoutMs, ...rest } = init;
+  const headers = new Headers(rest.headers);
+  if (rest.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
-  const res = await fetch(getApiUrl(path), { credentials: 'include', ...init, headers });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  let signal = rest.signal;
+  if (timeoutMs) {
+    const ctrl = new AbortController();
+    rest.signal?.addEventListener('abort', () => ctrl.abort(), { once: true });
+    timer = setTimeout(() => {
+      timedOut = true;
+      ctrl.abort();
+    }, timeoutMs);
+    signal = ctrl.signal;
+  }
+  let res: Response;
+  try {
+    res = await fetch(getApiUrl(path), { credentials: 'include', ...rest, headers, signal });
+  } catch (err) {
+    if (timedOut) throw new ApiError(0, 'TIMEOUT', 'This is taking too long. Check your connection and try again.');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   let data: any = null;
   try {
     data = await res.json();
