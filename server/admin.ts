@@ -367,10 +367,15 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Public: the current site banner (if any)
+  // Every visitor asks for the banner: one database read per 15s per worker serves them all
+  let bannerCache: { at: number; data: any } | null = null;
   app.get('/api/site/banner', wrap(async (req, res) => {
     if (!isFirebaseConfigured()) return res.json({ banner: null });
-    const snap = await bannerRef().get();
-    const b: any = snap.exists ? snap.data() : null;
+    if (!bannerCache || Date.now() - bannerCache.at > 15_000) {
+      const snap = await bannerRef().get();
+      bannerCache = { at: Date.now(), data: snap.exists ? snap.data() : null };
+    }
+    const b: any = bannerCache.data;
     const live = b && b.active && (!b.expiresAt || b.expiresAt > Date.now());
     res.setHeader('Cache-Control', 'public, max-age=30');
     res.json({ banner: live ? { id: b.id, title: b.title, message: b.message, tone: b.tone, link: b.link || null, image: b.image || null } : null });
@@ -621,6 +626,7 @@ export function registerAdminRoutes(app: Express) {
   // Suspend / unsuspend / ban / unban / delete, each followed by an email to the user
   app.post('/api/admin/users/:uid/action', requireAdmin, wrap(async (req, res) => {
     const uid = String(req.params.uid || '');
+    if (!/^[\w-]{6,128}$/.test(uid)) return res.status(400).json({ error: 'INVALID' });
     const action = String(req.body?.action || '') as 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'delete';
     const reason = String(req.body?.reason || '').slice(0, 500);
     if (!['suspend', 'unsuspend', 'ban', 'unban', 'delete'].includes(action)) return res.status(400).json({ error: 'INVALID_ACTION' });
@@ -827,6 +833,7 @@ export function registerAdminRoutes(app: Express) {
       const tone = ['info', 'success', 'warning'].includes(req.body?.tone) ? req.body.tone : 'info';
       const hours = Math.max(0, Math.min(24 * 90, Number(req.body?.durationHours) || 0));
       await bannerRef().set({ id, title, message: message.slice(0, 280), tone, link, image, active: true, createdAt: Date.now(), expiresAt: hours ? Date.now() + hours * 3600000 : null });
+      bannerCache = null;
       await db().collection('broadcasts').doc(id).set({ id, mode, title, message, tone, image, recipients: 'site', sentAt: Date.now() });
       adminLog('banner_set', { id, title });
       return res.json({ success: true, recipients: 0 });
@@ -891,6 +898,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/banner', requireAdmin, wrap(async (req, res) => {
     await bannerRef().set({ active: false, clearedAt: Date.now() }, { merge: true });
+    bannerCache = null;
     adminLog('banner_cleared', {});
     res.json({ success: true });
   }));

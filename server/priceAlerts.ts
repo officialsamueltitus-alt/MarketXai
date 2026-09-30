@@ -430,7 +430,7 @@ export async function sweepAlertOfferEmails(): Promise<number> {
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
-export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps) {
+export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, limiter: (req: Request, res: Response, next: NextFunction) => void) {
   if (isFirebaseConfigured() && IS_LEAD_WORKER) {
     const boot = async () => {
       try {
@@ -462,13 +462,13 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps) {
       if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' });
     });
 
-  app.get('/api/alerts', requireAuth, wrap(async (req, res) => {
+  app.get('/api/alerts', limiter, requireAuth, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const [snap, alerts] = await Promise.all([userRef(uid).get(), listAlerts(uid)]);
     res.json({ enabled: !!(snap.data() as UserDoc | undefined)?.alerts?.enabled, alerts });
   }));
 
-  app.post('/api/alerts/consent', requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/alerts/consent', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const enabled = req.body?.enabled === true;
     await userRef(uid).update({ alerts: { enabled, at: Date.now() } });
@@ -480,7 +480,7 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps) {
     res.json({ enabled, alerts: await listAlerts(uid) });
   }));
 
-  app.post('/api/alerts', requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/alerts', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const offerId = String(req.body?.offerId || '');
     if (!/^of_[a-z0-9]{8,40}$/.test(offerId)) return res.status(400).json({ error: 'BAD_REQUEST', message: 'That setup could not be found.' });
@@ -509,7 +509,8 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps) {
     const { id: _o, uid: _u, createdAt: _c, expiresAt, emailPending: _e, emailAt: _a, alertId: _al, ...levels } = offer;
     const alert: PriceAlert = {
       ...(levels as AlertLevels),
-      id, uid, offerId, createdAt: existing?.createdAt || now, updatedAt: now, expiresAt, active: true,
+      // Turned back on: watch from now (moves while it was off are not reported late)
+      id, uid, offerId, createdAt: now, updatedAt: now, expiresAt, active: true,
       entered: existing?.entered || offer.execution === 'MARKET', hits: existing?.hits || [],
     };
     await db().collection(ALERTS).doc(id).set(alert);
@@ -518,9 +519,11 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps) {
     res.json({ alert: toClient(alert), alerts: await listAlerts(uid) });
   }));
 
-  app.delete('/api/alerts/:id', requireAuth, guard, wrap(async (req, res) => {
+  app.delete('/api/alerts/:id', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
-    const ref = db().collection(ALERTS).doc(String(req.params.id).slice(0, 80));
+    const id = String(req.params.id || '');
+    if (!/^al_of_[a-z0-9]{8,40}$/.test(id)) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Alert not found.' });
+    const ref = db().collection(ALERTS).doc(id);
     const snap = await ref.get();
     const a = snap.data() as PriceAlert | undefined;
     if (!a || a.uid !== uid) return res.status(404).json({ error: 'NOT_FOUND', message: 'Alert not found.' });

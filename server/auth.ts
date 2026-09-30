@@ -568,9 +568,12 @@ export function registerAuthRoutes(app: Express) {
     res.json({ success: true, ...state });
   }));
 
+  // Verification links are public: bounded token size and a per-address limit keep them from being hammered
+  const verifyThrottle = createKeyedThrottle({ windowMs: 60_000, max: 20 });
   app.get('/api/auth/verify-email', wrap(async (req, res) => {
     const token = String(req.query.token || '');
-    if (!isAuthConfigured() || !token) return res.redirect('/?verified=0');
+    if (!isAuthConfigured() || !token || token.length > 200) return res.redirect('/?verified=0');
+    if (verifyThrottle.hit(clientIp(req))) return res.redirect('/?verified=0');
     const ok = await db().runTransaction(async tx => {
       const ref = tokenRef(hashToken(token));
       const snap = await tx.get(ref);

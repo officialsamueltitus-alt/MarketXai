@@ -1879,7 +1879,7 @@ registerAdminRoutes(app);
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
 // Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
-registerPriceAlertRoutes(app, { getBars: symbol => fetchCandlesForAsset(extractAssetInfo(symbol), '1M') });
+registerPriceAlertRoutes(app, { getBars: symbol => fetchCandlesForAsset(extractAssetInfo(symbol), '1M') }, generalApiRateLimiter);
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 
