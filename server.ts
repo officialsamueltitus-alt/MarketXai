@@ -2312,36 +2312,56 @@ async function fetchBinanceCandles(pair: string, tf: string): Promise<Candle[] |
   return rows.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }));
 }
 
+// Raw Yahoo series shared by every timeframe built from it (1m feeds 1m and 3m; 60m feeds 1H to 12H), so an RDM scan
+// across all timeframes makes one upstream request per series instead of one per timeframe
+const yahooRaw: Record<string, { at: number; p: Promise<Candle[] | null> }> = {};
+
+function fetchYahooRaw(yahooSym: string, interval: string, rangeParam: string): Promise<Candle[] | null> {
+  const key = `${yahooSym}|${interval}|${rangeParam}`;
+  const hit = yahooRaw[key];
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.p;
+  const p = (async () => {
+    for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
+      try {
+        const { status, data } = await fetchJsonWithTimeout(
+          `${host}/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${interval}&range=${rangeParam}`,
+          5000
+        );
+        const result = data?.chart?.result?.[0];
+        const q = result?.indicators?.quote?.[0];
+        const ts: number[] = result?.timestamp || [];
+        if (!q || !ts.length) {
+          warnFeed(`Yahoo candles ${host}`, `HTTP ${status} for ${yahooSym}`);
+          continue;
+        }
+        const candles: Candle[] = [];
+        for (let i = 0; i < ts.length; i++) {
+          const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+          if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c });
+        }
+        return candles;
+      } catch (err: any) {
+        warnFeed(`Yahoo candles ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
+      }
+    }
+    return null;
+  })();
+  yahooRaw[key] = { at: Date.now(), p };
+  // A failed fetch is not kept, so the next request retries
+  p.then(c => { if (!c && yahooRaw[key]?.p === p) delete yahooRaw[key]; });
+  const keys = Object.keys(yahooRaw);
+  if (keys.length > 1000) for (const k of keys) if (Date.now() - yahooRaw[k].at > CANDLE_TTL_MS) delete yahooRaw[k];
+  return p;
+}
+
 async function fetchYahooCandles(yahooSym: string, tf: string): Promise<Candle[] | null> {
   const plan = YAHOO_PLAN[tf];
   if (!plan) return null;
   const [interval, rangeParam, baseMinutes] = plan;
-  for (const host of ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com']) {
-    try {
-      const { status, data } = await fetchJsonWithTimeout(
-        `${host}/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${interval}&range=${rangeParam}`,
-        5000
-      );
-      const result = data?.chart?.result?.[0];
-      const q = result?.indicators?.quote?.[0];
-      const ts: number[] = result?.timestamp || [];
-      if (!q || !ts.length) {
-        warnFeed(`Yahoo candles ${host}`, `HTTP ${status} for ${yahooSym}`);
-        continue;
-      }
-      let candles: Candle[] = [];
-      for (let i = 0; i < ts.length; i++) {
-        const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
-        if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c });
-      }
-      const want = timeframeMinutes(tf);
-      if (want > baseMinutes) candles = aggregateCandles(candles, want);
-      return candles.slice(-300);
-    } catch (err: any) {
-      warnFeed(`Yahoo candles ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
-    }
-  }
-  return null;
+  const raw = await fetchYahooRaw(yahooSym, interval, rangeParam);
+  if (!raw) return null;
+  const want = timeframeMinutes(tf);
+  return (want > baseMinutes ? aggregateCandles(raw, want) : raw).slice(-300);
 }
 
 async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] | null> {
