@@ -156,6 +156,11 @@ const GT_NETWORK: Record<string, string> = {
   pulsechain: 'pulsechain', cronos: 'cro', mantle: 'mantle', scroll: 'scroll', sonic: 'sonic', abstract: 'abstract', berachain: 'berachain',
 };
 const SAFE_ID = /^[A-Za-z0-9_\-.]{1,120}$/;
+/** EVM (0x + 40 hex), Solana base58 (32 to 44) or other chains' plain alphanumeric ids, nothing else */
+const CONTRACT_RE = /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}|[A-Za-z0-9_:.\-]{3,100})$/;
+/** A display name from a third party: no control characters, markup or line breaks, one line, capped */
+const cleanLabel = (v: unknown, max: number) =>
+  String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069<>`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const dexBySymbol = new Map<string, DexToken>();
 const dexSearchCache = new Map<string, { at: number; p: Promise<DexToken | null> }>();
 
@@ -164,15 +169,17 @@ function toDexToken(p: any): DexToken | null {
   const chainId = String(p?.chainId || '');
   const pairAddress = String(p?.pairAddress || '');
   const address = String(p?.baseToken?.address || '');
-  if (!(price > 0) || !SAFE_ID.test(chainId) || !SAFE_ID.test(pairAddress) || !address) return null;
+  // Everything here comes from a third party and is shown to traders and given to the engine as market data:
+  // only real contract address formats, and names without control characters or markup
+  if (!(price > 0) || !SAFE_ID.test(chainId) || !SAFE_ID.test(pairAddress) || !CONTRACT_RE.test(address)) return null;
   return {
     symbol: String(p.baseToken.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) || 'TOKEN',
-    name: String(p.baseToken.name || p.baseToken.symbol || 'Token').replace(/[<>]/g, '').slice(0, 60),
+    name: cleanLabel(p.baseToken.name || p.baseToken.symbol, 60) || 'Token',
     address,
     chainId,
     network: GT_NETWORK[chainId] || chainId,
     pairAddress,
-    dexId: String(p?.dexId || 'dex').slice(0, 40),
+    dexId: String(p?.dexId || 'dex').replace(/[^A-Za-z0-9_\-. ]/g, '').slice(0, 40) || 'dex',
     priceUsd: price,
     change24h: Number(p?.priceChange?.h24) || 0,
     liquidityUsd: Number(p?.liquidity?.usd) || 0,

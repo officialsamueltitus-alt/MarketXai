@@ -251,7 +251,10 @@ export async function openAutoJournal(a: AlertLike): Promise<void> {
     // Already logged (the alert was turned off and on again): a trade still tracked keeps going, a finished one stays
     if (cur.exists) {
       const t = cur.data() as JournalTrade;
-      if (t.auto?.state === 'DONE' || t.auto?.state === 'TRACKING') return;
+      // Still tracked, or already scored: leave it. The one exception is an alert switched off before its entry and
+      // switched back on: that "no fill" was only a pause, so the trade is tracked again.
+      const pausedNoFill = t.auto?.state === 'DONE' && t.result === 'NO_FILL' && t.auto.endedReason === 'TURNED_OFF';
+      if ((t.auto?.state === 'DONE' && !pausedNoFill) || t.auto?.state === 'TRACKING') return;
     } else if (count >= MAX_TRADES) return;
     const now = Date.now();
     const entered = a.execution === 'MARKET' || a.entered;

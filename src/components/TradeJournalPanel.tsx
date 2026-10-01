@@ -343,7 +343,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                         <form onSubmit={closeTrade} className="mt-2.5 flex items-end gap-2 mx-fade-in">
                           <Field label="Exit price" value={closing.exit} onChange={v => setClosing(c => (c ? { ...c, exit: v } : c))} placeholder="0.00" className="flex-1" />
                           <Field label="or P/L" value={closing.pnl} onChange={v => setClosing(c => (c ? { ...c, pnl: v } : c))} placeholder="e.g. 80" className="flex-1" />
-                          <button type="submit" disabled={busy === `close:${t.id}` || (!closing.exit.trim() && !closing.pnl.trim())} className="h-10 px-3 rounded-xl bg-white text-slate-900 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50">
+                          <button type="submit" aria-label={`Close the ${t.symbol} trade`} disabled={busy === `close:${t.id}` || (!closing.exit.trim() && !closing.pnl.trim())} className="h-10 px-3 rounded-xl bg-white text-slate-900 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50">
                             {busy === `close:${t.id}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Close
                           </button>
                         </form>
