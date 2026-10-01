@@ -99,9 +99,9 @@
   only while they have an active alert and the tab is visible. The panel has a Refresh button: `GET /api/alerts?live=1` reloads the alerts and
   returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
   price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
-- Emails (`server/mailer.ts`, the only template): always dark with white text, in every mail app: table `bgcolor` + background
-  colour + a solid gradient image (Gmail apps don't recolour images), `color-scheme: dark only`, and a Gmail iOS blend fix. No
-  white backgrounds or white buttons (the button is violet).
+- Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
+  top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
+  `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
