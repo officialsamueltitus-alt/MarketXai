@@ -26,6 +26,8 @@ import {
   Activity,
   LineChart,
   Shuffle,
+  Radar,
+  Trophy,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -89,18 +91,20 @@ const timeframeLabel = (v: string) => TIMEFRAMES.find(t => t.value === v)?.label
 
 // Slash-command menu shown when the user types "/" in the chat input
 const SLASH_COMMANDS = [
+  { id: 'watchlist', label: 'Watchlist', description: 'Add pairs and get told when a setup builds, 24/7', icon: Radar },
+  { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
+  { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
+  { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
   { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
   { id: 'preference', label: 'Preference Mode', description: 'Tune analysis style, risk and defaults', icon: SlidersHorizontal },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
-  { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
-  { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
   { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['alerts']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -114,6 +118,11 @@ interface ChatInputProps {
   onStopAnalysis?: () => void;
   /** A live slash command was chosen (e.g. 'alerts'); return true when it was handled */
   onCommand?: (id: string) => boolean;
+  /** RDM is Pro only (after the free period): shown locked, and choosing it calls onLockedFeature */
+  rdmLocked?: boolean;
+  onLockedFeature?: (feature: 'RDM') => void;
+  /** Badge on the live commands, e.g. "Free till 1 Nov" or "Pro" (default "Live") */
+  commandBadge?: string | null;
   isLoading: boolean;
   /** Analyses left today; at 0 new prompts are paused until the refill */
   credits: number;
@@ -128,6 +137,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   onStopAnalysis,
   onCommand,
+  rdmLocked = false,
+  onLockedFeature,
+  commandBadge,
   isLoading,
   credits,
   refillLabel = '3:00 AM',
@@ -166,6 +178,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       localStorage.setItem(TF_KEY, v);
     } catch {}
   };
+  // RDM became Pro only: a saved RDM pick falls back to 4H
+  useEffect(() => {
+    if (rdmLocked && timeframe === 'RDM') setTimeframe('4H');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rdmLocked, timeframe]);
   const [tfOpen, setTfOpen] = useState(false);
   const tfButtonRef = useRef<HTMLButtonElement>(null);
   const tfMenuRef = useRef<HTMLDivElement>(null);
@@ -184,7 +201,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Slash menu is open while the input is a single "/word" token
   const slashMatch = /^\/(\S*)$/.exec(input);
-  const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
+  // "/trade-journal", "/tradejournal" and "/trade" all find Trade Journal
+  const slashQuery = slashMatch ? slashMatch[1].toLowerCase().replace(/[-_]/g, '') : '';
   const filteredCommands = slashMatch
     ? SLASH_COMMANDS.filter(
         c => c.label.toLowerCase().replace(/\s+/g, '').includes(slashQuery) || c.id.includes(slashQuery)
@@ -452,6 +470,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [tfOpen]);
 
   const chooseTimeframe = (v: string) => {
+    if (v === 'RDM' && rdmLocked) {
+      setTfOpen(false);
+      onLockedFeature?.('RDM');
+      return;
+    }
     setTimeframe(v);
     setTfOpen(false);
     textareaRef.current?.focus({ preventScroll: true });
@@ -485,9 +508,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }`}
       >
         {t.value === 'RDM' ? (
-          <span className="inline-flex items-center gap-1.5" title="Random: scans every timeframe and picks the best valid setup">
-            <Shuffle className="w-3.5 h-3.5" />
+          <span className="inline-flex items-center gap-1.5" title={rdmLocked ? 'RDM is a Pro feature' : 'Random: scans every timeframe and picks the best valid setup'}>
+            {rdmLocked ? <Lock className="w-3.5 h-3.5 text-amber-300" /> : <Shuffle className="w-3.5 h-3.5" />}
             RDM
+            {rdmLocked && <span className="text-[9px] font-sans font-bold text-amber-300">PRO</span>}
           </span>
         ) : (
           t.label
@@ -557,7 +581,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <div className="px-2.5 pt-1.5 pb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
                 <span>Commands</span>
                 <span className="inline-flex items-center gap-1 text-amber-300/80">
-                  <Lock className="w-3 h-3" /> Private testing
+                  <Lock className="w-3 h-3" /> Soon: private testing
                 </span>
               </div>
               {filteredCommands.map((cmd, i) => {
@@ -584,7 +608,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
                         {LIVE_COMMANDS.has(cmd.id) ? (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-400" />Live
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{commandBadge || 'Live'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>

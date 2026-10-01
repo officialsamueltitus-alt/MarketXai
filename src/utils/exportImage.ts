@@ -1,4 +1,5 @@
 import { StrategyResult } from '../types';
+import { exactPrice } from './formatPrice';
 import { formatMarketPrice } from './formatPrice';
 
 export function shareToX(strategy: StrategyResult, username?: string) {
@@ -68,10 +69,9 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
-function fmtPrice(p: number, ref: number): string {
-  if (!Number.isFinite(p)) return '-';
-  const digits = ref >= 1000 ? 2 : ref >= 10 ? 2 : ref >= 1 ? 4 : 5;
-  return p.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+// Prices exactly as fetched or calculated, never rounded (the second argument is kept for older callers)
+function fmtPrice(p: number, _ref?: number): string {
+  return exactPrice(p);
 }
 
 function pct(from: number, to: number): string {

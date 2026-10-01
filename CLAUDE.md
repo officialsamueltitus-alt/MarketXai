@@ -61,8 +61,11 @@
   default $20k) with GeckoTerminal candles (series shared across timeframes, 60s cache). `detectCryptoTicker` in
   `src/utils/cryptoTicker.ts` (shared) finds cashtags, pairs, addresses, meme names (`CRYPTO_ALIASES`, incl. Ansem) and tickers;
   `extractAssetInfo` runs it after majors/forex/stocks, `resolveAssetInfo` (async) finishes on-chain lookups. A coin listed nowhere
-  returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price. Prices below one cent keep 4 significant digits
-  (`priceDecimals`, `src/utils/formatPrice.ts`).
+  returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price.
+- Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
+  through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
+  `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan
+  prices) and percentages are not prices and keep 2 decimals.
 - Logo (owner-specified): the glossy ball mark (gradient X with a widened gap between the chevron and the two right legs,
   wrapped on a dark glass sphere with the rainbow ring as its rim). Site sizes live in `public/brand/` (`marketx-logo-{32..512}.png`,
   `apple-touch-icon.png`, `marketx-maskable-512.png`, `/favicon.ico`), referenced with `?v=3` (bump `LOGO_V` in `MarketXIcon.tsx`
@@ -108,6 +111,25 @@
   only while they have an active alert and the tab is visible. The panel has a Refresh button: `GET /api/alerts?live=1` reloads the alerts and
   returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
   price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
+- Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);
+  a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM). The lead
+  worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
+  BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
+  email, max 8 emails a day, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
+- Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
+  (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
+  (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it
+  ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
+  alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
+  writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
+- Pro gate (owner-specified, `server/proAccess.ts`): the four commands and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
+  (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
+  and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not
+  gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
+  lapsed accounts and tells them once. Data is kept. Client: `profile.proAccess`/`proFreeUntil`, RDM chip locked, commands open pricing.
+- Connectors / Plugins (`server/plugins.ts`, `src/utils/plugins.ts`): alerts, watchlist, journal, trackRecord. Every command turned on is listed
+  in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the
+  same helpers as inside each command (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data.
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.

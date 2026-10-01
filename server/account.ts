@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
+import { hasProFeatures, PRO_GATE_AT } from './proAccess';
 import { CREDIT_RESET_LABEL, CREDIT_RESET_TZ, isDailyResetDue, nextDailyReset } from './dailyReset';
 import crypto from 'crypto';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
@@ -84,6 +85,11 @@ export interface UserDoc {
   // Price alerts: the trader's approval, and when the last "Want an alert?" email went out
   alerts?: { enabled: boolean; at: number };
   alertMailAt?: number;
+  // Watchlist (/watchlist): the trader's approval, and today's watchlist email count
+  watchlist?: { enabled: boolean; at: number };
+  watchMail?: { day: string; n: number };
+  // Commands switched on that need no approval (shown under Settings, Connectors / Plugins)
+  plugins?: { journal?: boolean; trackRecord?: boolean };
 }
 
 export function blockedStatusMessage(status?: string): { code: string; message: string } | null {
@@ -170,6 +176,10 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
     alertsEnabled: !!doc.alerts?.enabled,
+    plugins: { alerts: !!doc.alerts?.enabled, watchlist: !!doc.watchlist?.enabled, journal: !!doc.plugins?.journal, trackRecord: !!doc.plugins?.trackRecord },
+    // Commands and RDM: open to all until the free period ends, then Pro only
+    proAccess: vip || hasProFeatures(doc),
+    proFreeUntil: PRO_GATE_AT,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }
       : doc.subscription,

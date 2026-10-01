@@ -15,12 +15,13 @@ import {
   Target,
   UserCog,
   ImagePlus,
+  Radar,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
 // The MarketX Site Guide, served as its own page at /blog. Static content only: nothing here is user input.
 
-const UPDATED = 'September 2026';
+const UPDATED = 'October 2026';
 
 type Row = string[];
 
@@ -268,8 +269,9 @@ const SECTIONS: Section[] = [
           live price, checking today's news and building the plan. It then folds into one line such as Worked for 14s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
-          Type / in the input to see the commands. <B>/price-alerts</B> is live (marked Live). Still in private testing and marked Soon: Strategy, Preference
-          Mode, Trading Agent, MT5 Connector, Backtest, Trade Journal, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B> and <B>/track-record</B> (see
+          Watchlist, journal and track record below). Still in private testing and marked Soon: Strategy, Preference Mode, Trading Agent, MT5 Connector,
+          Backtest, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -377,6 +379,53 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'watchlist-and-tools',
+    shots: [
+      { src: '/guide/watchlist.webp', alt: 'The watchlist: each pair with its timeframe, a setup ready or building, Get the plan and Scan now.', w: 780, h: 1180 },
+      { src: '/guide/connectors.webp', alt: 'Connectors / Plugins: the commands in use, each with a switch to turn it off.', w: 780, h: 966 },
+    ],
+    title: 'Watchlist, journal and track record',
+    icon: Radar,
+    lead: 'Four commands keep working for you after the chat: the watchlist finds setups on your pairs, price alerts follow your trades, the journal keeps your results, and the track record shows how signals played out.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/watchlist.</B> Type it in the input and approve the watchlist once. MarketX then watches the pairs you add on its own, all day.
+            </>,
+            <>
+              <B>Add a pair</B> (EURUSD, gold, BTC, a meme coin) and pick a timeframe. Pick <B>RDM</B> to have the pair scanned on every timeframe. Before a pair
+              is added, MarketX confirms it can read its live price and chart; if it can't, the pair is not added and you are told why.
+            </>,
+            <>
+              Each pair shows <B>Setup ready</B>, <B>Building</B> (a fresh zone price is getting close to) or <B>Watching</B>. When a setup is found you get a
+              notification and an email, once per setup. Tap <B>Get the plan</B> for the full analysis with entry, stop and targets.
+            </>,
+          ]}
+        />
+        <Note title="Price alerts, journal and track record">
+          <B>/price-alerts</B> follows a trade plan's entry, targets and stop for you. <B>/trade-journal</B> works by itself and by hand. Turn on a price alert
+          on a signal and the trade is written into your journal straight away, marked <B>Auto</B>. When the alert ends, the journal scores it once: the
+          target or stop reached, the R and how long it took. If the entry was never reached it shows <B>No fill</B> and stays out of your stats. Trades you
+          take elsewhere you log yourself; close them with the exit price or profit and loss. Either way you get your win rate, R, streak and best markets. <B>/track-record</B> shows how
+          your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry), and the same results across MarketX.
+        </Note>
+        <Note title="Connectors / Plugins">
+          Every command you turn on appears in Settings, Connectors / Plugins. Two are shown there; tap the expand icon to see them all in one window. Open a
+          command from there, or use its switch to turn it off. Turning one off keeps your pairs, trades and results.
+        </Note>
+        <Note title="Free until 1 November">
+          The watchlist, price alerts, trade journal, track record and the <B>RDM</B> timeframe are free for everyone until 1 November 2026. From then on they
+          are part of Pro. If you are on the Free plan they pause, and your pairs, trades and results are kept for when you upgrade.
+        </Note>
+        <Note title="Not trading advice" tone="amber">
+          A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
+        </Note>
+      </>
+    ),
+  },
+  {
     id: 'credits-and-plans',
     shots: [{ src: '/guide/credits-balance.webp', alt: "Your credits and today\u2019s analyses, with the time they refill.", w: 786, h: 1460 }, { src: '/guide/credits-pro.webp', alt: "Plans: Pro gives you more analyses every day.", w: 786, h: 1604 }],
     title: 'Credits, daily analyses and plans',
@@ -459,7 +508,8 @@ const SECTIONS: Section[] = [
               <B>Theme.</B> In Settings choose Light, Dark or System (follows your device).
             </>,
             <>
-              <B>Connectors / Plugins.</B> In Settings, the place where apps and tools you link to MarketX will appear. Nothing is available there yet.
+              <B>Connectors / Plugins.</B> In Settings, the commands you have turned on (watchlist, price alerts, trade journal, track record). Two are shown;
+              the expand icon opens the full list. Open a command or switch it off from there.
             </>,
             <>
               <B>Notifications.</B> The bell shows analyses, sign ins, payments, rewards and support replies. Filter them, mark them read or clear them. Turn Email

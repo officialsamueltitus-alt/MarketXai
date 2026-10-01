@@ -177,12 +177,17 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const yearly = billingPeriod === 'yearly';
   const payLabel = yearly ? chargeLabel || yearlyDiscountedPrice : chargeLabel || monthlyPrice;
 
+  const gateAt = userProfile.proFreeUntil || 0;
+  const freeUntil = gateAt > Date.now() ? new Date(gateAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' }) : '';
   const freeFeatures: [string, boolean][] = [
     [`${benefits.freeDailyAnalyses} SI analyses every day`, true],
     ['Full trade plans: entry, stop & targets', true],
     ['Live market prices', true],
     ['Gift credits & X rewards', true],
     ['Verified trader badge', false],
+    // Open to everyone until the free period ends, then Pro only
+    [`Watchlist, price alerts, journal & track record${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`RDM: scan every timeframe${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
   ];
   const proFeatures: string[] = [
     `${benefits.proDailyAnalyses} SI analyses every day`,
@@ -190,6 +195,8 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     'Live market prices',
     'Gift credits & X rewards',
     'Verified trader badge',
+    'Watchlist, price alerts, journal & track record',
+    'RDM: scan every timeframe',
   ];
 
   return (

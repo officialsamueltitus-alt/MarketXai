@@ -30,6 +30,11 @@ import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './serve
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
+import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
+import { registerJournalRoutes } from './server/journal';
+import { registerPluginRoutes } from './server/plugins';
+import { exactPrice } from './src/utils/formatPrice';
+import { proGateActive, proGuard } from './server/proAccess';
 import { registerSupportRoutes } from './server/support';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
@@ -368,12 +373,12 @@ async function loadYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
         continue;
       }
       const prevClose = Number(meta.previousClose || meta.regularMarketPreviousClose || meta.chartPreviousClose || price);
-      const decimals = price < 10 ? 5 : price < 1000 ? 3 : 2;
+      // Prices exactly as the source sends them (owner-specified: never rounded)
       return {
         price,
         change24h: Number((((price - prevClose) / prevClose) * 100).toFixed(2)),
-        high24h: Number(Number(meta.regularMarketDayHigh || Math.max(price, prevClose)).toFixed(decimals)),
-        low24h: Number(Number(meta.regularMarketDayLow || Math.min(price, prevClose)).toFixed(decimals)),
+        high24h: Number(meta.regularMarketDayHigh || Math.max(price, prevClose)),
+        low24h: Number(meta.regularMarketDayLow || Math.min(price, prevClose)),
       };
     } catch (err: any) {
       warnFeed(`Yahoo ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
@@ -978,15 +983,15 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
     forexItems.forEach((item, i) => {
       const fx = forexQuotes[i];
       if (!fx) return;
-      const decimals = item.symbol.includes('JPY') ? 3 : 5;
-      const price = Number(fx.price.toFixed(decimals));
+      // The rate exactly as the source sends it (owner-specified: never rounded)
+      const price = fx.price;
       liveUpdates[item.symbol] = {
         price,
         // Daily reference rates carry no intraday range; keep a narrow band around the rate
         change24h: fx.intraday ? fx.change24h : item.change24h,
-        high24h: Number((fx.intraday ? fx.high24h : price * 1.003).toFixed(decimals)),
-        low24h: Number((fx.intraday ? fx.low24h : price * 0.997).toFixed(decimals)),
-        ratio: price.toFixed(decimals === 3 ? 2 : 3),
+        high24h: fx.intraday ? fx.high24h : price * 1.003,
+        low24h: fx.intraday ? fx.low24h : price * 0.997,
+        ratio: String(price),
       };
     });
   } catch (err) {
@@ -2044,6 +2049,57 @@ registerPriceAlertRoutes(
   },
   generalApiRateLimiter
 );
+// Watchlist (/watchlist): pairs are checked for live data before they are added, then scanned by the server with the
+// same zone engine as the analysis (read-only, no AI call), and the trader is notified when a setup builds or is ready
+const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
+  m
+    ? {
+        timeframe: tf,
+        price: m.price,
+        equilibrium: m.equilibrium,
+        plan: m.plan ? { direction: m.plan.direction, score: m.plan.score, entry: m.plan.entry } : null,
+        zones: [...m.demandZones, ...m.supplyZones].map(z => ({
+          kind: z.kind, proximal: z.proximal, low: z.low, high: z.high, fresh: z.fresh, liveFirstTouch: z.liveFirstTouch,
+          priceInside: z.priceInside, distanceAtr: z.distanceAtr, score: z.score, territory: z.territory,
+        })),
+      }
+    : null;
+const liveQuoteFor = async (asset: AssetInfo) => {
+  const q = await resolveAccurateAssetQuote(asset);
+  return q && q.price > 0 && q.live !== false ? q : null;
+};
+registerWatchlistRoutes(
+  app,
+  {
+    resolve: async query => {
+      const named = extractAssetInfo(query);
+      if (!named.unresolved && !promptNamesAsset(query)) return null;
+      const asset = await resolveAssetInfo(query);
+      return asset.unresolved ? null : { symbol: asset.symbol, name: asset.name, type: asset.type };
+    },
+    quote: async symbol => {
+      const q = await liveQuoteFor(await resolveAssetInfo(symbol, symbol));
+      return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
+    },
+    candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
+    scan: async (symbol, timeframes) => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      const q = await liveQuoteFor(asset);
+      if (!q) return [];
+      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q).catch(() => null)));
+      return maps.map((m, i) => toScanFrame(m, timeframes[i]));
+    },
+    // Read when a scan runs (the constant is declared further down this file)
+    get rdmMinScore() {
+      return RDM_MIN_SCORE;
+    },
+  },
+  generalApiRateLimiter
+);
+// Trade journal (/trade-journal) and track record (/track-record)
+registerJournalRoutes(app, generalApiRateLimiter);
+// Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there
+registerPluginRoutes(app, generalApiRateLimiter);
 // Every coin listed on Binance, Bybit and MEXC (refreshed every 6 hours), so any listed coin or meme can be analyzed
 startCryptoUniverse();
 // Stored answers: expired ones are removed hourly (one worker does it)
@@ -2315,15 +2371,15 @@ async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<Mark
     if (streamed) return streamed;
     if (fx) {
       const isJpy = quote === 'JPY' || cleanSym.includes('JPY');
-      const decimals = isJpy ? 3 : 5;
-      const numPrice = Number(fx.price.toFixed(decimals));
+      // The rate exactly as the source sends it (owner-specified: never rounded)
+      const numPrice = fx.price;
       return {
         symbol: cleanSym,
         name: asset.name,
         price: numPrice,
         change24h: fx.change24h,
-        high24h: Number((fx.intraday ? fx.high24h : numPrice * (isJpy ? 1.006 : 1.004)).toFixed(decimals)),
-        low24h: Number((fx.intraday ? fx.low24h : numPrice * (isJpy ? 0.994 : 0.996)).toFixed(decimals)),
+        high24h: fx.intraday ? fx.high24h : numPrice * (isJpy ? 1.006 : 1.004),
+        low24h: fx.intraday ? fx.low24h : numPrice * (isJpy ? 0.994 : 0.996),
         volume24h: '168.40 B Live Interbank Liquidity',
         currency: quote,
         type: 'forex',
@@ -2386,14 +2442,14 @@ async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<Mark
     const derivSym = mapDerivSymbol(cleanSym);
     const liveSyn = derivSym ? await fetchDerivQuote(derivSym) : null;
     if (liveSyn) {
-      const synDecimals = liveSyn.price < 1000 ? 3 : 2;
+      // The index exactly as the source sends it (owner-specified: never rounded)
       return {
         symbol: cleanSym,
         name: asset.name,
-        price: Number(liveSyn.price.toFixed(synDecimals)),
+        price: liveSyn.price,
         change24h: liveSyn.change24h,
-        high24h: Number(liveSyn.high24h.toFixed(synDecimals)),
-        low24h: Number(liveSyn.low24h.toFixed(synDecimals)),
+        high24h: liveSyn.high24h,
+        low24h: liveSyn.low24h,
         volume24h: 'Live Deriv Synthetic Feed',
         currency: 'pts',
         type: 'synthetic',
@@ -2974,7 +3030,8 @@ function classifyPromptIntent(prompt: string, requestedSymbol?: string, hasChart
 
 const compactUsd = (v: number) =>
   !(v > 0) ? '' : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
-const tinyNum = (v: number) => (v > 0 && v < 0.01 ? v.toFixed(Math.min(12, Math.ceil(-Math.log10(v)) + 3)) : String(v));
+// Live prices in answers exactly as fetched (owner-specified: never rounded)
+const tinyNum = (v: number) => exactPrice(v);
 const VENUE_NAME: Record<string, string> = { binance: 'Binance', bybit: 'Bybit', mexc: 'MEXC' };
 
 /** Factual details about a market for questions (what it is, where it trades, its live stats). Public data only. */
@@ -3038,6 +3095,19 @@ function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
     ],
   });
 }
+
+/** RDM (scan every timeframe) is Pro only once the free period ends: checked before any credit is used */
+async function rdmProGate(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  const rdm = typeof b.timeframe === 'string' && b.timeframe.trim().toUpperCase() === 'RDM';
+  if (!rdm || !proGateActive() || typeof b.prompt !== 'string' || b.baseStrategy) return next();
+  const prompt = b.prompt.trim().slice(0, 2000);
+  // A timeframe written in the prompt wins over RDM, and questions never use it
+  if (timeframeFromPrompt(prompt)) return next();
+  if (classifyPrompt(prompt, { hasChartImage: !!b.chartImage, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
+  return rdmGuard(req, res, next);
+}
+const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
 /** A written answer from live market data alone (no engine): what the pair is, its live stats and today's news. */
@@ -3148,7 +3218,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, rdmProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
