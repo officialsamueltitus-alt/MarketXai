@@ -16,7 +16,10 @@ import {
   ActivityStep,
   PriceAlertItem,
   AlertLiveQuote,
+  PluginId,
+  PluginStates,
 } from './types';
+import { NO_PLUGINS, PLUGINS, PLUGIN_COMMAND } from './utils/plugins';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
@@ -36,9 +39,13 @@ const RewardEmailNotificationModal = lazyWithReload(() =>
   import('./components/RewardEmailNotificationModal').then(m => ({ default: m.RewardEmailNotificationModal }))
 );
 const PriceAlertsPanel = lazyWithReload(() => import('./components/PriceAlertsPanel').then(m => ({ default: m.PriceAlertsPanel })));
+const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel').then(m => ({ default: m.WatchlistPanel })));
+const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
+const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
+const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -152,6 +159,10 @@ export default function App() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   // Price alerts (/price-alerts): watched on the server; the client only lists them and toggles them
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  // Command panels (/watchlist, /trade-journal, /track-record) and the Connectors / Plugins popup
+  const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
+  const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
+  const watchlistLinkRef = useRef(false);
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertQuotes, setAlertQuotes] = useState<Record<string, AlertLiveQuote>>({});
@@ -292,7 +303,9 @@ export default function App() {
     if ((alertOffer && /^of_[a-z0-9]{8,40}$/.test(alertOffer)) || params.get('alerts') === '1') {
       alertLinkRef.current = { offerId: alertOffer || undefined, open: true };
     }
-    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts')) {
+    // "Open watchlist" links in watchlist emails
+    if (params.get('watchlist') === '1') watchlistLinkRef.current = true;
+    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1117,6 +1130,66 @@ export default function App() {
     }
   }, [notifications, fetchAlerts]);
 
+  // ---------------- Commands as plugins (Settings, Connectors / Plugins) ----------------
+  const pluginStates = React.useMemo<PluginStates>(
+    () => ({ ...NO_PLUGINS, ...(userProfile.plugins || {}), alerts: alertsEnabled }),
+    [userProfile.plugins, alertsEnabled]
+  );
+  const openPluginPanel = useCallback((id: PluginId) => {
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsConnectorsOpen(false);
+    setIsSidebarOpen(false);
+    if (id === 'alerts') setIsAlertsOpen(true);
+    else setOpenPlugin(id);
+  }, [authUser]);
+  /** Turns a command on or off on the server; the same switch is used inside each command and in Connectors */
+  const setPluginEnabled = useCallback(async (id: PluginId, enabled: boolean) => {
+    try {
+      const data = await apiFetch<{ plugins: PluginStates }>(`/api/plugins/${id}`, { method: 'POST', body: JSON.stringify({ enabled }) });
+      setUserProfile(p => ({ ...p, plugins: data.plugins, alertsEnabled: data.plugins.alerts }));
+      if (id === 'alerts') fetchAlerts();
+      if (enabled) {
+        const label = PLUGINS.find(p => p.id === id)?.label || 'Command';
+        setToastNotification({ message: `${label} is on. Find it in Settings, Connectors / Plugins.`, type: 'success' });
+      }
+    } catch (err: any) {
+      setToastNotification({ message: err?.message || 'Could not update that command. Please try again.', type: 'info' });
+      throw err;
+    }
+  }, [fetchAlerts]);
+  const showToast = useCallback((message: string, type: 'success' | 'info' = 'info') => setToastNotification({ message, type }), []);
+  // A link from a watchlist email opens the watchlist once signed in
+  useEffect(() => {
+    if (authUser && watchlistLinkRef.current) {
+      watchlistLinkRef.current = false;
+      setOpenPlugin('watchlist');
+    }
+  }, [authUser]);
+  // While the watchlist is on, new setup notifications are picked up every 30s (tab visible only)
+  useEffect(() => {
+    if (!authUser || !pluginStates.watchlist || hasActiveAlerts) return;
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      refreshNotifications(true);
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [authUser, pluginStates.watchlist, hasActiveAlerts, refreshNotifications]);
+  // A new watchlist setup: a short toast
+  const seenWatchNotifsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const watchNotifs = notifications.filter(n => n.actionType === 'open_watchlist');
+    if (!seenWatchNotifsRef.current) {
+      seenWatchNotifsRef.current = new Set(watchNotifs.map(n => n.id));
+      return;
+    }
+    const fresh = watchNotifs.filter(n => !seenWatchNotifsRef.current!.has(n.id) && !n.read);
+    watchNotifs.forEach(n => seenWatchNotifsRef.current!.add(n.id));
+    if (fresh.length) setToastNotification({ message: fresh[0].title, type: 'info' });
+  }, [notifications]);
+
   const handleUpdateNotificationAction = (notif: AppNotification) => {
     markNotificationRead(notif.id);
     if (notif.type === 'announcement') {
@@ -1129,6 +1202,8 @@ export default function App() {
       setIsShareModalOpen(true);
     } else if (notif.actionType === 'open_alerts') {
       openAlerts();
+    } else if (notif.actionType === 'open_watchlist') {
+      openPluginPanel('watchlist');
     } else if (notif.type === 'reward' || notif.type === 'credit') {
       openAccountTab('credits');
     } else {
@@ -1931,6 +2006,49 @@ export default function App() {
         />
       </Deferred>
 
+      {/* Watchlist, Trade Journal and Track Record (/watchlist, /trade-journal, /track-record) */}
+      <Deferred when={openPlugin === 'watchlist'}>
+        <WatchlistPanel
+          isOpen={openPlugin === 'watchlist'}
+          onClose={() => setOpenPlugin(null)}
+          enabled={pluginStates.watchlist}
+          onSetEnabled={enabled => setPluginEnabled('watchlist', enabled)}
+          onAnalyze={(symbol, tf) => {
+            setOpenPlugin(null);
+            handleSendMessage(tf === 'RDM' ? `Analyze ${symbol}` : `Analyze ${symbol} on the ${tf}`, tf);
+          }}
+          onToast={showToast}
+        />
+      </Deferred>
+      <Deferred when={openPlugin === 'journal'}>
+        <TradeJournalPanel
+          isOpen={openPlugin === 'journal'}
+          onClose={() => setOpenPlugin(null)}
+          enabled={pluginStates.journal}
+          onSetEnabled={enabled => setPluginEnabled('journal', enabled)}
+          onToast={showToast}
+        />
+      </Deferred>
+      <Deferred when={openPlugin === 'trackRecord'}>
+        <TrackRecordPanel
+          isOpen={openPlugin === 'trackRecord'}
+          onClose={() => setOpenPlugin(null)}
+          enabled={pluginStates.trackRecord}
+          onSetEnabled={enabled => setPluginEnabled('trackRecord', enabled)}
+          onOpenAlerts={() => openPluginPanel('alerts')}
+          onToast={showToast}
+        />
+      </Deferred>
+      <Deferred when={isConnectorsOpen}>
+        <ConnectorsModal
+          isOpen={isConnectorsOpen}
+          onClose={() => setIsConnectorsOpen(false)}
+          states={pluginStates}
+          onOpen={openPluginPanel}
+          onToggle={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
+        />
+      </Deferred>
+
       {/* Institutional Terms & Privacy Policy Modal */}
       {/* Support chat (Settings → Support chat) */}
       <Deferred when={isSupportOpen && !!authUser}>
@@ -2007,6 +2125,10 @@ export default function App() {
           setTermsModalTab('terms');
           setIsTermsModalOpen(true);
         }}
+        plugins={authUser ? pluginStates : undefined}
+        onOpenPlugin={openPluginPanel}
+        onTogglePlugin={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
+        onOpenConnectors={() => (authUser ? setIsConnectorsOpen(true) : setIsAuthModalOpen(true))}
       />
 
       {/* Main Workspace Area */}
@@ -2153,7 +2275,7 @@ export default function App() {
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
-                    onCommand={id => (id === 'alerts' ? (openAlerts(), true) : false)}
+                    onCommand={id => (PLUGIN_COMMAND[id] ? (openPluginPanel(PLUGIN_COMMAND[id]), true) : false)}
                     isLoading={isLoading}
                     credits={isUnlimitedUser(userProfile.email) ? 999999 : promptsLeft(creditState)}
                     refillLabel={formatDailyResetTime(creditState)}

@@ -30,6 +30,9 @@ import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './serve
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
+import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
+import { registerJournalRoutes } from './server/journal';
+import { registerPluginRoutes } from './server/plugins';
 import { registerSupportRoutes } from './server/support';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
@@ -2044,6 +2047,57 @@ registerPriceAlertRoutes(
   },
   generalApiRateLimiter
 );
+// Watchlist (/watchlist): pairs are checked for live data before they are added, then scanned by the server with the
+// same zone engine as the analysis (read-only, no AI call), and the trader is notified when a setup builds or is ready
+const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
+  m
+    ? {
+        timeframe: tf,
+        price: m.price,
+        equilibrium: m.equilibrium,
+        plan: m.plan ? { direction: m.plan.direction, score: m.plan.score, entry: m.plan.entry } : null,
+        zones: [...m.demandZones, ...m.supplyZones].map(z => ({
+          kind: z.kind, proximal: z.proximal, low: z.low, high: z.high, fresh: z.fresh, liveFirstTouch: z.liveFirstTouch,
+          priceInside: z.priceInside, distanceAtr: z.distanceAtr, score: z.score, territory: z.territory,
+        })),
+      }
+    : null;
+const liveQuoteFor = async (asset: AssetInfo) => {
+  const q = await resolveAccurateAssetQuote(asset);
+  return q && q.price > 0 && q.live !== false ? q : null;
+};
+registerWatchlistRoutes(
+  app,
+  {
+    resolve: async query => {
+      const named = extractAssetInfo(query);
+      if (!named.unresolved && !promptNamesAsset(query)) return null;
+      const asset = await resolveAssetInfo(query);
+      return asset.unresolved ? null : { symbol: asset.symbol, name: asset.name, type: asset.type };
+    },
+    quote: async symbol => {
+      const q = await liveQuoteFor(await resolveAssetInfo(symbol, symbol));
+      return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
+    },
+    candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
+    scan: async (symbol, timeframes) => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      const q = await liveQuoteFor(asset);
+      if (!q) return [];
+      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q).catch(() => null)));
+      return maps.map((m, i) => toScanFrame(m, timeframes[i]));
+    },
+    // Read when a scan runs (the constant is declared further down this file)
+    get rdmMinScore() {
+      return RDM_MIN_SCORE;
+    },
+  },
+  generalApiRateLimiter
+);
+// Trade journal (/trade-journal) and track record (/track-record)
+registerJournalRoutes(app, generalApiRateLimiter);
+// Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there
+registerPluginRoutes(app, generalApiRateLimiter);
 // Every coin listed on Binance, Bybit and MEXC (refreshed every 6 hours), so any listed coin or meme can be analyzed
 startCryptoUniverse();
 // Stored answers: expired ones are removed hourly (one worker does it)

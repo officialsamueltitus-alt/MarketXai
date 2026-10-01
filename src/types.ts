@@ -298,8 +298,13 @@ export interface UserProfile {
   emailActivity?: boolean;
   /** The trader approved live price alerts (/price-alerts) */
   alertsEnabled?: boolean;
+  /** Commands switched on (shown under Settings, Connectors / Plugins) */
+  plugins?: PluginStates;
   subscription: UserSubscription;
 }
+
+export type PluginId = 'alerts' | 'watchlist' | 'journal' | 'trackRecord';
+export type PluginStates = Record<PluginId, boolean>;
 
 export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED';
 /** A price alert the server watches for the trader (see server/priceAlerts.ts) */
@@ -374,7 +379,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   actionPrompt?: string;
-  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support' | 'open_alerts';
+  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support' | 'open_alerts' | 'open_watchlist';
   actionPayload?: any;
   /** Announcements: an optional https link attached by the MarketX team */
   link?: string;
@@ -396,4 +401,101 @@ export interface RecheckResponse {
   timeframe: string;
   candlesChecked: number;
   levels: Array<{ key: string; label: string; low: number; high: number; status: RecheckLevelStatus; at?: number; note: string }>;
+}
+
+// ---------------- Watchlist (/watchlist, see server/watchlist.ts) ----------------
+export type WatchStatus = 'SCANNING' | 'SETUP' | 'BUILDING' | 'WAITING' | 'NO_DATA';
+export interface WatchSetup {
+  key: string;
+  kind: 'READY' | 'BUILDING';
+  timeframe: string;
+  direction: 'LONG' | 'SHORT';
+  score: number;
+  distancePct: number;
+  foundAt: number;
+}
+export interface WatchItem {
+  id: string;
+  symbol: string;
+  name: string;
+  type: string;
+  /** A timeframe ("15M", "1H"...) or "RDM" (every timeframe) */
+  timeframe: string;
+  addedAt: number;
+  active: boolean;
+  status: WatchStatus;
+  statusText: string;
+  price: number | null;
+  priceAt: number | null;
+  scannedAt: number | null;
+  nextScanAt: number;
+  setup: WatchSetup | null;
+}
+
+// ---------------- Trade journal (/trade-journal, see server/journal.ts) ----------------
+export interface JournalTrade {
+  id: string;
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  entry: number;
+  stop: number | null;
+  target: number | null;
+  exit: number | null;
+  size: number | null;
+  pnl: number | null;
+  status: 'OPEN' | 'CLOSED';
+  result: 'WIN' | 'LOSS' | 'BE' | null;
+  r: number | null;
+  timeframe: string;
+  notes: string;
+  openedAt: number;
+  closedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface JournalStats {
+  total: number;
+  open: number;
+  closed: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: number | null;
+  avgR: number | null;
+  totalR: number | null;
+  pnl: number | null;
+  bestMarket: string | null;
+  markets: Array<{ symbol: string; trades: number; wins: number; pnl: number; winRate: number }>;
+  streak: { kind: 'WIN' | 'LOSS'; count: number } | null;
+}
+
+// ---------------- Track record (/track-record) ----------------
+export interface TrackRecordStats {
+  signals: number;
+  wins: number;
+  losses: number;
+  missed: number;
+  winRate: number | null;
+  tp1Rate: number | null;
+  tp2Rate: number | null;
+  tp3Rate: number | null;
+  timeframes: Array<{ timeframe: string; wins: number; losses: number; winRate: number }>;
+}
+export interface TrackRecordEntry {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  direction: 'LONG' | 'SHORT';
+  outcome: 'WIN' | 'LOSS' | 'MISSED';
+  tpsHit: number;
+  tpsTotal: number;
+  createdAt: number;
+  closedAt: number;
+}
+export interface TrackRecordPayload {
+  stats: TrackRecordStats;
+  entries: TrackRecordEntry[];
+  live: Array<{ id: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; entered: boolean; tpsHit: number; createdAt: number }>;
+  global: TrackRecordStats & { since: number | null };
+  checkedAt: number;
 }

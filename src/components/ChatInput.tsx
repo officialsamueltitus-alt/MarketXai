@@ -26,6 +26,8 @@ import {
   Activity,
   LineChart,
   Shuffle,
+  Radar,
+  Trophy,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -89,18 +91,20 @@ const timeframeLabel = (v: string) => TIMEFRAMES.find(t => t.value === v)?.label
 
 // Slash-command menu shown when the user types "/" in the chat input
 const SLASH_COMMANDS = [
+  { id: 'watchlist', label: 'Watchlist', description: 'Add pairs and get told when a setup builds, 24/7', icon: Radar },
+  { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
+  { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
+  { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
   { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
   { id: 'preference', label: 'Preference Mode', description: 'Tune analysis style, risk and defaults', icon: SlidersHorizontal },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
-  { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
-  { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
   { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['alerts']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -184,7 +188,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Slash menu is open while the input is a single "/word" token
   const slashMatch = /^\/(\S*)$/.exec(input);
-  const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : '';
+  // "/trade-journal", "/tradejournal" and "/trade" all find Trade Journal
+  const slashQuery = slashMatch ? slashMatch[1].toLowerCase().replace(/[-_]/g, '') : '';
   const filteredCommands = slashMatch
     ? SLASH_COMMANDS.filter(
         c => c.label.toLowerCase().replace(/\s+/g, '').includes(slashQuery) || c.id.includes(slashQuery)
@@ -557,7 +562,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <div className="px-2.5 pt-1.5 pb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
                 <span>Commands</span>
                 <span className="inline-flex items-center gap-1 text-amber-300/80">
-                  <Lock className="w-3 h-3" /> Private testing
+                  <Lock className="w-3 h-3" /> Soon: private testing
                 </span>
               </div>
               {filteredCommands.map((cmd, i) => {

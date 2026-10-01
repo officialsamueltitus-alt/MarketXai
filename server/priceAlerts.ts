@@ -5,6 +5,7 @@ import { sendEmail } from './mailer';
 import { getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
+import { archiveAlertOutcome } from './journal';
 
 // ===========================================================================
 // Price alerts (/price-alerts): after a trader approves live alerts, MarketX watches the market for the setups they
@@ -345,7 +346,11 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
     // Keep the in-memory copy in step (the next sync confirms it)
     a.hits = [...a.hits, ...fresh];
     a.entered = a.entered || entered;
-    if (closed) watched.delete(a.id);
+    if (closed) {
+      watched.delete(a.id);
+      // The finished signal joins the track record (once: the record id is the alert id)
+      archiveAlertOutcome(a).catch(err => console.warn('[MarketX Alerts] track record write failed:', err?.message || err));
+    }
     for (const h of fresh) {
       const m = hitMessage(a, h);
       await notifyActivity(
@@ -371,6 +376,7 @@ async function tick(deps: PriceAlertDeps) {
     for (const a of expired) {
       watched.delete(a.id);
       db().collection(ALERTS).doc(a.id).update({ active: false, endedReason: 'EXPIRED', updatedAt: now }).catch(() => {});
+      archiveAlertOutcome(a).catch(() => {});
     }
     const symbols = [...bySymbol.keys()];
     for (let i = 0; i < symbols.length; i += FETCH_CONCURRENCY) {
@@ -431,6 +437,24 @@ export async function sweepAlertOfferEmails(): Promise<number> {
   return sent;
 }
 
+/** Approves (true) or switches off (false) live price alerts for a trader; off stops every active alert */
+export async function setAlertsEnabled(uid: string, enabled: boolean) {
+  await userRef(uid).update({ alerts: { enabled, at: Date.now() } });
+  if (enabled) return;
+  const snap = await db().collection(ALERTS).where('uid', '==', uid).get();
+  const now = Date.now();
+  await Promise.all(
+    snap.docs
+      .filter(d => (d.data() as PriceAlert).active)
+      .map(async d => {
+        const a = d.data() as PriceAlert;
+        await d.ref.update({ active: false, endedReason: 'TURNED_OFF', updatedAt: now });
+        watched.delete(a.id);
+        archiveAlertOutcome(a).catch(() => {});
+      })
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -486,12 +510,7 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
   app.post('/api/alerts/consent', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const enabled = req.body?.enabled === true;
-    await userRef(uid).update({ alerts: { enabled, at: Date.now() } });
-    if (!enabled) {
-      const snap = await db().collection(ALERTS).where('uid', '==', uid).get();
-      const now = Date.now();
-      await Promise.all(snap.docs.filter(d => (d.data() as PriceAlert).active).map(d => d.ref.update({ active: false, endedReason: 'TURNED_OFF', updatedAt: now })));
-    }
+    await setAlertsEnabled(uid, enabled);
     res.json({ enabled, alerts: await listAlerts(uid) });
   }));
 
@@ -542,7 +561,11 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     const snap = await ref.get();
     const a = snap.data() as PriceAlert | undefined;
     if (!a || a.uid !== uid) return res.status(404).json({ error: 'NOT_FOUND', message: 'Alert not found.' });
-    if (a.active) await ref.update({ active: false, endedReason: 'TURNED_OFF', updatedAt: Date.now() });
+    if (a.active) {
+      await ref.update({ active: false, endedReason: 'TURNED_OFF', updatedAt: Date.now() });
+      // A target already reached stays in the track record
+      archiveAlertOutcome(a).catch(() => {});
+    }
     watched.delete(a.id);
     res.json({ alerts: await listAlerts(uid) });
   }));
