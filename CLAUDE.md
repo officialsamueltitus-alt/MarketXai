@@ -63,6 +63,12 @@
   `extractAssetInfo` runs it after majors/forex/stocks, `resolveAssetInfo` (async) finishes on-chain lookups. A coin listed nowhere
   returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price. Prices below one cent keep 4 significant digits
   (`priceDecimals`, `src/utils/formatPrice.ts`).
+- Logo (owner-specified): the glossy ball mark (gradient X with a widened gap between the chevron and the two right legs,
+  wrapped on a dark glass sphere with the rainbow ring as its rim). Site sizes live in `public/brand/` (`marketx-logo-{32..512}.png`,
+  `apple-touch-icon.png`, `/favicon.ico`), referenced with `?v=2` (bump `LOGO_V` in `MarketXIcon.tsx` and the other `?v=` refs
+  when the files change). Masters: `brand/marketx-logo-ball-1024.png` (with floor shadow) and `brand/marketx-logo-flat-512.png`.
+- Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
+  `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.

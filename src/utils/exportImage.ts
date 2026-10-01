@@ -102,7 +102,7 @@ export async function downloadStrategyImage(
       document.fonts?.load('500 20px "Geist Mono"'),
     ]);
   } catch {}
-  const logo = await loadImage('/brand/marketx-logo-256.png');
+  const logo = await loadImage('/brand/marketx-logo-256.png?v=2');
 
   const SANS = '"Geist", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif';
   const MONO = '"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace';
