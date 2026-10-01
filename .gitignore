@@ -10,3 +10,4 @@ coverage/
 
 # Render installs fresh; the lockfile is intentionally not tracked
 package-lock.json
+__pycache__/
