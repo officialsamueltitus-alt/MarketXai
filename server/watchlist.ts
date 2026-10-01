@@ -468,8 +468,8 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
   // Add a pair: confirm MarketX can read its live price and chart first, then save it and scan it
   app.post('/api/watchlist', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
-    const query = String(req.body?.query ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
-    const timeframe = String(req.body?.timeframe ?? '').trim().toUpperCase();
+    const query = (typeof req.body?.query === 'string' ? req.body.query : '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const timeframe = typeof req.body?.timeframe === 'string' ? req.body.timeframe.trim().toUpperCase() : '';
     if (!query) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Type a pair to watch, for example EURUSD, gold or BTC.' });
     if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
     if (!(await enabledFor(uid))) return res.status(409).json({ error: 'WATCHLIST_OFF', message: 'Turn on the watchlist first.' });
@@ -528,7 +528,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
   // Change the timeframe of a pair (rescans it)
   app.patch('/api/watchlist/:id', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
-    const timeframe = String(req.body?.timeframe ?? '').trim().toUpperCase();
+    const timeframe = typeof req.body?.timeframe === 'string' ? req.body.timeframe.trim().toUpperCase() : '';
     if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
     const w = await ownItem(uid, String(req.params.id || ''));
     if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
