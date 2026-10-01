@@ -4,6 +4,7 @@ import { db } from './firebase';
 import { getUser, requireAuth } from './account';
 import { requirePro } from './proAccess';
 import { createKeyedThrottle } from './security';
+import { formatMarketPrice } from '../src/utils/formatPrice';
 
 // ===========================================================================
 // Trade Journal (/trade-journal) and Track Record (/track-record)
@@ -286,7 +287,8 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
     const entryAt = at('ENTRY') ?? (a.execution === 'MARKET' || a.entered ? t.auto.enteredAt ?? a.createdAt : null);
     const reason = a.endedReason || (a.active ? null : 'EXPIRED');
     const base = { ...t.auto, tpsHit: tpIdx, endedReason: reason, enteredAt: entryAt };
-    const p = (n: number) => Number(n.toPrecision(8));
+    // Prices written the way the site shows them (same decimals as the entry, 4 significant digits under a cent)
+    const p = (n: number) => formatMarketPrice(n, t.entry);
     let update: Partial<JournalTrade>;
     if (tpIdx > 0 || slAt !== null) {
       // A target counts first when it came before the stop (the track record scores it the same way)
@@ -437,7 +439,7 @@ export function registerJournalRoutes(app: Express, limiter: (req: Request, res:
       if (!trade) return res.status(400).json({ error: 'BAD_TRADE', message: error });
       doc = { ...existing, ...trade, updatedAt: Date.now() };
       if (doc.source === 'AUTO' && doc.status === 'CLOSED' && doc.auto) {
-        doc.auto = { ...doc.auto, state: 'DONE', summary: `${doc.auto.summary} You closed it${doc.exit !== null ? ` at ${doc.exit}` : ''}.` };
+        doc.auto = { ...doc.auto, state: 'DONE', summary: `${doc.auto.summary} You closed it${doc.exit !== null ? ` at ${formatMarketPrice(doc.exit, doc.entry)}` : ''}.` };
       }
     }
     await db().collection(TRADES).doc(existing.id).set(doc);
