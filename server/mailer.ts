@@ -91,7 +91,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAGE}" style="width:100%;background-color:${PAGE}"><tr><td align="center" style="padding:32px 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%"><tr><td align="left">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 4px 18px"><tr>
-        <td style="vertical-align:middle"><img src="${escapeHtml(siteUrl)}/brand/marketx-logo-64.png" width="34" height="34" alt="" style="display:block;border:0"></td>
+        <td style="vertical-align:middle"><img src="${escapeHtml(siteUrl)}/brand/marketx-logo-64.png?v=3" width="34" height="34" alt="" style="display:block;border:0"></td>
         <td style="vertical-align:middle;padding-left:10px;color:${INK};font-size:19px;font-weight:800;letter-spacing:-.3px">Market<span style="color:${VIOLET}">X</span></td>
         <td style="vertical-align:middle;padding-left:8px"><span style="display:inline-block;padding:3px 8px;border-radius:999px;background:#f1edff;color:#6d28d9;font-size:11px;font-weight:700;letter-spacing:.6px">SI</span></td>
       </tr></table>

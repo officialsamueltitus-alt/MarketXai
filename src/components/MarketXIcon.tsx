@@ -6,8 +6,10 @@ interface MarketXIconProps {
   withContainer?: boolean;
 }
 
-// Official MarketX brand mark (gradient X in a ring), served from /public/brand
-export const MARKETX_LOGO_SRC = '/brand/marketx-logo-128.png';
+// Official MarketX brand mark (the glossy ball with the gradient X), served from /public/brand.
+// Bump LOGO_V when the files change so browsers drop the cached copy.
+const LOGO_V = '3';
+export const MARKETX_LOGO_SRC = `/brand/marketx-logo-128.png?v=${LOGO_V}`;
 
 const PX: Record<NonNullable<MarketXIconProps['size']>, number> = { xs: 16, sm: 20, md: 28, lg: 40, xl: 56 };
 
@@ -15,7 +17,7 @@ export const MarketXIcon: React.FC<MarketXIconProps> = ({ size = 'md', className
   const px = PX[size];
   const img = (
     <img
-      src={size === 'xl' || size === 'lg' ? '/brand/marketx-logo-192.png' : MARKETX_LOGO_SRC}
+      src={size === 'xl' || size === 'lg' ? `/brand/marketx-logo-192.png?v=${LOGO_V}` : MARKETX_LOGO_SRC}
       alt="MarketX"
       width={px}
       height={px}

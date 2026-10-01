@@ -29,6 +29,10 @@
     <meta name="twitter:url" content="https://marketx.world" />
     <meta name="twitter:title" content="MarketX" />
     <meta name="twitter:description" content="Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans with entries, stop losses and targets with optimal entries, stop loss, and take profits." />
+    <meta name="twitter:site" content="@_MarketX" />
+    <meta name="twitter:creator" content="@_MarketX" />
+    <meta name="twitter:image" content="https://marketx.world/brand/marketx-og-1200x630.jpg?v=3" />
+    <meta name="twitter:image:alt" content="MarketX logo, a glossy ball with a rainbow X, next to the line: Market intelligence, one prompt away." />
 
     <!-- Browser & Platform UI Theme -->
     <meta name="theme-color" content="#09090b" />
@@ -36,11 +40,22 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
     <!-- MarketX brand icons -->
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/brand/marketx-logo-32.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/brand/marketx-logo-192.png" />
-    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
-    <meta property="og:image" content="https://marketx.world/brand/marketx-logo-512.png" />
+    <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/marketx-logo-32.png?v=3" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand/marketx-logo-192.png?v=3" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png?v=3" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/brand/marketx-logo-512.png?v=3" />
+    <link rel="manifest" href="/site.webmanifest?v=3" />
+    <meta name="application-name" content="MarketX" />
+    <meta name="apple-mobile-web-app-title" content="MarketX" />
+    <meta name="msapplication-TileColor" content="#09090b" />
+    <meta name="msapplication-TileImage" content="/brand/marketx-logo-256.png?v=3" />
+    <meta property="og:image" content="https://marketx.world/brand/marketx-og-1200x630.jpg?v=3" />
+    <meta property="og:image:secure_url" content="https://marketx.world/brand/marketx-og-1200x630.jpg?v=3" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MarketX logo, a glossy ball with a rainbow X, next to the line: Market intelligence, one prompt away." />
 
     <!-- Web Fonts & Preconnects -->
     <link rel="dns-prefetch" href="https://fonts.googleapis.com">
@@ -57,16 +72,44 @@
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "MarketX",
-      "applicationCategory": "FinanceApplication",
-      "operatingSystem": "Web",
-      "description": "Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans.",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://marketx.world/#organization",
+          "name": "MarketX",
+          "url": "https://marketx.world",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://marketx.world/brand/marketx-logo-512.png?v=3",
+            "width": 512,
+            "height": 512
+          },
+          "image": "https://marketx.world/brand/marketx-og-1200x630.jpg?v=3",
+          "sameAs": ["https://x.com/_MarketX"]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://marketx.world/#website",
+          "name": "MarketX",
+          "url": "https://marketx.world",
+          "publisher": { "@id": "https://marketx.world/#organization" }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "MarketX",
+          "applicationCategory": "FinanceApplication",
+          "operatingSystem": "Web",
+          "url": "https://marketx.world",
+          "image": "https://marketx.world/brand/marketx-logo-512.png?v=3",
+          "description": "Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans.",
+          "publisher": { "@id": "https://marketx.world/#organization" },
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          }
+        }
+      ]
     }
     </script>
 
