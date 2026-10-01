@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BarChart3, Check, ChevronDown, Flame, Loader2, NotebookPen, Plus, Target, Trash2, TrendingUp, X } from 'lucide-react';
+import { BarChart3, BellRing, Check, ChevronDown, Flame, Loader2, NotebookPen, Plus, Target, Trash2, TrendingUp, X, Zap } from 'lucide-react';
 import type { JournalStats, JournalTrade } from '../types';
 import { apiFetch } from '../utils/apiClient';
 import { formatMarketPrice } from '../utils/formatPrice';
@@ -209,9 +209,10 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
           glow="bg-amber-400/20"
           ring="from-amber-400/30 to-rose-500/30"
           title="Turn on your trade journal"
-          text="Log every trade, close it when you're out, and MarketX works out your win rate, R and best markets for you."
+          text="Signals you watch with a price alert are logged and scored by themselves. Log your other trades by hand, and MarketX works out your win rate, R and best markets."
           points={[
-            { icon: NotebookPen, tone: 'text-amber-300 bg-amber-500/10', t: 'Quick to log', d: 'Market, direction, entry, stop and target' },
+            { icon: BellRing, tone: 'text-violet-300 bg-violet-500/10', t: 'Automatic from price alerts', d: 'Logged when you turn an alert on, scored once when it ends' },
+            { icon: NotebookPen, tone: 'text-amber-300 bg-amber-500/10', t: 'Manual when you want', d: 'Market, direction, entry, stop and target' },
             { icon: Target, tone: 'text-emerald-300 bg-emerald-500/10', t: 'Results scored for you', d: 'Win, loss or break-even, and the R you made' },
             { icon: BarChart3, tone: 'text-sky-300 bg-sky-500/10', t: 'Stats that teach', d: 'Win rate, total R, P/L, streaks and best markets' },
           ]}
@@ -290,6 +291,9 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                 {trades.map(t => {
                   const long = t.direction === 'LONG';
                   const res = t.result;
+                  const auto = t.source === 'AUTO' ? t.auto : undefined;
+                  // Auto trades are closed by their price alert; only a handed-over one is closed by hand
+                  const canClose = t.status === 'OPEN' && (!auto || auto.state === 'HANDED_OVER');
                   return (
                     <div key={t.id} className="p-3 rounded-2xl bg-white/[0.035] border border-white/[0.08]">
                       <div className="flex items-center gap-2">
@@ -297,10 +301,18 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                         <span className={`h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center ${long ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>{long ? 'BUY' : 'SELL'}</span>
                         {t.timeframe && <span className="h-5 px-1.5 rounded-md bg-white/[0.06] text-[10px] font-mono text-slate-300 inline-flex items-center">{t.timeframe}</span>}
                         {t.status === 'OPEN' ? (
-                          <span className="h-5 px-2 rounded-full border border-sky-500/30 bg-sky-500/10 text-[10px] font-semibold text-sky-300 inline-flex items-center">Open</span>
+                          <span className="h-5 px-2 rounded-full border border-sky-500/30 bg-sky-500/10 text-[10px] font-semibold text-sky-300 inline-flex items-center gap-1">
+                            {auto?.state === 'TRACKING' && <span className="w-1.5 h-1.5 rounded-full bg-sky-300 animate-pulse" aria-hidden="true" />}
+                            {auto?.state === 'TRACKING' ? 'Tracking' : 'Open'}
+                          </span>
                         ) : (
                           <span className={`h-5 px-2 rounded-full text-[10px] font-semibold inline-flex items-center ${res === 'WIN' ? 'bg-emerald-500/15 text-emerald-300' : res === 'LOSS' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/[0.06] text-slate-300'}`}>
-                            {res === 'WIN' ? 'Win' : res === 'LOSS' ? 'Loss' : 'Break-even'}
+                            {res === 'WIN' ? 'Win' : res === 'LOSS' ? 'Loss' : res === 'NO_FILL' ? 'No fill' : 'Break-even'}
+                          </span>
+                        )}
+                        {auto && (
+                          <span title="Logged and scored automatically from your price alert" className="h-5 px-1.5 rounded-md bg-violet-500/15 border border-violet-500/25 text-[10px] font-semibold text-violet-200 inline-flex items-center gap-1">
+                            <Zap className="w-2.5 h-2.5" /> Auto
                           </span>
                         )}
                         <span className="ml-auto text-xs font-mono tabular-nums text-right">
@@ -314,6 +326,18 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                         {t.target !== null && <span>TP <span className="text-slate-300">{formatMarketPrice(t.target)}</span></span>}
                         {t.exit !== null && <span>Exit <span className="text-slate-300">{formatMarketPrice(t.exit)}</span></span>}
                       </div>
+                      {auto?.summary && (
+                        <p className={`mt-1.5 text-xs leading-relaxed ${auto.state === 'DONE' ? 'text-slate-300' : 'text-slate-400'}`}>
+                          {auto.state === 'DONE' && auto.tpsHit > 0 && (
+                            <span className="inline-flex gap-0.5 mr-1.5 align-middle" aria-label={`${auto.tpsHit} of ${auto.targets.length} targets`}>
+                              {auto.targets.map((_, i) => (
+                                <span key={i} className={`w-1.5 h-3 rounded-sm ${i < auto.tpsHit ? 'bg-emerald-400' : 'bg-white/[0.1]'}`} />
+                              ))}
+                            </span>
+                          )}
+                          {auto.summary}
+                        </p>
+                      )}
                       {t.notes && <p className="mt-1.5 text-xs text-slate-400 leading-relaxed line-clamp-2">{t.notes}</p>}
                       {closing?.id === t.id ? (
                         <form onSubmit={closeTrade} className="mt-2.5 flex items-end gap-2 mx-fade-in">
@@ -325,7 +349,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                         </form>
                       ) : (
                         <div className="mt-2 flex items-center gap-1.5">
-                          {t.status === 'OPEN' && (
+                          {canClose && (
                             <button type="button" onClick={() => setClosing({ id: t.id, exit: '', pnl: '' })} className="h-7 px-2.5 rounded-lg bg-white/[0.06] text-[11px] font-medium text-white hover:bg-white/[0.1] cursor-pointer inline-flex items-center gap-1 whitespace-nowrap">
                               <ChevronDown className="w-3 h-3" /> Close trade
                             </button>
@@ -349,7 +373,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                   <NotebookPen className="w-5 h-5 text-amber-300" />
                 </span>
                 <p className="mt-3 text-sm font-medium text-slate-200">Your journal is ready</p>
-                <p className="mt-1 text-xs text-slate-500 leading-relaxed">Log your first trade. Close it when you're out and your stats build up here.</p>
+                <p className="mt-1 text-xs text-slate-500 leading-relaxed">Turn on a price alert on any signal and the trade lands here by itself, or log a trade by hand.</p>
               </div>
             )
           )}

@@ -303,9 +303,10 @@ export default function App() {
     if ((alertOffer && /^of_[a-z0-9]{8,40}$/.test(alertOffer)) || params.get('alerts') === '1') {
       alertLinkRef.current = { offerId: alertOffer || undefined, open: true };
     }
-    // "Open watchlist" links in watchlist emails
+    // "Open watchlist" links in watchlist emails, "See Pro plans" links
     if (params.get('watchlist') === '1') watchlistLinkRef.current = true;
-    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist')) {
+    if (params.get('pricing') === '1') setIsPricingModalOpen(true);
+    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1002,6 +1003,16 @@ export default function App() {
     setOpenAnnouncement(fresh);
   }, [notifications, authUser, openAnnouncement]);
 
+  // ---------------- Pro features (commands + RDM): open to all until proFreeUntil, then Pro only ----------------
+  const proAccess = !authUser || userProfile.proAccess !== false;
+  const proFreeUntil = userProfile.proFreeUntil || 0;
+  const onPaidPlan = !!userProfile.subscription?.active;
+  const commandBadge = !proAccess ? 'Pro' : !onPaidPlan && proFreeUntil > Date.now() ? `Free until ${new Date(proFreeUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}` : null;
+  const showProUpsell = useCallback((message?: string) => {
+    setToastNotification({ message: message || 'This is a Pro feature. Upgrade to Pro to use it.', type: 'info' });
+    setIsPricingModalOpen(true);
+  }, []);
+
   // ---------------- Price alerts ----------------
   const alertsEnabled = !!userProfile.alertsEnabled;
   const openAlerts = useCallback(() => {
@@ -1033,6 +1044,10 @@ export default function App() {
       setPriceAlerts(data.alerts || []);
       setToastNotification({ message: `🔔 Alert on for ${symbol}. You'll be notified at the entry zone, stop loss and every target.`, type: 'success' });
     } catch (err: any) {
+      if (err instanceof ApiError && err.code === 'PRO_REQUIRED') {
+        showProUpsell('Price alerts are a Pro feature. Upgrade to Pro to watch this setup.');
+        return;
+      }
       if (err instanceof ApiError && err.code === 'ALERTS_OFF') {
         setPendingAlertOffer({ id: offerId, symbol });
         setIsAlertsOpen(true);
@@ -1040,7 +1055,7 @@ export default function App() {
       }
       setToastNotification({ message: err?.message || 'Could not turn on the alert. Please try again.', type: 'info' });
     }
-  }, []);
+  }, [showProUpsell]);
   const removeAlert = useCallback(async (id: string) => {
     try {
       const data = await apiFetch<{ alerts: PriceAlertItem[] }>(`/api/alerts/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -1142,9 +1157,13 @@ export default function App() {
     }
     setIsConnectorsOpen(false);
     setIsSidebarOpen(false);
+    if (!proAccess) {
+      showProUpsell(`${PLUGINS.find(p => p.id === id)?.label || 'This command'} is a Pro feature. Upgrade to Pro to use it.`);
+      return;
+    }
     if (id === 'alerts') setIsAlertsOpen(true);
     else setOpenPlugin(id);
-  }, [authUser]);
+  }, [authUser, proAccess, showProUpsell]);
   /** Turns a command on or off on the server; the same switch is used inside each command and in Connectors */
   const setPluginEnabled = useCallback(async (id: PluginId, enabled: boolean) => {
     try {
@@ -1156,10 +1175,11 @@ export default function App() {
         setToastNotification({ message: `${label} is on. Find it in Settings, Connectors / Plugins.`, type: 'success' });
       }
     } catch (err: any) {
-      setToastNotification({ message: err?.message || 'Could not update that command. Please try again.', type: 'info' });
+      if (err instanceof ApiError && err.code === 'PRO_REQUIRED') showProUpsell(err.message);
+      else setToastNotification({ message: err?.message || 'Could not update that command. Please try again.', type: 'info' });
       throw err;
     }
-  }, [fetchAlerts]);
+  }, [fetchAlerts, showProUpsell]);
   const showToast = useCallback((message: string, type: 'success' | 'info' = 'info') => setToastNotification({ message, type }), []);
   // A link from a watchlist email opens the watchlist once signed in
   useEffect(() => {
@@ -1204,6 +1224,8 @@ export default function App() {
       openAlerts();
     } else if (notif.actionType === 'open_watchlist') {
       openPluginPanel('watchlist');
+    } else if (notif.actionType === 'open_pricing') {
+      setIsPricingModalOpen(true);
     } else if (notif.type === 'reward' || notif.type === 'credit') {
       openAccountTab('credits');
     } else {
@@ -1667,6 +1689,7 @@ export default function App() {
       if (result.kind === 'error') {
         // 402 = daily limit reached: the message (refill at 3:00 AM) is shown in the chat; no pop-up
         if (result.status === 401) setIsAuthModalOpen(true);
+        if (result.code === 'PRO_REQUIRED') setIsPricingModalOpen(true);
         updateAssistant({
           content: `⚠️ ${result.message}`,
           status: 'completed',
@@ -2044,6 +2067,7 @@ export default function App() {
           isOpen={isConnectorsOpen}
           onClose={() => setIsConnectorsOpen(false)}
           states={pluginStates}
+          badge={commandBadge}
           onOpen={openPluginPanel}
           onToggle={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
         />
@@ -2276,6 +2300,9 @@ export default function App() {
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
                     onCommand={id => (PLUGIN_COMMAND[id] ? (openPluginPanel(PLUGIN_COMMAND[id]), true) : false)}
+                    rdmLocked={!proAccess}
+                    onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
+                    commandBadge={commandBadge}
                     isLoading={isLoading}
                     credits={isUnlimitedUser(userProfile.email) ? 999999 : promptsLeft(creditState)}
                     refillLabel={formatDailyResetTime(creditState)}

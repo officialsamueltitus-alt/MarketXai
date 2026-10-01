@@ -10,10 +10,12 @@ interface ConnectorsModalProps {
   states: PluginStates;
   onOpen: (id: PluginId) => void;
   onToggle: (id: PluginId, enabled: boolean) => Promise<void>;
+  /** "Free till 1 Nov" while the commands are open to everyone, "Pro" once they are Pro only */
+  badge?: string | null;
 }
 
 /** Connectors / Plugins, full view: every command that is on, plus the ones that can be turned on */
-export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClose, states, onOpen, onToggle }) => {
+export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClose, states, onOpen, onToggle, badge }) => {
   const [busy, setBusy] = useState<PluginId | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -43,7 +45,10 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
             <Puzzle className="w-4 h-4 text-fuchsia-200" />
           </span>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-white tracking-tight leading-tight">Connectors / Plugins</h2>
+            <h2 className="text-lg font-semibold text-white tracking-tight leading-tight flex items-center gap-2">
+              Connectors / Plugins
+              {badge && <span className="h-5 px-2 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-semibold text-amber-300 inline-flex items-center">{badge}</span>}
+            </h2>
             <p className="text-[11px] text-slate-500">{on.length ? `${on.length} command${on.length === 1 ? '' : 's'} on` : 'No commands on yet'}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="ml-auto w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.06] flex items-center justify-center cursor-pointer">

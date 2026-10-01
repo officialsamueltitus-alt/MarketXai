@@ -33,6 +33,7 @@ import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAl
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
+import { proGateActive, proGuard } from './server/proAccess';
 import { registerSupportRoutes } from './server/support';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
@@ -3093,6 +3094,19 @@ function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
   });
 }
 
+/** RDM (scan every timeframe) is Pro only once the free period ends: checked before any credit is used */
+async function rdmProGate(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  const rdm = typeof b.timeframe === 'string' && b.timeframe.trim().toUpperCase() === 'RDM';
+  if (!rdm || !proGateActive() || typeof b.prompt !== 'string' || b.baseStrategy) return next();
+  const prompt = b.prompt.trim().slice(0, 2000);
+  // A timeframe written in the prompt wins over RDM, and questions never use it
+  if (timeframeFromPrompt(prompt)) return next();
+  if (classifyPrompt(prompt, { hasChartImage: !!b.chartImage, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
+  return rdmGuard(req, res, next);
+}
+const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
+
 // Fallback response for general conversational chat questions when Gemini is unavailable
 /** A written answer from live market data alone (no engine): what the pair is, its live stats and today's news. */
 function marketDataAnswer(asset: AssetInfo, marketContext: string): string {
@@ -3202,7 +3216,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, rdmProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {

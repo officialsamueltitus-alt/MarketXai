@@ -300,6 +300,10 @@ export interface UserProfile {
   alertsEnabled?: boolean;
   /** Commands switched on (shown under Settings, Connectors / Plugins) */
   plugins?: PluginStates;
+  /** Commands and RDM: true while open to everyone (until proFreeUntil) or on Pro */
+  proAccess?: boolean;
+  /** When the commands and RDM become Pro only (ms) */
+  proFreeUntil?: number;
   subscription: UserSubscription;
 }
 
@@ -444,7 +448,8 @@ export interface JournalTrade {
   size: number | null;
   pnl: number | null;
   status: 'OPEN' | 'CLOSED';
-  result: 'WIN' | 'LOSS' | 'BE' | null;
+  /** NO_FILL: an auto trade whose entry was never reached (not counted in the stats) */
+  result: 'WIN' | 'LOSS' | 'BE' | 'NO_FILL' | null;
   r: number | null;
   timeframe: string;
   notes: string;
@@ -452,6 +457,18 @@ export interface JournalTrade {
   closedAt: number | null;
   createdAt: number;
   updatedAt: number;
+  /** AUTO: logged from a price alert and scored by the server when the alert ended */
+  source?: 'MANUAL' | 'AUTO';
+  auto?: {
+    alertId: string;
+    state: 'TRACKING' | 'DONE' | 'HANDED_OVER';
+    execution: 'LIMIT' | 'MARKET';
+    targets: number[];
+    tpsHit: number;
+    endedReason: string | null;
+    enteredAt: number | null;
+    summary: string;
+  };
 }
 export interface JournalStats {
   total: number;

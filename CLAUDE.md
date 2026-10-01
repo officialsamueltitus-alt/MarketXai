@@ -114,8 +114,16 @@
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, max 8 emails a day, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
-  (stop/target side checked, R and WIN/LOSS/BE scored on close). The track record is built only from price alerts: `archiveAlertOutcome`
+  (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
+  (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it
+  ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
+  alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
   writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
+- Pro gate (owner-specified, `server/proAccess.ts`): the four commands and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
+  (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
+  and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not
+  gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
+  lapsed accounts and tells them once. Data is kept. Client: `profile.proAccess`/`proFreeUntil`, RDM chip locked, commands open pricing.
 - Connectors / Plugins (`server/plugins.ts`, `src/utils/plugins.ts`): alerts, watchlist, journal, trackRecord. Every command turned on is listed
   in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the
   same helpers as inside each command (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data.

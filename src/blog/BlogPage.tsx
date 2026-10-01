@@ -405,13 +405,19 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Price alerts, journal and track record">
-          <B>/price-alerts</B> follows a trade plan's entry, targets and stop for you. <B>/trade-journal</B> keeps the trades you log: close a trade with its exit
-          price or profit and loss and it is scored as a win, loss or break-even, with your win rate, R, streak and best markets. <B>/track-record</B> shows how
+          <B>/price-alerts</B> follows a trade plan's entry, targets and stop for you. <B>/trade-journal</B> works by itself and by hand. Turn on a price alert
+          on a signal and the trade is written into your journal straight away, marked <B>Auto</B>. When the alert ends, the journal scores it once: the
+          target or stop reached, the R and how long it took. If the entry was never reached it shows <B>No fill</B> and stays out of your stats. Trades you
+          take elsewhere you log yourself; close them with the exit price or profit and loss. Either way you get your win rate, R, streak and best markets. <B>/track-record</B> shows how
           your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry), and the same results across MarketX.
         </Note>
         <Note title="Connectors / Plugins">
           Every command you turn on appears in Settings, Connectors / Plugins. Two are shown there; tap the expand icon to see them all in one window. Open a
           command from there, or use its switch to turn it off. Turning one off keeps your pairs, trades and results.
+        </Note>
+        <Note title="Free until 1 November">
+          The watchlist, price alerts, trade journal, track record and the <B>RDM</B> timeframe are free for everyone until 1 November 2026. From then on they
+          are part of Pro. If you are on the Free plan they pause, and your pairs, trades and results are kept for when you upgrade.
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.

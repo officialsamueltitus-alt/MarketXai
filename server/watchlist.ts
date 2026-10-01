@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
@@ -446,13 +447,13 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     return w && w.uid === uid ? w : null;
   };
 
-  app.get('/api/watchlist', limiter, requireAuth, wrap(async (_req, res) => {
+  app.get('/api/watchlist', limiter, requireAuth, requirePro, wrap(async (_req, res) => {
     const { uid } = getUser(res);
     const [enabled, items] = await Promise.all([enabledFor(uid), listItems(uid)]);
     res.json({ enabled, items, max: MAX_PAIRS, checkedAt: now() });
   }));
 
-  app.post('/api/watchlist/consent', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/watchlist/consent', limiter, requireAuth, guard, requireProToEnable, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const enabled = req.body?.enabled === true;
     await setWatchlistEnabled(uid, enabled);
@@ -465,7 +466,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
   }));
 
   // Add a pair: confirm MarketX can read its live price and chart first, then save it and scan it
-  app.post('/api/watchlist', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/watchlist', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const query = String(req.body?.query ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
     const timeframe = String(req.body?.timeframe ?? '').trim().toUpperCase();
@@ -492,7 +493,8 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
 
     const t = now();
     const item: WatchItem = {
-      id: `wl_${crypto.randomBytes(8).toString('hex')}`,
+      // One id per trader and market, so two quick taps on Add can never save the same pair twice
+      id: `wl_${crypto.createHash('sha256').update(`${uid}|${asset.symbol}`).digest('hex').slice(0, 16)}`,
       uid,
       symbol: asset.symbol.slice(0, 32),
       name: String(asset.name || asset.symbol).slice(0, 60),
@@ -510,7 +512,13 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
       setup: null,
       notified: [],
     };
-    await db().collection(ITEMS).doc(item.id).set(item);
+    const ref = db().collection(ITEMS).doc(item.id);
+    const created = await db().runTransaction(async tx => {
+      if ((await tx.get(ref)).exists) return false;
+      tx.set(ref, item);
+      return true;
+    });
+    if (!created) return res.status(409).json({ error: 'ALREADY_WATCHING', message: `${item.symbol} is already on your watchlist.` });
     if (IS_LEAD_WORKER) watched.set(item.id, item);
     // First scan straight away (the trader sees "Scanning…" until it lands)
     scanItemNow(item.id, deps).catch(err => console.warn('[MarketX Watchlist] first scan failed:', err?.message || err));
@@ -518,14 +526,18 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
   }));
 
   // Change the timeframe of a pair (rescans it)
-  app.patch('/api/watchlist/:id', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.patch('/api/watchlist/:id', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const timeframe = String(req.body?.timeframe ?? '').trim().toUpperCase();
     if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
     const w = await ownItem(uid, String(req.params.id || ''));
     if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
     const t = now();
-    await db().collection(ITEMS).doc(w.id).update({ timeframe, status: 'SCANNING', statusText: statusText('SCANNING', null, timeframe), setup: null, nextScanAt: t + scanGapMs(timeframe), updatedAt: t });
+    // A paused pair keeps its new timeframe and is scanned when the watchlist is turned back on
+    await db().collection(ITEMS).doc(w.id).update({
+      timeframe, setup: null, nextScanAt: t + scanGapMs(timeframe), updatedAt: t,
+      ...(w.active ? { status: 'SCANNING', statusText: statusText('SCANNING', null, timeframe) } : { status: 'WAITING', statusText: `Paused · ${timeframe === 'RDM' ? 'every timeframe' : timeframe}` }),
+    });
     if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, timeframe, nextScanAt: t + scanGapMs(timeframe) });
     if (w.active) scanItemNow(w.id, deps).catch(() => {});
     res.json({ items: await listItems(uid), max: MAX_PAIRS });
@@ -533,7 +545,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
 
   // Scan a pair again now (at most once a minute per pair)
   const rescan = createKeyedThrottle({ windowMs: 60_000, max: 1 });
-  app.post('/api/watchlist/:id/scan', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/watchlist/:id/scan', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const w = await ownItem(uid, String(req.params.id || ''));
     if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });

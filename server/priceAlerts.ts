@@ -3,9 +3,10 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendEmail } from './mailer';
 import { getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
-import { archiveAlertOutcome } from './journal';
+import { archiveAlertOutcome, openAutoJournal } from './journal';
 
 // ===========================================================================
 // Price alerts (/price-alerts): after a trader approves live alerts, MarketX watches the market for the setups they
@@ -349,7 +350,9 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
     if (closed) {
       watched.delete(a.id);
       // The finished signal joins the track record (once: the record id is the alert id)
-      archiveAlertOutcome(a).catch(err => console.warn('[MarketX Alerts] track record write failed:', err?.message || err));
+      const last = a.hits[a.hits.length - 1]?.kind;
+      const endedReason = last === 'SL' ? 'SL' : last === 'MISSED' ? 'MISSED' : 'TP3';
+      archiveAlertOutcome({ ...a, active: false, endedReason }).catch(err => console.warn('[MarketX Alerts] track record write failed:', err?.message || err));
     }
     for (const h of fresh) {
       const m = hitMessage(a, h);
@@ -376,7 +379,7 @@ async function tick(deps: PriceAlertDeps) {
     for (const a of expired) {
       watched.delete(a.id);
       db().collection(ALERTS).doc(a.id).update({ active: false, endedReason: 'EXPIRED', updatedAt: now }).catch(() => {});
-      archiveAlertOutcome(a).catch(() => {});
+      archiveAlertOutcome({ ...a, active: false, endedReason: 'EXPIRED' }).catch(() => {});
     }
     const symbols = [...bySymbol.keys()];
     for (let i = 0; i < symbols.length; i += FETCH_CONCURRENCY) {
@@ -418,6 +421,8 @@ export async function sweepAlertOfferEmails(): Promise<number> {
       if (!us.exists || o.expiresAt <= now) return null;
       const u = us.data() as UserDoc;
       if (u.emailPrefs?.activity === false || u.status === 'banned' || u.status === 'suspended') return null;
+      // Price alerts are Pro only once the free period ends: no invitation to a feature the trader can't use
+      if (!hasProFeatures(u)) return null;
       if ((u.alertMailAt || 0) > now - OFFER_EMAIL_GAP_MS) return null;
       tx.update(userRef(offer.uid), { alertMailAt: now });
       return u.email;
@@ -450,7 +455,7 @@ export async function setAlertsEnabled(uid: string, enabled: boolean) {
         const a = d.data() as PriceAlert;
         await d.ref.update({ active: false, endedReason: 'TURNED_OFF', updatedAt: now });
         watched.delete(a.id);
-        archiveAlertOutcome(a).catch(() => {});
+        await archiveAlertOutcome({ ...a, active: false, endedReason: 'TURNED_OFF' }).catch(() => {});
       })
   );
 }
@@ -507,14 +512,14 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     res.json({ enabled: !!(snap.data() as UserDoc | undefined)?.alerts?.enabled, alerts, live, checkedAt: Date.now() });
   }));
 
-  app.post('/api/alerts/consent', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/alerts/consent', limiter, requireAuth, guard, requireProToEnable, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const enabled = req.body?.enabled === true;
     await setAlertsEnabled(uid, enabled);
     res.json({ enabled, alerts: await listAlerts(uid) });
   }));
 
-  app.post('/api/alerts', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/alerts', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const offerId = String(req.body?.offerId || '');
     if (!/^of_[a-z0-9]{8,40}$/.test(offerId)) return res.status(400).json({ error: 'BAD_REQUEST', message: 'That setup could not be found.' });
@@ -550,6 +555,8 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     await db().collection(ALERTS).doc(id).set(alert);
     await db().collection(OFFERS).doc(offerId).update({ emailPending: false, alertId: id }).catch(() => {});
     if (IS_LEAD_WORKER) watched.set(id, alert);
+    // The trade goes into the journal by itself; the alert scores it when it ends
+    await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
     res.json({ alert: toClient(alert), alerts: await listAlerts(uid) });
   }));
 
@@ -564,7 +571,7 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     if (a.active) {
       await ref.update({ active: false, endedReason: 'TURNED_OFF', updatedAt: Date.now() });
       // A target already reached stays in the track record
-      archiveAlertOutcome(a).catch(() => {});
+      await archiveAlertOutcome({ ...a, active: false, endedReason: 'TURNED_OFF' }).catch(() => {});
     }
     watched.delete(a.id);
     res.json({ alerts: await listAlerts(uid) });

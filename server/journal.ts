@@ -2,12 +2,15 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db } from './firebase';
 import { getUser, requireAuth } from './account';
+import { requirePro } from './proAccess';
 import { createKeyedThrottle } from './security';
 
 // ===========================================================================
 // Trade Journal (/trade-journal) and Track Record (/track-record)
 //
-//   journalTrades/{id} -> a trade the trader logged (market, side, entry, stop, target, exit, P/L, notes)
+//   journalTrades/{id} -> a trade in the journal. Manual: logged by the trader. Auto: opened the moment the trader turns
+//                         on a price alert for a signal, then scored once by the server when the alert ends (entry,
+//                         targets or stop from checked candles), after which it is finished and only its notes change.
 //   trackRecord/{id}   -> the outcome of every MarketX signal a trader watched with a price alert, written by the
 //                         alert monitor when the alert finishes (id = the alert id, so it is written once). Outcomes
 //                         come only from candles the server checked: nobody can type them in.
@@ -39,7 +42,8 @@ export interface JournalTrade {
   /** Profit or loss in the trader's account currency (optional) */
   pnl: number | null;
   status: 'OPEN' | 'CLOSED';
-  result: 'WIN' | 'LOSS' | 'BE' | null;
+  /** NO_FILL: an auto trade whose entry was never reached (not counted in the stats) */
+  result: 'WIN' | 'LOSS' | 'BE' | 'NO_FILL' | null;
   /** Result in R (risk units), when the stop loss is known */
   r: number | null;
   timeframe: string;
@@ -48,6 +52,23 @@ export interface JournalTrade {
   closedAt: number | null;
   createdAt: number;
   updatedAt: number;
+  /** MANUAL (typed by the trader) or AUTO (from a price alert); missing on older trades = MANUAL */
+  source?: 'MANUAL' | 'AUTO';
+  /** Auto trades only */
+  auto?: AutoInfo;
+}
+export interface AutoInfo {
+  alertId: string;
+  /** TRACKING: the alert is still watching. DONE: scored once, finished. HANDED_OVER: the alert ended while the trade
+   *  was open with no target or stop reached, so the trader closes it by hand */
+  state: 'TRACKING' | 'DONE' | 'HANDED_OVER';
+  execution: 'LIMIT' | 'MARKET';
+  targets: number[];
+  tpsHit: number;
+  endedReason: string | null;
+  enteredAt: number | null;
+  /** Plain-English account of how the trade played out, written once when it ends */
+  summary: string;
 }
 
 const cleanText = (v: unknown, max: number) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -113,7 +134,7 @@ export function parseTrade(body: any, existing?: JournalTrade): { trade?: Omit<J
 }
 
 export function journalStats(trades: JournalTrade[]) {
-  const closed = trades.filter(t => t.status === 'CLOSED' && t.result);
+  const closed = trades.filter(t => t.status === 'CLOSED' && (t.result === 'WIN' || t.result === 'LOSS' || t.result === 'BE'));
   const wins = closed.filter(t => t.result === 'WIN').length;
   const losses = closed.filter(t => t.result === 'LOSS').length;
   const be = closed.filter(t => t.result === 'BE').length;
@@ -175,9 +196,10 @@ export interface TrackRecordEntry {
   createdAt: number;
   closedAt: number;
 }
-interface AlertLike {
+export interface AlertLike {
   id: string; uid: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; tps: number[]; entered: boolean;
-  hits: Array<{ kind: string; at: number }>; createdAt: number; updatedAt?: number; active: boolean; endedReason?: string;
+  hits: Array<{ kind: string; at: number; price?: number }>; createdAt: number; updatedAt?: number; active: boolean; endedReason?: string;
+  entry?: { min: number; max: number; optimal: number }; stop?: number; execution?: 'LIMIT' | 'MARKET';
 }
 
 /** Outcome of an alert: a win once a target is hit, a loss when the stop goes first, otherwise no result */
@@ -190,8 +212,10 @@ export function outcomeOf(a: AlertLike): { outcome: SignalOutcome; tpsHit: numbe
   return { outcome: a.entered ? 'OPEN' : 'NO_FILL', tpsHit: 0 };
 }
 
-/** Called by the alert monitor when an alert finishes; written once (id = alert id). Only real results are kept. */
+/** Called by the alert monitor when an alert finishes: closes its auto journal trade (once), then writes the track
+ *  record (id = alert id). Only real results join the track record. */
 export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
+  await closeAutoJournal(a).catch(err => console.warn('[MarketX Journal] auto close failed:', err?.message || err));
   const { outcome, tpsHit } = outcomeOf({ ...a, active: false });
   if (outcome !== 'WIN' && outcome !== 'LOSS' && outcome !== 'MISSED') return;
   const last = a.hits.length ? Math.max(...a.hits.map(h => h.at)) : Date.now();
@@ -201,6 +225,92 @@ export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
   };
   await db().collection(RECORDS).doc(a.id).set(entry);
 }
+
+// ---------------------------------------------------------------------------
+// Auto journal: price alerts write the trade in, then score it once when the alert ends
+// ---------------------------------------------------------------------------
+/** One journal id per alert, so turning the same alert on twice never logs the trade twice */
+export const autoJournalId = (alertId: string) => `jt_${crypto.createHash('sha256').update(`auto:${alertId}`).digest('hex').slice(0, 16)}`;
+
+const durationText = (ms: number) => {
+  const m = Math.max(1, Math.round(ms / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+};
+
+/** Called when the trader turns on a price alert: the trade is logged straight away, marked as tracked by the alert */
+export async function openAutoJournal(a: AlertLike): Promise<void> {
+  if (!a.entry || !positive(a.stop) || !a.tps.length) return;
+  const ref = db().collection(TRADES).doc(autoJournalId(a.id));
+  const count = (await db().collection(TRADES).where('uid', '==', a.uid).get()).docs.length;
+  await db().runTransaction(async tx => {
+    const cur = await tx.get(ref);
+    // Already logged (the alert was turned off and on again): a trade still tracked keeps going, a finished one stays
+    if (cur.exists) {
+      const t = cur.data() as JournalTrade;
+      if (t.auto?.state === 'DONE' || t.auto?.state === 'TRACKING') return;
+    } else if (count >= MAX_TRADES) return;
+    const now = Date.now();
+    const entered = a.execution === 'MARKET' || a.entered;
+    const doc: JournalTrade = {
+      id: ref.id, uid: a.uid, symbol: cleanText(a.symbol, 24).toUpperCase(), direction: a.direction,
+      entry: a.entry!.optimal, stop: a.stop!, target: a.tps[a.tps.length - 1], exit: null, size: null, pnl: null,
+      status: 'OPEN', result: null, r: null, timeframe: /^[0-9]{1,2}[MHDW]$/.test(String(a.timeframe).toUpperCase()) ? String(a.timeframe).toUpperCase() : '',
+      notes: cur.exists ? (cur.data() as JournalTrade).notes : '',
+      openedAt: cur.exists ? (cur.data() as JournalTrade).openedAt : now, closedAt: null,
+      createdAt: cur.exists ? (cur.data() as JournalTrade).createdAt : now, updatedAt: now, source: 'AUTO',
+      auto: {
+        alertId: a.id, state: 'TRACKING', execution: a.execution === 'MARKET' ? 'MARKET' : 'LIMIT', targets: a.tps.slice(0, 3),
+        tpsHit: 0, endedReason: null, enteredAt: entered ? now : null,
+        summary: entered ? 'In the trade, tracked by your price alert.' : 'Waiting for the entry zone, tracked by your price alert.',
+      },
+    };
+    tx.set(ref, doc);
+  });
+}
+
+/** Reads the finished alert once: works out the result, R and how it played out, then the trade is done */
+export async function closeAutoJournal(a: AlertLike): Promise<void> {
+  const ref = db().collection(TRADES).doc(autoJournalId(a.id));
+  await db().runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const t = snap.data() as JournalTrade;
+    if (t.uid !== a.uid || t.source !== 'AUTO' || t.auto?.state !== 'TRACKING') return;
+    const now = Date.now();
+    const at = (k: string) => a.hits.find(h => h.kind === k)?.at ?? null;
+    const tpIdx = a.hits.reduce((m, h) => { const x = /^TP(\d)$/.exec(h.kind); return x ? Math.max(m, Number(x[1])) : m; }, 0);
+    const slAt = at('SL');
+    const entryAt = at('ENTRY') ?? (a.execution === 'MARKET' || a.entered ? t.auto.enteredAt ?? a.createdAt : null);
+    const reason = a.endedReason || (a.active ? null : 'EXPIRED');
+    const base = { ...t.auto, tpsHit: tpIdx, endedReason: reason, enteredAt: entryAt };
+    const p = (n: number) => Number(n.toPrecision(8));
+    let update: Partial<JournalTrade>;
+    if (tpIdx > 0 || slAt !== null) {
+      // A target counts first when it came before the stop (the track record scores it the same way)
+      const win = tpIdx > 0;
+      const exit = win ? a.tps[tpIdx - 1] : (a.stop as number);
+      const exitAt = win ? at(`TP${tpIdx}`) ?? now : slAt ?? now;
+      const scored = scoreTrade({ direction: t.direction, entry: t.entry, stop: t.stop, exit, pnl: null });
+      const held = entryAt ? ` after ${durationText(exitAt - entryAt)}` : '';
+      const summary = win
+        ? `Entry ${p(t.entry)} filled, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}${held}${slAt && slAt > (at(`TP${tpIdx}`) ?? 0) ? ', then the stop was hit (scored at the furthest target reached)' : ''}. ${fmtR(scored.r)}.`
+        : `Entry ${p(t.entry)} filled, the stop loss at ${p(exit)} was hit${held} before any target. ${fmtR(scored.r)}.`;
+      update = { status: 'CLOSED', exit, result: scored.result, r: scored.r, closedAt: exitAt, openedAt: entryAt ?? t.openedAt, auto: { ...base, state: 'DONE', summary } };
+    } else if (!entryAt) {
+      const why = reason === 'MISSED' ? 'Price moved toward the targets without reaching the entry zone' : reason === 'TURNED_OFF' ? 'The alert was turned off before price reached the entry zone' : 'The setup expired before price reached the entry zone';
+      update = { status: 'CLOSED', result: 'NO_FILL', closedAt: now, auto: { ...base, state: 'DONE', summary: `${why}, so there was no trade. Not counted in your stats.` } };
+    } else {
+      // In the trade, but the alert stopped before a target or the stop: the trader closes it with their own exit
+      const why = reason === 'TURNED_OFF' ? 'You turned the alert off' : 'The alert finished watching';
+      update = { auto: { ...base, state: 'HANDED_OVER', summary: `${why} while the trade was open, before a target or the stop. Close it with your exit price or P/L.` } };
+    }
+    tx.update(ref, { ...update, updatedAt: now });
+  });
+}
+const fmtR = (r: number | null) => (r === null ? 'R not available' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`);
 
 export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 'tpsHit' | 'symbol' | 'timeframe'>>) {
   const wins = entries.filter(e => e.outcome === 'WIN').length;
@@ -291,29 +401,45 @@ export function registerJournalRoutes(app: Express, limiter: (req: Request, res:
     return t && t.uid === uid ? t : null;
   };
 
-  app.get('/api/journal', limiter, requireAuth, wrap(async (_req, res) => {
+  app.get('/api/journal', limiter, requireAuth, requirePro, wrap(async (_req, res) => {
     res.json(await journalPayload(getUser(res).uid));
   }));
 
-  app.post('/api/journal', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.post('/api/journal', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const count = (await db().collection(TRADES).where('uid', '==', uid).get()).docs.length;
     if (count >= MAX_TRADES) return res.status(429).json({ error: 'JOURNAL_FULL', message: `Your journal holds up to ${MAX_TRADES} trades. Delete some old ones first.` });
     const { trade, error } = parseTrade(req.body);
     if (!trade) return res.status(400).json({ error: 'BAD_TRADE', message: error });
     const t = Date.now();
-    const doc: JournalTrade = { id: `jt_${crypto.randomBytes(8).toString('hex')}`, uid, ...trade, createdAt: t, updatedAt: t };
+    const doc: JournalTrade = { id: `jt_${crypto.randomBytes(8).toString('hex')}`, uid, ...trade, createdAt: t, updatedAt: t, source: 'MANUAL' };
     await db().collection(TRADES).doc(doc.id).set(doc);
     res.json({ trade: tradeView(doc), ...(await journalPayload(uid)) });
   }));
 
-  app.patch('/api/journal/:id', limiter, requireAuth, guard, wrap(async (req, res) => {
+  app.patch('/api/journal/:id', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const existing = await own(uid, String(req.params.id || ''));
     if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'That trade is not in your journal.' });
-    const { trade, error } = parseTrade(req.body, existing);
-    if (!trade) return res.status(400).json({ error: 'BAD_TRADE', message: error });
-    const doc: JournalTrade = { ...existing, ...trade, updatedAt: Date.now() };
+    const body = req.body || {};
+    let doc: JournalTrade;
+    if (existing.source === 'AUTO' && existing.auto?.state !== 'HANDED_OVER') {
+      // Auto trades: the levels come from the signal and the result from the market, so only the notes change
+      // (an update, not a rewrite, so a result the alert monitor writes at the same moment is never overwritten)
+      const notes = body.notes === undefined ? existing.notes : cleanText(body.notes, 600);
+      await db().collection(TRADES).doc(existing.id).update({ notes, updatedAt: Date.now() });
+      const fresh = (await db().collection(TRADES).doc(existing.id).get()).data() as JournalTrade;
+      return res.json({ trade: tradeView(fresh), ...(await journalPayload(uid)) });
+    } else {
+      // A handed-over auto trade (its alert ended while it was open) keeps its levels; the trader adds the exit or P/L
+      const input = existing.source === 'AUTO' ? { notes: body.notes, exit: body.exit, pnl: body.pnl, size: body.size, status: body.status === 'CLOSED' ? 'CLOSED' : undefined } : body;
+      const { trade, error } = parseTrade(input, existing);
+      if (!trade) return res.status(400).json({ error: 'BAD_TRADE', message: error });
+      doc = { ...existing, ...trade, updatedAt: Date.now() };
+      if (doc.source === 'AUTO' && doc.status === 'CLOSED' && doc.auto) {
+        doc.auto = { ...doc.auto, state: 'DONE', summary: `${doc.auto.summary} You closed it${doc.exit !== null ? ` at ${doc.exit}` : ''}.` };
+      }
+    }
     await db().collection(TRADES).doc(existing.id).set(doc);
     res.json({ trade: tradeView(doc), ...(await journalPayload(uid)) });
   }));
@@ -326,7 +452,7 @@ export function registerJournalRoutes(app: Express, limiter: (req: Request, res:
     res.json(await journalPayload(uid));
   }));
 
-  app.get('/api/track-record', limiter, requireAuth, wrap(async (_req, res) => {
+  app.get('/api/track-record', limiter, requireAuth, requirePro, wrap(async (_req, res) => {
     const { uid } = getUser(res);
     const [mine, all] = await Promise.all([personalRecord(uid), globalRecord()]);
     res.json({ ...mine, global: all, checkedAt: Date.now() });

@@ -118,6 +118,11 @@ interface ChatInputProps {
   onStopAnalysis?: () => void;
   /** A live slash command was chosen (e.g. 'alerts'); return true when it was handled */
   onCommand?: (id: string) => boolean;
+  /** RDM is Pro only (after the free period): shown locked, and choosing it calls onLockedFeature */
+  rdmLocked?: boolean;
+  onLockedFeature?: (feature: 'RDM') => void;
+  /** Badge on the live commands, e.g. "Free till 1 Nov" or "Pro" (default "Live") */
+  commandBadge?: string | null;
   isLoading: boolean;
   /** Analyses left today; at 0 new prompts are paused until the refill */
   credits: number;
@@ -132,6 +137,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   onStopAnalysis,
   onCommand,
+  rdmLocked = false,
+  onLockedFeature,
+  commandBadge,
   isLoading,
   credits,
   refillLabel = '3:00 AM',
@@ -170,6 +178,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       localStorage.setItem(TF_KEY, v);
     } catch {}
   };
+  // RDM became Pro only: a saved RDM pick falls back to 4H
+  useEffect(() => {
+    if (rdmLocked && timeframe === 'RDM') setTimeframe('4H');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rdmLocked, timeframe]);
   const [tfOpen, setTfOpen] = useState(false);
   const tfButtonRef = useRef<HTMLButtonElement>(null);
   const tfMenuRef = useRef<HTMLDivElement>(null);
@@ -457,6 +470,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [tfOpen]);
 
   const chooseTimeframe = (v: string) => {
+    if (v === 'RDM' && rdmLocked) {
+      setTfOpen(false);
+      onLockedFeature?.('RDM');
+      return;
+    }
     setTimeframe(v);
     setTfOpen(false);
     textareaRef.current?.focus({ preventScroll: true });
@@ -490,9 +508,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }`}
       >
         {t.value === 'RDM' ? (
-          <span className="inline-flex items-center gap-1.5" title="Random: scans every timeframe and picks the best valid setup">
-            <Shuffle className="w-3.5 h-3.5" />
+          <span className="inline-flex items-center gap-1.5" title={rdmLocked ? 'RDM is a Pro feature' : 'Random: scans every timeframe and picks the best valid setup'}>
+            {rdmLocked ? <Lock className="w-3.5 h-3.5 text-amber-300" /> : <Shuffle className="w-3.5 h-3.5" />}
             RDM
+            {rdmLocked && <span className="text-[9px] font-sans font-bold text-amber-300">PRO</span>}
           </span>
         ) : (
           t.label
@@ -589,7 +608,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
                         {LIVE_COMMANDS.has(cmd.id) ? (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-400" />Live
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{commandBadge || 'Live'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
