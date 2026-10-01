@@ -1,3 +1,4 @@
+import { formatMarketPrice } from '../utils/formatPrice';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppNotification, CreditState, MarketQuote, UserProfile } from '../types';
 import { Sparkles, Gift, Bell, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown, Megaphone } from 'lucide-react';
@@ -60,8 +61,8 @@ function loadSeen(): Set<string> {
 }
 
 function formatPrice(q: MarketQuote): string {
-  const digits = q.price >= 1000 ? 2 : q.price >= 1 ? (q.type === 'forex' ? 4 : 2) : 5;
-  const n = q.price.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  // Exactly as fetched, never rounded
+  const n = formatMarketPrice(q.price);
   return q.type === 'forex' ? n : `$${n}`;
 }
 

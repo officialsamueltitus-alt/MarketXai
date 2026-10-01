@@ -33,6 +33,7 @@ import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAl
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
+import { exactPrice } from './src/utils/formatPrice';
 import { proGateActive, proGuard } from './server/proAccess';
 import { registerSupportRoutes } from './server/support';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
@@ -372,12 +373,12 @@ async function loadYahooQuote(yahooSym: string): Promise<LiveQuote | null> {
         continue;
       }
       const prevClose = Number(meta.previousClose || meta.regularMarketPreviousClose || meta.chartPreviousClose || price);
-      const decimals = price < 10 ? 5 : price < 1000 ? 3 : 2;
+      // Prices exactly as the source sends them (owner-specified: never rounded)
       return {
         price,
         change24h: Number((((price - prevClose) / prevClose) * 100).toFixed(2)),
-        high24h: Number(Number(meta.regularMarketDayHigh || Math.max(price, prevClose)).toFixed(decimals)),
-        low24h: Number(Number(meta.regularMarketDayLow || Math.min(price, prevClose)).toFixed(decimals)),
+        high24h: Number(meta.regularMarketDayHigh || Math.max(price, prevClose)),
+        low24h: Number(meta.regularMarketDayLow || Math.min(price, prevClose)),
       };
     } catch (err: any) {
       warnFeed(`Yahoo ${host}`, `${yahooSym}: ${err?.name === 'AbortError' ? 'timeout' : String(err?.message || err)}`);
@@ -982,15 +983,15 @@ async function loadLiveMarketTickers(): Promise<MarketTicker[]> {
     forexItems.forEach((item, i) => {
       const fx = forexQuotes[i];
       if (!fx) return;
-      const decimals = item.symbol.includes('JPY') ? 3 : 5;
-      const price = Number(fx.price.toFixed(decimals));
+      // The rate exactly as the source sends it (owner-specified: never rounded)
+      const price = fx.price;
       liveUpdates[item.symbol] = {
         price,
         // Daily reference rates carry no intraday range; keep a narrow band around the rate
         change24h: fx.intraday ? fx.change24h : item.change24h,
-        high24h: Number((fx.intraday ? fx.high24h : price * 1.003).toFixed(decimals)),
-        low24h: Number((fx.intraday ? fx.low24h : price * 0.997).toFixed(decimals)),
-        ratio: price.toFixed(decimals === 3 ? 2 : 3),
+        high24h: fx.intraday ? fx.high24h : price * 1.003,
+        low24h: fx.intraday ? fx.low24h : price * 0.997,
+        ratio: String(price),
       };
     });
   } catch (err) {
@@ -2370,15 +2371,15 @@ async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<Mark
     if (streamed) return streamed;
     if (fx) {
       const isJpy = quote === 'JPY' || cleanSym.includes('JPY');
-      const decimals = isJpy ? 3 : 5;
-      const numPrice = Number(fx.price.toFixed(decimals));
+      // The rate exactly as the source sends it (owner-specified: never rounded)
+      const numPrice = fx.price;
       return {
         symbol: cleanSym,
         name: asset.name,
         price: numPrice,
         change24h: fx.change24h,
-        high24h: Number((fx.intraday ? fx.high24h : numPrice * (isJpy ? 1.006 : 1.004)).toFixed(decimals)),
-        low24h: Number((fx.intraday ? fx.low24h : numPrice * (isJpy ? 0.994 : 0.996)).toFixed(decimals)),
+        high24h: fx.intraday ? fx.high24h : numPrice * (isJpy ? 1.006 : 1.004),
+        low24h: fx.intraday ? fx.low24h : numPrice * (isJpy ? 0.994 : 0.996),
         volume24h: '168.40 B Live Interbank Liquidity',
         currency: quote,
         type: 'forex',
@@ -2441,14 +2442,14 @@ async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<Mark
     const derivSym = mapDerivSymbol(cleanSym);
     const liveSyn = derivSym ? await fetchDerivQuote(derivSym) : null;
     if (liveSyn) {
-      const synDecimals = liveSyn.price < 1000 ? 3 : 2;
+      // The index exactly as the source sends it (owner-specified: never rounded)
       return {
         symbol: cleanSym,
         name: asset.name,
-        price: Number(liveSyn.price.toFixed(synDecimals)),
+        price: liveSyn.price,
         change24h: liveSyn.change24h,
-        high24h: Number(liveSyn.high24h.toFixed(synDecimals)),
-        low24h: Number(liveSyn.low24h.toFixed(synDecimals)),
+        high24h: liveSyn.high24h,
+        low24h: liveSyn.low24h,
         volume24h: 'Live Deriv Synthetic Feed',
         currency: 'pts',
         type: 'synthetic',
@@ -3029,7 +3030,8 @@ function classifyPromptIntent(prompt: string, requestedSymbol?: string, hasChart
 
 const compactUsd = (v: number) =>
   !(v > 0) ? '' : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
-const tinyNum = (v: number) => (v > 0 && v < 0.01 ? v.toFixed(Math.min(12, Math.ceil(-Math.log10(v)) + 3)) : String(v));
+// Live prices in answers exactly as fetched (owner-specified: never rounded)
+const tinyNum = (v: number) => exactPrice(v);
 const VENUE_NAME: Record<string, string> = { binance: 'Binance', bybit: 'Bybit', mexc: 'MEXC' };
 
 /** Factual details about a market for questions (what it is, where it trades, its live stats). Public data only. */

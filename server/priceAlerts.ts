@@ -7,6 +7,7 @@ import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { archiveAlertOutcome, openAutoJournal } from './journal';
+import { exactPrice } from '../src/utils/formatPrice';
 
 // ===========================================================================
 // Price alerts (/price-alerts): after a trader approves live alerts, MarketX watches the market for the setups they
@@ -116,12 +117,10 @@ export function levelsFromStrategy(s: any): AlertLevels | null {
   };
 }
 
+/** Prices in alert notices and emails, exactly as the levels and feeds give them (never rounded) */
 export function fmtPrice(p: number): string {
   if (!Number.isFinite(p)) return String(p);
-  // Meme coins: four significant digits below one cent (never 0.000000)
-  if (p > 0 && p < 0.01) return p.toFixed(Math.min(12, Math.ceil(-Math.log10(p)) + 3));
-  const d = p >= 1000 ? 2 : p >= 100 ? 2 : p >= 1 ? 4 : 6;
-  return p.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  return exactPrice(p);
 }
 
 const side = (a: AlertLevels) => (a.direction === 'LONG' ? (a.execution === 'MARKET' ? 'BUY' : 'BUY LIMIT') : a.execution === 'MARKET' ? 'SELL' : 'SELL LIMIT');

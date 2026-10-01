@@ -83,10 +83,9 @@ interface InstitutionalFeedItem {
   isNew?: boolean;
 }
 
+// Live prices exactly as fetched, never rounded
 function formatFeedPrice(price: number): string {
-  if (price < 10) return formatMarketPrice(price);
-  if (price < 1000) return price.toFixed(2);
-  return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMarketPrice(price);
 }
 
 // Generate intelligent real-time feed item tailored directly to the specific pair's current price & market conditions
@@ -389,9 +388,7 @@ function generateFeedItemForTicker(
 }
 
 function formatTablePrice(price: number): string {
-  if (price < 10) return formatMarketPrice(price);
-  if (price < 1000) return price.toFixed(2);
-  return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMarketPrice(price);
 }
 
 function renderAssetLogo(symbol: string) {

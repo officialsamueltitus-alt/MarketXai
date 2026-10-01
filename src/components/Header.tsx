@@ -51,8 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const activeTickers = useMemo(() => tickers.filter(t => t.symbol !== 'SPY'), [tickers]);
 
-  const formatPrice = (p: number) =>
-    p < 10 ? formatMarketPrice(p) : p.toLocaleString(undefined, { maximumFractionDigits: p < 1000 ? 2 : 0 });
+  // Live prices exactly as fetched, never rounded
+  const formatPrice = (p: number) => formatMarketPrice(p);
 
   return (
     <header className="h-14 pl-1.5 pr-2.5 min-[400px]:px-3 sm:px-4 flex items-center justify-between gap-1.5 min-[400px]:gap-2 sm:gap-4 shrink-0 z-30 min-w-0">

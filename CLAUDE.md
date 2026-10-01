@@ -61,8 +61,11 @@
   default $20k) with GeckoTerminal candles (series shared across timeframes, 60s cache). `detectCryptoTicker` in
   `src/utils/cryptoTicker.ts` (shared) finds cashtags, pairs, addresses, meme names (`CRYPTO_ALIASES`, incl. Ansem) and tickers;
   `extractAssetInfo` runs it after majors/forex/stocks, `resolveAssetInfo` (async) finishes on-chain lookups. A coin listed nowhere
-  returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price. Prices below one cent keep 4 significant digits
-  (`priceDecimals`, `src/utils/formatPrice.ts`).
+  returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price.
+- Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
+  through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
+  `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan
+  prices) and percentages are not prices and keep 2 decimals.
 - Logo (owner-specified): the glossy ball mark (gradient X with a widened gap between the chevron and the two right legs,
   wrapped on a dark glass sphere with the rainbow ring as its rim). Site sizes live in `public/brand/` (`marketx-logo-{32..512}.png`,
   `apple-touch-icon.png`, `marketx-maskable-512.png`, `/favicon.ico`), referenced with `?v=3` (bump `LOGO_V` in `MarketXIcon.tsx`
