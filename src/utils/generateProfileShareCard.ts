@@ -387,7 +387,7 @@ export async function generateProfileShareCard(userProfile: UserProfile): Promis
   await ensureFonts();
   const [avatar, logo] = await Promise.all([
     userProfile.avatarUrl ? loadImage(userProfile.avatarUrl) : Promise.resolve(null),
-    loadImage('/brand/marketx-logo-256.png?v=2'),
+    loadImage('/brand/marketx-logo-256.png?v=3'),
   ]);
   try {
     return renderCard(userProfile, avatar, logo).toDataURL('image/png');

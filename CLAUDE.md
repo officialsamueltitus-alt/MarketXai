@@ -65,8 +65,11 @@
   (`priceDecimals`, `src/utils/formatPrice.ts`).
 - Logo (owner-specified): the glossy ball mark (gradient X with a widened gap between the chevron and the two right legs,
   wrapped on a dark glass sphere with the rainbow ring as its rim). Site sizes live in `public/brand/` (`marketx-logo-{32..512}.png`,
-  `apple-touch-icon.png`, `/favicon.ico`), referenced with `?v=2` (bump `LOGO_V` in `MarketXIcon.tsx` and the other `?v=` refs
-  when the files change). Masters: `brand/marketx-logo-ball-1024.png` (with floor shadow) and `brand/marketx-logo-flat-512.png`.
+  `apple-touch-icon.png`, `marketx-maskable-512.png`, `/favicon.ico`), referenced with `?v=3` (bump `LOGO_V` in `MarketXIcon.tsx`
+  and every other `?v=` ref when the files change). Render any size with `python3 brand/logo-ball.py OUT.png --size N [--no-shadow]`;
+  master `brand/marketx-logo-ball-1080.png`, flat mark `brand/marketx-logo-flat-512.png`.
+- SEO (`index.html`): link previews use `public/brand/marketx-og-1200x630.jpg` (og:image + twitter:image, with size/alt tags);
+  JSON-LD is an @graph of Organization (logo, sameAs X), WebSite and SoftwareApplication; `public/site.webmanifest` lists the icons.
 - Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
