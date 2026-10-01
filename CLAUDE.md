@@ -43,6 +43,9 @@
   just short of the entry; else "No signal, already moved, close to TP" (or "close to the stop loss"), `alreadyMoved` on the
   result. `evaluateSignalExecutionStatus` applies the same half-way rule to every served trade. The client activity shows
   "Finding tools" then "Using tools" (RSI, EMA, zones from `strategy.toolsUsed`) before the other steps.
+  Every prompt sent for analysis or a question opens with three client-side steps (`App.tsx`, `INTRO_MS` 10s): "Starting…" 2s,
+  "Waking up MarketX engine" 5s, "Looking at prompt" 3s. The request is sent first and runs during them (no added server time); the
+  result waits for the intro; Stop works during it.
   RDM timeframe (composer option `RDM`): the analyze handler (`scanAllTimeframes` in `server.ts`) builds the map on every
   supported timeframe, keeps plans scoring 75+, serves the strongest (slight edge to higher timeframes) and tags the result
   `timeframeScan` + an "RDM scan" note; a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
@@ -83,6 +86,7 @@
   pair question gets its live details, a matching canned lesson is used, else 503 `ANSWER_UNAVAILABLE` (credit refunded), never a
   generic greeting. Chat Markdown opens only http(s)/relative links (new tab, noopener) and never loads remote images.
 - On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
+- Guide screenshots live in `public/guide/*.webp` (demo account, no real user data, at most 2 per section via `shots`).
 - The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
   anti-abuse rules, providers or keys.
 - Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once
@@ -92,7 +96,12 @@
   memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
   (entry zone, TP1-3, stop, or MISSED if a target comes before entry), then a notification + activity email. Unused signals get
   one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 30s
-  only while they have an active alert and the tab is visible.
+  only while they have an active alert and the tab is visible. The panel has a Refresh button: `GET /api/alerts?live=1` reloads the alerts and
+  returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
+  price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
+- Emails (`server/mailer.ts`, the only template): always dark with white text, in every mail app: table `bgcolor` + background
+  colour + a solid gradient image (Gmail apps don't recolour images), `color-scheme: dark only`, and a Gmail iOS blend fix. No
+  white backgrounds or white buttons (the button is violet).
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced

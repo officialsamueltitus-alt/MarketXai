@@ -29,11 +29,17 @@ const X_SHARE_WAIT_MS = 10 * 60 * 60 * 1000;
 const X_SHARE_CREDITS = 10;
 const UNLIMITED_VALUE = 999999;
 
-const UNLIMITED_EMAILS = new Set(
-  ['tcrypt3@gmail.com', ...(process.env.UNLIMITED_EMAILS || '').split(',')]
-    .map(e => e.trim().toLowerCase())
+// Unlimited accounts are matched by a one-way fingerprint of the email, so no address is written in the code.
+// More can be added with the UNLIMITED_EMAILS env var (comma separated), which is fingerprinted the same way.
+const unlimitedKey = (email: string) => crypto.createHash('sha256').update(`marketx-unlimited:${String(email || '').trim().toLowerCase()}`).digest('hex');
+const UNLIMITED_KEYS = new Set([
+  '3d7487309034a6be62b2339c5df351e57dae5c90770a5ef56cfd3d8fc3ce2da7',
+  ...(process.env.UNLIMITED_EMAILS || '')
+    .split(',')
+    .map(e => e.trim())
     .filter(Boolean)
-);
+    .map(unlimitedKey),
+]);
 
 export interface AuthedUser {
   uid: string;
@@ -97,12 +103,12 @@ export function blockedStatusMessage(status?: string): { code: string; message: 
 }
 
 export function isUnlimitedEmail(email: string): boolean {
-  return UNLIMITED_EMAILS.has(String(email || '').toLowerCase());
+  return UNLIMITED_KEYS.has(unlimitedKey(email));
 }
 
 // Unlimited access requires a verified email so nobody can claim it by registering the address
 export function isUnlimited(user: AuthedUser): boolean {
-  return user.emailVerified && UNLIMITED_EMAILS.has(user.email.toLowerCase());
+  return user.emailVerified && UNLIMITED_KEYS.has(unlimitedKey(user.email));
 }
 
 const userRef = (uid: string) => db().collection('users').doc(uid);

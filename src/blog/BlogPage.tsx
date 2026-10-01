@@ -29,8 +29,31 @@ interface Section {
   title: string;
   icon: React.ElementType;
   lead: string;
+  /** Up to two screenshots of what the section describes (public/guide, demo account, no real data) */
+  shots?: Shot[];
   body: React.ReactNode;
 }
+
+interface Shot {
+  src: string;
+  alt: string;
+  w: number;
+  h: number;
+}
+
+// Screenshots: lazy loaded, sized up front (no layout jump), shown at phone width so the text stays readable
+const Shots: React.FC<{ shots: Shot[] }> = ({ shots }) => (
+  <div className={`mt-5 grid gap-4 ${shots.length > 1 ? 'sm:grid-cols-2' : ''} justify-items-center`}>
+    {shots.map(s => (
+      <figure key={s.src} className="w-full max-w-[340px]">
+        <div className="rounded-2xl overflow-hidden border border-white/[0.08] bg-black shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8)]">
+          <img src={s.src} alt={s.alt} width={s.w} height={s.h} loading="lazy" decoding="async" className="block w-full h-auto" />
+        </div>
+        <figcaption className="mt-2 text-[13px] text-slate-400 leading-relaxed text-center px-2">{s.alt}</figcaption>
+      </figure>
+    ))}
+  </div>
+);
 
 const B: React.FC<{ children: React.ReactNode }> = ({ children }) => <strong className="font-semibold text-white">{children}</strong>;
 
@@ -104,6 +127,7 @@ const Note: React.FC<{ title: string; children: React.ReactNode; tone?: 'indigo'
 const SECTIONS: Section[] = [
   {
     id: 'getting-started',
+    shots: [{ src: '/guide/start-welcome.webp', alt: "The welcome screen: create an account, sign in, or enter the pass code from your email.", w: 786, h: 1300 }, { src: '/guide/start-signin.webp', alt: "Signing in: tick the Terms and Privacy box, then use your email and password.", w: 786, h: 1004 }],
     title: 'Getting started',
     icon: Rocket,
     lead: 'MarketX is invite only: you create an account, receive a personal pass code by email, and your account opens once you enter that code.',
@@ -142,6 +166,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'finding-your-way',
+    shots: [{ src: '/guide/nav-markets.webp', alt: "Markets shows live prices. Ask SI is where you chat and run analyses.", w: 786, h: 1280 }, { src: '/guide/nav-sidebar.webp', alt: "The sidebar: a new chat, your notifications, saved setups and chat history.", w: 640, h: 720 }],
     title: 'Finding your way around',
     icon: Compass,
     lead: 'Everything sits in two places: the top bar across the page and the sidebar on the left. On phones and tablets, tap the sidebar button at the top left to open it.',
@@ -171,6 +196,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'running-an-analysis',
+    shots: [{ src: '/guide/run-timeframe.webp', alt: "Tap the timeframe button to pick a timeframe, or RDM to scan them all.", w: 786, h: 374 }, { src: '/guide/run-steps.webp', alt: "The process report shows every step as it happens, from Starting to the analysis.", w: 786, h: 1240 }],
     title: 'Running an analysis',
     icon: LineChart,
     lead: "Name the market and the timeframe in one sentence, press Enter, and MarketX returns a trade plan built from that timeframe's live candles.",
@@ -237,8 +263,9 @@ const SECTIONS: Section[] = [
           a word like buy, sell, setup or outlook (gold 4H, sell BTC) to go straight to the analysis.
         </Note>
         <Note title="Watch it work">
-          After you send, the process report shows each step as it happens: reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
-          live price, checking today's news and building the plan. It then folds into one line such as Worked for 5s. A yellow dot on that line means there is news for this market today; tap the line to see it.
+          After you send, the process report shows each step as it happens: <B>Starting…</B>, <B>Waking up MarketX engine</B>, <B>Looking at prompt</B>,
+          reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
+          live price, checking today's news and building the plan. It then folds into one line such as Worked for 14s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
           Type / in the input to see the commands. <B>/price-alerts</B> is live (marked Live). Still in private testing and marked Soon: Strategy, Preference
@@ -251,6 +278,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'chart-screenshots',
+    shots: [{ src: '/guide/chart-attach.webp', alt: "A chart screenshot attached and ready. Name the pair, then send.", w: 786, h: 354 }],
     title: 'Analyzing a chart screenshot',
     icon: ImagePlus,
     lead: 'Upload a screenshot of any candlestick chart, tell MarketX which pair it is, and it analyzes exactly what the chart shows with the same strategy it uses for live analyses.',
@@ -282,6 +310,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'reading-a-result',
+    shots: [{ src: '/guide/result-levels.webp', alt: "A result: the direction, confluence, optimal entry, stop loss, TP1 and risk to reward.", w: 786, h: 810 }, { src: '/guide/result-alerts.webp', alt: "Price alerts watch the entry, targets and stop for you, with the live price on each trade.", w: 786, h: 1114 }],
     title: 'Reading a result',
     icon: Target,
     lead: 'Every analysis ends in one of four outcomes: a trade plan, No signal, No signal, already mitigated, or No signal, already moved. MarketX only calls a trade from a fresh, untouched level with a strong reward to risk, while price is still near the entry.',
@@ -329,6 +358,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'stop-loss-options',
+    shots: [{ src: '/guide/sl-tighten.webp', alt: "Tighten SL on a result recalculates a closer stop for the same setup.", w: 786, h: 880 }],
     title: 'Stop loss options',
     icon: SlidersHorizontal,
     lead: "You can ask for a tighter stop before an analysis or after one; either way the stop stays wide enough for the timeframe's normal price swings.",
@@ -348,6 +378,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'credits-and-plans',
+    shots: [{ src: '/guide/credits-balance.webp', alt: "Your credits and today\u2019s analyses, with the time they refill.", w: 786, h: 1460 }, { src: '/guide/credits-pro.webp', alt: "Plans: Pro gives you more analyses every day.", w: 786, h: 1604 }],
     title: 'Credits, daily analyses and plans',
     icon: CreditCard,
     lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. The one exemption is campaign credits: they keep working after the daily limit until they run out. If an analysis fails, it is refunded automatically.",
@@ -382,6 +413,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'sharing-and-earning',
+    shots: [{ src: '/guide/share-rewards.webp', alt: "The Rewards tab lists the campaigns where you can earn free credits.", w: 786, h: 1310 }, { src: '/guide/share-gift.webp', alt: "Gift credits to another trader with their username.", w: 786, h: 1240 }],
     title: 'Sharing and earning',
     icon: Share2,
     lead: 'You can share any trade plan as an image, earn free credits by posting about MarketX on X, and send credits to friends.',
@@ -411,6 +443,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'account-and-settings',
+    shots: [{ src: '/guide/account-profile.webp', alt: "Your profile: name, username, plan and stats.", w: 786, h: 1608 }, { src: '/guide/account-settings.webp', alt: "Settings: appearance, credits, profile, connectors, support and terms.", w: 640, h: 924 }],
     title: 'Your account and settings',
     icon: UserCog,
     lead: "Your profile, preferences and saved work are all reachable from the sidebar's Settings and the top bar avatar.",
@@ -451,6 +484,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'getting-help',
+    shots: [{ src: '/guide/help-support.webp', alt: "Support chat: message the MarketX team from inside the app.", w: 786, h: 1204 }, { src: '/guide/help-desk.webp', alt: "The help desk on the home page: support chat, email, X, Telegram and this guide.", w: 786, h: 1540 }],
     title: 'Getting help',
     icon: LifeBuoy,
     lead: 'The fastest way to reach the MarketX team is the Support chat; the team usually replies within a few hours.',
@@ -665,6 +699,7 @@ export default function BlogPage() {
                 </div>
                 <h2 className="mt-4 text-xl sm:text-2xl font-semibold text-white tracking-tight">{s.title}</h2>
                 <p className="mt-2 text-[15px] sm:text-base text-slate-300 leading-relaxed">{s.lead}</p>
+                {s.shots && s.shots.length > 0 && <Shots shots={s.shots.slice(0, 2)} />}
                 {s.body}
               </article>
             );

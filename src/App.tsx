@@ -15,6 +15,7 @@ import {
   ResearchInfo,
   ActivityStep,
   PriceAlertItem,
+  AlertLiveQuote,
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -153,6 +154,8 @@ export default function App() {
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertQuotes, setAlertQuotes] = useState<Record<string, AlertLiveQuote>>({});
+  const [alertsCheckedAt, setAlertsCheckedAt] = useState<number | null>(null);
   const [pendingAlertOffer, setPendingAlertOffer] = useState<{ id: string; symbol: string } | null>(null);
   // An alert link from an email (?alert=<setup> or ?alerts=1), handled once the session is restored
   const alertLinkRef = useRef<{ offerId?: string; open?: boolean } | null>(null);
@@ -995,11 +998,16 @@ export default function App() {
     }
     setIsAlertsOpen(true);
   }, [authUser]);
-  const fetchAlerts = useCallback(async () => {
+  const fetchAlerts = useCallback(async (live = false) => {
     setAlertsLoading(true);
     try {
-      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts');
+      // live=1: the server also fetches the live price of each market being watched
+      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[]; live?: Record<string, AlertLiveQuote>; checkedAt?: number }>(
+        live ? '/api/alerts?live=1' : '/api/alerts'
+      );
       setPriceAlerts(data.alerts || []);
+      if (live) setAlertQuotes(data.live || {});
+      setAlertsCheckedAt(data.checkedAt || Date.now());
       setUserProfile(p => (p.alertsEnabled === data.enabled ? p : { ...p, alertsEnabled: data.enabled }));
     } catch {
     } finally {
@@ -1081,7 +1089,7 @@ export default function App() {
   }, [authUser]);
   // Opening the panel always shows the latest state
   useEffect(() => {
-    if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts();
+    if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts(true);
   }, [isAlertsOpen, authUser, alertsEnabled, fetchAlerts]);
   // While an alert is active, new alert notifications are picked up every 30s (only while the tab is visible)
   const hasActiveAlerts = priceAlerts.some(a => a.active);
@@ -1325,6 +1333,93 @@ export default function App() {
     const scanAll = analysisTimeframe === 'RDM';
     const tfText = scanAll ? 'every timeframe (RDM)' : `${analysisTimeframe} timeframe`;
 
+    // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
+    type BackendResult =
+      | { kind: 'strategy'; strategy: StrategyResult; text: string }
+      | { kind: 'chat'; text: string; choices?: MessageChoice[]; research?: ResearchInfo }
+      | { kind: 'error'; status: number; code: string; message: string };
+
+    const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt: promptText,
+        symbol: assetInfo.symbol,
+        timeframe: resolvedBaseStrategy?.timeframe || timeframe,
+        slMode: isTightenPrompt ? 'tight' : slMode,
+        baseStrategy: resolvedBaseStrategy,
+        action: isTightenPrompt ? 'tighten_sl' : undefined,
+        chartImage,
+        // Decides which calendar day "today's news" belongs to
+        timeZone: (() => {
+          try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+          } catch {
+            return undefined;
+          }
+        })(),
+      }),
+      signal: requestController.signal,
+    })
+      .then((data): BackendResult => {
+        if (data?.strategy) {
+          return {
+            kind: 'strategy',
+            strategy: data.strategy as StrategyResult,
+            text: (data.content || data.message || data.strategy.detailedThesis) as string,
+          };
+        }
+        const text = data?.content || data?.message;
+        if (text)
+          return {
+            kind: 'chat',
+            text,
+            ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}),
+            ...(data?.research && typeof data.research === 'object' ? { research: data.research as ResearchInfo } : {}),
+          };
+        return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
+      })
+      .catch((err: any): BackendResult | null => {
+        if (requestTimedOut && !controller.signal.aborted) {
+          return {
+            kind: 'error',
+            status: 0,
+            code: 'TIMEOUT',
+            message:
+              "MarketX didn't get the answer back in time. This usually means the connection dropped (for example your phone locked or you switched apps during the analysis). Please try again.",
+          };
+        }
+        if (err?.name === 'AbortError' || controller.signal.aborted) return null;
+        if (err instanceof ApiError) return { kind: 'error', status: err.status, code: err.code, message: err.message };
+        return { kind: 'error', status: 0, code: 'NETWORK', message: 'Could not reach the MarketX server. Check your connection and try again.' };
+      });
+
+    // Intro, on every prompt: "Starting…", "Waking up MarketX engine", "Looking at prompt". The request above is
+    // already on its way, so these steps never delay the answer; Stop works at any moment.
+    const INTRO_MS = 10_000;
+    const introWait = (ms: number) =>
+      new Promise<void>(resolve => {
+        if (controller.signal.aborted) return resolve();
+        const t = setTimeout(resolve, ms);
+        controller.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+    const promptPreview = promptText.length > 60 ? `${promptText.slice(0, 57).trim()}…` : promptText;
+    startStep('boot', 'Starting…');
+    await introWait(2000);
+    endStep('boot');
+    startStep('wake', 'Waking up MarketX engine', 'Bringing the engine and the live market feeds online');
+    await introWait(5000);
+    endStep('wake');
+    startStep('look', 'Looking at prompt', `“${promptPreview}”`);
+    await introWait(3000);
+    endStep('look');
+    if (controller.signal.aborted) {
+      // Stopped during the intro: the Stop handler has already closed the message
+      clearTimeout(requestTimer);
+      controller.signal.removeEventListener('abort', onUserStop);
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      return;
+    }
+
     // Step: understand the request (done on this device, instantly)
     if (resolvedBaseStrategy) {
       addDoneStep(
@@ -1426,71 +1521,12 @@ export default function App() {
     );
 
     try {
-      // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
-      type BackendResult =
-        | { kind: 'strategy'; strategy: StrategyResult; text: string }
-        | { kind: 'chat'; text: string; choices?: MessageChoice[]; research?: ResearchInfo }
-        | { kind: 'error'; status: number; code: string; message: string };
-
-      const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: promptText,
-          symbol: assetInfo.symbol,
-          timeframe: resolvedBaseStrategy?.timeframe || timeframe,
-          slMode: isTightenPrompt ? 'tight' : slMode,
-          baseStrategy: resolvedBaseStrategy,
-          action: isTightenPrompt ? 'tighten_sl' : undefined,
-          chartImage,
-          // Decides which calendar day "today's news" belongs to
-          timeZone: (() => {
-            try {
-              return Intl.DateTimeFormat().resolvedOptions().timeZone;
-            } catch {
-              return undefined;
-            }
-          })(),
-        }),
-        signal: requestController.signal,
-      })
-        .then((data): BackendResult => {
-          if (data?.strategy) {
-            return {
-              kind: 'strategy',
-              strategy: data.strategy as StrategyResult,
-              text: (data.content || data.message || data.strategy.detailedThesis) as string,
-            };
-          }
-          const text = data?.content || data?.message;
-          if (text)
-            return {
-              kind: 'chat',
-              text,
-              ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}),
-              ...(data?.research && typeof data.research === 'object' ? { research: data.research as ResearchInfo } : {}),
-            };
-          return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
-        })
-        .catch((err: any): BackendResult | null => {
-          if (requestTimedOut && !controller.signal.aborted) {
-            return {
-              kind: 'error',
-              status: 0,
-              code: 'TIMEOUT',
-              message:
-                "MarketX didn't get the answer back in time. This usually means the connection dropped (for example your phone locked or you switched apps during the analysis). Please try again.",
-            };
-          }
-          if (err?.name === 'AbortError' || controller.signal.aborted) return null;
-          if (err instanceof ApiError) return { kind: 'error', status: err.status, code: err.code, message: err.message };
-          return { kind: 'error', status: 0, code: 'NETWORK', message: 'Could not reach the MarketX server. Check your connection and try again.' };
-        });
 
       const result = await fetchPromise;
       if (!result || controller.signal.aborted) return;
       // Let the work load visibly (reading, live price, news, analysis) instead of jumping straight to the result
       // when the server answers quickly
-      const minVisibleMs = result.kind === 'error' ? 0 : looksLikeAnalysis || resolvedBaseStrategy ? 4200 : 1600;
+      const minVisibleMs = result.kind === 'error' ? 0 : INTRO_MS + (looksLikeAnalysis || resolvedBaseStrategy ? 4200 : 1600);
       const remainingMs = minVisibleMs - (Date.now() - requestStartTime);
       if (remainingMs > 0) {
         await new Promise<void>(resolve => {
@@ -1886,6 +1922,9 @@ export default function App() {
           enabled={alertsEnabled}
           alerts={priceAlerts}
           loading={alertsLoading}
+          liveQuotes={alertQuotes}
+          checkedAt={alertsCheckedAt}
+          onRefresh={() => fetchAlerts(true)}
           pendingSymbol={pendingAlertOffer?.symbol || null}
           onConsent={handleAlertsConsent}
           onRemove={removeAlert}
