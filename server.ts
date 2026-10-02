@@ -61,6 +61,7 @@ import { cryptoListing, fetchVenueCandles, fetchVenueQuote, isListedCoin, lookup
 import { CRYPTO_ALIASES, detectCryptoTicker } from './src/utils/cryptoTicker';
 import { IS_LEAD_WORKER } from './server/workers';
 import { answerKey, answerTtl, getCachedAnswer, saveAnswer, sweepExpiredAnswers } from './server/answerCache';
+import { pairBriefing, pairKnowledge } from './server/pairKnowledge';
 import { apiNotFound, clientIp, corsAndOriginGuard, jsonErrorHandler, securityHeaders, stripReservedKeys } from './server/security';
 
 const app = express();
@@ -3110,10 +3111,6 @@ async function rdmProGate(req: Request, res: Response, next: NextFunction) {
 const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
-/** A written answer from live market data alone (no engine): what the pair is, its live stats and today's news. */
-function marketDataAnswer(asset: AssetInfo, marketContext: string): string {
-  return `### ${asset.name} (${asset.symbol})\n\n${marketContext.split('\n').slice(1).join('\n')}\n\nWant a trade plan? Ask **Analyze ${asset.symbol}** and add a timeframe, for example on the 4H.`;
-}
 
 const ANSWER_UNAVAILABLE = "Couldn't finish the answer to your question right now. Your credit was refunded, please try again in a moment.";
 
@@ -3308,6 +3305,8 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       const chatAsset = promptNamesAsset(cleanPrompt) ? await resolveAssetInfo(cleanPrompt) : null;
       let marketContext = '';
       let liveQuoteForReplay: MarketTicker | null = null;
+      // A full written answer from live data and MarketX knowledge, used when the engine cannot answer
+      let pairFallback: (() => string) | null = null;
       // What was looked up for this answer, shown to the reader in the thinking steps
       const research: ResearchInfo = { web: false, queries: [], sources: [], data: [] };
       if (chatAsset) {
@@ -3337,14 +3336,25 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
                 ...(live ? [] : ['- Live price unavailable right now; do not quote a price.']),
               ]),
           brief ? `- Today's news: ${brief.summary}. ${brief.guidance}` : '- Today: nothing on the economic calendar or the wires that could move it.',
+          // Durable background facts about this market (what it is, what drives it, when it moves, how it behaves)
+          ...(chatAsset.unresolved ? [] : ['', `MARKETX KNOWLEDGE about ${chatAsset.symbol} (established background facts; live data above wins for anything current):`, ...pairKnowledge(chatAsset).map(l => `- ${l}`)]),
         ].join('\n');
+        if (!chatAsset.unresolved) {
+          pairFallback = () =>
+            pairBriefing(
+              chatAsset,
+              cleanPrompt,
+              assetDetailLines(chatAsset, live ? quote : null),
+              brief ? `${brief.summary}. ${brief.guidance}` : 'Nothing on the economic calendar or the news wires that could move it today.'
+            );
+        }
       }
 
       if (!ai) {
         const fallbackMessage = asksAboutDataSources(cleanPrompt)
           ? `### Where MarketX's live data comes from\n\n${DATA_SOURCES_FACTS.split('\n').slice(1).join('\n')}`
-          : chatAsset && marketContext && !chatAsset.unresolved
-            ? marketDataAnswer(chatAsset, marketContext)
+          : pairFallback
+            ? pairFallback()
             : generateFallbackChatResponse(cleanPrompt);
         if (!fallbackMessage) {
           console.warn('[MarketX Chat] Answer engine not configured; question could not be answered');
@@ -3368,9 +3378,14 @@ Answer it directly and accurately: trading concepts, risk management, market str
 - If sources disagree, or you cannot find a reliable answer, say so plainly instead of guessing. Never invent figures, dates or quotes.
 - Never mention the search engine, a search tool, or the model you run on; just answer.
 - When LIVE MARKET DATA is provided below, use those exact numbers for current price and today's news (they are fresher than any web page); never invent prices, levels or news.
+- When MARKETX KNOWLEDGE is provided below, treat it as reliable background on that market (what it is, what drives it, when it moves, how it behaves, correlations) and build on it with your own expertise; live data and fresh web results win for anything current.
 ${asksAboutDataSources(cleanPrompt) ? `- The user asks about MarketX's data. Answer only from these facts, and do not invent caches, feeds or delays:\n${DATA_SOURCES_FACTS}` : ''}
 - Do not give an entry, stop loss or targets in this answer. If the user wants a trade plan, tell them to ask for one, for example "Analyze ${chatAsset ? chatAsset.symbol : 'EUR/USD'} on the 4H".
-- Format with clean Markdown: short headers, bold key terms and bullet points. Be concise and practical.
+- Answer in depth, never with a one-line or brief reply. Shape the answer to what was asked, and give a trader everything useful on it:
+  - A quick factual question (a price, a date, a yes or no, a definition): the direct answer first, then the context that makes it useful (why it is so, what it means for a trader, what to watch). At least two solid paragraphs.
+  - A question about a pair or market ("tell me about", "explain", "how does it move", "is it bullish", "what affects it"): a full briefing of about 350 to 700 words that covers, as far as they fit the question, what it is, the live picture now, what drives it (central banks, data, flows, sector or on-chain factors), when it is most active, how it usually behaves (volatility, typical ranges, correlations), today's news and calendar, the key risks, and how a trader can approach it (without entries, stops or targets).
+  - A concept or strategy question: explain it step by step with a concrete example, common mistakes and how to apply it.
+- Format with clean Markdown: a short title, section headers, bold key terms, bullet points where they help reading, and a short "Key takeaways" list at the end.
 - Maintain a professional, encouraging, institutional mentor tone.
 Do NOT output structured trade card JSON.`;
 
@@ -3432,7 +3447,12 @@ Do NOT output structured trade card JSON.`;
             research.web = grounding.queries.length > 0 || grounding.sources.length > 0;
             research.queries = grounding.queries;
             research.sources = grounding.sources;
-            chatReply = response.text.trim() + sourcesFooter(grounding.sources);
+            let text = response.text.trim();
+            // Never a one-liner about a market: a short reply gets MarketX's background on it added
+            if (chatAsset && !chatAsset.unresolved && text.split(/\s+/).length < 150) {
+              text += `\n\n#### More about ${chatAsset.name} (${chatAsset.symbol})\n\n${pairKnowledge(chatAsset).slice(0, 6).map(l => `- ${l}`).join('\n')}`;
+            }
+            chatReply = text + sourcesFooter(grounding.sources);
             // Web-checked facts are reused for a few hours at most
             const ttl = answerTtl(cleanPrompt, !!chatAsset);
             if (chatKey) saveAnswer(chatKey, chatReply, research.web ? Math.min(ttl, 3 * 3600e3) : ttl, { symbol: chatAsset?.symbol });
@@ -3449,7 +3469,7 @@ Do NOT output structured trade card JSON.`;
 
       if (!chatReply) {
         // The engine could not answer: a pair question still gets its live details; otherwise say so and refund
-        chatReply = chatAsset && marketContext && !chatAsset.unresolved ? marketDataAnswer(chatAsset, marketContext) : generateFallbackChatResponse(cleanPrompt);
+        chatReply = pairFallback ? pairFallback() : generateFallbackChatResponse(cleanPrompt);
         if (!chatReply) return res.status(503).json({ error: 'ANSWER_UNAVAILABLE', message: ANSWER_UNAVAILABLE });
       }
 

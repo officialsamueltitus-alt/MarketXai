@@ -7,8 +7,9 @@ import { db, isFirebaseConfigured } from './firebase';
 import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
 import { sendEmail, EmailOptions } from './mailer';
 import { logActivity, recordUsage } from './tracking';
-import { clientIp, stripReservedKeys } from './security';
+import { clientIp, createKeyedThrottle, stripReservedKeys } from './security';
 import { IS_LEAD_WORKER } from './workers';
+import { giftNoteProblem, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import type {
   UserProfile,
   CreditState,
@@ -301,7 +302,18 @@ const fmtNum = (n: any) => {
 };
 
 // Alerts for a completed analysis/chat, derived from the response the analysis route sent
-function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: number | null) {
+/** The chat and message a request belongs to (sent by the app), so its notification and email open that exact reply */
+export interface ChatRef { sessionId: string; messageId: string }
+const REF_ID = /^[A-Za-z0-9_-]{1,64}$/;
+export function readChatRef(v: any): ChatRef | null {
+  const sessionId = typeof v?.sessionId === 'string' ? v.sessionId : '';
+  const messageId = typeof v?.messageId === 'string' ? v.messageId : '';
+  return REF_ID.test(sessionId) && REF_ID.test(messageId) ? { sessionId, messageId } : null;
+}
+const chatLink = (ref: ChatRef | null) => siteLink(ref ? `/?chat=${encodeURIComponent(ref.sessionId)}&msg=${encodeURIComponent(ref.messageId)}` : '/');
+
+function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: number | null, ref: ChatRef | null = null) {
+  const open = ref ? { actionType: 'open_chat', actionPayload: { sessionId: ref.sessionId, messageId: ref.messageId } } : {};
   const left = remaining == null ? [] : ([['Analyses left today', String(remaining)]] as [string, string][]);
   const s = body?.strategy;
   recordUsage(user.uid, s?.symbol ? 'analysis' : 'chat', s?.symbol || null);
@@ -319,7 +331,8 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: n
         type: 'analysis',
         title: `${s.symbol} ${s.tradeType || ''} setup ready`.replace(/\s+/g, ' ').trim(),
         message: `Entry ${fmtNum(s.entryZone?.optimal)} · Stop ${fmtNum(s.stopLoss?.price)}${tp1 ? ` · Target ${fmtNum(tp1)}` : ''} (${s.timeframe || ''})`,
-      },
+        ...open,
+      } as any,
       {
         subject: `Your ${s.symbol} analysis is ready`,
         lines: [`MarketX finished analysing ${s.symbol} on the ${s.timeframe || ''} timeframe. Here's the plan:`],
@@ -333,7 +346,7 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: n
             ...(s.confidenceScore ? ([['Confidence', `${s.confidenceScore}%`]] as [string, string][]) : []),
             ...left,
           ],
-          cta: { label: 'View full analysis', url: siteLink('/') },
+          cta: { label: 'View full analysis', url: chatLink(ref) },
           note: 'Always manage your risk. You can turn off activity emails in MarketX → Notifications.',
         },
       }
@@ -348,13 +361,13 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: n
   const q = prompt.trim().replace(/\s+/g, ' ');
   notifyActivity(
     user.uid,
-    { type: 'system', title: 'MarketX answered your question', message: `"${q.slice(0, 100)}${q.length > 100 ? '…' : ''}"` },
+    { type: 'system', title: 'MarketX answered your question', message: `"${q.slice(0, 100)}${q.length > 100 ? '…' : ''}"`, ...open } as any,
     {
       subject: 'MarketX answered your question',
       lines: [`You asked: "${q.slice(0, 300)}"`, `${answer.slice(0, 700)}${answer.length > 700 ? '…' : ''}`],
       options: {
         rows: left,
-        cta: { label: 'Continue the chat', url: siteLink('/') },
+        cta: { label: 'Open the answer', url: chatLink(ref) },
         note: 'You can turn off activity emails in MarketX → Notifications.',
       },
     }
@@ -367,7 +380,8 @@ function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, rem
   res.json = ((body: any) => {
     if (res.statusCode < 400 && body && typeof body === 'object') {
       const prompt = String(req.body?.prompt || '');
-      setImmediate(() => analysisAlert(user, prompt, body, remaining));
+      const ref = readChatRef(req.body?.ref);
+      setImmediate(() => analysisAlert(user, prompt, body, remaining, ref));
     }
     return originalJson(body);
   }) as Response['json'];
@@ -465,7 +479,11 @@ export async function createUserIfMissing(user: AuthedUser, requestedUsername?: 
     sanitizeUsername(requestedUsername || '') ||
     sanitizeUsername((user.email.split('@')[0] || 'trader').slice(0, 16)) ||
     'trader';
-  const padded = base.length >= 3 ? base : `${base}trader`.slice(0, 20);
+  // A name that reads as MarketX or its staff is never handed out (staff accounts excepted)
+  const safeBase = !isUnlimited(user) && impersonates(base) ? 'trader' : base;
+  const padded = safeBase.length >= 3 ? safeBase : `${safeBase}trader`.slice(0, 20);
+  const fallbackName = (requestedName || user.name || '').trim();
+  const safeName = fallbackName && (isUnlimited(user) || !impersonates(fallbackName)) ? fallbackName : '';
 
   for (let attempt = 0; attempt < 6; attempt++) {
     const candidate = attempt === 0 ? padded : `${padded.slice(0, 15)}${Math.floor(1000 + Math.random() * 9000)}`;
@@ -484,7 +502,7 @@ export async function createUserIfMissing(user: AuthedUser, requestedUsername?: 
           email: user.email,
           username: candidate,
           usernameLower: candidate,
-          displayName: (requestedName || user.name || `${candidate} Trader`).trim().slice(0, 40),
+          displayName: (safeName || `${candidate} Trader`).trim().slice(0, 40),
           avatarUrl: user.picture || null,
           joinedAt: now,
           subscription: { plan: 'free', active: false, startDate: now, expiresAt: 0, price: 0 },
@@ -822,6 +840,12 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       const loaded = await loadUserInTx(tx, user.uid);
       if (!loaded) throw new Error('NO_ACCOUNT');
       const current = loaded.doc;
+      // Nobody can rename themselves into MarketX or its staff (existing names are left alone)
+      if (!isUnlimited(user) && ((username !== current.usernameLower && impersonates(username)) || (displayName !== current.displayName && impersonates(displayName)))) {
+        const e: any = new Error('RESERVED_NAME');
+        e.status = 400;
+        throw e;
+      }
       if (username !== current.usernameLower) {
         const taken = await tx.get(usernameRef(username));
         if (taken.exists && taken.data()?.uid !== user.uid) {
@@ -840,6 +864,10 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       if ((avatarUrl || null) !== (current.avatarUrl || null)) changes.push('profile picture updated');
       profileChanges = changes;
     }).catch(err => {
+      if (err?.message === 'RESERVED_NAME') {
+        res.status(400).json({ error: 'RESERVED_NAME', message: RESERVED_NAME_MESSAGE });
+        return;
+      }
       if (err?.message === 'USERNAME_TAKEN') {
         res.status(409).json({ error: 'USERNAME_TAKEN', message: `@${username} is already taken.` });
         return;
@@ -1000,11 +1028,13 @@ export function registerAccountRoutes(app: Express, limiter: any) {
   }));
 
   // --- Gift credits to another user ---
+  const giftsPerDay = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 10 });
+  const giftsPerPair = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 3 });
   app.post('/api/credits/gift', limiter, requireAuth, wrap(async (req, res) => {
     const user = getUser(res);
     const toUsername = sanitizeUsername(String(req.body?.toUsername || ''));
     const amount = Number(req.body?.amount);
-    const note = req.body?.note ? String(req.body.note).slice(0, 140) : undefined;
+    const note = req.body?.note ? String(req.body.note).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || undefined : undefined;
 
     if (!toUsername) return res.status(400).json({ error: 'INVALID', message: 'Enter a recipient username.' });
     if (!Number.isInteger(amount) || amount < 1 || amount > 1000) {
@@ -1012,6 +1042,14 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     }
 
     const vip = isUnlimited(user);
+    // Gift notes reach another trader: no links, contacts, handles, phone numbers or scam wording
+    const noteProblem = note && !vip ? giftNoteProblem(note) : null;
+    if (noteProblem) return res.status(400).json({ error: 'NOTE_REFUSED', message: noteProblem });
+    // Gifts can't be used to spray messages at many traders
+    if (!vip) {
+      const wait = giftsPerDay.hit(user.uid) || giftsPerPair.hit(`${user.uid}:${toUsername}`);
+      if (wait) return res.status(429).json({ error: 'GIFT_LIMIT', message: 'You have sent the most gifts allowed for now. Try again later.' });
+    }
     const result = await db().runTransaction(async tx => {
       const sender = await loadUserInTx(tx, user.uid);
       if (!sender) return { error: 'NO_ACCOUNT', message: 'Account not found.' };

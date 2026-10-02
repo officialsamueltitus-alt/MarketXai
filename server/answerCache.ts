@@ -34,7 +34,8 @@ export function answerKey(question: string, scope = ''): string {
     .replace(/[\s.?]+$/, '')
     .trim()
     .slice(0, 400);
-  return createHash('sha256').update(`${norm}|${scope}`).digest('hex').slice(0, 40);
+  // v2: answers became detailed (owner-specified); earlier short answers are never replayed
+  return createHash('sha256').update(`v2|${norm}|${scope}`).digest('hex').slice(0, 40);
 }
 
 const storageReady = () => {

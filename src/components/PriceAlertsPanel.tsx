@@ -20,6 +20,8 @@ interface PriceAlertsPanelProps {
   checkedAt?: number | null;
   /** Reloads the alerts and live prices */
   onRefresh?: () => Promise<void>;
+  /** The alert a notification or email link points at: scrolled into view and highlighted */
+  focusId?: string | null;
 }
 
 const fmt = (p: number) => (Number.isFinite(p) ? formatMarketPrice(p) : '');
@@ -93,7 +95,7 @@ function livePosition(a: PriceAlertItem, price: number): { text: string; tone: s
   return { text: parts.join(' · '), tone: inProfit ? 'text-emerald-300' : 'text-amber-300' };
 }
 
-export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onClose, enabled, alerts, loading, onConsent, onRemove, pendingSymbol, liveQuotes = {}, checkedAt, onRefresh }) => {
+export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onClose, enabled, alerts, loading, onConsent, onRemove, pendingSymbol, liveQuotes = {}, checkedAt, onRefresh, focusId }) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   // Re-render the "updated … ago" label every 15s while the panel is open
@@ -105,6 +107,13 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
   }, [isOpen]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Bring the alert a notification points at into view once it is listed
+  const focusListed = !!focusId && alerts.some(a => a.id === focusId);
+  useEffect(() => {
+    if (!isOpen || !focusListed) return;
+    const t = setTimeout(() => document.getElementById(`alert-card-${focusId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+    return () => clearTimeout(t);
+  }, [isOpen, focusListed, focusId]);
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
@@ -251,7 +260,7 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
                   </div>
                   <div className="space-y-2.5">
                     {active.map(a => (
-                      <AlertCard key={a.id} a={a} quote={liveQuotes[a.symbol]} busy={busy === a.id} onRemove={() => run(a.id, () => onRemove(a.id))} />
+                      <AlertCard key={a.id} a={a} focused={a.id === focusId} quote={liveQuotes[a.symbol]} busy={busy === a.id} onRemove={() => run(a.id, () => onRemove(a.id))} />
                     ))}
                   </div>
                 </div>
@@ -259,7 +268,7 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
               {recent.length > 0 && (
                 <div>
                   <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">Recent</div>
-                  <div className="space-y-2.5 opacity-80">{recent.map(a => <AlertCard key={a.id} a={a} />)}</div>
+                  <div className="space-y-2.5 opacity-80">{recent.map(a => <AlertCard key={a.id} a={a} focused={a.id === focusId} />)}</div>
                 </div>
               )}
             </div>
@@ -270,12 +279,12 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
   );
 };
 
-const AlertCard: React.FC<{ a: PriceAlertItem; quote?: AlertLiveQuote; busy?: boolean; onRemove?: () => void }> = ({ a, quote, busy, onRemove }) => {
+const AlertCard: React.FC<{ a: PriceAlertItem; quote?: AlertLiveQuote; busy?: boolean; onRemove?: () => void; focused?: boolean }> = ({ a, quote, busy, onRemove, focused }) => {
   const s = status(a);
   const pos = a.active && quote ? livePosition(a, quote.price) : null;
   const long = a.direction === 'LONG';
   return (
-    <div className={`relative p-3.5 rounded-2xl border ${a.active ? 'bg-white/[0.035] border-white/[0.08]' : 'bg-white/[0.02] border-white/[0.05]'}`}>
+    <div id={`alert-card-${a.id}`} className={`relative p-3.5 rounded-2xl border transition-shadow ${a.active ? 'bg-white/[0.035] border-white/[0.08]' : 'bg-white/[0.02] border-white/[0.05]'} ${focused ? 'ring-2 ring-sky-400/70 shadow-[0_0_40px_-8px_rgba(56,189,248,.6)]' : ''}`}>
       <div className="flex items-center gap-2">
         {a.active && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,.15)] animate-pulse" aria-hidden="true" />}
         <span className="text-sm font-semibold text-white font-mono">{a.symbol}</span>

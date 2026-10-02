@@ -180,20 +180,34 @@ function dayLabel(ts: number): string {
   return 'Earlier';
 }
 
+/** What tapping a notification opens (every notification opens the exact thing it is about) */
 function actionLabel(n: AppNotification): string | null {
   if (n.actionPrompt) return 'Analyze';
   switch (n.actionType) {
     case 'open_pricing':
       return 'View plans';
     case 'open_campaign':
+    case 'open_explain_campaign':
       return 'Open campaign';
     case 'view_receipt':
       return 'View';
     case 'open_profile':
+    case 'open_profile_security':
       return 'Open profile';
-    default:
-      return null;
+    case 'open_alerts':
+      return 'Open alert';
+    case 'open_watchlist':
+      return 'Open watchlist';
+    case 'open_chat':
+      return n.type === 'analysis' ? 'View analysis' : 'Open answer';
+    case 'open_support':
+      return 'Open chat';
+    case 'open_credits':
+      return 'View credits';
   }
+  if (n.type === 'reward' || n.type === 'credit') return 'View credits';
+  if (n.type === 'security') return 'Open profile';
+  return null;
 }
 
 // Notification center: side panel on desktop, bottom sheet on phones
@@ -388,7 +402,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                           type="button"
                           onClick={() => {
                             if (!n.read) onMarkRead?.(n.id);
-                            if (action) onNotificationAction?.(n);
+                            // Every notification opens what it is about; the router decides where
+                            onNotificationAction?.(n);
                           }}
                           className={`w-full text-left flex gap-3 p-2.5 pr-9 rounded-2xl transition-colors cursor-pointer ${
                             n.read ? 'hover:bg-white/[0.03]' : 'bg-white/[0.035] hover:bg-white/[0.06]'

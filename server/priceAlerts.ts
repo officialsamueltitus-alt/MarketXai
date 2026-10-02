@@ -358,7 +358,7 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
       await notifyActivity(
         a.uid,
         { type: 'market', title: m.title, message: m.message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any,
-        { subject: m.subject, lines: m.lines, options: { rows: levelRows(a), cta: { label: 'Open price alerts', url: siteLink('/?alerts=1') } } }
+        { subject: m.subject, lines: m.lines, options: { rows: levelRows(a), cta: { label: 'Open this alert', url: siteLink(`/?alerts=1&focus=${encodeURIComponent(a.id)}`) } } }
       );
     }
   }
