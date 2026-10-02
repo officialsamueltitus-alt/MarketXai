@@ -262,7 +262,9 @@ export async function rejectSubmission(id: string, reason: string): Promise<Revi
       type: 'reward',
       title: 'Your Explain MarketX post was not approved',
       message: `Reason: ${note}${canRetry ? ' You can post again and submit a new link before 30 October 2026.' : ''}`,
-    });
+      // Opens the campaign page, where the decision and the resubmit form are
+      actionType: 'open_explain_campaign',
+    } as any);
     return { ok: true, submission: next };
   });
   if ('submission' in result) {

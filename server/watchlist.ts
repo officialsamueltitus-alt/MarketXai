@@ -259,7 +259,7 @@ async function sendNotice(item: WatchItem, setup: WatchSetup) {
             ['Setup quality', `${setup.score}/100`],
             ...(item.price ? [['Price', fmtPrice(item.price)] as [string, string]] : []),
           ] as [string, string][],
-          cta: { label: 'Open watchlist', url: siteLink('/?watchlist=1') },
+          cta: { label: 'Open this pair', url: siteLink(`/?watchlist=1&focus=${encodeURIComponent(item.id)}`) },
           note: 'You get these because the pair is on your watchlist. Remove it or turn the watchlist off with /watchlist in the chat.',
         },
       }

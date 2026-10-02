@@ -20,6 +20,7 @@ import {
   invalidateAuthCache,
 } from './account';
 import { bumpDaily, logActivity, touchUser } from './tracking';
+import { impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import { IS_LEAD_WORKER } from './workers';
 import { readDeviceSignals, reserveSignup, releasePendingSignup, activateSignup, keysOf, signupMetaOf, canonicalEmail, type DeviceSignals } from './signupGuard';
 import { clientIp, createKeyedThrottle } from './security';
@@ -331,6 +332,9 @@ export function registerAuthRoutes(app: Express) {
     }
     if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
     const cleanUsername = String(username || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+    if ((cleanUsername && impersonates(cleanUsername)) || (displayName && impersonates(displayName))) {
+      if (!isUnlimitedEmail(email)) return res.status(400).json({ error: 'RESERVED_NAME', message: RESERVED_NAME_MESSAGE });
+    }
     if (cleanUsername.length >= 3 && (await db().collection('usernames').doc(cleanUsername).get()).exists) {
       return res.status(409).json({ error: 'USERNAME_TAKEN', message: `@${cleanUsername} is already taken. Try another username.` });
     }

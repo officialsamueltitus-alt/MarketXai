@@ -14,6 +14,8 @@ interface WatchlistPanelProps {
   /** Opens an analysis of a watched pair */
   onAnalyze: (symbol: string, timeframe: string) => void;
   onToast: (message: string, type?: 'success' | 'info') => void;
+  /** The pair a notification or email link points at: scrolled into view and highlighted */
+  focusId?: string | null;
 }
 
 const TIMEFRAMES: Array<{ id: string; label: string }> = [
@@ -38,7 +40,7 @@ const STATUS: Record<WatchItem['status'], { label: string; pill: string; dot: st
   NO_DATA: { label: 'No data', pill: 'bg-rose-500/10 text-rose-300 border-rose-500/25', dot: 'bg-rose-400' },
 };
 
-export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast }) => {
+export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId }) => {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [max, setMax] = useState(12);
   const [loading, setLoading] = useState(false);
@@ -67,6 +69,12 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
   }, [isOpen, enabled, load]);
   // While the panel is open: labels stay fresh, and pairs being scanned are picked up as soon as they finish
   const scanning = items.some(i => i.active && i.status === 'SCANNING');
+  const focusListed = !!focusId && items.some(i => i.id === focusId);
+  useEffect(() => {
+    if (!isOpen || !focusListed) return;
+    const t = setTimeout(() => document.getElementById(`watch-item-${focusId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+    return () => clearTimeout(t);
+  }, [isOpen, focusListed, focusId]);
   useEffect(() => {
     if (!isOpen || !enabled) return;
     const t = setInterval(() => {
@@ -282,7 +290,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
               const setup = i.setup;
               const long = setup?.direction === 'LONG';
               return (
-                <div key={i.id} className={`p-3.5 rounded-2xl border transition-colors ${i.status === 'SETUP' ? 'bg-emerald-500/[0.04] border-emerald-500/20' : 'bg-white/[0.035] border-white/[0.08]'} ${i.active ? '' : 'opacity-60'}`}>
+                <div key={i.id} id={`watch-item-${i.id}`} className={`p-3.5 rounded-2xl border transition-colors ${i.id === focusId ? 'ring-2 ring-violet-400/70 shadow-[0_0_40px_-8px_rgba(167,139,250,.6)] ' : ''}${i.status === 'SETUP' ? 'bg-emerald-500/[0.04] border-emerald-500/20' : 'bg-white/[0.035] border-white/[0.08]'} ${i.active ? '' : 'opacity-60'}`}>
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} aria-hidden="true" />
                     <span className="text-sm font-semibold text-white font-mono truncate">{i.symbol}</span>
@@ -325,7 +333,13 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                   <div className="mt-3 flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => onAnalyze(i.symbol, setup?.timeframe || (i.timeframe === 'RDM' ? 'RDM' : i.timeframe))}
+                      onClick={() => {
+                        // The card refreshes in the background, so it matches the plan the analysis serves now
+                        if (i.status === 'SETUP' && i.active) {
+                          apiFetch(`/api/watchlist/${encodeURIComponent(i.id)}/scan`, { method: 'POST', body: '{}', timeoutMs: 60000 }).catch(() => {});
+                        }
+                        onAnalyze(i.symbol, setup?.timeframe || (i.timeframe === 'RDM' ? 'RDM' : i.timeframe));
+                      }}
                       className={`h-8 px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                         i.status === 'SETUP' ? 'bg-gradient-to-r from-emerald-500 to-sky-500 text-white hover:brightness-110' : 'bg-white/[0.06] text-white hover:bg-white/[0.1]'
                       }`}

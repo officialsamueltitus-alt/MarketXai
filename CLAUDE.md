@@ -32,6 +32,9 @@
   Fibonacci retracement tool, on whatever timeframe is prompted. `server/strategy.ts` computes zones, freshness, the
   swing-leg Fibonacci, entry/stop/targets from real candles (`fetchCandlesForAsset` in `server.ts`: Binance, Yahoo,
   Deriv); those levels are authoritative over the model's numbers, and the model writes the thesis around them.
+  The model can't veto a verified plan either: if the map has a plan and the write-up says NO_SIGNAL (or the other side), the
+  verified plan is served with the map thesis, so the watchlist (same `buildStructureMap`) and the analysis always agree. A
+  high-impact release within 2 hours (`imminentHighImpact` in `server/news.ts`) adds a "News heads-up" line, never a veto.
   Strict (owner-specified): zones only from the last `RECENT_ZONE_BARS` candles inside the current price range; a signal needs
   the zone, entry band, stop and every TP untouched since the zone formed (plus the live 24h range), else "No signal, already
   mitigated". Without a verified candle map (text analyses) the result is NO_SIGNAL, never an unverified trade.
@@ -97,6 +100,20 @@
   Question answers share one engine budget (`CHAT_BUDGET_MS`, default 85s, under the client's 110s). If the engine can't answer, a
   pair question gets its live details, a matching canned lesson is used, else 503 `ANSWER_UNAVAILABLE` (credit refunded), never a
   generic greeting. Chat Markdown opens only http(s)/relative links (new tab, noopener) and never loads remote images.
+- Detailed pair answers (owner-specified): question answers are in depth, never one-liners (pair questions 350 to 700 words: what it
+  is, live picture, drivers, sessions, behaviour, today, risks, approach). `server/pairKnowledge.ts` holds background facts for forex
+  (about 40 currencies), metals, energy, indices, stocks, coins, DEX tokens and synthetics: `pairKnowledge` feeds the chat engine
+  ("MARKETX KNOWLEDGE" in `marketContext`), `pairBriefing` is the no-engine answer, and short engine replies get a knowledge top-up.
+  `answerKey` is versioned (`v2|`) so older short answers are never replayed.
+- Notification deep links: every notification and email opens the exact item. Analyses/answers carry `open_chat` with
+  `{sessionId, messageId}` (the client sends `ref` with each analyze request; emails link `/?chat=&msg=`), alerts
+  `/?alerts=1&focus=al_…`, watchlist `/?watchlist=1&focus=wl_…`. `handleUpdateNotificationAction` in `App.tsx` is the one router
+  (notification center, toasts and URL params all use it); the panels ring and scroll to `focusId`.
+- Anti-scam (`server/trust.ts`): usernames and display names that read as MarketX or its staff (admin, support, official, moderator,
+  staff, help desk, refund, recovery…, look-alike spellings folded) are refused at sign-up and on rename (`RESERVED_NAME`), and an
+  email-derived name like that becomes a neutral `trader…` name; unlimited staff accounts are exempt. Gift notes refuse links, contacts,
+  socials, emails/handles, phone numbers and scam wording (`NOTE_REFUSED`), hidden control characters are stripped, and a sender can
+  gift at most 10 times a day, 3 to the same trader (`GIFT_LIMIT`).
 - On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
 - Guide screenshots live in `public/guide/*.webp` (demo account, no real user data, at most 2 per section via `shots`).
 - The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
@@ -139,6 +156,7 @@
   in `requireAuth` and at sign-in.
 
 ## Deployment
+- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client; `npm audit` is clean).
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
   and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).

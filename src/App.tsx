@@ -163,6 +163,10 @@ export default function App() {
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const watchlistLinkRef = useRef(false);
+  // The exact item a notification or email link points at, highlighted when its panel opens
+  const [alertFocus, setAlertFocus] = useState<string | null>(null);
+  const [watchFocus, setWatchFocus] = useState<string | null>(null);
+  const chatLinkRef = useRef<{ sessionId: string; messageId: string } | null>(null);
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertQuotes, setAlertQuotes] = useState<Record<string, AlertLiveQuote>>({});
@@ -170,7 +174,7 @@ export default function App() {
   const [pendingAlertOffer, setPendingAlertOffer] = useState<{ id: string; symbol: string } | null>(null);
   // An alert link from an email (?alert=<setup> or ?alerts=1), handled once the session is restored
   const alertLinkRef = useRef<{ offerId?: string; open?: boolean } | null>(null);
-  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' | 'info' } | null>(null);
+  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'gift' | 'success' | 'info'; notif?: AppNotification } | null>(null);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -304,9 +308,17 @@ export default function App() {
       alertLinkRef.current = { offerId: alertOffer || undefined, open: true };
     }
     // "Open watchlist" links in watchlist emails, "See Pro plans" links
-    if (params.get('watchlist') === '1') watchlistLinkRef.current = true;
+    const focusParam = params.get('focus') || '';
+    if (params.get('watchlist') === '1') {
+      watchlistLinkRef.current = true;
+      if (/^wl_[a-f0-9]{16}$/.test(focusParam)) setWatchFocus(focusParam);
+    }
+    if (params.get('alerts') === '1' && /^al_of_[a-z0-9]{8,40}$/.test(focusParam)) setAlertFocus(focusParam);
+    // "View full analysis" / "Open the answer" links in activity emails: that exact reply in that chat
+    const chatParam = params.get('chat') || '', msgParam = params.get('msg') || '';
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(chatParam) && /^[A-Za-z0-9_-]{1,64}$/.test(msgParam)) chatLinkRef.current = { sessionId: chatParam, messageId: msgParam };
     if (params.get('pricing') === '1') setIsPricingModalOpen(true);
-    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing')) {
+    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1140,7 +1152,7 @@ export default function App() {
     const fresh = alertNotifs.filter(n => !seenAlertNotifsRef.current!.has(n.id) && !n.read);
     alertNotifs.forEach(n => seenAlertNotifsRef.current!.add(n.id));
     if (fresh.length) {
-      setToastNotification({ message: fresh[0].title, type: 'info' });
+      setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
       fetchAlerts();
     }
   }, [notifications, fetchAlerts]);
@@ -1207,31 +1219,75 @@ export default function App() {
     }
     const fresh = watchNotifs.filter(n => !seenWatchNotifsRef.current!.has(n.id) && !n.read);
     watchNotifs.forEach(n => seenWatchNotifsRef.current!.add(n.id));
-    if (fresh.length) setToastNotification({ message: fresh[0].title, type: 'info' });
+    if (fresh.length) setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
   }, [notifications]);
 
+  /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
+  const openChatMessage = (sessionId: string, messageId: string) => {
+    const session = sessions.find(x => x.id === sessionId);
+    if (!session) {
+      setToastNotification({ message: 'That chat is no longer in your history.', type: 'info' });
+      return false;
+    }
+    setIsSidebarOpen(false);
+    setCurrentSessionId(sessionId);
+    setTargetSignalMessageId(session.messages.some(m => m.id === messageId) ? messageId : null);
+    setCurrentView('chat');
+    return true;
+  };
+  /**
+   * Every notification (center, chat updates bar, toasts, email links) opens the exact thing it is about:
+   * the alert card, the watchlist pair, the reply in its chat, the support conversation, credits, plans, profile,
+   * the campaign, or the announcement itself.
+   */
   const handleUpdateNotificationAction = (notif: AppNotification) => {
     markNotificationRead(notif.id);
-    if (notif.type === 'announcement') {
-      setOpenAnnouncement(notif);
-    } else if (notif.actionPrompt) {
-      handleSendMessage(notif.actionPrompt, '4H');
-    } else if (notif.actionType === 'open_support') {
-      setIsSupportOpen(true);
-    } else if (notif.actionType === 'open_campaign') {
-      setIsShareModalOpen(true);
-    } else if (notif.actionType === 'open_alerts') {
-      openAlerts();
-    } else if (notif.actionType === 'open_watchlist') {
-      openPluginPanel('watchlist');
-    } else if (notif.actionType === 'open_pricing') {
-      setIsPricingModalOpen(true);
-    } else if (notif.type === 'reward' || notif.type === 'credit') {
-      openAccountTab('credits');
-    } else {
-      setIsNotificationCenterOpen(true);
+    setIsNotificationCenterOpen(false);
+    const p = (notif.actionPayload && typeof notif.actionPayload === 'object' ? notif.actionPayload : {}) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    if (notif.type === 'announcement') return setOpenAnnouncement(notif);
+    if (notif.actionPrompt) {
+      setCurrentView('chat');
+      return void handleSendMessage(notif.actionPrompt, '4H');
     }
+    switch (notif.actionType) {
+      case 'open_alerts':
+        setAlertFocus(str(p.alertId) || null);
+        return openPluginPanel('alerts');
+      case 'open_watchlist':
+        setWatchFocus(str(p.itemId) || null);
+        return openPluginPanel('watchlist');
+      case 'open_chat':
+        if (openChatMessage(str(p.sessionId), str(p.messageId))) return;
+        break;
+      case 'open_support':
+        return setIsSupportOpen(true);
+      case 'open_campaign':
+        return setIsShareModalOpen(true);
+      case 'open_explain_campaign':
+        return void window.location.assign('/campaigns/explain-marketx');
+      case 'open_pricing':
+        return setIsPricingModalOpen(true);
+      case 'open_credits':
+      case 'view_receipt':
+        return openAccountTab('credits');
+      case 'open_profile':
+      case 'open_profile_security':
+        return openAccountTab('profile');
+    }
+    if (notif.type === 'reward' || notif.type === 'credit') return openAccountTab('credits');
+    if (notif.type === 'security' || /profile/i.test(notif.title)) return openAccountTab('profile');
+    // Nothing more specific to open: show it in the notification center
+    setIsNotificationCenterOpen(true);
   };
+  // A link from an email to a reply opens it once the chat history has loaded
+  useEffect(() => {
+    const ref = chatLinkRef.current;
+    if (!ref || !authUser || !historyLoadedRef.current) return;
+    chatLinkRef.current = null;
+    openChatMessage(ref.sessionId, ref.messageId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, sessions]);
 
   // Send a message and generate institutional strategy
   const handleSendMessage = async (
@@ -1441,6 +1497,8 @@ export default function App() {
       body: JSON.stringify({
         prompt: promptText,
         symbol: assetInfo.symbol,
+        // Which reply this is, so its notification and email open it directly
+        ref: { sessionId: targetSessionId, messageId: assistantMessageId },
         timeframe: resolvedBaseStrategy?.timeframe || timeframe,
         slMode: isTightenPrompt ? 'tight' : slMode,
         baseStrategy: resolvedBaseStrategy,
@@ -1858,8 +1916,16 @@ export default function App() {
     />
   );
 
+  // A toast about a notification (a new alert hit, a new watchlist setup) opens what it is about when tapped
+  const toastTarget = toastNotification?.notif;
   const toastBanner = toastNotification && (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[var(--mx-surface-2)] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_var(--mx-shadow)] max-w-[92vw] sm:max-w-md">
+    <div
+      role={toastTarget ? 'button' : undefined}
+      tabIndex={toastTarget ? 0 : undefined}
+      onClick={toastTarget ? () => { setToastNotification(null); handleUpdateNotificationAction(toastTarget); } : undefined}
+      onKeyDown={toastTarget ? e => { if (e.key === 'Enter') { setToastNotification(null); handleUpdateNotificationAction(toastTarget); } } : undefined}
+      className={`fixed top-4 left-1/2 -translate-x-1/2 z-[70] mx-pop-in flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-[var(--mx-surface-2)] border border-white/[0.1] text-white shadow-[0_12px_40px_-12px_var(--mx-shadow)] max-w-[92vw] sm:max-w-md ${toastTarget ? 'cursor-pointer hover:border-white/[0.25]' : ''}`}
+    >
       {toastNotification.type === 'gift' ? (
         <Gift className="w-4 h-4 text-cyan-400 shrink-0" />
       ) : toastNotification.type === 'info' ? (
@@ -1980,25 +2046,7 @@ export default function App() {
         }}
         onMarkRead={markNotificationRead}
         onOpenAnnouncement={notif => setOpenAnnouncement(notif)}
-        onNotificationAction={(notif) => {
-          setIsNotificationCenterOpen(false);
-          if (notif.actionPrompt) {
-            setCurrentView('chat');
-            handleSendMessage(notif.actionPrompt, '4H');
-          } else if (notif.actionType === 'open_pricing') {
-            setIsPricingModalOpen(true);
-          } else if (notif.actionType === 'open_support') {
-            setIsSupportOpen(true);
-          } else if (notif.actionType === 'open_campaign') {
-            setIsShareModalOpen(true);
-          } else if (notif.actionType === 'open_alerts') {
-            openAlerts();
-          } else if (notif.type === 'reward' || notif.type === 'credit') {
-            openAccountTab('credits');
-          } else {
-            openAccountTab('profile');
-          }
-        }}
+        onNotificationAction={handleUpdateNotificationAction}
         emailActivity={userProfile.emailActivity !== false}
         onToggleEmailActivity={authUser ? handleToggleEmailActivity : undefined}
         shareReward={xShareReward}
@@ -2016,6 +2064,7 @@ export default function App() {
           onClose={() => {
             setIsAlertsOpen(false);
             setPendingAlertOffer(null);
+            setAlertFocus(null);
           }}
           enabled={alertsEnabled}
           alerts={priceAlerts}
@@ -2023,6 +2072,7 @@ export default function App() {
           liveQuotes={alertQuotes}
           checkedAt={alertsCheckedAt}
           onRefresh={() => fetchAlerts(true)}
+          focusId={alertFocus}
           pendingSymbol={pendingAlertOffer?.symbol || null}
           onConsent={handleAlertsConsent}
           onRemove={removeAlert}
@@ -2033,9 +2083,13 @@ export default function App() {
       <Deferred when={openPlugin === 'watchlist'}>
         <WatchlistPanel
           isOpen={openPlugin === 'watchlist'}
-          onClose={() => setOpenPlugin(null)}
+          onClose={() => {
+            setOpenPlugin(null);
+            setWatchFocus(null);
+          }}
           enabled={pluginStates.watchlist}
           onSetEnabled={enabled => setPluginEnabled('watchlist', enabled)}
+          focusId={watchFocus}
           onAnalyze={(symbol, tf) => {
             setOpenPlugin(null);
             handleSendMessage(tf === 'RDM' ? `Analyze ${symbol}` : `Analyze ${symbol} on the ${tf}`, tf);
