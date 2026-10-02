@@ -32,6 +32,9 @@
   Fibonacci retracement tool, on whatever timeframe is prompted. `server/strategy.ts` computes zones, freshness, the
   swing-leg Fibonacci, entry/stop/targets from real candles (`fetchCandlesForAsset` in `server.ts`: Binance, Yahoo,
   Deriv); those levels are authoritative over the model's numbers, and the model writes the thesis around them.
+  The model can't veto a verified plan either: if the map has a plan and the write-up says NO_SIGNAL (or the other side), the
+  verified plan is served with the map thesis, so the watchlist (same `buildStructureMap`) and the analysis always agree. A
+  high-impact release within 2 hours (`imminentHighImpact` in `server/news.ts`) adds a "News heads-up" line, never a veto.
   Strict (owner-specified): zones only from the last `RECENT_ZONE_BARS` candles inside the current price range; a signal needs
   the zone, entry band, stop and every TP untouched since the zone formed (plus the live 24h range), else "No signal, already
   mitigated". Without a verified candle map (text analyses) the result is NO_SIGNAL, never an unverified trade.
@@ -153,6 +156,7 @@
   in `requireAuth` and at sign-in.
 
 ## Deployment
+- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client; `npm audit` is clean).
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
   and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).

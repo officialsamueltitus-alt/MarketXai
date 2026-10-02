@@ -379,6 +379,18 @@ export function isBriefCurrent(brief: NewsBrief | null | undefined, now = Date.n
  * The legacy single-alert shape still used by the write-up and the AI prompt, derived from the brief
  * (the first upcoming release, else a holiday, else the latest released event). Null when there are no events.
  */
+/** Window around a high-impact release in which a fresh trade gets a news heads-up */
+export const NEWS_HOLD_BEFORE_MS = 2 * 60 * 60 * 1000;
+export const NEWS_HOLD_AFTER_MS = 15 * 60 * 1000;
+
+/** The high-impact release close to now (due within 2 hours or released in the last 15 minutes), if any */
+export function imminentHighImpact(brief: NewsBrief | null, now = Date.now()): NewsBriefEvent | null {
+  if (!brief) return null;
+  return (
+    brief.events.find(e => e.impact === 'HIGH' && e.at != null && e.at - now <= NEWS_HOLD_BEFORE_MS && now - e.at <= NEWS_HOLD_AFTER_MS) || null
+  );
+}
+
 export function newsBriefToAlert(brief: NewsBrief | null, symbol: string) {
   if (!brief || !brief.events.length) return null;
   const now = brief.checkedAt;

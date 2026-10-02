@@ -333,7 +333,13 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                   <div className="mt-3 flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => onAnalyze(i.symbol, setup?.timeframe || (i.timeframe === 'RDM' ? 'RDM' : i.timeframe))}
+                      onClick={() => {
+                        // The card refreshes in the background, so it matches the plan the analysis serves now
+                        if (i.status === 'SETUP' && i.active) {
+                          apiFetch(`/api/watchlist/${encodeURIComponent(i.id)}/scan`, { method: 'POST', body: '{}', timeoutMs: 60000 }).catch(() => {});
+                        }
+                        onAnalyze(i.symbol, setup?.timeframe || (i.timeframe === 'RDM' ? 'RDM' : i.timeframe));
+                      }}
                       className={`h-8 px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                         i.status === 'SETUP' ? 'bg-gradient-to-r from-emerald-500 to-sky-500 text-white hover:brightness-110' : 'bg-white/[0.06] text-white hover:bg-white/[0.1]'
                       }`}

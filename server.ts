@@ -18,6 +18,7 @@ import {
   refreshNewsFeedsWithin,
   buildDailyNewsBrief,
   newsBriefToAlert,
+  imminentHighImpact,
   newsBriefPromptBlock,
   resolveTimeZone,
   getCalendar,
@@ -4100,13 +4101,20 @@ INSTRUCTIONS:
       if (structureMap) {
         const modelType = String(fullStrategy.tradeType || '').toUpperCase();
         const computedDir = structureMap.plan?.direction || null;
-        const agrees =
-          modelType === 'NO_SIGNAL' || modelType === computedDir || (!!structureMap.alternate && structureMap.alternate.direction === modelType);
-        const direction = modelType === 'NO_SIGNAL' ? null : agrees ? (modelType as 'LONG' | 'SHORT') : computedDir;
+        // The verified plan is authoritative, the same plan the watchlist scanner reads: when the candles give a clean
+        // setup it is served even if the write-up leaned to no signal (its thesis is replaced with the verified map)
+        const agrees = (modelType === 'NO_SIGNAL' && !computedDir) || modelType === computedDir || (!!structureMap.alternate && structureMap.alternate.direction === modelType);
+        const direction = modelType === 'NO_SIGNAL' && !computedDir ? null : agrees ? (modelType as 'LONG' | 'SHORT') : computedDir;
         applyStructureMap(fullStrategy, structureMap, direction);
         if (!agrees) {
           console.log(`[MarketX Strategy] Model proposed ${modelType}; serving the verified ${computedDir || 'NO_SIGNAL'} plan instead.`);
           fullStrategy.detailedThesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
+        }
+        // A high-impact release close by is a heads-up on the trade, not a veto
+        const newsSoon = fullStrategy.tradeType === 'LONG' || fullStrategy.tradeType === 'SHORT' ? imminentHighImpact(newsBrief) : null;
+        if (newsSoon) {
+          const at = newsSoon.at != null ? `${new Date(newsSoon.at).toISOString().slice(11, 16)} UTC` : 'today';
+          fullStrategy.detailedThesis = `> **News heads-up:** high-impact ${newsSoon.title} [${newsSoon.currency}] at ${at}. Expect a volatility spike around it; consider waiting for the release or trading smaller.\n\n${fullStrategy.detailedThesis}`;
         }
         fullStrategy.structureVerified = true;
       }
