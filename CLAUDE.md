@@ -119,7 +119,10 @@
 - The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
   anti-abuse rules, providers or keys.
 - Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once
-  (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Every signal served is recorded as an
+  (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Auto / Manual (owner-specified): approving asks once
+  (`users.alerts.mode`, kept when alerts are switched off and on; `POST /api/alerts/mode` changes it, switch in the panel). Auto: every
+  signal served afterwards starts its alert by itself inside `alertOfferMiddleware` (`startAlert`, the same path as the tap, so the journal,
+  track record and notices follow it; Pro/free period only; result waits at most 2.5s; card shows "Alert on · Auto"). Manual: as before. Every signal served is recorded as an
   `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and
   alerts (`priceAlerts`, id `al_{offerId}`) only ever use those stored levels. Only the lead worker monitors: active alerts in
   memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
@@ -145,7 +148,8 @@
   gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
   lapsed accounts and tells them once. Data is kept. Client: `profile.proAccess`/`proFreeUntil`, RDM chip locked, commands open pricing.
 - Connectors / Plugins (`server/plugins.ts`, `src/utils/plugins.ts`): alerts, watchlist, journal, trackRecord. Every command turned on is listed
-  in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the
+  in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`; the composer's Connectors button opens it too, with a
+  count of commands on) with open and switch-off; `POST /api/plugins/:id` uses the
   same helpers as inside each command (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data.
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and

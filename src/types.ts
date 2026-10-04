@@ -99,7 +99,8 @@ export interface StrategyResult {
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';
   /** Set by the server on LONG / SHORT signals: the id to turn on a price alert for this exact setup */
-  alertOffer?: { id: string };
+  /** The setup's alert offer; `auto` = Auto mode already started its alert, `autoSkipped` = Auto mode could not (e.g. alert limit) */
+  alertOffer?: { id: string; auto?: boolean; autoSkipped?: string };
   /** What the Recheck button replays (zone and the first candle after its leg-out) */
   setupCheck?: { zone: { low: number; high: number }; since: number; issuedAt: number; timeframe: string };
   confidenceScore: number;
@@ -298,6 +299,8 @@ export interface UserProfile {
   emailActivity?: boolean;
   /** The trader approved live price alerts (/price-alerts) */
   alertsEnabled?: boolean;
+  /** Price alerts: Auto (every signal is watched by itself) or Manual (tap "Get price alert"); null = not chosen yet */
+  alertsMode?: AlertMode | null;
   /** Commands switched on (shown under Settings, Connectors / Plugins) */
   plugins?: PluginStates;
   /** Commands and RDM: true while open to everyone (until proFreeUntil) or on Pro */
@@ -516,3 +519,6 @@ export interface TrackRecordPayload {
   global: TrackRecordStats & { since: number | null };
   checkedAt: number;
 }
+
+/** Price alerts: AUTO = every signal is watched by itself, MANUAL = the trader taps "Get price alert" */
+export type AlertMode = 'AUTO' | 'MANUAL';

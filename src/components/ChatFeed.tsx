@@ -898,7 +898,7 @@ Rationale: ${strategy.entryZone.rationale}
                                 >
                                   {st === 'on' && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,.2)]" aria-hidden="true" />}
                                   <BellRing className={`w-3.5 h-3.5 ${st === 'on' ? 'text-emerald-300' : 'text-sky-300'}`} />
-                                  <span>{st === 'on' ? 'Alert on' : st === 'ended' ? 'Alert ended' : 'Get price alert'}</span>
+                                  <span>{st === 'on' ? (strategy.alertOffer.auto ? 'Alert on · Auto' : 'Alert on') : st === 'ended' ? 'Alert ended' : 'Get price alert'}</span>
                                 </button>
                               );
                             })()}

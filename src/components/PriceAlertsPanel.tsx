@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles, RefreshCw } from 'lucide-react';
-import type { PriceAlertItem, AlertLiveQuote } from '../types';
+import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles, RefreshCw, Zap, Hand } from 'lucide-react';
+import type { PriceAlertItem, AlertLiveQuote, AlertMode } from '../types';
 import { formatMarketPrice } from '../utils/formatPrice';
 
 interface PriceAlertsPanelProps {
@@ -9,8 +9,11 @@ interface PriceAlertsPanelProps {
   enabled: boolean;
   alerts: PriceAlertItem[];
   loading: boolean;
-  /** Approve (true) or switch off (false) live alerts */
-  onConsent: (enabled: boolean) => Promise<void>;
+  /** Approve (true, with the Auto / Manual choice) or switch off (false) live alerts */
+  onConsent: (enabled: boolean, mode?: AlertMode) => Promise<void>;
+  /** Auto (every signal watched by itself) or Manual (tap "Get price alert"); null = not chosen yet */
+  mode?: AlertMode | null;
+  onSetMode?: (mode: AlertMode) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   /** A setup waiting for approval (from an email link or a result card) */
   pendingSymbol?: string | null;
@@ -23,6 +26,38 @@ interface PriceAlertsPanelProps {
   /** The alert a notification or email link points at: scrolled into view and highlighted */
   focusId?: string | null;
 }
+
+const MODES: Array<{ id: AlertMode; icon: typeof Zap; title: string; text: string; tone: string }> = [
+  { id: 'AUTO', icon: Zap, title: 'Auto', text: 'Every trade MarketX gives you from now on is watched by itself. No tapping needed.', tone: 'text-amber-200 bg-amber-500/15' },
+  { id: 'MANUAL', icon: Hand, title: 'Manual', text: 'You pick: tap "Get price alert" on the trades you want watched.', tone: 'text-sky-200 bg-sky-500/15' },
+];
+
+/** The Auto / Manual question (asked once when alerts are turned on) */
+const ModeChooser: React.FC<{ busy: string | null; onPick: (m: AlertMode) => void; current?: AlertMode | null }> = ({ busy, onPick, current }) => (
+  <div className="space-y-2" role="radiogroup" aria-label="How should price alerts work?">
+    {MODES.map(({ id, icon: Icon, title, text, tone }) => (
+      <button
+        key={id}
+        type="button"
+        role="radio"
+        aria-checked={current === id}
+        disabled={!!busy}
+        onClick={() => onPick(id)}
+        className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left border transition cursor-pointer disabled:opacity-70 ${
+          current === id ? 'bg-white/[0.07] border-sky-400/50' : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+        }`}
+      >
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${tone}`}>
+          {busy === `mode-${id}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-white">{title}</span>
+          <span className="block text-xs text-slate-400 leading-relaxed">{text}</span>
+        </span>
+      </button>
+    ))}
+  </div>
+);
 
 const fmt = (p: number) => (Number.isFinite(p) ? formatMarketPrice(p) : '');
 const ago = (ts: number) => {
@@ -95,8 +130,13 @@ function livePosition(a: PriceAlertItem, price: number): { text: string; tone: s
   return { text: parts.join(' · '), tone: inProfit ? 'text-emerald-300' : 'text-amber-300' };
 }
 
-export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onClose, enabled, alerts, loading, onConsent, onRemove, pendingSymbol, liveQuotes = {}, checkedAt, onRefresh, focusId }) => {
+export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onClose, enabled, alerts, loading, onConsent, onRemove, pendingSymbol, liveQuotes = {}, checkedAt, onRefresh, focusId, mode = null, onSetMode }) => {
   const [busy, setBusy] = useState<string | null>(null);
+  // Turning alerts on asks Auto or Manual first
+  const [askMode, setAskMode] = useState(false);
+  useEffect(() => {
+    if (!isOpen) setAskMode(false);
+  }, [isOpen]);
   const [refreshing, setRefreshing] = useState(false);
   // Re-render the "updated … ago" label every 15s while the panel is open
   const [, setTick] = useState(0);
@@ -211,21 +251,61 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
                   </li>
                 ))}
               </ul>
+              {askMode ? (
+                <div className="mt-5 text-left">
+                  <p className="px-1 pb-2 text-sm font-semibold text-white">How should alerts work?</p>
+                  <ModeChooser busy={busy} onPick={m => run(`mode-${m}`, () => onConsent(true, m))} />
+                  <p className="mt-2 px-1 text-[11px] text-slate-500">You can switch between Auto and Manual any time in this panel.</p>
+                </div>
+              ) : (
               <button
                 type="button"
                 disabled={!!busy}
-                onClick={() => run('on', () => onConsent(true))}
+                onClick={() => setAskMode(true)}
                 className="mt-5 w-full h-12 rounded-2xl bg-gradient-to-r from-sky-500 to-violet-500 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 shadow-[0_12px_40px_-12px_rgba(99,102,241,.8)] hover:brightness-110 active:scale-[0.99] transition cursor-pointer disabled:opacity-70"
               >
                 {busy === 'on' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 Approve price alerts
               </button>
+              )}
               <button type="button" onClick={onClose} className="mt-2 w-full h-10 rounded-2xl text-sm text-slate-400 hover:text-white cursor-pointer">
                 Not now
               </button>
-              <p className="mt-2 text-[11px] text-slate-500">You choose which setups to watch. Switch alerts off any time.</p>
+              <p className="mt-2 text-[11px] text-slate-500">Switch alerts off any time.</p>
             </div>
-          ) : loading && !alerts.length ? (
+          ) : (
+            <>
+            {!mode ? (
+              <div className="mt-4 p-3.5 rounded-2xl bg-gradient-to-br from-sky-500/10 to-violet-500/10 border border-white/[0.08]">
+                <p className="text-sm font-semibold text-white">How should alerts work?</p>
+                <p className="mt-0.5 mb-3 text-xs text-slate-400">Pick once. You can change it any time here.</p>
+                <ModeChooser busy={busy} onPick={m => onSetMode && run(`mode-${m}`, () => onSetMode(m))} />
+              </div>
+            ) : (
+              <div className="mt-3 flex items-center gap-2 px-1">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Mode</span>
+                <div className="ml-auto inline-flex p-0.5 rounded-full bg-white/[0.05] border border-white/[0.08]" role="radiogroup" aria-label="Alert mode">
+                  {MODES.map(({ id, icon: Icon, title }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={mode === id}
+                      disabled={!!busy || mode === id}
+                      onClick={() => onSetMode && run(`mode-${id}`, () => onSetMode(id))}
+                      title={id === 'AUTO' ? 'Every new trade is watched by itself' : 'Tap "Get price alert" on the trades you want'}
+                      className={`h-7 px-3 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:cursor-default ${
+                        mode === id ? 'bg-white text-slate-900' : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {busy === `mode-${id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Icon className="w-3 h-3" />}
+                      {title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {loading && !alerts.length ? (
             <div className="py-16 flex justify-center text-slate-500">
               <Loader2 className="w-5 h-5 animate-spin" />
             </div>
@@ -235,7 +315,13 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
                 <Sparkles className="w-5 h-5 text-sky-300" />
               </span>
               <p className="mt-3 text-sm font-medium text-slate-200">Alerts are on</p>
-              <p className="mt-1 text-xs text-slate-500 leading-relaxed">Tap <span className="text-white font-medium">Get price alert</span> on any analysis and MarketX will watch its entry zone, stop loss and targets for you.</p>
+              <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+                {mode === 'AUTO' ? (
+                  <>Your next trade from MarketX is watched by itself: entry zone, stop loss and every target.</>
+                ) : (
+                  <>Tap <span className="text-white font-medium">Get price alert</span> on any analysis and MarketX will watch its entry zone, stop loss and targets for you.</>
+                )}
+              </p>
             </div>
           ) : (
             <div className="pt-3 space-y-5">
@@ -272,6 +358,8 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
                 </div>
               )}
             </div>
+            )}
+            </>
           )}
         </div>
       </section>

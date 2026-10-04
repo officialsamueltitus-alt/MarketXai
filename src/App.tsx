@@ -16,6 +16,7 @@ import {
   ActivityStep,
   PriceAlertItem,
   AlertLiveQuote,
+  AlertMode,
   PluginId,
   PluginStates,
 } from './types';
@@ -1038,18 +1039,22 @@ export default function App() {
     setAlertsLoading(true);
     try {
       // live=1: the server also fetches the live price of each market being watched
-      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[]; live?: Record<string, AlertLiveQuote>; checkedAt?: number }>(
+      const data = await apiFetch<{ enabled: boolean; mode?: AlertMode | null; alerts: PriceAlertItem[]; live?: Record<string, AlertLiveQuote>; checkedAt?: number }>(
         live ? '/api/alerts?live=1' : '/api/alerts'
       );
       setPriceAlerts(data.alerts || []);
       if (live) setAlertQuotes(data.live || {});
       setAlertsCheckedAt(data.checkedAt || Date.now());
-      setUserProfile(p => (p.alertsEnabled === data.enabled ? p : { ...p, alertsEnabled: data.enabled }));
+      const mode = data.mode || null;
+      setUserProfile(p => (p.alertsEnabled === data.enabled && (p.alertsMode || null) === mode ? p : { ...p, alertsEnabled: data.enabled, alertsMode: mode }));
     } catch {
     } finally {
       setAlertsLoading(false);
     }
   }, []);
+  // Read by the analysis flow: an Auto mode alert started on the server shows on the card at once
+  const fetchAlertsRef = useRef(fetchAlerts);
+  fetchAlertsRef.current = fetchAlerts;
   const createAlert = useCallback(async (offerId: string, symbol: string) => {
     try {
       const data = await apiFetch<{ alerts: PriceAlertItem[] }>('/api/alerts', { method: 'POST', body: JSON.stringify({ offerId }) });
@@ -1076,22 +1081,42 @@ export default function App() {
       setToastNotification({ message: err?.message || 'Could not turn off the alert.', type: 'info' });
     }
   }, []);
-  const handleAlertsConsent = useCallback(async (enabled: boolean) => {
+  const handleAlertsConsent = useCallback(async (enabled: boolean, mode?: AlertMode) => {
     try {
-      const data = await apiFetch<{ enabled: boolean; alerts: PriceAlertItem[] }>('/api/alerts/consent', { method: 'POST', body: JSON.stringify({ enabled }) });
-      setUserProfile(p => ({ ...p, alertsEnabled: data.enabled }));
+      const data = await apiFetch<{ enabled: boolean; mode?: AlertMode | null; alerts: PriceAlertItem[] }>('/api/alerts/consent', {
+        method: 'POST',
+        body: JSON.stringify(mode ? { enabled, mode } : { enabled }),
+      });
+      setUserProfile(p => ({ ...p, alertsEnabled: data.enabled, alertsMode: data.mode || null }));
       setPriceAlerts(data.alerts || []);
       if (enabled && pendingAlertOffer) {
         const pending = pendingAlertOffer;
         setPendingAlertOffer(null);
         await createAlert(pending.id, pending.symbol);
       } else if (enabled) {
-        setToastNotification({ message: '🔔 Price alerts are on. Tap "Get price alert" on any analysis to watch it.', type: 'success' });
+        setToastNotification({
+          message: data.mode === 'AUTO' ? '🔔 Auto alerts are on. Every trade MarketX gives you from now on is watched by itself.' : '🔔 Price alerts are on. Tap "Get price alert" on any analysis to watch it.',
+          type: 'success',
+        });
       }
     } catch (err: any) {
       setToastNotification({ message: err?.message || 'Could not update price alerts.', type: 'info' });
     }
   }, [pendingAlertOffer, createAlert]);
+  /** Auto: every signal is watched by itself; Manual: the trader taps "Get price alert" */
+  const setAlertsMode = useCallback(async (mode: AlertMode) => {
+    try {
+      const data = await apiFetch<{ mode: AlertMode }>('/api/alerts/mode', { method: 'POST', body: JSON.stringify({ mode }) });
+      setUserProfile(p => ({ ...p, alertsMode: data.mode }));
+      setToastNotification({
+        message: data.mode === 'AUTO' ? '🔔 Auto alerts on. Every new trade is watched by itself.' : 'Manual alerts. Tap "Get price alert" on the trades you want watched.',
+        type: 'success',
+      });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === 'PRO_REQUIRED') showProUpsell(err.message);
+      else setToastNotification({ message: err?.message || 'Could not change the alert mode.', type: 'info' });
+    }
+  }, [showProUpsell]);
   // Status of each result card's alert, by the setup it belongs to
   const alertByOffer = React.useMemo(() => {
     const m: Record<string, 'on' | 'ended'> = {};
@@ -1182,6 +1207,12 @@ export default function App() {
       const data = await apiFetch<{ plugins: PluginStates }>(`/api/plugins/${id}`, { method: 'POST', body: JSON.stringify({ enabled }) });
       setUserProfile(p => ({ ...p, plugins: data.plugins, alertsEnabled: data.plugins.alerts }));
       if (id === 'alerts') fetchAlerts();
+      if (id === 'alerts' && enabled && !userProfile.alertsMode) {
+        // First time on: ask Auto or Manual
+        setIsConnectorsOpen(false);
+        setIsAlertsOpen(true);
+        return;
+      }
       if (enabled) {
         const label = PLUGINS.find(p => p.id === id)?.label || 'Command';
         setToastNotification({ message: `${label} is on. Find it in Settings, Connectors / Plugins.`, type: 'success' });
@@ -1191,7 +1222,7 @@ export default function App() {
       else setToastNotification({ message: err?.message || 'Could not update that command. Please try again.', type: 'info' });
       throw err;
     }
-  }, [fetchAlerts, showProUpsell]);
+  }, [fetchAlerts, showProUpsell, userProfile.alertsMode]);
   const showToast = useCallback((message: string, type: 'success' | 'info' = 'info') => setToastNotification({ message, type }), []);
   // A link from a watchlist email opens the watchlist once signed in
   useEffect(() => {
@@ -1517,6 +1548,7 @@ export default function App() {
     })
       .then((data): BackendResult => {
         if (data?.strategy) {
+          if (data.strategy.alertOffer?.auto) fetchAlertsRef.current();
           return {
             kind: 'strategy',
             strategy: data.strategy as StrategyResult,
@@ -2075,6 +2107,8 @@ export default function App() {
           focusId={alertFocus}
           pendingSymbol={pendingAlertOffer?.symbol || null}
           onConsent={handleAlertsConsent}
+          mode={userProfile.alertsMode || null}
+          onSetMode={setAlertsMode}
           onRemove={removeAlert}
         />
       </Deferred>
@@ -2356,6 +2390,8 @@ export default function App() {
                     onCommand={id => (PLUGIN_COMMAND[id] ? (openPluginPanel(PLUGIN_COMMAND[id]), true) : false)}
                     rdmLocked={!proAccess}
                     onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
+                    onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}
+                    connectorsOn={authUser ? Object.values(pluginStates).filter(Boolean).length : 0}
                     commandBadge={commandBadge}
                     isLoading={isLoading}
                     credits={isUnlimitedUser(userProfile.email) ? 999999 : promptsLeft(creditState)}

@@ -121,6 +121,10 @@ interface ChatInputProps {
   /** RDM is Pro only (after the free period): shown locked, and choosing it calls onLockedFeature */
   rdmLocked?: boolean;
   onLockedFeature?: (feature: 'RDM') => void;
+  /** Opens Connectors / Plugins (every command in one place) */
+  onOpenConnectors?: () => void;
+  /** How many commands are switched on (shown as a dot count on the Connectors button) */
+  connectorsOn?: number;
   /** Badge on the live commands, e.g. "Free till 1 Nov" or "Pro" (default "Live") */
   commandBadge?: string | null;
   isLoading: boolean;
@@ -139,6 +143,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onCommand,
   rdmLocked = false,
   onLockedFeature,
+  onOpenConnectors,
+  connectorsOn = 0,
   commandBadge,
   isLoading,
   credits,
@@ -740,6 +746,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {slMode === 'tight' ? <Crosshair className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5 text-slate-500" />}
               <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
             </button>
+
+            {onOpenConnectors && (
+              <button
+                type="button"
+                onClick={onOpenConnectors}
+                className="relative h-8 w-8 sm:w-auto sm:px-2.5 rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-slate-300 hover:text-white hover:bg-white/[0.06] border-white/[0.08]"
+                title="Connectors: all your commands in one place"
+                aria-label={`Open Connectors${connectorsOn ? ` (${connectorsOn} on)` : ''}`}
+              >
+                <Plug className="w-3.5 h-3.5 text-violet-300" />
+                <span className="hidden sm:inline">Connectors</span>
+                {connectorsOn > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-[9px] font-bold text-white flex items-center justify-center" aria-hidden="true">
+                    {connectorsOn}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {isLoading ? (
