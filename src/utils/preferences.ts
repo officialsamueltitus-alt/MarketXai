@@ -8,7 +8,6 @@ export interface Preferences {
   riskPct: number;
   view: 'DETAILED' | 'SIMPLE';
   homeMarket: 'all' | 'forex' | 'stock' | 'crypto' | 'commodity';
-  backtestExit: 'SCALE' | 'TP1' | 'TP2' | 'TP3';
   updatedAt?: number;
 }
 
@@ -20,7 +19,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   riskPct: 1,
   view: 'DETAILED',
   homeMarket: 'all',
-  backtestExit: 'SCALE',
 };
 
 

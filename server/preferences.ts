@@ -5,10 +5,9 @@
 // setup: the analysis is the same for everyone.
 // - timeframe / slMode: what the composer starts with (a pick in the composer still wins for that prompt)
 // - accountSize, currency, riskPct: money view on every trade card (risk per trade and what each target pays) and
-//   the starting balance / risk of a backtest
+//   the trade calculator's starting values
 // - view: DETAILED shows the full write-up under each trade; SIMPLE leads with the levels and folds the write-up
 // - homeMarket: which market list the Markets tab opens on
-// - backtestExit: the exit style a new backtest starts with
 // Free for everyone.
 // ===========================================================================
 import type { Express, NextFunction, Request, Response } from 'express';
@@ -23,7 +22,6 @@ export type { Preferences };
 const CURRENCIES: Currency[] = ['USD', 'NGN', 'EUR', 'GBP'];
 const VIEWS = ['DETAILED', 'SIMPLE'] as const;
 const MARKETS = ['all', 'forex', 'stock', 'crypto', 'commodity'] as const;
-const EXITS = ['SCALE', 'TP1', 'TP2', 'TP3'] as const;
 /** RDM is allowed as a default; the composer still applies the Pro rule to it */
 const TIMEFRAMES = [...SUPPORTED_TIMEFRAMES, 'RDM'];
 
@@ -70,10 +68,6 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
   if (has('homeMarket')) {
     if (!(MARKETS as readonly string[]).includes(body.homeMarket)) return { error: 'Choose a market list.' };
     next.homeMarket = body.homeMarket;
-  }
-  if (has('backtestExit')) {
-    if (!(EXITS as readonly string[]).includes(body.backtestExit)) return { error: 'Choose how backtest trades are closed.' };
-    next.backtestExit = body.backtestExit;
   }
   return { prefs: next };
 }

@@ -46,11 +46,10 @@ const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel'
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
-const BacktestPanel = lazyWithReload(() => import('./components/BacktestPanel').then(m => ({ default: m.BacktestPanel })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, BacktestPanel, PreferencePanel];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -166,8 +165,8 @@ export default function App() {
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   // Command panels (/watchlist, /trade-journal, /track-record) and the Connectors / Plugins popup
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
-  // Tools without an on/off switch: /backtest and /preference
-  const [openTool, setOpenTool] = useState<'backtest' | 'preference' | null>(null);
+  // Tools without an on/off switch: /preference
+  const [openTool, setOpenTool] = useState<'preference' | null>(null);
   const [calcSeed, setCalcSeed] = useState<CalcSeed | null>(null);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const watchlistLinkRef = useRef(false);
@@ -1231,23 +1230,19 @@ export default function App() {
     }
   }, [fetchAlerts, showProUpsell, userProfile.alertsMode]);
   const showToast = useCallback((message: string, type: 'success' | 'info' = 'info') => setToastNotification({ message, type }), []);
-  // ---------------- Preference Mode and Backtest ----------------
+  // ---------------- Preference Mode ----------------
   const preferences = React.useMemo(() => withDefaults(userProfile.preferences), [userProfile.preferences]);
   const savePreferences = useCallback(async (change: Partial<Preferences> | { reset: true }) => {
     const data = await apiFetch<{ preferences: Preferences }>('/api/preferences', { method: 'PUT', body: JSON.stringify(change) });
     setUserProfile(p => ({ ...p, preferences: data.preferences }));
   }, []);
-  const openToolPanel = useCallback((id: 'backtest' | 'preference') => {
+  const openToolPanel = useCallback((id: 'preference') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
       return;
     }
     setIsConnectorsOpen(false);
     setIsSidebarOpen(false);
-    if (id === 'backtest' && !proAccess) {
-      showProUpsell('Backtest is a Pro feature. Upgrade to Pro to use it.');
-      return;
-    }
     setOpenPlugin(null);
     setOpenTool(id);
   }, [authUser, proAccess, showProUpsell]);
@@ -2188,22 +2183,7 @@ export default function App() {
           onOpenTool={openToolPanel}
         />
       </Deferred>
-      {/* Backtest (/backtest) and Preference Mode (/preference) */}
-      <Deferred when={openTool === 'backtest'}>
-        <BacktestPanel
-          isOpen={openTool === 'backtest'}
-          onClose={() => setOpenTool(null)}
-          preferences={preferences}
-          onProRequired={message => {
-            setOpenTool(null);
-            showProUpsell(message);
-          }}
-          onAnalyze={(symbol, tf) => {
-            setOpenTool(null);
-            handleSendMessage(`Analyze ${symbol} on the ${tf.replace(/^(\d+)M$/, '$1m')}`, tf);
-          }}
-        />
-      </Deferred>
+      {/* Preference Mode (/preference) */}
       <Deferred when={openTool === 'preference'}>
         <PreferencePanel
           isOpen={openTool === 'preference'}
@@ -2454,7 +2434,7 @@ export default function App() {
                     onCommand={id =>
                       PLUGIN_COMMAND[id]
                         ? (openPluginPanel(PLUGIN_COMMAND[id]), true)
-                        : id === 'backtest' || id === 'preference'
+                        : id === 'preference'
                           ? (openToolPanel(id), true)
                           : false
                     }

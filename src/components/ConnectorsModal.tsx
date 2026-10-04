@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Puzzle, X, History, SlidersHorizontal, ChevronRight } from 'lucide-react';
+import { Puzzle, X, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import type { PluginId, PluginStates } from '../types';
 import { PLUGINS } from '../utils/plugins';
 import { PluginRow } from './PluginRow';
@@ -12,12 +12,11 @@ interface ConnectorsModalProps {
   onToggle: (id: PluginId, enabled: boolean) => Promise<void>;
   /** "Free till 1 Nov" while the commands are open to everyone, "Pro" once they are Pro only */
   badge?: string | null;
-  /** Tools without an on/off switch (Backtest, Preference Mode) */
-  onOpenTool?: (id: 'backtest' | 'preference') => void;
+  /** Tools without an on/off switch (Preference Mode) */
+  onOpenTool?: (id: 'preference') => void;
 }
 
 const TOOLS = [
-  { id: 'backtest' as const, label: 'Backtest', slash: '/backtest', text: 'Replay the strategy on past candles', icon: History, tint: 'bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-300' },
   { id: 'preference' as const, label: 'Preference Mode', slash: '/preference', text: 'Your defaults, risk and view', icon: SlidersHorizontal, tint: 'bg-amber-500/15 border-amber-500/30 text-amber-300' },
 ];
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, History, RotateCcw, Zap, Hand, BellRing, Calculator } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
@@ -30,12 +30,6 @@ const MARKETS: Array<{ id: Preferences['homeMarket']; label: string }> = [
   { id: 'crypto', label: 'Crypto' },
   { id: 'stock', label: 'Equities' },
   { id: 'commodity', label: 'Commodities' },
-];
-const EXITS: Array<{ id: Preferences['backtestExit']; label: string }> = [
-  { id: 'SCALE', label: 'Scale out' },
-  { id: 'TP1', label: 'TP1' },
-  { id: 'TP2', label: 'TP2' },
-  { id: 'TP3', label: 'TP3' },
 ];
 const tfLabel = (tf: string) => (tf === 'RDM' ? 'RDM' : tf.replace(/^(\d+)M$/, '$1m'));
 
@@ -265,16 +259,6 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
             {MARKETS.map(m => (
               <button key={m.id} type="button" role="radio" aria-checked={p.homeMarket === m.id} onClick={() => save({ homeMarket: m.id })} className={`${seg(p.homeMarket === m.id)} shrink-0`}>
                 {m.label}
-              </button>
-            ))}
-          </div>
-        </Section>
-
-        <Section icon={History} title="Backtest" text="How a new backtest closes its trades. You can change it for any run.">
-          <div className="grid grid-cols-4 gap-1 p-1 rounded-full bg-black/25 border border-white/[0.08]" role="radiogroup" aria-label="Backtest take profit">
-            {EXITS.map(e => (
-              <button key={e.id} type="button" role="radio" aria-checked={p.backtestExit === e.id} onClick={() => save({ backtestExit: e.id })} className={seg(p.backtestExit === e.id)}>
-                {e.label}
               </button>
             ))}
           </div>

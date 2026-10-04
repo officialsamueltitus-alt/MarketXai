@@ -16,7 +16,6 @@ import {
   UserCog,
   ImagePlus,
   Radar,
-  History,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -270,9 +269,9 @@ const SECTIONS: Section[] = [
           live price, checking today's news and building the plan. It then folds into one line such as Worked for 14s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
-          Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B> and <B>/track-record</B> (see
-          Watchlist, journal and track record below). Still in private testing and marked Soon: Strategy, Preference Mode, Trading Agent, MT5 Connector,
-          Backtest, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
+          Watchlist, journal and track record below) and <B>/preference</B> (see Preference Mode below). Still in private testing and marked Soon: Strategy,
+          Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -427,26 +426,16 @@ const SECTIONS: Section[] = [
     ),
   },
   {
-    id: 'backtest-and-preferences',
-    title: 'Backtest and Preference Mode',
-    icon: History,
-    lead: 'Backtest shows how the MarketX strategy would have traded a market in the past. Preference Mode sets your own defaults, your risk per trade and how results look.',
+    id: 'preference-mode',
+    title: 'Preference Mode',
+    icon: SlidersHorizontal,
+    lead: 'Preference Mode sets your own defaults, your risk per trade and how results look, and has a trade calculator for your lot size.',
     body: (
       <>
         <Steps
           items={[
             <>
-              <B>/backtest.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Pick a market and a timeframe, choose how
-              trades are closed (scale out across the three targets, or the full trade at TP1, TP2 or TP3), set a starting balance and your risk per trade, then
-              tap <B>Run backtest</B>.
-            </>,
-            <>
-              MarketX replays its own strategy candle by candle on real past prices, using only what was known at each moment. You get the return, win rate,
-              profit factor, largest drawdown, every trade in order and a balance curve you can touch to read any point. Your recent backtests are kept so you
-              can open them again.
-            </>,
-            <>
-              <B>/preference.</B> Choose the timeframe and stop loss new prompts start with, your account size, currency and risk per trade, whether results
+              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose the timeframe and stop loss new prompts start with, your account size, currency and risk per trade, whether results
               show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
             </>,
           ]}
@@ -465,13 +454,7 @@ const SECTIONS: Section[] = [
           When you turn on price alerts you choose <B>Auto</B> (every trade MarketX gives you afterwards is watched by itself) or <B>Manual</B> (you tap Get
           price alert on the trades you want). Switch any time in the alerts panel or in Preference Mode.
         </Note>
-        <Note title="Free until 1 November">
-          Backtest is free for everyone until 1 November 2026 and part of Pro after that. Preference Mode stays free.
-        </Note>
-        <Note title="Past results are not a promise" tone="amber">
-          A backtest is hypothetical: it leaves out spreads and fees, and when a candle touches both the stop and a target it counts the stop. Use it to
-          understand how a market behaves with this strategy, not as a guarantee.
-        </Note>
+        <Note title="Free for everyone">Preference Mode and the trade calculator are free on every plan.</Note>
       </>
     ),
   },

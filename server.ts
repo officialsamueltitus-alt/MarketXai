@@ -32,7 +32,6 @@ import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
-import { registerBacktestRoutes } from './server/backtest';
 import { registerPreferenceRoutes } from './server/preferences';
 import { registerFxRoutes } from './server/fx';
 import { registerJournalRoutes } from './server/journal';
@@ -2101,20 +2100,6 @@ registerWatchlistRoutes(
   },
   generalApiRateLimiter
 );
-// Backtest (/backtest): the same strategy replayed bar by bar on past candles (no AI calls, no credits)
-registerBacktestRoutes(
-  app,
-  {
-    resolve: async query => {
-      const named = extractAssetInfo(query);
-      if (!named.unresolved && !promptNamesAsset(query)) return null;
-      const asset = await resolveAssetInfo(query);
-      return asset.unresolved ? null : { symbol: asset.symbol, name: asset.name, type: asset.type };
-    },
-    history: async (symbol, tf) => fetchHistoryForAsset(await resolveAssetInfo(symbol, symbol), tf),
-  },
-  generalApiRateLimiter
-);
 // Preference Mode (/preference): the trader's own defaults
 registerPreferenceRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
@@ -2554,10 +2539,10 @@ const DERIV_PLAN: Record<string, [number, number]> = {
   '4H': [14400, 1], '6H': [7200, 3], '8H': [28800, 1], '12H': [14400, 3], '1D': [86400, 1], '1W': [86400, 7],
 };
 
-async function fetchBinanceCandles(pair: string, tf: string, limit = 300): Promise<Candle[] | null> {
+async function fetchBinanceCandles(pair: string, tf: string): Promise<Candle[] | null> {
   const interval = BINANCE_INTERVALS[tf];
   if (!interval) return null;
-  const rows = await binanceRequest(`/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}`, 5000);
+  const rows = await binanceRequest(`/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=${interval}&limit=300`, 5000);
   if (!Array.isArray(rows) || rows.length === 0) return null;
   return rows.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }));
 }
@@ -2604,63 +2589,23 @@ function fetchYahooRaw(yahooSym: string, interval: string, rangeParam: string): 
   return p;
 }
 
-async function fetchYahooCandles(yahooSym: string, tf: string, keep = 300): Promise<Candle[] | null> {
+async function fetchYahooCandles(yahooSym: string, tf: string): Promise<Candle[] | null> {
   const plan = YAHOO_PLAN[tf];
   if (!plan) return null;
   const [interval, rangeParam, baseMinutes] = plan;
   const raw = await fetchYahooRaw(yahooSym, interval, rangeParam);
   if (!raw) return null;
   const want = timeframeMinutes(tf);
-  return (want > baseMinutes ? aggregateCandles(raw, want) : raw).slice(-keep);
+  return (want > baseMinutes ? aggregateCandles(raw, want) : raw).slice(-300);
 }
 
-async function fetchDerivSeries(derivSym: string, tf: string, keep = 300): Promise<Candle[] | null> {
+async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] | null> {
   const plan = DERIV_PLAN[tf];
   if (!plan) return null;
   const [gran, agg] = plan;
-  const raw = await fetchDerivCandles(derivSym, gran, keep * agg);
+  const raw = await fetchDerivCandles(derivSym, gran, 300 * agg);
   if (!raw || !raw.length) return null;
-  return (agg > 1 ? aggregateCandles(raw, timeframeMinutes(tf)) : raw).slice(-keep);
-}
-
-/** Backtest history: as many candles as each feed gives (up to 1,000), cached a few minutes; other venues use the normal series */
-const HISTORY_BARS = 1000;
-const historyCache: Record<string, { at: number; p: Promise<Candle[] | null> }> = {};
-function fetchHistoryForAsset(asset: ReturnType<typeof extractAssetInfo>, tf: string): Promise<Candle[] | null> {
-  const key = `${asset.type}:${asset.symbol}:${tf}`;
-  const hit = historyCache[key];
-  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.p;
-  const load = async (): Promise<Candle[] | null> => {
-    const sym = asset.symbol.toUpperCase();
-    const compact = sym.replace(/[^A-Z0-9]/g, '');
-    let deep: Candle[] | null = null;
-    try {
-      if (asset.type === 'crypto' && !asset.unresolved && !['bybit', 'mexc', 'dex'].includes(String(asset.venue || ''))) {
-        const binanceSym = (asset as any).binance || compact;
-        deep = await fetchBinanceCandles(binanceSym.endsWith('USDT') ? binanceSym : `${binanceSym.replace(/USD$/, '')}USDT`, tf, HISTORY_BARS);
-      } else if (asset.type === 'forex') {
-        const [base, quote] = sym.split('/').map(x => x.trim());
-        if (base && quote) deep = await fetchYahooCandles(`${base}${quote}=X`, tf, HISTORY_BARS);
-      } else if (asset.type === 'stock') {
-        deep = await fetchYahooCandles(YAHOO_SYMBOL_MAP[compact] || compact, tf, HISTORY_BARS);
-      } else if (asset.type === 'commodity') {
-        if (compact === 'XAUUSD') deep = await fetchBinanceCandles('PAXGUSDT', tf, HISTORY_BARS);
-        const ySym = YAHOO_SYMBOL_MAP[compact] || YAHOO_SYMBOL_MAP[compact.replace(/USD$/, '')] || (compact === 'WTIUSD' ? 'CL=F' : null);
-        if (!deep && ySym) deep = await fetchYahooCandles(ySym, tf, HISTORY_BARS);
-      } else if (asset.type === 'synthetic') {
-        const dSym = mapDerivSymbol(asset.name) || mapDerivSymbol(asset.symbol);
-        if (dSym) deep = await fetchDerivSeries(dSym, tf, HISTORY_BARS);
-      }
-    } catch {
-      deep = null;
-    }
-    const normal = deep && deep.length >= 300 ? null : await fetchCandlesForAsset(asset, tf);
-    return deep && deep.length >= (normal?.length || 0) ? deep : normal;
-  };
-  const p = load();
-  historyCache[key] = { at: Date.now(), p };
-  for (const k of Object.keys(historyCache)) if (Date.now() - historyCache[k].at > 10 * 60_000) delete historyCache[k];
-  return p;
+  return (agg > 1 ? aggregateCandles(raw, timeframeMinutes(tf)) : raw).slice(-300);
 }
 
 const candleInflight: Record<string, Promise<Candle[] | null>> = {};

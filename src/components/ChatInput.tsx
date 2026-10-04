@@ -21,7 +21,6 @@ import {
   Plug,
   Lock,
   BellRing,
-  History,
   NotebookPen,
   Activity,
   LineChart,
@@ -99,12 +98,11 @@ const SLASH_COMMANDS = [
   { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
-  { id: 'backtest', label: 'Backtest', description: 'Replay the MarketX strategy on past candles: win rate, R, drawdown', icon: History },
   { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'backtest', 'preference']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference']);
 
 interface ChatInputProps {
   onSendMessage: (
