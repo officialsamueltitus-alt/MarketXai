@@ -87,9 +87,10 @@ export interface UserDoc {
   // Price alerts: the trader's approval, and when the last "Want an alert?" email went out
   alerts?: { enabled: boolean; at: number; mode?: 'AUTO' | 'MANUAL' };
   alertMailAt?: number;
-  // Watchlist (/watchlist): the trader's approval, and today's watchlist email count
+  // Watchlist (/watchlist): the trader's approval
   watchlist?: { enabled: boolean; at: number };
-  watchMail?: { day: string; n: number };
+  // Today's market emails (price alerts + watchlist share one daily allowance, see claimMarketMail)
+  marketMail?: { day: string; n: number };
   // Commands switched on that need no approval (shown under Settings, Connectors / Plugins)
   plugins?: { journal?: boolean; trackRecord?: boolean };
 }
@@ -257,6 +258,39 @@ export async function notifyActivity(uid: string, n: NotificationInput | null, m
   } catch (err: any) {
     console.warn('[MarketX Notify] failed:', err?.message || err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Market email budget: price alerts and the watchlist share one small daily allowance per trader
+// (site notifications are never capped), so Gmail never sees a flood from MarketX
+// ---------------------------------------------------------------------------
+export const MARKET_MAIL_PER_DAY = Math.max(1, Math.min(50, Number(process.env.MARKET_MAIL_PER_DAY) || 5));
+/** Optional mail (alert invitations) stops this many emails short of the limit, keeping room for real hits */
+const MARKET_MAIL_RESERVE = 2;
+const mailDayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: CREDIT_RESET_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+/** Today's date in the site's time zone (YYYY-MM-DD) */
+export const marketMailDay = (t = Date.now()) => mailDayFmt.format(new Date(t));
+
+/** The trader's budget after one more market email, or null when today's allowance (or the optional share) is used up */
+export function nextMarketMail(u: Pick<UserDoc, 'marketMail'>, optional = false, t = Date.now()): { day: string; n: number } | null {
+  const day = marketMailDay(t);
+  const n = u.marketMail?.day === day ? u.marketMail.n : 0;
+  if (n >= (optional ? MARKET_MAIL_PER_DAY - MARKET_MAIL_RESERVE : MARKET_MAIL_PER_DAY)) return null;
+  return { day, n: n + 1 };
+}
+
+/** Claims one of today's market emails for the trader (false: today's allowance is used up) */
+export async function claimMarketMail(uid: string, optional = false): Promise<boolean> {
+  return db().runTransaction(async tx => {
+    const snap = await tx.get(userRef(uid));
+    if (!snap.exists) return false;
+    const u = snap.data() as UserDoc;
+    if (u.emailPrefs?.activity === false) return false;
+    const next = nextMarketMail(u, optional);
+    if (!next) return false;
+    tx.update(userRef(uid), { marketMail: next });
+    return true;
+  });
 }
 
 export function siteLink(path = ''): string {

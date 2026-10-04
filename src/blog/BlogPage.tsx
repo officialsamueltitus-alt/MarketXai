@@ -459,6 +459,41 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'token-safety-and-proofs',
+    title: 'Token safety and signal proofs',
+    icon: ShieldCheck,
+    lead: 'Two checks built on Solana: a safety check on Solana tokens before you trade them, and a public proof of every signal MarketX gives.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>Token safety.</B> Analyze or ask about a Solana token (by name, $ticker or contract address) and a <B>Token safety</B> card appears under the
+              result. It reads the token straight from the blockchain: whether more can still be minted, whether wallets can be frozen, special transfer
+              rules, how much the largest holders own, whether the liquidity is locked, the pool's size and age, and known danger flags.
+            </>,
+            <>
+              You get a score and a level: <B>Low risk</B>, <B>Caution</B> or <B>High risk</B>, with every check explained in plain words. Tap <B>Recheck</B> for a
+              fresh read, or <B>Solscan</B> to see the token yourself.
+            </>,
+            <>
+              <B>Signal proofs.</B> Every buy or sell signal is sealed the moment it is served: a fingerprint of its levels and time. The fingerprints are written
+              to the Solana blockchain in batches. Tap <B>Proof on Solana</B> on a trade card to open its proof page, where your browser checks the fingerprint,
+              the batch and the Solana transaction for you.
+            </>,
+          ]}
+        />
+        <Note title="Why it matters">
+          A proof shows exactly when a signal was given and that it was never edited afterwards, so the track record can be trusted. It doesn't say whether a
+          trade will win, and it never includes who asked for the signal.
+        </Note>
+        <Note title="A check, not a guarantee" tone="amber">
+          The safety check lowers the risk of a rug pull; it can't remove it. A Low risk token can still lose value. Size every trade with care.
+        </Note>
+      </>
+    ),
+  },
+  {
     id: 'credits-and-plans',
     shots: [{ src: '/guide/credits-balance.webp', alt: "Your credits and today\u2019s analyses, with the time they refill.", w: 786, h: 1460 }, { src: '/guide/credits-pro.webp', alt: "Plans: Pro gives you more analyses every day.", w: 786, h: 1604 }],
     title: 'Credits, daily analyses and plans',

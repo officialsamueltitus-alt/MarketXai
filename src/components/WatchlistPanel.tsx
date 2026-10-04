@@ -3,6 +3,7 @@ import { Activity, BellRing, Check, Loader2, Mail, Plus, Radar, RefreshCw, Searc
 import type { WatchItem } from '../types';
 import { apiFetch } from '../utils/apiClient';
 import { formatMarketPrice } from '../utils/formatPrice';
+import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { PluginIntro, PluginSheet, ago } from './PluginSheet';
 
 interface WatchlistPanelProps {
@@ -18,17 +19,11 @@ interface WatchlistPanelProps {
   focusId?: string | null;
 }
 
+// Every timeframe the engine supports, plus RDM (scan them all)
 const TIMEFRAMES: Array<{ id: string; label: string }> = [
   { id: 'RDM', label: 'RDM' },
-  { id: '5M', label: '5m' },
-  { id: '15M', label: '15m' },
-  { id: '30M', label: '30m' },
-  { id: '1H', label: '1H' },
-  { id: '4H', label: '4H' },
-  { id: '1D', label: '1D' },
-  { id: '1W', label: '1W' },
+  ...SUPPORTED_TIMEFRAMES.map(id => ({ id, label: id.endsWith('M') ? id.toLowerCase() : id })),
 ];
-
 type Verify = { step: 0 | 1 | 2 | 3; symbol?: string; price?: number; error?: string };
 const VERIFY_STEPS = ['Finding the market', 'Checking live price', 'Checking live chart data', 'Added, scanning for setups'];
 
@@ -169,7 +164,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
             Add
           </button>
         </div>
-        <div className="mt-2 flex gap-1 overflow-x-auto no-scrollbar" role="radiogroup" aria-label="Timeframe to scan">
+        <div className="mt-2 flex flex-wrap gap-1" role="radiogroup" aria-label="Timeframe to scan">
           {TIMEFRAMES.map(tf => (
             <button
               key={tf.id}
@@ -308,11 +303,13 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                     <span className="ml-auto text-sm font-mono text-slate-200 tabular-nums truncate">{i.price ? formatMarketPrice(i.price) : ''}</span>
                   </div>
                   {editing === i.id && (
-                    <div className="mt-2 flex gap-1 overflow-x-auto no-scrollbar mx-fade-in">
+                    <div className="mt-2 flex flex-wrap gap-1 mx-fade-in" role="radiogroup" aria-label={`Timeframe for ${i.symbol}`}>
                       {TIMEFRAMES.map(tf => (
                         <button
                           key={tf.id}
                           type="button"
+                          role="radio"
+                          aria-checked={tf.id === i.timeframe}
                           disabled={busy === i.id}
                           onClick={() => tf.id !== i.timeframe && changeTf(i.id, tf.id)}
                           className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 cursor-pointer ${tf.id === i.timeframe ? 'bg-white text-slate-900' : 'bg-white/[0.04] text-slate-400 hover:text-white'}`}

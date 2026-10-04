@@ -135,7 +135,12 @@
   a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
-  email, max 8 emails a day, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
+  email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
+- Market email budget (owner-specified, to stay clear of Gmail limits): price alerts and the watchlist share ONE allowance of
+  `MARKET_MAIL_PER_DAY` (default 5) emails per trader per day (site time zone day, `claimMarketMail` / `nextMarketMail` in
+  `server/account.ts`, counter `users.marketMail`). Site notifications are never capped. Hits found in the same alert cycle go out
+  as one email; "Want a price alert?" invitations only use the allowance while 2 emails are still left for real hits. These emails
+  stay short: one or two lines, at most 3 rows, no long notes.
 - Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
   {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
@@ -148,6 +153,21 @@
   / points (1.00 price move). Contract presets (forex 100k, gold 100, silver 5k, oil 1k, index/crypto/stock/synthetic 1) and quote currency
   are guessed from the symbol and editable. Live FX from `GET /api/fx` (`server/fx.ts`, open.er-api.com USD table, 1h cache) or typed by hand.
   Trade cards have a "Lot size" button that opens it filled with that trade (`calcSeed`).
+- Solana (owner-specified, free to run): `server/solana.ts` (no SDK: base58, JSON-RPC via `SOLANA_RPC_URL` default public mainnet, never
+  logged beyond its host; `SOLANA_PROOF_SECRET_KEY` proof wallet, JSON array or base58, never logged/returned; legacy Memo tx built and
+  signed with Node ed25519, byte-identical to @solana/web3.js).
+  Token safety (`server/tokenSafety.ts`, `TokenSafetyCard.tsx`): for on-chain Solana tokens (`asset.dex.chainId === 'solana'`),
+  `startTokenSafety(res, asset)` runs in parallel with the analysis or question and `tokenSafetyMiddleware` attaches `tokenSafety` (body +
+  strategy, waits ≤2.5s, never alters the analysis). Chain reads: mint/freeze authority, Token-2022 extensions, largest holders with
+  program/pool-owned accounts set apart (owner not System-owned); RugCheck: LP lock, rugged, mutable metadata, extra danger flags;
+  DexScreener: liquidity, pool age. Verdict LOW_RISK / CAUTION / HIGH_RISK / UNKNOWN (never "safe"), score 0-100. Cached 10 min, shared
+  lookups, per-worker budgets (`SAFETY_RPC_PER_MIN` 60, `RUGCHECK_PER_MIN` 30). `GET /api/token-safety/:mint` public, 12/min per IP.
+  Signal proofs (`server/signalProof.ts`, `ProofBadge`, `/proof/<id>` page `src/proof/ProofPage.tsx`): `signalProofMiddleware` seals every
+  LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
+  entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (6h): Merkle batch
+  (`proofBatches`, leaf SHA-256(0x00‖hash), node SHA-256(0x01‖L‖R)), memo "MarketX proof v1 <batch> <root> n=<count>" sent from the proof
+  wallet (one tx per batch, ~0.000005 SOL); no wallet / low balance / failure = waits and retries. `GET /api/proofs/:id` public (30/min per
+  IP); the page recomputes the hash and Merkle path in the browser and links Solscan / Solana Explorer.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it

@@ -34,6 +34,8 @@ import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAl
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
 import { registerFxRoutes } from './server/fx';
+import { registerTokenSafetyRoutes, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
+import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
 import { exactPrice } from './src/utils/formatPrice';
@@ -174,6 +176,9 @@ const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat', '/
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
 // Every LONG / SHORT signal served is recorded as a price-alert offer (levels kept server-side; the analysis is untouched)
 app.use('/api/market/analyze', alertOfferMiddleware);
+// Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
+app.use('/api/market/analyze', signalProofMiddleware);
+app.use('/api/market/analyze', tokenSafetyMiddleware);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -2104,6 +2109,9 @@ registerWatchlistRoutes(
 registerPreferenceRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);
+// Token safety (any Solana token by address) and public signal proofs
+registerTokenSafetyRoutes(app, { resolve: mint => resolveAssetInfo(mint, mint) }, generalApiRateLimiter);
+registerSignalProofRoutes(app, generalApiRateLimiter);
 // Trade journal (/trade-journal) and track record (/track-record)
 registerJournalRoutes(app, generalApiRateLimiter);
 // Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there
@@ -3310,6 +3318,7 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
 
       // A question that names a market is answered with its live price and today's news (never from memory)
       const chatAsset = promptNamesAsset(cleanPrompt) ? await resolveAssetInfo(cleanPrompt) : null;
+      if (chatAsset) startTokenSafety(res, chatAsset);
       let marketContext = '';
       let liveQuoteForReplay: MarketTicker | null = null;
       // A full written answer from live data and MarketX knowledge, used when the engine cannot answer
@@ -3494,6 +3503,8 @@ Do NOT output structured trade card JSON.`;
     // -------------------------------------------------------------
     console.log(`[MarketX] Detected ANALYSIS PROMPT REQUEST: "${cleanPrompt.slice(0, 50)}" (SL Mode: ${safeSlMode})`);
     const asset = await resolveAssetInfo(cleanPrompt, safeSymbol);
+    // A Solana token gets its safety check while the analysis runs (attached next to the result, no added time)
+    if (!chartMode) startTokenSafety(res, asset);
     if (asset.unresolved && !chartMode) {
       // A coin named clearly but listed nowhere we can read (no exchange, no liquid on-chain pool): say so, no credit used
       const what = /^(0x|[1-9A-HJ-NP-Za-km-z]{32,})/.test(asset.unresolved) ? `the token at ${asset.unresolved}` : `$${asset.unresolved}`;

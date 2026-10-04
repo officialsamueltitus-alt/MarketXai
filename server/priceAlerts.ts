@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendEmail } from './mailer';
-import { getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { claimMarketMail, getUser, nextMarketMail, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
@@ -218,13 +218,14 @@ function hitMessage(a: AlertLevels, h: AlertHit): { title: string; message: stri
   }
 }
 
-function levelRows(a: AlertLevels): [string, string][] {
-  return [
-    ['Setup', `${side(a)} · ${a.symbol}${a.timeframe ? ` · ${a.timeframe}` : ''}`],
-    ['Entry zone', `${fmtPrice(a.entry.min)} to ${fmtPrice(a.entry.max)}`],
-    ['Stop loss', fmtPrice(a.stop)],
-    ...a.tps.map((p, i) => [`TP${i + 1}`, fmtPrice(p)] as [string, string]),
-  ];
+/** At most three rows in an alert email: the level that was hit and what matters next (the full plan is on the site) */
+function mailRows(a: AlertLevels, h: AlertHit): [string, string][] {
+  const setup: [string, string] = ['Setup', `${side(a)} · ${a.symbol}${a.timeframe ? ` · ${a.timeframe}` : ''}`];
+  if (h.kind === 'ENTRY') return [setup, ['Stop loss', fmtPrice(a.stop)], ['TP1', fmtPrice(a.tps[0])]];
+  if (h.kind === 'SL') return [setup, ['Stop loss', fmtPrice(a.stop)]];
+  if (h.kind === 'MISSED') return [setup, ['TP1', fmtPrice(a.tps[0])]];
+  const n = Number(h.kind.slice(2));
+  return [setup, [`TP${n}`, fmtPrice(h.price)], ...(a.tps[n] ? [[`TP${n + 1}`, fmtPrice(a.tps[n])] as [string, string]] : [])];
 }
 
 // ---------------------------------------------------------------------------
@@ -393,13 +394,20 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
       const endedReason = last === 'SL' ? 'SL' : last === 'MISSED' ? 'MISSED' : 'TP3';
       archiveAlertOutcome({ ...a, active: false, endedReason }).catch(err => console.warn('[MarketX Alerts] track record write failed:', err?.message || err));
     }
+    // Every hit gets its own site notification; the email is one short message per alert per cycle, and only
+    // while the trader's daily market email allowance lasts (shared with the watchlist)
     for (const h of fresh) {
       const m = hitMessage(a, h);
-      await notifyActivity(
-        a.uid,
-        { type: 'market', title: m.title, message: m.message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any,
-        { subject: m.subject, lines: m.lines, options: { rows: levelRows(a), cta: { label: 'Open this alert', url: siteLink(`/?alerts=1&focus=${encodeURIComponent(a.id)}`) } } }
-      );
+      await notifyActivity(a.uid, { type: 'market', title: m.title, message: m.message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any);
+    }
+    if (fresh.length && (await claimMarketMail(a.uid).catch(() => false))) {
+      const msgs = fresh.map(h => hitMessage(a, h));
+      const lead = msgs[msgs.length - 1];
+      await notifyActivity(a.uid, null, {
+        subject: lead.subject,
+        lines: msgs.length > 1 ? msgs.map(m => m.lines[0]) : lead.lines,
+        options: { rows: mailRows(a, fresh[fresh.length - 1]), cta: { label: 'Open this alert', url: siteLink(`/?alerts=1&focus=${encodeURIComponent(a.id)}`) } },
+      });
     }
   }
 }
@@ -463,17 +471,17 @@ export async function sweepAlertOfferEmails(): Promise<number> {
       // Price alerts are Pro only once the free period ends: no invitation to a feature the trader can't use
       if (!hasProFeatures(u)) return null;
       if ((u.alertMailAt || 0) > now - OFFER_EMAIL_GAP_MS) return null;
-      tx.update(userRef(offer.uid), { alertMailAt: now });
+      // Invitations are optional: they use the shared daily allowance only while room is left for real alert hits
+      const budget = nextMarketMail(u, true, now);
+      if (!budget) return null;
+      tx.update(userRef(offer.uid), { alertMailAt: now, marketMail: budget });
       return u.email;
     });
     if (!decision) continue;
     const ok = await sendEmail(decision, `Want a price alert for your ${offer.symbol} setup?`, [
-      `Your ${side(offer)} setup on ${offer.symbol}${offer.timeframe ? ` (${offer.timeframe})` : ''} is ready.`,
-      'Turn on a price alert and MarketX will watch the market for you, then notify you the moment price reaches the entry zone, the stop loss or a target.',
+      `Turn on a price alert for your ${side(offer)} setup on ${offer.symbol}${offer.timeframe ? ` (${offer.timeframe})` : ''} and MarketX tells you when price reaches the entry, the stop or a target.`,
     ], {
-      rows: levelRows(offer),
       cta: { label: 'Turn on price alert', url: siteLink(`/?alert=${encodeURIComponent(offer.id)}`) },
-      note: 'You only get the alerts you turn on. Manage them any time with /price-alerts in the chat.',
       priority: 'low',
     }).catch(() => false);
     if (ok) sent++;
