@@ -60,14 +60,33 @@ interface ChatFeedProps {
   /** Alert state per setup (strategy.alertOffer.id) */
   alertByOffer?: Record<string, 'on' | 'ended'>;
   onToggleAlert?: (strategy: StrategyResult) => void;
+  /** Opens the trade calculator (Preference Mode) filled with this trade */
+  onCalculate?: (strategy: StrategyResult) => void;
 }
 
 /** Preference Mode: what this trade risks and pays in the trader's own money (risk % of the account size) */
-const PositionStrip: React.FC<{ strategy: StrategyResult; prefs: Preferences }> = React.memo(({ strategy, prefs }) => {
+const PositionStrip: React.FC<{ strategy: StrategyResult; prefs: Preferences; onCalculate?: (s: StrategyResult) => void }> = React.memo(({ strategy, prefs, onCalculate }) => {
   const entry = Number(strategy.entryZone?.optimal);
   const stop = Number(strategy.stopLoss?.price);
   const risk = Math.abs(entry - stop);
-  if (!prefs.accountSize || !(risk > 0)) return null;
+  if (!(risk > 0)) return null;
+  const calcButton = onCalculate && (
+    <button
+      type="button"
+      onClick={() => onCalculate(strategy)}
+      className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-sky-500/15 border border-sky-400/30 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/25 cursor-pointer shrink-0"
+    >
+      Lot size
+    </button>
+  );
+  if (!prefs.accountSize) {
+    return calcButton ? (
+      <div className="flex items-center gap-2 p-2.5 pl-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-[11px] text-slate-400 font-sans">
+        <span className="flex-1 min-w-0">Work out your lot size for this trade, or set your account size in Preference Mode to see it in money here.</span>
+        {calcButton}
+      </div>
+    ) : null;
+  }
   const riskMoney = (prefs.accountSize * prefs.riskPct) / 100;
   const tps = (strategy.takeProfits || []).filter(t => Number(t.price) > 0);
   // Units only where they read simply: a USD-priced market (crypto, stocks, commodities) and a USD account
@@ -76,7 +95,10 @@ const PositionStrip: React.FC<{ strategy: StrategyResult; prefs: Preferences }> 
     <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs font-sans">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Your trade · {prefs.riskPct}% risk</span>
-        {units != null && <span className="text-[10px] text-slate-500 tabular-nums">≈ {units < 1 ? units.toPrecision(3) : units.toLocaleString('en-US', { maximumFractionDigits: 2 })} units</span>}
+        <span className="flex items-center gap-2">
+          {units != null && <span className="text-[10px] text-slate-500 tabular-nums">≈ {units < 1 ? units.toPrecision(3) : units.toLocaleString('en-US', { maximumFractionDigits: 2 })} units</span>}
+          {calcButton}
+        </span>
       </div>
       <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 tabular-nums">
         <div>
@@ -125,6 +147,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   alertsEnabled,
   alertByOffer,
   onToggleAlert,
+  onCalculate,
 }) => {
   const prefs = React.useMemo(() => withDefaults(userProfile?.preferences), [userProfile?.preferences]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -907,7 +930,7 @@ Rationale: ${strategy.entryZone.rationale}
                         )}
 
                         {/* Preference Mode: risk and rewards in the trader's money */}
-                        {(strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && <PositionStrip strategy={strategy} prefs={prefs} />}
+                        {(strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && <PositionStrip strategy={strategy} prefs={prefs} onCalculate={onCalculate} />}
 
                         {/* Strategy Rationale Summary */}
                         <div className="p-3 rounded-xl bg-sky-950/25 border border-sky-400/20 text-xs text-slate-200 leading-relaxed font-sans shadow-inner break-words">

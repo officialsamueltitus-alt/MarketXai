@@ -451,6 +451,12 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
+        <Note title="Trade calculator">
+          In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
+          at risk. Enter your account size, then your entry and stop prices (or the stop in pips or points). It handles forex, gold, silver, oil, indices,
+          crypto, stocks and synthetics, converts to your account currency, and rounds down so you never risk more than you set. Tap <B>Lot size</B> on
+          any trade card to open it already filled with that trade.
+        </Note>
         <Note title="Your trade, in your money">
           With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.
           Preferences only change your view and starting values. MarketX finds and scores setups the same way for everyone.

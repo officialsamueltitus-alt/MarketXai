@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, History, RotateCcw, Zap, Hand, BellRing } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, History, RotateCcw, Zap, Hand, BellRing, Calculator } from 'lucide-react';
+import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
 import type { AlertMode } from '../types';
@@ -18,6 +19,8 @@ interface PreferencePanelProps {
   alertsEnabled: boolean;
   alertsMode: AlertMode | null;
   onSetAlertsMode: (mode: AlertMode) => Promise<void>;
+  /** Opened from a trade card: the calculator is filled with that trade and scrolled into view */
+  calcSeed?: CalcSeed | null;
 }
 
 const CURRENCIES: Currency[] = ['USD', 'NGN', 'EUR', 'GBP'];
@@ -54,7 +57,7 @@ const Section: React.FC<{ icon: React.ElementType; title: string; text: string; 
 const seg = (on: boolean) =>
   `h-8 px-3 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer ${on ? 'bg-white text-slate-900' : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'}`;
 
-export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClose, preferences: p, onSave, rdmLocked, alertsEnabled, alertsMode, onSetAlertsMode }) => {
+export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClose, preferences: p, onSave, rdmLocked, alertsEnabled, alertsMode, onSetAlertsMode, calcSeed }) => {
   const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState(p.accountSize ? String(p.accountSize) : '');
@@ -66,6 +69,11 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
   useEffect(() => () => {
     if (debounce.current) clearTimeout(debounce.current);
   }, []);
+  useEffect(() => {
+    if (!isOpen || !calcSeed) return;
+    const t = setTimeout(() => document.getElementById('mx-trade-calculator')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
+    return () => clearTimeout(t);
+  }, [isOpen, calcSeed]);
 
   const save = async (change: Partial<Preferences> | { reset: true }) => {
     setState('saving');
@@ -228,6 +236,12 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
             )}
           </div>
         </Section>
+
+        <div id="mx-trade-calculator" className="scroll-mt-2">
+          <Section icon={Calculator} title="Trade calculator" text="Work out the lot size for your risk, or check what a lot size puts at risk, for any pair on your account.">
+            <TradeCalculator accountSize={account ? Number(account) || null : p.accountSize} currency={p.currency} riskPct={risk} seed={calcSeed} />
+          </Section>
+        </div>
 
         <Section icon={LayoutList} title="How results look" text="Only changes how a trade is shown to you, never the analysis itself.">
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Result view">

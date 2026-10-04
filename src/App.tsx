@@ -22,6 +22,7 @@ import {
 } from './types';
 import { NO_PLUGINS, PLUGINS, PLUGIN_COMMAND } from './utils/plugins';
 import { withDefaults, type Preferences } from './utils/preferences';
+import type { CalcSeed } from './components/TradeCalculator';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
@@ -167,6 +168,7 @@ export default function App() {
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
   // Tools without an on/off switch: /backtest and /preference
   const [openTool, setOpenTool] = useState<'backtest' | 'preference' | null>(null);
+  const [calcSeed, setCalcSeed] = useState<CalcSeed | null>(null);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const watchlistLinkRef = useRef(false);
   // The exact item a notification or email link points at, highlighted when its panel opens
@@ -2205,13 +2207,17 @@ export default function App() {
       <Deferred when={openTool === 'preference'}>
         <PreferencePanel
           isOpen={openTool === 'preference'}
-          onClose={() => setOpenTool(null)}
+          onClose={() => {
+            setOpenTool(null);
+            setCalcSeed(null);
+          }}
           preferences={preferences}
           onSave={savePreferences}
           rdmLocked={!proAccess}
           alertsEnabled={alertsEnabled}
           alertsMode={userProfile.alertsMode || null}
           onSetAlertsMode={setAlertsMode}
+          calcSeed={calcSeed}
         />
       </Deferred>
 
@@ -2402,6 +2408,10 @@ export default function App() {
                   messages={currentMessages}
                   isLoading={isLoading}
                   tickers={tickers}
+                  onCalculate={strategy => {
+                    setCalcSeed({ symbol: strategy.symbol, entry: strategy.entryZone?.optimal, stop: strategy.stopLoss?.price, tp: strategy.takeProfits?.[0]?.price });
+                    openToolPanel('preference');
+                  }}
                   userProfile={userProfile}
                   targetMessageId={targetSignalMessageId}
                   onClearTargetMessage={() => setTargetSignalMessageId(null)}

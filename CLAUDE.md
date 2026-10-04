@@ -147,6 +147,12 @@
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
   only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and backtest starting values. Never
   changes the analysis. Both tools are listed under Tools in `ConnectorsModal` and open from the slash menu.
+  Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
+  risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);
+  lots rounded DOWN to 0.01, under 0.01 flagged. Stop by entry/stop/target prices (direction from the stop) or in pips (forex 0.0001, JPY 0.01)
+  / points (1.00 price move). Contract presets (forex 100k, gold 100, silver 5k, oil 1k, index/crypto/stock/synthetic 1) and quote currency
+  are guessed from the symbol and editable. Live FX from `GET /api/fx` (`server/fx.ts`, open.er-api.com USD table, 1h cache) or typed by hand.
+  Trade cards have a "Lot size" button that opens it filled with that trade (`calcSeed`). Backtest panel has a "How this backtest works" explainer.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it

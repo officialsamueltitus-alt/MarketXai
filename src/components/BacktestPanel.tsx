@@ -210,6 +210,63 @@ const RBars: React.FC<{ trades: BtTrade[] }> = ({ trades }) => {
   );
 };
 
+/** The method and the words on this screen, in plain language */
+const HOW_STEPS: Array<[string, string]> = [
+  ['It loads real history', 'MarketX loads up to 1,000 past candles of the market and timeframe you pick, from the same price feeds the live analysis uses.'],
+  ['It walks forward one candle at a time', 'At every closed candle it runs the exact strategy behind a live analysis: supply and demand zones in the recent range, the Fibonacci entry, the RSI and EMA checks and every freshness rule. It only sees the candles up to that moment, never the ones after, so it can’t peek at the future.'],
+  ['A valid setup becomes an order', 'When the strategy finds a trade, a limit order waits at the entry. It fills when a later candle trades through the entry (if price gaps past it, the fill is at the open, the worse price). A “buy now” setup fills at the next candle’s open.'],
+  ['Some orders never fill', 'If price reaches TP1 or the stop before the entry, the order is cancelled and counted as missed: the move happened without you. If nothing fills within 48 candles, the order expires.'],
+  ['The trade is managed candle by candle', 'Once in, every candle is checked against the stop and the targets. If one candle touches both, the stop is counted first, the worst case, because a candle can’t tell which came first. Targets are never counted on the candle that filled the order.'],
+  ['Profit is taken the way you chose', 'Scale out closes 40% at TP1, 40% at TP2 and 20% at TP3, as in a live plan. TP1, TP2 or TP3 closes the whole trade at that target. With “move stop to entry” on, the stop goes to break-even once TP1 is hit.'],
+  ['One trade at a time', 'While a trade is open no new trade is taken. The next search starts on the candle after it closes. A trade still open when the history ends is valued at the last price and marked open.'],
+  ['Results in R and in money', 'Every trade is scored in R: 1R is what you risked, so a stop is -1R and a target three times the stop away is +3R. Your balance grows or shrinks by your risk % times the R of each trade, compounded, which draws the balance curve.'],
+];
+const GLOSSARY: Array<[string, string]> = [
+  ['Win rate', 'Trades that made money ÷ all trades.'],
+  ['Profit factor', 'Everything won ÷ everything lost. Above 1 makes money; 2 means twice as much won as lost.'],
+  ['Max drawdown', 'The deepest fall of the balance from a high point before a new high.'],
+  ['Average trade', 'The average R per trade (expectancy). Positive means the method paid over these trades.'],
+  ['Losing streak', 'The most losses in a row, a good guide to the run of losses to be ready for.'],
+  ['Missed and expired', 'Setups that never filled. They cost nothing and are not in the win rate.'],
+];
+const HowItWorks: React.FC = () => (
+  <details className="group rounded-3xl bg-white/[0.03] border border-white/[0.06] overflow-hidden">
+    <summary className="list-none flex items-center gap-2 px-4 h-12 cursor-pointer text-sm font-semibold text-white">
+      <Info className="w-4 h-4 text-sky-300" />
+      How this backtest works
+      <ChevronDown className="ml-auto w-4 h-4 text-slate-500 transition-transform group-open:rotate-180" />
+    </summary>
+    <div className="px-4 pb-4 space-y-4 border-t border-white/[0.05] pt-3">
+      <ol className="space-y-3">
+        {HOW_STEPS.map(([t, d], i) => (
+          <li key={t} className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-sky-500/15 border border-sky-400/30 text-[11px] font-semibold text-sky-200 flex items-center justify-center shrink-0">{i + 1}</span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-white">{t}</span>
+              <span className="block text-xs text-slate-400 leading-relaxed">{d}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <div>
+        <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">What the numbers mean</div>
+        <dl className="grid sm:grid-cols-2 gap-2">
+          {GLOSSARY.map(([t, d]) => (
+            <div key={t} className="p-2.5 rounded-2xl bg-black/20 border border-white/[0.05]">
+              <dt className="text-xs font-semibold text-white">{t}</dt>
+              <dd className="text-[11px] text-slate-400 leading-relaxed">{d}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <p className="text-[11px] text-amber-300/90 leading-relaxed">
+        Results are hypothetical. Spreads, fees and slippage are not included, and news can move a market in ways old candles don't show. A backtest shows
+        how the method behaved on that history, not what it will do next.
+      </p>
+    </div>
+  </details>
+);
+
 const Stat: React.FC<{ label: string; value: string; sub?: string; tone?: string }> = ({ label, value, sub, tone = 'text-white' }) => (
   <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] min-w-0">
     <div className="text-[10px] uppercase tracking-wider text-slate-500 truncate">{label}</div>
@@ -553,13 +610,10 @@ export const BacktestPanel: React.FC<BacktestPanelProps> = ({ isOpen, onClose, p
               <Sparkles className="w-4 h-4 text-sky-300" />
               Analyze {run.symbol} on the {tfLabel(run.options.timeframe)} now
             </button>
-            <p className="px-1 text-[11px] text-slate-500 leading-relaxed">
-              How it works: at every closed candle MarketX builds the same zone map it uses live, from the candles up to that
-              point only. Limit orders fill when price trades through the entry; if a candle touches both the stop and a target,
-              the stop counts first. Results are hypothetical and exclude spreads and fees. Past results don't guarantee future ones.
-            </p>
           </div>
         )}
+
+        <HowItWorks />
 
         {/* History */}
         {runs.length > 0 && (
