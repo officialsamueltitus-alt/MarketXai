@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
-import { getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { claimMarketMail, getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
@@ -101,8 +101,6 @@ const RDM_SCAN_GAP_MS = Math.max(MIN_SCAN_GAP_MS, Number(process.env.WATCH_RDM_G
 const BUILD_MAX_ATR = 2.5;
 const BUILD_MIN_SCORE = 55;
 const READY_MIN_SCORE = 60;
-/** Emails per trader per day from the watchlist (site notifications are not capped) */
-const MAIL_PER_DAY = Math.max(1, Number(process.env.WATCH_MAIL_PER_DAY) || 8);
 const FETCH_CONCURRENCY = 3;
 const VERIFY_TIMEOUT_MS = 8000;
 
@@ -220,22 +218,6 @@ async function listItems(uid: string) {
 // ---------------------------------------------------------------------------
 // Notices
 // ---------------------------------------------------------------------------
-const dayKey = (t = now()) => new Date(t).toISOString().slice(0, 10);
-
-/** Claims one of today's watchlist emails for the trader (false: today's allowance is used up) */
-async function claimMail(uid: string): Promise<boolean> {
-  return db().runTransaction(async tx => {
-    const snap = await tx.get(userRef(uid));
-    if (!snap.exists) return false;
-    const u = snap.data() as UserDoc;
-    const today = dayKey();
-    const n = u.watchMail?.day === today ? u.watchMail.n : 0;
-    if (n >= MAIL_PER_DAY) return false;
-    tx.update(userRef(uid), { watchMail: { day: today, n: n + 1 } });
-    return true;
-  });
-}
-
 async function sendNotice(item: WatchItem, setup: WatchSetup) {
   const tf = setup.timeframe;
   const side = sideWord(setup.direction);
@@ -245,22 +227,14 @@ async function sendNotice(item: WatchItem, setup: WatchSetup) {
   const message = ready
     ? `${where} Ask MarketX to analyze ${item.symbol} on the ${tf} for the full plan.`
     : `${where} MarketX keeps watching and tells you when it is ready.`;
-  const mail = (await claimMail(item.uid).catch(() => false))
+  // Emails share the trader's small daily market allowance with price alerts; the site notice always goes out
+  const mail = (await claimMarketMail(item.uid).catch(() => false))
     ? {
         subject: title,
-        lines: ready
-          ? [`Your watchlist found a ${side} setup on ${item.symbol} (${tf}).`, `${where} Prompt MarketX for the entry, stop loss and targets before you act.`]
-          : [`A ${side} setup is building on ${item.symbol} (${tf}).`, `${where} MarketX keeps scanning and tells you the moment it is ready.`],
+        lines: [ready ? `A ${side} setup is ready on ${item.symbol} (${tf}). ${where}` : `A ${side} setup is building on ${item.symbol} (${tf}). ${where}`],
         options: {
-          rows: [
-            ['Market', item.name && item.name !== item.symbol ? `${item.symbol} · ${item.name}` : item.symbol],
-            ['Timeframe', tf],
-            ['Direction', side],
-            ['Setup quality', `${setup.score}/100`],
-            ...(item.price ? [['Price', fmtPrice(item.price)] as [string, string]] : []),
-          ] as [string, string][],
-          cta: { label: 'Open this pair', url: siteLink(`/?watchlist=1&focus=${encodeURIComponent(item.id)}`) },
-          note: 'You get these because the pair is on your watchlist. Remove it or turn the watchlist off with /watchlist in the chat.',
+          rows: [['Setup quality', `${setup.score}/100`], ...(item.price ? [['Price', fmtPrice(item.price)] as [string, string]] : [])] as [string, string][],
+          cta: { label: ready ? 'Get the plan' : 'Open this pair', url: siteLink(`/?watchlist=1&focus=${encodeURIComponent(item.id)}`) },
         },
       }
     : undefined;
