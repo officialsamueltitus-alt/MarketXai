@@ -421,7 +421,10 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [selectedSymbol, setSelectedSymbol] = useState<string>('USD/JPY');
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
   // Category filter state
-  const [activeCategory, setActiveCategory] = useState<'all' | 'forex' | 'stock' | 'crypto' | 'commodity'>('all');
+  // Preference Mode: the list the Markets tab opens on
+  const homeMarket = userProfile?.preferences?.homeMarket || 'all';
+  const [activeCategory, setActiveCategory] = useState<'all' | 'forex' | 'stock' | 'crypto' | 'commodity'>(homeMarket);
+  useEffect(() => setActiveCategory(homeMarket), [homeMarket]);
 
   // Priority order matching major instruments
   const prioritySymbols = [

@@ -230,16 +230,11 @@ function levelRows(a: AlertLevels): [string, string][] {
 // ---------------------------------------------------------------------------
 // Offers: recorded as a signal is served (wraps res.json on /api/market/analyze; the analysis itself is untouched)
 // ---------------------------------------------------------------------------
-async function saveOffer(uid: string, id: string, levels: AlertLevels) {
-  const now = Date.now();
-  const offer: AlertOffer = { ...levels, id, uid, createdAt: now, expiresAt: now + alertHorizonMs(levels.timeframe), emailPending: true, emailAt: now + OFFER_EMAIL_DELAY_MS };
-  await db().collection(OFFERS).doc(id).set(offer);
-}
-
 export function alertOfferMiddleware(req: Request, res: Response, next: NextFunction) {
   if (!isFirebaseConfigured()) return next();
   const json = res.json.bind(res);
-  res.json = (body: any) => {
+  res.json = ((body: any) => {
+    let pending: Promise<void> | null = null;
     try {
       const uid = (res.locals.user as any)?.uid as string | undefined;
       const s = body?.strategy;
@@ -247,12 +242,57 @@ export function alertOfferMiddleware(req: Request, res: Response, next: NextFunc
       if (uid && levels) {
         const id = `of_${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`;
         s.alertOffer = { id };
-        saveOffer(uid, id, levels).catch(err => console.warn('[MarketX Alerts] offer save failed:', err?.message || err));
+        pending = recordOffer(uid, id, levels, s.alertOffer);
       }
     } catch {}
-    return json(body);
-  };
+    if (!pending) return json(body);
+    // Auto mode starts the alert before the result goes out, so the card already shows it (never held for long)
+    Promise.race([pending.catch(err => console.warn('[MarketX Alerts] offer save failed:', err?.message || err)), new Promise(r => setTimeout(r, 2500))]).then(() => json(body));
+    return res;
+  }) as typeof res.json;
   next();
+}
+
+/** Saves the offer; in Auto mode (Pro or free period) the alert starts at once, exactly as if the trader had tapped it */
+async function recordOffer(uid: string, id: string, levels: AlertLevels, view: { id: string; auto?: boolean; autoSkipped?: string }) {
+  const now = Date.now();
+  const offer: AlertOffer = { ...levels, id, uid, createdAt: now, expiresAt: now + alertHorizonMs(levels.timeframe), emailPending: true, emailAt: now + OFFER_EMAIL_DELAY_MS };
+  await db().collection(OFFERS).doc(id).set(offer);
+  const user = (await userRef(uid).get()).data() as UserDoc | undefined;
+  if (!user?.alerts?.enabled || user.alerts.mode !== 'AUTO' || !hasProFeatures(user)) return;
+  const started = await startAlert(uid, offer);
+  if ('alert' in started) view.auto = true;
+  else view.autoSkipped = started.error;
+}
+
+type StartResult = { alert: PriceAlert } | { error: 'ENDED' | 'TOO_MANY_ALERTS'; message: string };
+
+/** Starts watching an offer (tapped by the trader, or by itself in Auto mode); the journal, track record and notices follow it */
+async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> {
+  const mine = (await db().collection(ALERTS).where('uid', '==', uid).get()).docs.map(d => d.data() as PriceAlert);
+  const id = `al_${offer.id}`;
+  const existing = mine.find(a => a.id === id);
+  if (existing?.active) return { alert: existing };
+  if (existing && existing.hits.some(h => ['SL', 'MISSED', `TP${existing.tps.length}`].includes(h.kind))) {
+    return { error: 'ENDED', message: 'This setup has already played out.' };
+  }
+  if (mine.filter(a => a.active && a.expiresAt > Date.now()).length >= MAX_ACTIVE_PER_USER) {
+    return { error: 'TOO_MANY_ALERTS', message: `You can have up to ${MAX_ACTIVE_PER_USER} active alerts. Turn one off first.` };
+  }
+  const now = Date.now();
+  const { id: offerId, uid: _u, createdAt: _c, expiresAt, emailPending: _e, emailAt: _a, alertId: _al, ...levels } = offer;
+  const alert: PriceAlert = {
+    ...(levels as AlertLevels),
+    // Turned back on: watch from now (moves while it was off are not reported late)
+    id, uid, offerId, createdAt: now, updatedAt: now, expiresAt, active: true,
+    entered: existing?.entered || offer.execution === 'MARKET', hits: existing?.hits || [],
+  };
+  await db().collection(ALERTS).doc(id).set(alert);
+  await db().collection(OFFERS).doc(offerId).update({ emailPending: false, alertId: id }).catch(() => {});
+  if (IS_LEAD_WORKER) watched.set(id, alert);
+  // The trade goes into the journal by itself; the alert scores it when it ends
+  await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
+  return { alert };
 }
 
 // ---------------------------------------------------------------------------
@@ -441,9 +481,15 @@ export async function sweepAlertOfferEmails(): Promise<number> {
   return sent;
 }
 
-/** Approves (true) or switches off (false) live price alerts for a trader; off stops every active alert */
-export async function setAlertsEnabled(uid: string, enabled: boolean) {
-  await userRef(uid).update({ alerts: { enabled, at: Date.now() } });
+/** Off stops every active alert */
+export type AlertMode = 'AUTO' | 'MANUAL';
+export const readAlertMode = (v: unknown): AlertMode | null => (v === 'AUTO' || v === 'MANUAL' ? v : null);
+
+/** Approves (true) or switches off (false) live price alerts; the Auto / Manual choice is kept (or set when given) */
+export async function setAlertsEnabled(uid: string, enabled: boolean, mode?: AlertMode | null) {
+  const cur = ((await userRef(uid).get()).data() as UserDoc | undefined)?.alerts;
+  const keep = mode || cur?.mode;
+  await userRef(uid).update({ alerts: { enabled, at: Date.now(), ...(keep ? { mode: keep } : {}) } });
   if (enabled) return;
   const snap = await db().collection(ALERTS).where('uid', '==', uid).get();
   const now = Date.now();
@@ -508,14 +554,29 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
         })
       );
     }
-    res.json({ enabled: !!(snap.data() as UserDoc | undefined)?.alerts?.enabled, alerts, live, checkedAt: Date.now() });
+    const cfg = (snap.data() as UserDoc | undefined)?.alerts;
+    res.json({ enabled: !!cfg?.enabled, mode: cfg?.mode || null, alerts, live, checkedAt: Date.now() });
   }));
 
   app.post('/api/alerts/consent', limiter, requireAuth, guard, requireProToEnable, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const enabled = req.body?.enabled === true;
-    await setAlertsEnabled(uid, enabled);
-    res.json({ enabled, alerts: await listAlerts(uid) });
+    const mode = readAlertMode(req.body?.mode);
+    if (req.body?.mode !== undefined && !mode) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Choose Auto or Manual.' });
+    await setAlertsEnabled(uid, enabled, mode);
+    const cfg = ((await userRef(uid).get()).data() as UserDoc | undefined)?.alerts;
+    res.json({ enabled, mode: cfg?.mode || null, alerts: await listAlerts(uid) });
+  }));
+
+  // Auto: every signal served from now on is watched by itself; Manual: the trader taps "Get price alert"
+  app.post('/api/alerts/mode', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    const mode = readAlertMode(req.body?.mode);
+    if (!mode) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Choose Auto or Manual.' });
+    const cfg = ((await userRef(uid).get()).data() as UserDoc | undefined)?.alerts;
+    if (!cfg?.enabled) return res.status(409).json({ error: 'ALERTS_OFF', message: 'Turn on price alerts first.' });
+    await userRef(uid).update({ alerts: { ...cfg, mode } });
+    res.json({ enabled: true, mode });
   }));
 
   app.post('/api/alerts', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
@@ -533,30 +594,9 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     const offer = offerSnap.data() as AlertOffer | undefined;
     if (!offer || offer.uid !== uid) return res.status(404).json({ error: 'NOT_FOUND', message: 'That setup could not be found.' });
     if (offer.expiresAt <= Date.now()) return res.status(410).json({ error: 'EXPIRED', message: 'This setup is too old to watch. Ask MarketX for a fresh analysis.' });
-    const mine = (await db().collection(ALERTS).where('uid', '==', uid).get()).docs.map(d => d.data() as PriceAlert);
-    const id = `al_${offerId}`;
-    const existing = mine.find(a => a.id === id);
-    if (existing?.active) return res.json({ alert: toClient(existing), alerts: await listAlerts(uid) });
-    if (existing && existing.hits.some(h => ['SL', 'MISSED', `TP${existing.tps.length}`].includes(h.kind))) {
-      return res.status(409).json({ error: 'ENDED', message: 'This setup has already played out.' });
-    }
-    if (mine.filter(a => a.active && a.expiresAt > Date.now()).length >= MAX_ACTIVE_PER_USER) {
-      return res.status(429).json({ error: 'TOO_MANY_ALERTS', message: `You can have up to ${MAX_ACTIVE_PER_USER} active alerts. Turn one off first.` });
-    }
-    const now = Date.now();
-    const { id: _o, uid: _u, createdAt: _c, expiresAt, emailPending: _e, emailAt: _a, alertId: _al, ...levels } = offer;
-    const alert: PriceAlert = {
-      ...(levels as AlertLevels),
-      // Turned back on: watch from now (moves while it was off are not reported late)
-      id, uid, offerId, createdAt: now, updatedAt: now, expiresAt, active: true,
-      entered: existing?.entered || offer.execution === 'MARKET', hits: existing?.hits || [],
-    };
-    await db().collection(ALERTS).doc(id).set(alert);
-    await db().collection(OFFERS).doc(offerId).update({ emailPending: false, alertId: id }).catch(() => {});
-    if (IS_LEAD_WORKER) watched.set(id, alert);
-    // The trade goes into the journal by itself; the alert scores it when it ends
-    await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
-    res.json({ alert: toClient(alert), alerts: await listAlerts(uid) });
+    const started = await startAlert(uid, offer);
+    if ('error' in started) return res.status(started.error === 'ENDED' ? 409 : 429).json(started);
+    res.json({ alert: toClient(started.alert), alerts: await listAlerts(uid) });
   }));
 
   app.delete('/api/alerts/:id', limiter, requireAuth, guard, wrap(async (req, res) => {

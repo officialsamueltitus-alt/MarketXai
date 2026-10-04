@@ -269,9 +269,9 @@ const SECTIONS: Section[] = [
           live price, checking today's news and building the plan. It then folds into one line such as Worked for 14s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
-          Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B> and <B>/track-record</B> (see
-          Watchlist, journal and track record below). Still in private testing and marked Soon: Strategy, Preference Mode, Trading Agent, MT5 Connector,
-          Backtest, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
+          Watchlist, journal and track record below) and <B>/preference</B> (see Preference Mode below). Still in private testing and marked Soon: Strategy,
+          Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -422,6 +422,39 @@ const SECTIONS: Section[] = [
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
         </Note>
+      </>
+    ),
+  },
+  {
+    id: 'preference-mode',
+    title: 'Preference Mode',
+    icon: SlidersHorizontal,
+    lead: 'Preference Mode sets your own defaults, your risk per trade and how results look, and has a trade calculator for your lot size.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose the timeframe and stop loss new prompts start with, your account size, currency and risk per trade, whether results
+              show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
+            </>,
+          ]}
+        />
+        <Note title="Trade calculator">
+          In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
+          at risk. Enter your account size, then your entry and stop prices (or the stop in pips or points). It handles forex, gold, silver, oil, indices,
+          crypto, stocks and synthetics, converts to your account currency, and rounds down so you never risk more than you set. Tap <B>Lot size</B> on
+          any trade card to open it already filled with that trade.
+        </Note>
+        <Note title="Your trade, in your money">
+          With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.
+          Preferences only change your view and starting values. MarketX finds and scores setups the same way for everyone.
+        </Note>
+        <Note title="Price alerts: Auto or Manual">
+          When you turn on price alerts you choose <B>Auto</B> (every trade MarketX gives you afterwards is watched by itself) or <B>Manual</B> (you tap Get
+          price alert on the trades you want). Switch any time in the alerts panel or in Preference Mode.
+        </Note>
+        <Note title="Free for everyone">Preference Mode and the trade calculator are free on every plan.</Note>
       </>
     ),
   },

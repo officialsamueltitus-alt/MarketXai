@@ -32,6 +32,8 @@ import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
+import { registerPreferenceRoutes } from './server/preferences';
+import { registerFxRoutes } from './server/fx';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
 import { exactPrice } from './src/utils/formatPrice';
@@ -2098,6 +2100,10 @@ registerWatchlistRoutes(
   },
   generalApiRateLimiter
 );
+// Preference Mode (/preference): the trader's own defaults
+registerPreferenceRoutes(app, generalApiRateLimiter);
+// Live currency rates for the trade calculator
+registerFxRoutes(app, generalApiRateLimiter);
 // Trade journal (/trade-journal) and track record (/track-record)
 registerJournalRoutes(app, generalApiRateLimiter);
 // Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there

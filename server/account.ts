@@ -9,6 +9,7 @@ import { sendEmail, EmailOptions } from './mailer';
 import { logActivity, recordUsage } from './tracking';
 import { clientIp, createKeyedThrottle, stripReservedKeys } from './security';
 import { IS_LEAD_WORKER } from './workers';
+import { withDefaults } from '../src/utils/preferences';
 import { giftNoteProblem, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import type {
   UserProfile,
@@ -84,7 +85,7 @@ export interface UserDoc {
   lastActiveAt?: number;
   usageTotal?: number;
   // Price alerts: the trader's approval, and when the last "Want an alert?" email went out
-  alerts?: { enabled: boolean; at: number };
+  alerts?: { enabled: boolean; at: number; mode?: 'AUTO' | 'MANUAL' };
   alertMailAt?: number;
   // Watchlist (/watchlist): the trader's approval, and today's watchlist email count
   watchlist?: { enabled: boolean; at: number };
@@ -176,7 +177,9 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     isVerified: vip || doc.subscription.active,
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
+    preferences: withDefaults((doc as any).preferences),
     alertsEnabled: !!doc.alerts?.enabled,
+    alertsMode: doc.alerts?.mode || null,
     plugins: { alerts: !!doc.alerts?.enabled, watchlist: !!doc.watchlist?.enabled, journal: !!doc.plugins?.journal, trackRecord: !!doc.plugins?.trackRecord },
     // Commands and RDM: open to all until the free period ends, then Pro only
     proAccess: vip || hasProFeatures(doc),

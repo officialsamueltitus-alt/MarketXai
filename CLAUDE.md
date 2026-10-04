@@ -119,7 +119,10 @@
 - The public guide (`src/blog/BlogPage.tsx`) never discloses internals: no settings/env names, admin paths, code formats, limits,
   anti-abuse rules, providers or keys.
 - Price alerts (`/price-alerts`, `server/priceAlerts.ts`, `src/components/PriceAlertsPanel.tsx`): the trader approves alerts once
-  (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Every signal served is recorded as an
+  (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Auto / Manual (owner-specified): approving asks once
+  (`users.alerts.mode`, kept when alerts are switched off and on; `POST /api/alerts/mode` changes it, switch in the panel). Auto: every
+  signal served afterwards starts its alert by itself inside `alertOfferMiddleware` (`startAlert`, the same path as the tap, so the journal,
+  track record and notices follow it; Pro/free period only; result waits at most 2.5s; card shows "Alert on · Auto"). Manual: as before. Every signal served is recorded as an
   `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and
   alerts (`priceAlerts`, id `al_{offerId}`) only ever use those stored levels. Only the lead worker monitors: active alerts in
   memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
@@ -133,6 +136,18 @@
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, max 8 emails a day, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
+- Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
+  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket}, validated, autosaved
+  (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
+  only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Never
+  changes the analysis. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
+  `/backtest` command, routes, panel or history fetcher.
+  Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
+  risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);
+  lots rounded DOWN to 0.01, under 0.01 flagged. Stop by entry/stop/target prices (direction from the stop) or in pips (forex 0.0001, JPY 0.01)
+  / points (1.00 price move). Contract presets (forex 100k, gold 100, silver 5k, oil 1k, index/crypto/stock/synthetic 1) and quote currency
+  are guessed from the symbol and editable. Live FX from `GET /api/fx` (`server/fx.ts`, open.er-api.com USD table, 1h cache) or typed by hand.
+  Trade cards have a "Lot size" button that opens it filled with that trade (`calcSeed`).
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it
@@ -145,7 +160,8 @@
   gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
   lapsed accounts and tells them once. Data is kept. Client: `profile.proAccess`/`proFreeUntil`, RDM chip locked, commands open pricing.
 - Connectors / Plugins (`server/plugins.ts`, `src/utils/plugins.ts`): alerts, watchlist, journal, trackRecord. Every command turned on is listed
-  in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the
+  in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`; the composer's Connectors button opens it too, with a
+  count of commands on) with open and switch-off; `POST /api/plugins/:id` uses the
   same helpers as inside each command (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data.
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
