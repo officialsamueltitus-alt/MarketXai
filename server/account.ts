@@ -9,6 +9,7 @@ import { sendEmail, EmailOptions } from './mailer';
 import { logActivity, recordUsage } from './tracking';
 import { clientIp, createKeyedThrottle, stripReservedKeys } from './security';
 import { IS_LEAD_WORKER } from './workers';
+import { withDefaults } from '../src/utils/preferences';
 import { giftNoteProblem, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import type {
   UserProfile,
@@ -176,6 +177,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     isVerified: vip || doc.subscription.active,
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
+    preferences: withDefaults((doc as any).preferences),
     alertsEnabled: !!doc.alerts?.enabled,
     alertsMode: doc.alerts?.mode || null,
     plugins: { alerts: !!doc.alerts?.enabled, watchlist: !!doc.watchlist?.enabled, journal: !!doc.plugins?.journal, trackRecord: !!doc.plugins?.trackRecord },

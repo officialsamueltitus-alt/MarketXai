@@ -301,6 +301,8 @@ export interface UserProfile {
   alertsEnabled?: boolean;
   /** Price alerts: Auto (every signal is watched by itself) or Manual (tap "Get price alert"); null = not chosen yet */
   alertsMode?: AlertMode | null;
+  /** Preference Mode (/preference): the trader's own defaults */
+  preferences?: import('./utils/preferences').Preferences;
   /** Commands switched on (shown under Settings, Connectors / Plugins) */
   plugins?: PluginStates;
   /** Commands and RDM: true while open to everyone (until proFreeUntil) or on Pro */

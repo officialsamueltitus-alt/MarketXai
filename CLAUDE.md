@@ -136,6 +136,17 @@
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, max 8 emails a day, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
+- Backtest (`/backtest`, `server/backtest.ts`, `src/components/BacktestPanel.tsx`, owner-specified): replays the live strategy (`buildMarketMap`,
+  read only) candle by candle on up to 1,000 past candles (`fetchHistoryForAsset` in `server.ts`), map built from the candles up to each bar only
+  (no lookahead). LIMIT fills when price trades through the entry (gap fills at the open), MARKET at the next open; TP1/stop before fill = missed,
+  48 bars unfilled = expired; stop counts first when a candle touches both; no targets on the fill candle; one trade at a time. Exits SCALE
+  (40/40/20) or full at TP1/TP2/TP3, optional break-even after TP1; R and compounded balance (risk %). No AI, no credits; 1 run per 10s, 40 a day,
+  results cached 5 min, last 12 runs kept (`backtests`). Pro gate like the commands.
+- Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
+  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, backtestExit}, validated, autosaved
+  (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
+  only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and backtest starting values. Never
+  changes the analysis. Both tools are listed under Tools in `ConnectorsModal` and open from the slash menu.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it

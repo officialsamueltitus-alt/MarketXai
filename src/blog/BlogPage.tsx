@@ -16,6 +16,7 @@ import {
   UserCog,
   ImagePlus,
   Radar,
+  History,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -421,6 +422,49 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
+        </Note>
+      </>
+    ),
+  },
+  {
+    id: 'backtest-and-preferences',
+    title: 'Backtest and Preference Mode',
+    icon: History,
+    lead: 'Backtest shows how the MarketX strategy would have traded a market in the past. Preference Mode sets your own defaults, your risk per trade and how results look.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/backtest.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Pick a market and a timeframe, choose how
+              trades are closed (scale out across the three targets, or the full trade at TP1, TP2 or TP3), set a starting balance and your risk per trade, then
+              tap <B>Run backtest</B>.
+            </>,
+            <>
+              MarketX replays its own strategy candle by candle on real past prices, using only what was known at each moment. You get the return, win rate,
+              profit factor, largest drawdown, every trade in order and a balance curve you can touch to read any point. Your recent backtests are kept so you
+              can open them again.
+            </>,
+            <>
+              <B>/preference.</B> Choose the timeframe and stop loss new prompts start with, your account size, currency and risk per trade, whether results
+              show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
+            </>,
+          ]}
+        />
+        <Note title="Your trade, in your money">
+          With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.
+          Preferences only change your view and starting values. MarketX finds and scores setups the same way for everyone.
+        </Note>
+        <Note title="Price alerts: Auto or Manual">
+          When you turn on price alerts you choose <B>Auto</B> (every trade MarketX gives you afterwards is watched by itself) or <B>Manual</B> (you tap Get
+          price alert on the trades you want). Switch any time in the alerts panel or in Preference Mode.
+        </Note>
+        <Note title="Free until 1 November">
+          Backtest is free for everyone until 1 November 2026 and part of Pro after that. Preference Mode stays free.
+        </Note>
+        <Note title="Past results are not a promise" tone="amber">
+          A backtest is hypothetical: it leaves out spreads and fees, and when a candle touches both the stop and a target it counts the stop. Use it to
+          understand how a market behaves with this strategy, not as a guarantee.
         </Note>
       </>
     ),

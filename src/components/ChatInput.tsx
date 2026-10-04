@@ -96,15 +96,15 @@ const SLASH_COMMANDS = [
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
   { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
   { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
-  { id: 'preference', label: 'Preference Mode', description: 'Tune analysis style, risk and defaults', icon: SlidersHorizontal },
+  { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
-  { id: 'backtest', label: 'Backtest', description: 'Replay a setup on past candles and see how it played out', icon: History },
+  { id: 'backtest', label: 'Backtest', description: 'Replay the MarketX strategy on past candles: win rate, R, drawdown', icon: History },
   { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'backtest', 'preference']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -125,6 +125,9 @@ interface ChatInputProps {
   onOpenConnectors?: () => void;
   /** How many commands are switched on (shown as a dot count on the Connectors button) */
   connectorsOn?: number;
+  /** Preference Mode defaults: applied when they change (a pick in the composer still stays for the next prompts) */
+  defaultTimeframe?: string;
+  defaultSlMode?: 'normal' | 'tight';
   /** Badge on the live commands, e.g. "Free till 1 Nov" or "Pro" (default "Live") */
   commandBadge?: string | null;
   isLoading: boolean;
@@ -145,6 +148,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onLockedFeature,
   onOpenConnectors,
   connectorsOn = 0,
+  defaultTimeframe,
+  defaultSlMode,
   commandBadge,
   isLoading,
   credits,
@@ -171,12 +176,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => mq.removeEventListener?.('change', on);
   }, []);
   // The chosen timeframe stays selected (also across visits) until the user picks another
+  const hadSavedTf = useRef(
+    (() => {
+      try {
+        return !!localStorage.getItem(TF_KEY);
+      } catch {
+        return false;
+      }
+    })()
+  );
   const [timeframe, setTimeframeState] = useState(() => {
     try {
       const saved = localStorage.getItem(TF_KEY);
       if (saved && TIMEFRAMES.some(t => t.value === saved)) return saved;
     } catch {}
-    return '4H';
+    return defaultTimeframe && TIMEFRAMES.some(t => t.value === defaultTimeframe) ? defaultTimeframe : '4H';
   });
   const setTimeframe = (v: string) => {
     setTimeframeState(v);
@@ -192,7 +206,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [tfOpen, setTfOpen] = useState(false);
   const tfButtonRef = useRef<HTMLButtonElement>(null);
   const tfMenuRef = useRef<HTMLDivElement>(null);
-  const [slMode, setSlMode] = useState<'normal' | 'tight'>('normal');
+  const [slMode, setSlMode] = useState<'normal' | 'tight'>(defaultSlMode || 'normal');
+  // A default changed in Preference Mode applies at once
+  const lastDefaults = useRef({ tf: defaultTimeframe, sl: defaultSlMode });
+  useEffect(() => {
+    const prev = lastDefaults.current;
+    // First load of the defaults counts only when no timeframe was picked on this device yet
+    const firstLoad = prev.tf === undefined && !hadSavedTf.current;
+    if (defaultTimeframe && (firstLoad || (prev.tf !== undefined && defaultTimeframe !== prev.tf)) && TIMEFRAMES.some(t => t.value === defaultTimeframe)) {
+      if (!(defaultTimeframe === 'RDM' && rdmLocked)) setTimeframe(defaultTimeframe);
+    }
+    if (defaultSlMode && defaultSlMode !== prev.sl) setSlMode(defaultSlMode);
+    lastDefaults.current = { tf: defaultTimeframe, sl: defaultSlMode };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultTimeframe, defaultSlMode]);
   const [chartImage, setChartImage] = useState<string | null>(initialChartImage || null);
   const [chartFileName, setChartFileName] = useState<string>(initialChartFileName || '');
   const [isPasted, setIsPasted] = useState(false);
@@ -614,7 +641,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
                         {LIVE_COMMANDS.has(cmd.id) ? (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{commandBadge || 'Live'}
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{cmd.id === 'preference' ? 'Free' : commandBadge || 'Live'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>

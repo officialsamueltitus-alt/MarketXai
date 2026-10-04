@@ -21,6 +21,7 @@ import {
   PluginStates,
 } from './types';
 import { NO_PLUGINS, PLUGINS, PLUGIN_COMMAND } from './utils/plugins';
+import { withDefaults, type Preferences } from './utils/preferences';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
@@ -44,9 +45,11 @@ const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel'
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
+const BacktestPanel = lazyWithReload(() => import('./components/BacktestPanel').then(m => ({ default: m.BacktestPanel })));
+const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, BacktestPanel, PreferencePanel];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -162,6 +165,8 @@ export default function App() {
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   // Command panels (/watchlist, /trade-journal, /track-record) and the Connectors / Plugins popup
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
+  // Tools without an on/off switch: /backtest and /preference
+  const [openTool, setOpenTool] = useState<'backtest' | 'preference' | null>(null);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const watchlistLinkRef = useRef(false);
   // The exact item a notification or email link points at, highlighted when its panel opens
@@ -1224,6 +1229,26 @@ export default function App() {
     }
   }, [fetchAlerts, showProUpsell, userProfile.alertsMode]);
   const showToast = useCallback((message: string, type: 'success' | 'info' = 'info') => setToastNotification({ message, type }), []);
+  // ---------------- Preference Mode and Backtest ----------------
+  const preferences = React.useMemo(() => withDefaults(userProfile.preferences), [userProfile.preferences]);
+  const savePreferences = useCallback(async (change: Partial<Preferences> | { reset: true }) => {
+    const data = await apiFetch<{ preferences: Preferences }>('/api/preferences', { method: 'PUT', body: JSON.stringify(change) });
+    setUserProfile(p => ({ ...p, preferences: data.preferences }));
+  }, []);
+  const openToolPanel = useCallback((id: 'backtest' | 'preference') => {
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsConnectorsOpen(false);
+    setIsSidebarOpen(false);
+    if (id === 'backtest' && !proAccess) {
+      showProUpsell('Backtest is a Pro feature. Upgrade to Pro to use it.');
+      return;
+    }
+    setOpenPlugin(null);
+    setOpenTool(id);
+  }, [authUser, proAccess, showProUpsell]);
   // A link from a watchlist email opens the watchlist once signed in
   useEffect(() => {
     if (authUser && watchlistLinkRef.current) {
@@ -2158,6 +2183,35 @@ export default function App() {
           badge={commandBadge}
           onOpen={openPluginPanel}
           onToggle={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
+          onOpenTool={openToolPanel}
+        />
+      </Deferred>
+      {/* Backtest (/backtest) and Preference Mode (/preference) */}
+      <Deferred when={openTool === 'backtest'}>
+        <BacktestPanel
+          isOpen={openTool === 'backtest'}
+          onClose={() => setOpenTool(null)}
+          preferences={preferences}
+          onProRequired={message => {
+            setOpenTool(null);
+            showProUpsell(message);
+          }}
+          onAnalyze={(symbol, tf) => {
+            setOpenTool(null);
+            handleSendMessage(`Analyze ${symbol} on the ${tf.replace(/^(\d+)M$/, '$1m')}`, tf);
+          }}
+        />
+      </Deferred>
+      <Deferred when={openTool === 'preference'}>
+        <PreferencePanel
+          isOpen={openTool === 'preference'}
+          onClose={() => setOpenTool(null)}
+          preferences={preferences}
+          onSave={savePreferences}
+          rdmLocked={!proAccess}
+          alertsEnabled={alertsEnabled}
+          alertsMode={userProfile.alertsMode || null}
+          onSetAlertsMode={setAlertsMode}
         />
       </Deferred>
 
@@ -2387,7 +2441,15 @@ export default function App() {
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
-                    onCommand={id => (PLUGIN_COMMAND[id] ? (openPluginPanel(PLUGIN_COMMAND[id]), true) : false)}
+                    onCommand={id =>
+                      PLUGIN_COMMAND[id]
+                        ? (openPluginPanel(PLUGIN_COMMAND[id]), true)
+                        : id === 'backtest' || id === 'preference'
+                          ? (openToolPanel(id), true)
+                          : false
+                    }
+                    defaultTimeframe={authUser ? preferences.timeframe : undefined}
+                    defaultSlMode={authUser ? preferences.slMode : undefined}
                     rdmLocked={!proAccess}
                     onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
                     onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}

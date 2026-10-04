@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Puzzle, X } from 'lucide-react';
+import { Puzzle, X, History, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import type { PluginId, PluginStates } from '../types';
 import { PLUGINS } from '../utils/plugins';
 import { PluginRow } from './PluginRow';
@@ -12,10 +12,17 @@ interface ConnectorsModalProps {
   onToggle: (id: PluginId, enabled: boolean) => Promise<void>;
   /** "Free till 1 Nov" while the commands are open to everyone, "Pro" once they are Pro only */
   badge?: string | null;
+  /** Tools without an on/off switch (Backtest, Preference Mode) */
+  onOpenTool?: (id: 'backtest' | 'preference') => void;
 }
 
+const TOOLS = [
+  { id: 'backtest' as const, label: 'Backtest', slash: '/backtest', text: 'Replay the strategy on past candles', icon: History, tint: 'bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-300' },
+  { id: 'preference' as const, label: 'Preference Mode', slash: '/preference', text: 'Your defaults, risk and view', icon: SlidersHorizontal, tint: 'bg-amber-500/15 border-amber-500/30 text-amber-300' },
+];
+
 /** Connectors / Plugins, full view: every command that is on, plus the ones that can be turned on */
-export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClose, states, onOpen, onToggle, badge }) => {
+export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClose, states, onOpen, onToggle, badge, onOpenTool }) => {
   const [busy, setBusy] = useState<PluginId | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -72,6 +79,30 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
               <div className="space-y-2">
                 {off.map(p => (
                   <PluginRow key={p.id} id={p.id} on={false} busy={busy === p.id} onOpen={() => onOpen(p.id)} onToggle={() => onOpen(p.id)} />
+                ))}
+              </div>
+            </div>
+          )}
+          {onOpenTool && (
+            <div>
+              <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">Tools</div>
+              <div className="space-y-2">
+                {TOOLS.map(({ id, label, slash, text, icon: Icon, tint }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => onOpenTool(id)}
+                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] text-left cursor-pointer transition"
+                  >
+                    <span className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${tint}`}>
+                      <Icon className="w-4 h-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-white">{label} <span className="ml-1 text-[11px] font-mono text-slate-500">{slash}</span></span>
+                      <span className="block text-xs text-slate-500 truncate">{text}</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                  </button>
                 ))}
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { pickGreeting } from '../utils/greeting';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { withDefaults, formatMoney, type Preferences } from '../utils/preferences';
 import { LazyMarkdown } from './LazyMarkdown';
 import { ChatMessage, MarketQuote, StrategyResult } from '../types';
 import { StrategyCard } from './StrategyCard';
@@ -61,6 +62,54 @@ interface ChatFeedProps {
   onToggleAlert?: (strategy: StrategyResult) => void;
 }
 
+/** Preference Mode: what this trade risks and pays in the trader's own money (risk % of the account size) */
+const PositionStrip: React.FC<{ strategy: StrategyResult; prefs: Preferences }> = React.memo(({ strategy, prefs }) => {
+  const entry = Number(strategy.entryZone?.optimal);
+  const stop = Number(strategy.stopLoss?.price);
+  const risk = Math.abs(entry - stop);
+  if (!prefs.accountSize || !(risk > 0)) return null;
+  const riskMoney = (prefs.accountSize * prefs.riskPct) / 100;
+  const tps = (strategy.takeProfits || []).filter(t => Number(t.price) > 0);
+  // Units only where they read simply: a USD-priced market (crypto, stocks, commodities) and a USD account
+  const units = prefs.currency === 'USD' && ['crypto', 'stock', 'commodity'].includes(String(strategy.assetType)) ? riskMoney / risk : null;
+  return (
+    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs font-sans">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Your trade · {prefs.riskPct}% risk</span>
+        {units != null && <span className="text-[10px] text-slate-500 tabular-nums">≈ {units < 1 ? units.toPrecision(3) : units.toLocaleString('en-US', { maximumFractionDigits: 2 })} units</span>}
+      </div>
+      <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 tabular-nums">
+        <div>
+          <div className="text-[10px] text-rose-300/80">If stopped</div>
+          <div className="font-semibold text-rose-200">-{formatMoney(riskMoney, prefs.currency)}</div>
+        </div>
+        {tps.slice(0, 3).map((tp, i) => (
+          <div key={i}>
+            <div className="text-[10px] text-emerald-300/80">At TP{i + 1}</div>
+            <div className="font-semibold text-emerald-200">+{formatMoney((riskMoney * Math.abs(Number(tp.price) - entry)) / risk, prefs.currency)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/** Preference Mode "Simple": the write-up starts folded under the levels */
+const FoldedWriteUp: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [open, setOpen] = useState(false);
+  return open ? (
+    <>{children}</>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="not-prose inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-white/[0.05] border border-white/[0.08] text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] cursor-pointer"
+    >
+      Read the full write-up
+    </button>
+  );
+};
+
 // Markdown only re-parses when its text changes (not on every live-price tick)
 const Markdown = React.memo(({ text }: { text: string }) => <LazyMarkdown>{text}</LazyMarkdown>);
 
@@ -77,6 +126,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   alertByOffer,
   onToggleAlert,
 }) => {
+  const prefs = React.useMemo(() => withDefaults(userProfile?.preferences), [userProfile?.preferences]);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
   // Latest callback in a ref so memoised cards can hold a stable handler without going stale
@@ -690,7 +740,13 @@ Rationale: ${strategy.entryZone.rationale}
                         {/* High-Contrast Markdown Synthesis */}
                         <div className="prose prose-invert prose-xs sm:prose-sm max-w-none text-slate-200 leading-relaxed space-y-2 break-words">
                           {message.content && message.content.length > 60 ? (
-                            <Markdown text={message.content} />
+                            prefs.view === 'SIMPLE' && (strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') ? (
+                              <FoldedWriteUp>
+                                <Markdown text={message.content} />
+                              </FoldedWriteUp>
+                            ) : (
+                              <Markdown text={message.content} />
+                            )
                           ) : strategy.tradeType === 'NO_SIGNAL' ? (
                             <p>
                               I've analyzed live order books and market depth for <strong className="text-white font-mono">{strategy.symbol}</strong> ({strategy.name}) on the <strong className="text-indigo-300 font-mono">{strategy.timeframe}</strong> timeframe.
@@ -849,6 +905,9 @@ Rationale: ${strategy.entryZone.rationale}
                             ))}
                           </div>
                         )}
+
+                        {/* Preference Mode: risk and rewards in the trader's money */}
+                        {(strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && <PositionStrip strategy={strategy} prefs={prefs} />}
 
                         {/* Strategy Rationale Summary */}
                         <div className="p-3 rounded-xl bg-sky-950/25 border border-sky-400/20 text-xs text-slate-200 leading-relaxed font-sans shadow-inner break-words">
