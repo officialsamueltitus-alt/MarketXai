@@ -17,6 +17,7 @@ import {
   PriceAlertItem,
   AlertLiveQuote,
   AlertMode,
+  TokenSafety,
   PluginId,
   PluginStates,
 } from './types';
@@ -1542,7 +1543,7 @@ export default function App() {
     // 1. Real backend request (authenticated; the server charges one credit and refunds on failure)
     type BackendResult =
       | { kind: 'strategy'; strategy: StrategyResult; text: string }
-      | { kind: 'chat'; text: string; choices?: MessageChoice[]; research?: ResearchInfo }
+      | { kind: 'chat'; text: string; choices?: MessageChoice[]; research?: ResearchInfo; tokenSafety?: TokenSafety }
       | { kind: 'error'; status: number; code: string; message: string };
 
     const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
@@ -1584,6 +1585,7 @@ export default function App() {
             text,
             ...(Array.isArray(data?.choices) ? { choices: data.choices as MessageChoice[] } : {}),
             ...(data?.research && typeof data.research === 'object' ? { research: data.research as ResearchInfo } : {}),
+            ...(data?.tokenSafety && typeof data.tokenSafety === 'object' ? { tokenSafety: data.tokenSafety as TokenSafety } : {}),
           };
         return { kind: 'error', status: 500, code: 'EMPTY', message: 'The analysis engine returned no result. Please try again.' };
       })
@@ -1817,7 +1819,7 @@ export default function App() {
         const words = result.text.trim().split(/\s+/).length;
         addDoneStep('answer', 'Wrote the answer', `${words} words`);
         updateAssistant(
-          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity, ...(result.choices ? { choices: result.choices } : {}) },
+          { content: result.text, status: 'completed', searchStep: undefined, durationSeconds: actualDuration, activity, ...(result.choices ? { choices: result.choices } : {}), ...(result.tokenSafety ? { tokenSafety: result.tokenSafety } : {}) },
           { lastMessage: promptText, updatedAt: Date.now() }
         );
         refreshAccount();

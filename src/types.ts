@@ -101,6 +101,10 @@ export interface StrategyResult {
   /** Set by the server on LONG / SHORT signals: the id to turn on a price alert for this exact setup */
   /** The setup's alert offer; `auto` = Auto mode already started its alert, `autoSkipped` = Auto mode could not (e.g. alert limit) */
   alertOffer?: { id: string; auto?: boolean; autoSkipped?: string };
+  /** On-chain proof: the signal's seal (verify at /proof/<id>) */
+  proof?: { id: string; hash: string; issuedAt: number };
+  /** Safety check of the Solana token this signal is on */
+  tokenSafety?: TokenSafety;
   /** What the Recheck button replays (zone and the first candle after its leg-out) */
   setupCheck?: { zone: { low: number; high: number }; since: number; issuedAt: number; timeframe: string };
   confidenceScore: number;
@@ -209,6 +213,8 @@ export interface ChatMessage {
   chartFileName?: string;
   /** Quick replies under an answer, e.g. "Analyze EUR/USD" or "Info about EUR/USD" after a bare pair */
   choices?: MessageChoice[];
+  /** Safety check of the Solana token an answer is about */
+  tokenSafety?: TokenSafety;
   timestamp: number;
 }
 
@@ -524,3 +530,16 @@ export interface TrackRecordPayload {
 
 /** Price alerts: AUTO = every signal is watched by itself, MANUAL = the trader taps "Get price alert" */
 export type AlertMode = 'AUTO' | 'MANUAL';
+
+/** Token safety check (Solana tokens): on-chain facts plus RugCheck, never "safe", only a risk level */
+export interface TokenSafety {
+  mint: string;
+  chain: 'solana';
+  symbol?: string;
+  verdict: 'LOW_RISK' | 'CAUTION' | 'HIGH_RISK' | 'UNKNOWN';
+  score: number;
+  headline: string;
+  checks: Array<{ id: string; label: string; status: 'pass' | 'warn' | 'fail' | 'unknown'; detail: string }>;
+  checkedAt: number;
+  sources: string[];
+}

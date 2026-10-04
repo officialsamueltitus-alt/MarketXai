@@ -1,6 +1,7 @@
 import { pickGreeting } from '../utils/greeting';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { withDefaults, formatMoney, type Preferences } from '../utils/preferences';
+import { TokenSafetyCard, ProofBadge } from './TokenSafetyCard';
 import { LazyMarkdown } from './LazyMarkdown';
 import { ChatMessage, MarketQuote, StrategyResult } from '../types';
 import { StrategyCard } from './StrategyCard';
@@ -932,6 +933,15 @@ Rationale: ${strategy.entryZone.rationale}
                         {/* Preference Mode: risk and rewards in the trader's money */}
                         {(strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && <PositionStrip strategy={strategy} prefs={prefs} onCalculate={onCalculate} />}
 
+                        {/* On-chain proof of this signal, and the safety of the Solana token it is on */}
+                        {strategy.proof && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <ProofBadge proof={strategy.proof} />
+                            <span className="text-[10px] text-slate-500 font-sans">Sealed the moment it was served, so it can never be edited.</span>
+                          </div>
+                        )}
+                        {strategy.tokenSafety && <TokenSafetyCard safety={strategy.tokenSafety} />}
+
                         {/* Strategy Rationale Summary */}
                         <div className="p-3 rounded-xl bg-sky-950/25 border border-sky-400/20 text-xs text-slate-200 leading-relaxed font-sans shadow-inner break-words">
                           <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono font-bold text-sky-400 mb-1">
@@ -1079,6 +1089,7 @@ Rationale: ${strategy.entryZone.rationale}
                       <div className="prose prose-invert prose-xs sm:prose-sm max-w-none text-slate-200 leading-relaxed break-words">
                         <Markdown text={message.content} />
                       </div>
+                      {message.tokenSafety && <TokenSafetyCard safety={message.tokenSafety} />}
                       {message.choices && message.choices.length > 0 && (
                         <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Choose what you want">
                           {message.choices.map(c => (
