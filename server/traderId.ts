@@ -4,15 +4,16 @@
 //
 // The address is derived, never stored: ed25519 seed = HMAC-SHA256(secret, "marketx-trader-id-v1:" + uid). The secret is
 // TRADER_ID_SECRET if set, else generated once and kept in Firestore adminConfig/traderIds (never sent to any client).
-// Changing the secret changes every ID, so it is set once and left alone. The ID never pays anything: the proof wallet
-// pays every fee and, once, the small rent deposit that makes the account exist on Solana (see activateTraderIds).
+// Changing the secret changes every ID, so it is set once and left alone. The ID never pays fees: the proof wallet pays
+// them. To make the ID exist on Solana (explorers say "does not exist" for an address with no SOL), the trader activates
+// it once by sending it ACTIVATION_SOL; MarketX only reads the balance (see refreshActivation).
 // Nothing on chain names the trader; the public checker (/checker) shows the public profile behind an ID.
 // ===========================================================================
 import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { isUnlimitedEmail, requireAuth, type UserDoc } from './account';
-import { base58Encode, memoStatus, RENT_EXEMPT_EMPTY, submitActivation, walletBalance, type ProofWallet } from './solana';
+import { base58Encode, RENT_EXEMPT_EMPTY, walletBalance, type ProofWallet } from './solana';
 import { IS_LEAD_WORKER } from './workers';
 import { clientIp, createKeyedThrottle } from './security';
 
@@ -61,23 +62,24 @@ export const traderId = async (uid: string) => (await traderKey(uid)).address;
 // ---------------------------------------------------------------------------
 // Index (ID -> account, for the public checker) and activation on Solana
 // ---------------------------------------------------------------------------
-// An address with no SOL "does not exist" on explorers. So each ID is activated once, the first time its owner opens
-// it: the proof wallet sends it the rent-exempt minimum (about 0.00089 SOL) with a memo the ID co-signs. From then on
-// Solscan shows the account, its first transaction, and every trade record after it.
+// An address with no SOL "does not exist" on explorers. The trader activates their ID once, from their Profile, by
+// sending it ACTIVATION_SOL (a little above Solana's rent-exempt minimum for an empty account, 0.00089088 SOL) from any
+// wallet or exchange. The SOL stays in the ID; MarketX only reads the balance and never moves it.
 const INDEX = 'traderIds';
-const ACTIVATIONS_PER_DAY = Math.max(1, Number(process.env.ID_ACTIVATIONS_PER_DAY) || 300);
-/** The proof wallet keeps at least this much for proofs after paying an activation */
-const KEEP_LAMPORTS = 200_000;
+export const ACTIVATION_SOL = '0.001';
 export interface TraderIdDoc {
   id: string;
   uid: string;
   createdAt: number;
-  /** QUEUED -> SENT -> ACTIVE */
+  /** QUEUED: waiting for the trader's activation deposit. ACTIVE: the ID exists on Solana. (SENT: older docs) */
   state: 'QUEUED' | 'SENT' | 'ACTIVE';
   tx?: string | null;
   sentAt?: number;
   activatedAt?: number;
   lastError?: string | null;
+  /** Lamports seen in the ID at the last check */
+  lamports?: number;
+  checkedAt?: number;
 }
 
 /** Records the ID in the index (once) and queues its activation */
@@ -93,58 +95,24 @@ export async function ensureTraderId(uid: string): Promise<TraderIdDoc> {
   });
 }
 
-/** Lead worker, under the proof lease: activates queued IDs (and confirms sent ones). Returns how many became active. */
-export async function activateTraderIds(payer: ProofWallet | null): Promise<number> {
-  if (!payer) return 0;
-  const col = db().collection(INDEX);
-  const pending = (await col.where('state', 'in', ['QUEUED', 'SENT']).limit(30).get()).docs.map(d => d.data() as TraderIdDoc);
-  if (!pending.length) return 0;
-  const day = new Date().toISOString().slice(0, 10);
-  const dayRef = db().collection('adminConfig').doc('traderIdActivations');
-  let done = 0;
-  let balance: number | null | undefined;
-  for (const d of pending.sort((a, b) => a.createdAt - b.createdAt).slice(0, 10)) {
-    const ref = col.doc(d.id);
-    const now = Date.now();
-    if (d.state === 'SENT' && d.tx) {
-      const st = await memoStatus(d.tx).catch(() => ({ state: 'UNKNOWN' as const }));
-      if (st.state === 'CONFIRMED') {
-        await ref.update({ state: 'ACTIVE', activatedAt: now, lastError: null });
-        done++;
-        continue;
-      }
-      if (st.state === 'UNKNOWN' && now - (d.sentAt || 0) < 3 * 60_000) continue;
-    }
-    // Already holds enough (activated before, or someone sent it SOL): nothing to pay
-    const has = await walletBalance(d.id);
-    if (has != null && has >= RENT_EXEMPT_EMPTY) {
-      await ref.update({ state: 'ACTIVE', activatedAt: now, lastError: null });
-      done++;
-      continue;
-    }
-    if (balance === undefined) balance = await walletBalance(payer.address);
-    if (balance == null || balance < RENT_EXEMPT_EMPTY + KEEP_LAMPORTS) {
-      await ref.update({ lastError: 'Proof wallet balance too low to activate IDs.' });
-      break;
-    }
-    const count = ((await dayRef.get()).data() as any)?.[day] || 0;
-    if (count >= ACTIVATIONS_PER_DAY) break;
-    try {
-      const memo = `MarketX ID ${d.id} is active. MarketX trades and results are listed here.`;
-      const tx = await submitActivation(payer, await traderKey(d.uid), RENT_EXEMPT_EMPTY, memo);
-      await ref.update({ state: 'SENT', tx, sentAt: now, lastError: null });
-      await dayRef.set({ [day]: count + 1 }, { merge: true });
-      balance -= RENT_EXEMPT_EMPTY + 10_000;
-    } catch (err: any) {
-      await ref.update({ lastError: String(err?.message || 'send failed').replace(/https?:\/\/\S+/g, '[rpc]').slice(0, 160) });
-      break;
-    }
-  }
-  if (done) console.log(`[MarketX ID] ${done} MarketX ID(s) active on Solana`);
-  return done;
+const lastCheck = new Map<string, number>();
+/** Reads the ID's balance (at most every 15s per ID) and marks it active once it holds the rent-exempt minimum */
+export async function refreshActivation(doc: TraderIdDoc): Promise<TraderIdDoc> {
+  if (doc.state === 'ACTIVE') return doc;
+  const now = Date.now();
+  if (now - (lastCheck.get(doc.id) || 0) < 15_000) return doc;
+  lastCheck.set(doc.id, now);
+  if (lastCheck.size > 5000) lastCheck.clear();
+  const lamports = await walletBalance(doc.id);
+  if (lamports == null) return doc;
+  const patch: Partial<TraderIdDoc> = { lamports, checkedAt: now };
+  if (lamports >= RENT_EXEMPT_EMPTY) Object.assign(patch, { state: 'ACTIVE', activatedAt: now });
+  await db().collection(INDEX).doc(doc.id).update(patch).catch(() => {});
+  if (patch.state === 'ACTIVE') console.log('[MarketX ID] a MarketX ID was activated by its owner');
+  return { ...doc, ...patch };
 }
 
-/** Once: every existing trader gets their ID indexed (so the checker finds it) and queued for activation */
+/** Once: every existing trader gets their ID indexed (so the checker finds it) */
 async function indexExistingTraders() {
   const flag = db().collection('adminConfig').doc('traderIdIndex');
   if ((await flag.get()).data()?.done) return;
@@ -160,8 +128,9 @@ async function indexExistingTraders() {
 
 /** Public profile behind a MarketX ID (never email, credits, plan details or the account id) */
 export async function publicProfile(id: string) {
-  const idx = (await db().collection(INDEX).doc(id).get()).data() as TraderIdDoc | undefined;
-  if (!idx) return null;
+  const found = (await db().collection(INDEX).doc(id).get()).data() as TraderIdDoc | undefined;
+  if (!found) return null;
+  const idx = await refreshActivation(found).catch(() => found);
   const u = (await db().collection('users').doc(idx.uid).get()).data() as UserDoc | undefined;
   if (!u || u.status === 'banned' || u.status === 'suspended') return null;
   const now = Date.now();
@@ -193,8 +162,14 @@ export function registerTraderIdRoutes(app: Express, limiter: (req: Request, res
   app.get('/api/trader-id', limiter, requireAuth, async (_req: Request, res: Response) => {
     if (!isFirebaseConfigured()) return res.status(503).json({ error: 'UNAVAILABLE', message: 'Not available right now.' });
     try {
-      const doc = await ensureTraderId((res.locals.user as any).uid);
-      res.json({ id: doc.id, solscan: `https://solscan.io/account/${doc.id}`, onSolana: doc.state === 'ACTIVE' });
+      const doc = await refreshActivation(await ensureTraderId((res.locals.user as any).uid));
+      res.json({
+        id: doc.id,
+        solscan: `https://solscan.io/account/${doc.id}`,
+        onSolana: doc.state === 'ACTIVE',
+        // One-time activation by the owner: send this much SOL to the ID
+        activation: doc.state === 'ACTIVE' ? null : { amountSol: ACTIVATION_SOL, minLamports: RENT_EXEMPT_EMPTY, receivedLamports: doc.lamports || 0 },
+      });
     } catch {
       res.status(503).json({ error: 'UNAVAILABLE', message: 'Your MarketX ID is unavailable right now. Try again shortly.' });
     }

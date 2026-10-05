@@ -26,7 +26,7 @@ import { createKeyedThrottle, clientIp } from './security';
 import { loadProofWallet, memoStatus, rpcHost, submitMemo, walletBalance, type ProofWallet } from './solana';
 import { evaluateBars, type AlertHit, type Bar } from './priceAlerts';
 import { exactPrice } from '../src/utils/formatPrice';
-import { activateTraderIds, ensureTraderId, traderKey } from './traderId';
+import { ensureTraderId, traderKey } from './traderId';
 
 const PROOFS = 'signalProofs';
 const BATCHES = 'proofBatches';
@@ -344,8 +344,6 @@ async function runProofCycleLocked(): Promise<{ batched: number; anchored: numbe
   }
   const anchored = await anchorWaitingLocked();
   const revealed = await postRevealsLocked();
-  // MarketX IDs opened for the first time are activated on Solana (so explorers show the account)
-  await activateTraderIds(proofWallet()).catch(err => console.warn('[MarketX ID] activation failed:', err?.message || err));
   return { batched, anchored, revealed };
 }
 

@@ -149,7 +149,7 @@ export default function CheckerPage() {
                   <span className="text-[11px] uppercase tracking-wider text-slate-500">MarketX ID</span>
                   <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${profile.onSolana ? 'text-emerald-300' : 'text-amber-200'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${profile.onSolana ? 'bg-emerald-400' : 'bg-amber-300'}`} />
-                    {profile.onSolana ? 'On Solana' : 'Activating'}
+                    {profile.onSolana ? 'On Solana' : 'Not activated yet'}
                   </span>
                 </div>
                 <button type="button" onClick={() => copy(profile.id)} className="mt-1 w-full flex items-center gap-2 text-left cursor-pointer" title="Copy the ID">

@@ -494,8 +494,8 @@ const SECTIONS: Section[] = [
               Solscan</B> on the proof page to see it, no blockchain knowledge needed.
             </>,
             <>
-              <B>Your MarketX ID.</B> Every trader has their own MarketX ID, a Solana address shown on your <B>Profile</B>. It is activated on
-              Solana the first time you open it. Anyone can paste an ID into the <B>ID checker</B> (marketx.world/checker) to see that trader's public
+              <B>Your MarketX ID.</B> Every trader has their own MarketX ID, a Solana address shown on your <B>Profile</B>. Activate it once
+              by sending a small amount of SOL to it (the exact amount is shown on your Profile), so it exists on Solana. Anyone can paste an ID into the <B>ID checker</B> (on the home page, or marketx.world/checker) to see that trader's public
               profile and results. Search it on Solscan (or tap
               <B> View my trades on Solscan</B>) to see every trade you took on MarketX and its result. Your name and email are never on chain, and the ID
               is for records only: never send funds to it.

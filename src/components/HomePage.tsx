@@ -5,7 +5,7 @@ import { MarketXHeroLogo } from './MarketXHeroLogo';
 import { CampaignBanner } from './CampaignBanner';
 import { CryptoAssetLogo } from './CryptoAssetLogo';
 import { InstitutionalMailSupport } from './InstitutionalMailSupport';
-import {
+import { Fingerprint,
   Sparkles,
   ArrowRight,
   TrendingUp,
@@ -678,6 +678,33 @@ export const HomePage: React.FC<HomePageProps> = ({
             </button>
           ))}
         </div>
+
+        {/* MarketX ID checker: paste a trader's ID, see who they are and their record on Solana */}
+        <form
+          className="mx-rise mt-6 mx-auto max-w-md flex items-center gap-2 h-11 pl-3 pr-1 rounded-full bg-white/[0.03] border border-white/[0.08] focus-within:border-emerald-400/40 transition-colors text-left"
+          style={{ animationDelay: '300ms' }}
+          onSubmit={e => {
+            e.preventDefault();
+            const input = e.currentTarget.elements.namedItem('checkerId') as HTMLInputElement | null;
+            const id = (input?.value || '').replace(/\s/g, '');
+            window.open(id ? `/checker?id=${encodeURIComponent(id)}` : '/checker', '_blank', 'noopener');
+          }}
+        >
+          <Fingerprint className="w-4 h-4 text-emerald-300 shrink-0" />
+          <input
+            name="checkerId"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={64}
+            placeholder="Check a MarketX ID"
+            aria-label="MarketX ID to check"
+            className="flex-1 min-w-0 bg-transparent font-mono text-[13px] text-white placeholder:font-sans placeholder:text-slate-500 focus:outline-none"
+          />
+          <button type="submit" className="h-9 px-3.5 rounded-full bg-emerald-400/15 text-emerald-200 text-xs font-semibold hover:bg-emerald-400/25 transition inline-flex items-center gap-1 shrink-0 cursor-pointer">
+            Check <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </form>
       </section>
 
       {/* SECTION 1: Live Market Pairs Table with 3-Second Revolving Carousel & Hold-to-Pause (Sector removed) */}
