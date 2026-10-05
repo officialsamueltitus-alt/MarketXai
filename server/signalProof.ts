@@ -188,7 +188,7 @@ async function anchorBatch(b: ProofBatch): Promise<ProofBatch['anchor']> {
   const w = proofWallet();
   const now = Date.now();
   const tries = (b.anchor.tries || 0) + 1;
-  if (!w) return { status: 'NO_WALLET', tries, lastTryAt: now, lastError: 'No proof wallet is set (SOLANA_PROOF_SECRET_KEY missing or unreadable).' };
+  if (!w) return { status: 'NO_WALLET', tries, lastTryAt: now, lastError: 'No proof wallet is set (the wallet key is missing or unreadable).' };
   // Sent before but not confirmed then: look it up first, so a batch is never written twice
   if (b.anchor.tx && b.anchor.status !== 'ANCHORED') {
     try {

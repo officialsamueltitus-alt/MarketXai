@@ -57,14 +57,14 @@ export const ProofsCard: React.FC = () => {
           {w ? (
             <a href={solscanAddr(w.address)} target="_blank" rel="noopener noreferrer" className="mt-1 block font-mono text-xs text-violet-200 hover:text-white truncate">{w.address} <ExternalLink className="inline w-3 h-3" /></a>
           ) : (
-            <p className="mt-1 text-xs text-rose-300">Not set. Add SOLANA_PROOF_SECRET_KEY on Render (the wallet's private key), then redeploy.</p>
+            <p className="mt-1 text-xs text-rose-300">Not set. Add the proof wallet's private key to the server settings, then redeploy.</p>
           )}
         </div>
         <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
           <div className="text-[11px] uppercase tracking-wider text-slate-500">Balance</div>
           <div className={`mt-1 font-semibold ${low ? 'text-amber-300' : 'text-white'}`}>{w ? sol(w.lamports) : '—'}</div>
           {low && <p className="text-[11px] text-amber-300/90 mt-0.5">Send about 0.02 SOL to the wallet above.</p>}
-          {w && w.lamports == null && <p className="text-[11px] text-amber-300/90 mt-0.5">The RPC did not answer. Check SOLANA_RPC_URL.</p>}
+          {w && w.lamports == null && <p className="text-[11px] text-amber-300/90 mt-0.5">The Solana connection did not answer. Check the Solana RPC setting.</p>}
         </div>
         <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
           <div className="text-[11px] uppercase tracking-wider text-slate-500">Network</div>

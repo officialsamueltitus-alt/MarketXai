@@ -9,8 +9,8 @@
  */
 
 export const API_BASE_URL = (
-  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_URL || import.meta.env?.VITE_BACKEND_URL)) ||
-  ''
+  // Read statically, so Vite inlines the value at build time and no setting name ships in the bundle
+  ((import.meta.env.VITE_API_URL as string | undefined) || (import.meta.env.VITE_BACKEND_URL as string | undefined) || '')
 ).replace(/\/+$/, '');
 
 export function getApiUrl(endpoint: string): string {

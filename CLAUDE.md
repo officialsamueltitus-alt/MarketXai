@@ -243,6 +243,9 @@
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
 - Build: `npm install && npm run build` — Start: `npm start`. The server bundle builds to `server-dist/` (never inside the
   public `dist/`); the static server 404s `.map`, `.cjs`, `.ts`, dotfiles and `/server*` paths so source never ships.
+- Browser hardening: production builds drop every `console.*` call and legal comments (`esbuild.drop` in `vite.config.ts`), and no
+  setting/env name ships in the bundle (`import.meta.env` read statically; admin screens describe settings in words). Public copy never
+  names backend providers (database, hosting, AI); Paystack is named only as the checkout.
 - Mobile resilience: on-demand screens use `lazyWithReload` (`src/utils/lazyReload.ts`): preloaded in idle time, and a tab left
   open across a deploy reloads onto the new version instead of breaking. Missing `/assets/*` or file paths return 404, never
   the app page. Analyses time out on the client (110s text, 180s chart) and Recheck after 45s, so nothing loads forever.
