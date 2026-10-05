@@ -36,6 +36,8 @@ import { registerPreferenceRoutes } from './server/preferences';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
+import { registerTraderIdRoutes } from './server/traderId';
+import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
 import { registerPushRoutes } from './server/webPush';
@@ -2112,7 +2114,12 @@ registerPreferenceRoutes(app, generalApiRateLimiter);
 registerFxRoutes(app, generalApiRateLimiter);
 // Token safety (any Solana token by address) and public signal proofs
 registerTokenSafetyRoutes(app, { resolve: mint => resolveAssetInfo(mint, mint) }, generalApiRateLimiter);
-registerSignalProofRoutes(app, generalApiRateLimiter);
+// Proofs follow each sealed trade on 1-minute candles to write its readable result record on Solana
+registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, tf) => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf) });
+// MarketX ID: each trader's own Solana address, listing their trade records on Solscan
+registerTraderIdRoutes(app, generalApiRateLimiter);
+// One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
+registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)
 registerJournalRoutes(app, generalApiRateLimiter);
 // Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there

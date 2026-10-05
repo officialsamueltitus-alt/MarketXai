@@ -123,7 +123,7 @@ export function corsAndOriginGuard(req: Request, res: Response, next: NextFuncti
   }
   if (req.method === 'OPTIONS') {
     if (!allowed) return res.sendStatus(403);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
     res.setHeader('Access-Control-Max-Age', '600');
     return res.sendStatus(204);

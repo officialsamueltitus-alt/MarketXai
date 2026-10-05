@@ -19,9 +19,11 @@ const cssTargets = {
   samsung: 14 << 16,
 };
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
+    // Production: no console output in the browser (nothing about the app's internals in DevTools)
+    esbuild: mode === 'production' ? { drop: ['console' as const, 'debugger' as const], legalComments: 'none' as const } : undefined,
     css: {
       transformer: 'lightningcss' as const,
       lightningcss: { targets: cssTargets },

@@ -80,6 +80,8 @@
   JSON-LD is an @graph of Organization (logo, sameAs X), WebSite and SoftwareApplication; `public/site.webmanifest` lists the icons.
 - Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
+  Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
+  and spoken when the video has a voice-over) as its final card.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
@@ -180,14 +182,37 @@
   lookups, per-worker budgets (`SAFETY_RPC_PER_MIN` 60, `RUGCHECK_PER_MIN` 30). `GET /api/token-safety/:mint` public, 12/min per IP.
   Signal proofs (`server/signalProof.ts`, `ProofBadge`, `/proof/<id>` page `src/proof/ProofPage.tsx`): `signalProofMiddleware` seals every
   LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
-  entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (6h): Merkle batch
+  entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (1 min, only when new seals exist; "sealed now"): Merkle batch
   (`proofBatches`, leaf SHA-256(0x00‖hash), node SHA-256(0x01‖L‖R)), memo "MarketX proof v1 <batch> <root> n=<count>" sent from the proof
   wallet (one tx per batch, ~0.000005 SOL); no wallet / low balance / failure = waits and retries every `PROOF_RETRY_MS`
-  (10 min; batching stays on the 6h cycle). A sent but unconfirmed tx is stored and looked up first (`memoStatus`), so a batch is
+  (10 min). A sent but unconfirmed tx is stored and looked up first (`memoStatus`), so a batch is
   never written twice; batching and sending run under a Firestore lease (`adminConfig/proofLease`), one worker at a time. Each
   batch keeps `anchor.lastError` / `tries` / `lastTryAt`; Admin, Overview → "Solana signal proofs" (`/api/admin/proofs`) shows the
   proof wallet address + balance, RPC host, waiting batches with their reason, the last anchored txs (Solscan) and "Anchor now". `GET /api/proofs/:id` public (30/min per
   IP); the page recomputes the hash and Merkle path in the browser and links Solscan / Solana Explorer.
+  Readable result records ("sealed now, readable later", owner-specified): each seal carries `reveal` (TRACKING → DUE → SENT → POSTED).
+  `trackReveals` (lead worker, `REVEAL_TRACK_MS` 5 min) follows the trade on 1-minute candles with `evaluateBars` (same rules as alerts);
+  when it ends (all TPs, SL, or TP1 before entry) or `REVEAL_AFTER_MS` (24h) after issue, `revealResult` fixes the result (WIN / LOSS /
+  MISSED / NOT_TRIGGERED / OPEN / NO_DATA) and the proof cycle writes ONE readable memo per trade (`revealMemo`, ≤500 bytes: pair, side,
+  entry, SL, TPs, issue time, result, fingerprint, proof link), only after its seal batch is anchored; sent txs are looked up before any
+  resend. Live signals never go on chain readable. The proof page shows the result, "Read the result on Solscan" and "Seal on Solscan"
+  for everyone; the public API never returns the proof wallet (fund it from an exchange, never from the main wallet).
+  Result tracking picks, per trade, the finest candle series reaching back to its last check (`TRACK_TFS` 1M, 15M, 1H, 4H; feeds
+  return ~300 bars), never a series with a gap. Seals made before readable records get one too (`backfillReveals` once, flag
+  `adminConfig/revealBackfill`, plus at batching). The proof page polls every 15s while a step is waiting.
+  MarketX ID (owner-specified, `server/traderId.ts`): every trader (new and existing) has a Solana address derived, never stored:
+  ed25519 seed = HMAC-SHA256(`TRADER_ID_SECRET` or a secret generated once in `adminConfig/traderIds`, "marketx-trader-id-v1:" + uid).
+  It co-signs (read-only signer, pays nothing) each readable result record of that trader's trades, so searching it on Solscan lists
+  all their trades and results. Seals store `uid` (server only, never returned); older seals are matched to their trader via the
+  `alertOffers` doc made in the same response (closest within 3s, a tie between traders stays unmatched). `GET /api/trader-id`
+  (signed in), Settings card `TraderIdCard.tsx`, and the proof page shows the ID with an "All trades" Solscan link. Never change
+  the secret (every ID would change).
+- One record per signal (owner-specified, `signalKey` in `server/journal.ts` = pair + timeframe + side + every level): the same signal
+  is ONE price alert per trader (`startAlert` reuses the twin alert and adds the new card to `offerIds`, which the client matches cards
+  by), ONE journal trade (manual add of the same trade, open or opened within a minute, is 409 `DUPLICATE_TRADE`) and ONE track record
+  result (`archiveAlertOutcome` skips a twin; personal and MarketX-wide stats count each signal once via `uniqueSignals`). `server/dedupe.ts`
+  (lead worker, after deploy + every 6h) removes older duplicates: keeps the active alert (else most hits, else oldest), moves its journal
+  trade/result onto it when only the copy had one, keeps notes, repoints offers.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it
@@ -218,6 +243,9 @@
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
 - Build: `npm install && npm run build` — Start: `npm start`. The server bundle builds to `server-dist/` (never inside the
   public `dist/`); the static server 404s `.map`, `.cjs`, `.ts`, dotfiles and `/server*` paths so source never ships.
+- Browser hardening: production builds drop every `console.*` call and legal comments (`esbuild.drop` in `vite.config.ts`), and no
+  setting/env name ships in the bundle (`import.meta.env` read statically; admin screens describe settings in words). Public copy never
+  names backend providers (database, hosting, AI); Paystack is named only as the checkout.
 - Mobile resilience: on-demand screens use `lazyWithReload` (`src/utils/lazyReload.ts`): preloaded in idle time, and a tab left
   open across a deploy reloads onto the new version instead of breaking. Missing `/assets/*` or file paths return 404, never
   the app page. Analyses time out on the client (110s text, 180s chart) and Recheck after 45s, so nothing loads forever.

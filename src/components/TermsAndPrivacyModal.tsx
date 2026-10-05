@@ -59,7 +59,7 @@ const DOCS: Record<Tab, Doc> = {
       },
       {
         title: 'How it is stored',
-        body: 'Account data is stored on secure servers (Google Cloud Firestore) and is only accessed through the MarketX server, never directly from your browser. All traffic is encrypted with TLS. Passwords are stored as one-way hashes.',
+        body: 'Account data is stored on secure cloud servers and is only accessed through the MarketX server, never directly from your browser. All traffic is encrypted with TLS. Passwords are stored as one-way hashes.',
       },
       {
         title: 'Cookies',

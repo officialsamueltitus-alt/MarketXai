@@ -326,6 +326,8 @@ export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED';
 export interface PriceAlertItem {
   id: string;
   offerId: string;
+  /** Every result card of this same signal (the same signal is one alert) */
+  offerIds?: string[];
   symbol: string;
   name: string;
   timeframe: string;

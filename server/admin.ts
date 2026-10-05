@@ -536,7 +536,7 @@ export function registerAdminRoutes(app: Express) {
   app.post('/api/admin/proofs/anchor', requireAdmin, wrap(async (req, res) => {
     if (proofThrottle.hit('admin')) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Please wait a minute before trying again.' });
     const r = await runProofCycleNow();
-    adminLog('proofs_anchor_now', { ip: clientIp(req), batched: r.batched, anchored: r.anchored });
+    adminLog('proofs_anchor_now', { ip: clientIp(req), batched: r.batched, anchored: r.anchored, revealed: r.revealed });
     res.json({ ...r, status: await proofStatus() });
   }));
 
