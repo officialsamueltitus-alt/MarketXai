@@ -11,6 +11,7 @@ import { passcodeReport } from './access';
 import { approveSubmission, listSubmissions, rejectSubmission } from './campaigns';
 import { dayKey, logActivity } from './tracking';
 import { clientIp, createKeyedThrottle } from './security';
+import { proofStatus, runProofCycleNow } from './signalProof';
 
 // ===========================================================================
 // MarketX admin console API (/api/admin/*), served to the /admin page.
@@ -525,6 +526,18 @@ export function registerAdminRoutes(app: Express) {
     setCookie(res, makeToken(version)!);
     adminLog('password_reset_default', { ip: clientIp(req) });
     res.json({ success: true, custom: false });
+  }));
+
+  // --- Solana signal proofs: wallet, waiting batches with their reason, "Anchor now" -----------------
+  const proofThrottle = createKeyedThrottle({ windowMs: 60_000, max: 4 });
+  app.get('/api/admin/proofs', requireAdmin, wrap(async (_req, res) => {
+    res.json(await proofStatus());
+  }));
+  app.post('/api/admin/proofs/anchor', requireAdmin, wrap(async (req, res) => {
+    if (proofThrottle.hit('admin')) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Please wait a minute before trying again.' });
+    const r = await runProofCycleNow();
+    adminLog('proofs_anchor_now', { ip: clientIp(req), batched: r.batched, anchored: r.anchored });
+    res.json({ ...r, status: await proofStatus() });
   }));
 
   // --- Overview -----------------------------------------------------------

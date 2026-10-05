@@ -19,12 +19,39 @@ export const MARKET_PRESETS: Record<CalcMarket, { label: string; contract: numbe
 
 export const QUOTE_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'NGN', 'ZAR'] as const;
 
-/** Guesses the market type, quote currency and pip size (forex pip, else a point = 1.00 price move) from a symbol like "GBPJPY", "XAU/USD", "NAS100", "BTC" */
+/**
+ * Pip size the way traders and MT4/MT5 count it: forex 0.0001 (JPY pairs 0.01), gold 0.10, silver and oil 0.01.
+ * Indices, crypto, stocks and synthetics move in points (a 1.00 move in price).
+ */
+export function pipSize(market: CalcMarket, quote: string): number {
+  if (market === 'forex') return quote === 'JPY' ? 0.01 : 0.0001;
+  if (market === 'gold') return 0.1;
+  if (market === 'silver' || market === 'oil') return 0.01;
+  return 1;
+}
+/** Markets measured in pips (the rest in points) */
+export const usesPips = (market: CalcMarket) => market === 'forex' || market === 'gold' || market === 'silver' || market === 'oil';
+
+/** The lot sizes traders use: standard 1.00, mini 0.10, micro 0.01 */
+export const LOT_TYPES = [
+  { name: 'Standard', lots: 1 },
+  { name: 'Mini', lots: 0.1 },
+  { name: 'Micro', lots: 0.01 },
+] as const;
+
+/** Which lot type a size is (Standard 1.00+, Mini 0.10+, Micro 0.01+) and how it splits into standard + mini + micro lots */
+export function lotBreakdown(lots: number): { type: 'Standard' | 'Mini' | 'Micro' | null; standard: number; mini: number; micro: number } {
+  const cents = Math.max(0, Math.round(lots * 100 + 1e-9));
+  const type = cents >= 100 ? 'Standard' : cents >= 10 ? 'Mini' : cents >= 1 ? 'Micro' : null;
+  return { type, standard: Math.floor(cents / 100), mini: Math.floor((cents % 100) / 10), micro: cents % 10 };
+}
+
+/** Guesses the market type, quote currency and pip size (see pipSize) from a symbol like "GBPJPY", "XAU/USD", "NAS100", "BTC" */
 export function guessFromSymbol(raw: string): { market: CalcMarket; quote: string; pip: number } {
   const s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (/^XAU/.test(s) || s === 'GOLD') return { market: 'gold', quote: 'USD', pip: 1 };
-  if (/^XAG/.test(s) || s === 'SILVER') return { market: 'silver', quote: 'USD', pip: 1 };
-  if (/^(WTI|BRENT|USOIL|UKOIL|OIL|CL)/.test(s)) return { market: 'oil', quote: 'USD', pip: 1 };
+  if (/^XAU/.test(s) || s === 'GOLD') return { market: 'gold', quote: 'USD', pip: 0.1 };
+  if (/^XAG/.test(s) || s === 'SILVER') return { market: 'silver', quote: 'USD', pip: 0.01 };
+  if (/^(WTI|BRENT|USOIL|UKOIL|OIL|CL)/.test(s)) return { market: 'oil', quote: 'USD', pip: 0.01 };
   if (/^(US30|NAS100|SPX|SPX500|US500|GER40|DE40|UK100|JP225|DJI|NDX)/.test(s)) {
     const quote = /^(GER40|DE40)/.test(s) ? 'EUR' : /^UK100/.test(s) ? 'GBP' : /^JP225/.test(s) ? 'JPY' : 'USD';
     return { market: 'index', quote, pip: 1 };
@@ -68,7 +95,7 @@ export interface CalcResult {
   riskPct: number;
   /** Account money per pip (or point) for the lots */
   pipValue: number;
-  /** Account money per pip for 1.00 lot */
+  /** Account money per pip for 1.00 lot (a standard lot) */
   pipValuePerLot: number;
   reward: number | null;
   rr: number | null;

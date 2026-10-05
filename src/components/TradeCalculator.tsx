@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Calculator, AlertTriangle, RefreshCw, Info } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { formatMoney, type Currency } from '../utils/preferences';
-import { MARKET_PRESETS, QUOTE_CURRENCIES, calculate, distancesFromPrices, guessFromSymbol, type CalcMarket } from '../utils/tradeCalc';
+import { LOT_TYPES, MARKET_PRESETS, QUOTE_CURRENCIES, calculate, distancesFromPrices, guessFromSymbol, lotBreakdown, pipSize, usesPips, type CalcMarket } from '../utils/tradeCalc';
 
 // Trade calculator (Preference Mode): find the lot size for your risk, or check what a lot size risks.
 export interface CalcSeed {
@@ -26,6 +26,21 @@ const num = (v: string) => {
 };
 const clean = (v: string) => v.replace(/[^0-9.,]/g, '');
 const lotText = (n: number) => (n >= 100 ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : n.toFixed(2));
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+/** "7 micro lots", "2 mini + 5 micro lots", "1 standard + 3 mini lots" */
+const lotSplit = (lots: number) => {
+  const b = lotBreakdown(lots);
+  const parts = [b.standard && `${b.standard} standard`, b.mini && `${b.mini} mini`, b.micro && `${b.micro} micro`].filter(Boolean) as string[];
+  if (!parts.length) return '';
+  if (parts.length === 1) return plural(b.standard || b.mini || b.micro, parts[0].split(' ')[1] + ' lot');
+  return `${parts.join(' + ')} lots`;
+};
+// Example pip move per market, for the hint under the stop distance
+const PIP_HINT: Partial<Record<CalcMarket, string>> = {
+  gold: '1 pip on gold = a 0.10 move (2,650.00 to 2,650.10). A 1.00 move is 10 pips.',
+  silver: '1 pip on silver = a 0.01 move (31.50 to 31.51).',
+  oil: '1 pip on oil = a 0.01 move (70.50 to 70.51).',
+};
 
 const Field: React.FC<{ label: string; value: string; onChange: (v: string) => void; placeholder?: string; suffix?: string; aria?: string }> = ({ label, value, onChange, placeholder, suffix, aria }) => (
   <label className="block min-w-0">
@@ -104,9 +119,9 @@ export const TradeCalculator: React.FC<TradeCalculatorProps> = ({ accountSize, c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quote, currency]);
 
-  // Forex: a pip (0.0001, or 0.01 for JPY pairs). Everything else: a point = a 1.00 move in price
-  const pip = market === 'forex' ? (quote === 'JPY' ? 0.01 : 0.0001) : 1;
-  const pipWord = market === 'forex' ? 'pips' : 'points';
+  // Pips as traders count them (forex 0.0001 / JPY 0.01, gold 0.10, silver and oil 0.01); indices, crypto, stocks: points (1.00)
+  const pip = pipSize(market, quote);
+  const pipWord = usesPips(market) ? 'pips' : 'points';
   const levels = stopBy === 'price' ? distancesFromPrices(num(entry), num(stop), tp ? num(tp) : null) : null;
   const levelsError = stopBy === 'price' && entry && stop && !levels ? (num(entry) === num(stop) ? 'Entry and stop can’t be the same price.' : 'The take profit must be on the other side of the entry from the stop.') : null;
   const distance = stopBy === 'price' ? levels?.distance ?? NaN : num(pips) * pip;
@@ -191,7 +206,7 @@ export const TradeCalculator: React.FC<TradeCalculatorProps> = ({ accountSize, c
         ) : (
           <div className="mt-1.5">
             <Field label={`Stop distance`} value={pips} onChange={setPips} suffix={pipWord} aria={`Stop distance in ${pipWord}`} />
-            {market !== 'forex' && <p className="mt-1 px-1 text-[11px] text-slate-500">1 point = a 1.00 move in price (gold from 2,650 to 2,651 is 1 point).</p>}
+            {market !== 'forex' && <p className="mt-1 px-1 text-[11px] text-slate-500">{PIP_HINT[market] || '1 point = a 1.00 move in price (NAS100 from 20,100 to 20,101 is 1 point).'}</p>}
           </div>
         )}
         {levelsError && <p className="mt-1.5 px-1 text-[11px] text-rose-300">{levelsError}</p>}
@@ -258,6 +273,11 @@ export const TradeCalculator: React.FC<TradeCalculatorProps> = ({ accountSize, c
                   {mode === 'size' ? `${lotText(result.lots)}` : formatMoney(result.risk, currency)}
                   {mode === 'size' && <span className="ml-1.5 text-base font-medium text-slate-400">lots</span>}
                 </div>
+                {mode === 'size' && lotBreakdown(result.lots).type && (
+                  <div className="mt-1 text-xs text-slate-300">
+                    {lotBreakdown(result.lots).type} lot · {lotSplit(result.lots)}
+                  </div>
+                )}
               </div>
               <div className="text-right text-xs text-slate-400 tabular-nums shrink-0">
                 {levels && <div className={levels.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{levels.direction === 'BUY' ? 'Buy' : 'Sell'} setup</div>}
@@ -281,7 +301,7 @@ export const TradeCalculator: React.FC<TradeCalculatorProps> = ({ accountSize, c
               <div className="p-2.5 rounded-2xl bg-black/20">
                 <div className="text-[10px] text-slate-400">Per {pipWord === 'pips' ? 'pip' : 'point'}</div>
                 <div className="font-semibold text-white">{formatMoney(result.pipValue, currency)}</div>
-                <div className="text-[10px] text-slate-500">{formatMoney(result.pipValuePerLot, currency)} per lot</div>
+                <div className="text-[10px] text-slate-500">at {lotText(result.lots)} lots</div>
               </div>
               {result.reward != null ? (
                 <div className="p-2.5 rounded-2xl bg-black/20">
@@ -297,11 +317,25 @@ export const TradeCalculator: React.FC<TradeCalculatorProps> = ({ accountSize, c
                 </div>
               )}
             </div>
-            {mode === 'size' && !result.belowMinimum && (
-              <p className="mt-2 text-[11px] text-slate-500">
-                Rounded down to 0.01 so you never risk more than you set. Mini lots {(result.lots * 10).toFixed(1)} · micro lots {Math.round(result.lots * 100)}.
-              </p>
-            )}
+            {/* The lot sizes traders use, with the pip value of each on this market */}
+            <div className="mt-3 grid grid-cols-3 gap-1.5" role="group" aria-label="Lot sizes">
+              {LOT_TYPES.map(t => {
+                const on = lotBreakdown(result.lots).type === t.name;
+                const Tag = mode === 'check' ? 'button' : 'div';
+                return (
+                  <Tag
+                    key={t.name}
+                    {...(mode === 'check' ? { type: 'button' as const, onClick: () => setLots(t.lots.toFixed(2)), 'aria-label': `Use 1 ${t.name.toLowerCase()} lot, ${t.lots.toFixed(2)}` } : {})}
+                    className={`p-2 rounded-xl text-left tabular-nums border transition ${on ? 'bg-white/[0.1] border-sky-300/40' : 'bg-black/15 border-transparent'} ${mode === 'check' ? 'cursor-pointer hover:bg-white/[0.08]' : ''}`}
+                  >
+                    <div className={`text-[10px] font-semibold ${on ? 'text-sky-200' : 'text-slate-400'}`}>{t.name}</div>
+                    <div className="text-sm font-semibold text-white">{t.lots.toFixed(2)}</div>
+                    <div className="text-[10px] text-slate-500">{formatMoney(result.pipValuePerLot * t.lots, currency)}/{pipWord === 'pips' ? 'pip' : 'pt'}</div>
+                  </Tag>
+                );
+              })}
+            </div>
+            {mode === 'size' && !result.belowMinimum && <p className="mt-2 text-[11px] text-slate-500">Rounded down to the nearest 0.01 lot so you never risk more than you set.</p>}
             {result.belowMinimum && (
               <p className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-300">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />

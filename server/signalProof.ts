@@ -18,7 +18,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle, clientIp } from './security';
-import { loadProofWallet, rpcHost, sendMemo, walletBalance, type ProofWallet } from './solana';
+import { loadProofWallet, memoStatus, rpcHost, submitMemo, walletBalance, type ProofWallet } from './solana';
 
 const PROOFS = 'signalProofs';
 const BATCHES = 'proofBatches';
@@ -27,6 +27,10 @@ const BATCH_MS = Math.max(5_000, Number(process.env.PROOF_BATCH_MS) || 6 * 3600e
 const BATCH_MAX = 4000;
 /** Lamports a memo costs (5,000 per signature) plus headroom; below this the anchor waits for a top-up */
 const MIN_LAMPORTS = 20_000;
+/** Waiting batches are retried this often (new batches still form every BATCH_MS) */
+const ANCHOR_RETRY_MS = Math.max(5_000, Number(process.env.PROOF_RETRY_MS) || 10 * 60_000);
+/** A sent transaction not seen on chain after this long is sent again (its blockhash has expired by then) */
+const RESEND_AFTER_MS = 3 * 60_000;
 
 export interface SignalPayload {
   v: 1;
@@ -55,7 +59,7 @@ export interface ProofBatch {
   leaves: Array<{ id: string; hash: string }>;
   createdAt: number;
   memo: string;
-  anchor: { status: 'PENDING' | 'ANCHORED' | 'NO_WALLET' | 'LOW_BALANCE' | 'FAILED'; tx?: string; slot?: number | null; at?: number; wallet?: string; tries?: number };
+  anchor: { status: 'PENDING' | 'ANCHORED' | 'NO_WALLET' | 'LOW_BALANCE' | 'FAILED'; tx?: string; slot?: number | null; at?: number; wallet?: string; tries?: number; sentAt?: number; lastError?: string; lastTryAt?: number };
 }
 
 const sha = (...parts: Buffer[]) => crypto.createHash('sha256').update(Buffer.concat(parts)).digest();
@@ -136,26 +140,131 @@ export function signalProofMiddleware(_req: Request, res: Response, next: NextFu
 let wallet: ProofWallet | null | undefined;
 const proofWallet = () => (wallet === undefined ? (wallet = loadProofWallet()) : wallet);
 
+/** Short, safe error text for the admin view (never a URL, key or token) */
+const safeError = (err: any) => String(err?.message || 'error').replace(/https?:\/\/\S+/g, '[rpc]').replace(/[A-Za-z0-9]{40,}/g, '…').slice(0, 160);
+
 async function anchorBatch(b: ProofBatch): Promise<ProofBatch['anchor']> {
   const w = proofWallet();
-  if (!w) return { status: 'NO_WALLET' };
+  const now = Date.now();
+  const tries = (b.anchor.tries || 0) + 1;
+  if (!w) return { status: 'NO_WALLET', tries, lastTryAt: now, lastError: 'No proof wallet is set (SOLANA_PROOF_SECRET_KEY missing or unreadable).' };
+  // Sent before but not confirmed then: look it up first, so a batch is never written twice
+  if (b.anchor.tx && b.anchor.status !== 'ANCHORED') {
+    try {
+      const st = await memoStatus(b.anchor.tx);
+      if (st.state === 'CONFIRMED') {
+        console.log(`[MarketX Proofs] batch ${b.id} confirmed on Solana: ${b.anchor.tx}`);
+        return { status: 'ANCHORED', tx: b.anchor.tx, slot: st.slot, at: now, wallet: w.address, tries };
+      }
+      if (st.state === 'UNKNOWN' && now - (b.anchor.sentAt || 0) < RESEND_AFTER_MS) {
+        return { ...b.anchor, status: 'PENDING', tries, lastTryAt: now, lastError: 'Sent, waiting for confirmation.' };
+      }
+    } catch (err: any) {
+      return { ...b.anchor, status: 'FAILED', tries, lastTryAt: now, lastError: `Status check failed: ${safeError(err)}` };
+    }
+  }
   const balance = await walletBalance(w.address);
   if (balance != null && balance < MIN_LAMPORTS) {
     console.warn(`[MarketX Proofs] proof wallet ${w.address} is low on SOL (${balance} lamports); batch ${b.id} waits.`);
-    return { status: 'LOW_BALANCE', wallet: w.address, tries: (b.anchor.tries || 0) + 1 };
+    return { status: 'LOW_BALANCE', wallet: w.address, tries, lastTryAt: now, lastError: `Wallet balance ${balance} lamports; needs at least ${MIN_LAMPORTS}.` };
   }
+  let signature: string;
   try {
-    const { signature, slot } = await sendMemo(w, b.memo);
-    console.log(`[MarketX Proofs] batch ${b.id} (${b.count} signals) anchored on Solana via ${rpcHost()}: ${signature}`);
-    return { status: 'ANCHORED', tx: signature, slot, at: Date.now(), wallet: w.address, tries: (b.anchor.tries || 0) + 1 };
+    signature = await submitMemo(w, b.memo);
   } catch (err: any) {
-    console.warn(`[MarketX Proofs] anchoring batch ${b.id} failed (${err?.message || 'error'}); retrying next cycle.`);
-    return { status: 'FAILED', wallet: w.address, tries: (b.anchor.tries || 0) + 1 };
+    console.warn(`[MarketX Proofs] anchoring batch ${b.id} failed (${safeError(err)}); retrying in ${Math.round(ANCHOR_RETRY_MS / 60000)} min.`);
+    return { status: 'FAILED', wallet: w.address, tries, lastTryAt: now, lastError: safeError(err) };
+  }
+  // Accepted by the network: wait a little for confirmation; if it is slow, the next retry checks this same signature
+  for (let i = 0; i < 12; i++) {
+    await new Promise(r => setTimeout(r, i < 3 ? 1500 : 3000));
+    const st = await memoStatus(signature).catch(() => ({ state: 'UNKNOWN' as const }));
+    if (st.state === 'CONFIRMED') {
+      console.log(`[MarketX Proofs] batch ${b.id} (${b.count} signals) anchored on Solana via ${rpcHost()}: ${signature}`);
+      return { status: 'ANCHORED', tx: signature, slot: st.slot, at: Date.now(), wallet: w.address, tries };
+    }
+    if (st.state === 'FAILED') return { status: 'FAILED', wallet: w.address, tries, lastTryAt: now, lastError: 'The memo transaction failed on chain.' };
+  }
+  return { status: 'PENDING', tx: signature, sentAt: now, wallet: w.address, tries, lastTryAt: now, lastError: 'Sent, waiting for confirmation.' };
+}
+
+const WAITING = ['PENDING', 'NO_WALLET', 'LOW_BALANCE', 'FAILED'];
+/** Anchors every batch that isn't on chain yet (oldest first, up to 5 per run) */
+/** Runs fn while holding a short Firestore lease, so only one worker batches or sends at a time (null: another holds it) */
+async function withProofLease<T>(fn: () => Promise<T>): Promise<T | null> {
+  const lease = db().collection('adminConfig').doc('proofLease');
+  const mine = await db().runTransaction(async tx => {
+    const cur = (await tx.get(lease)).data() as { until?: number } | undefined;
+    if ((cur?.until || 0) > Date.now()) return false;
+    tx.set(lease, { until: Date.now() + 180_000 });
+    return true;
+  });
+  if (!mine) return null;
+  try {
+    return await fn();
+  } finally {
+    await lease.set({ until: 0 }).catch(() => {});
+  }
+}
+
+export async function anchorWaiting(): Promise<number> {
+  return (await withProofLease(anchorWaitingLocked)) ?? 0;
+}
+async function anchorWaitingLocked(): Promise<number> {
+  let anchored = 0;
+  const waiting = (await db().collection(BATCHES).where('anchor.status', 'in', WAITING).get()).docs.map(d => d.data() as ProofBatch);
+  for (const b of waiting.sort((x, y) => x.createdAt - y.createdAt).slice(0, 5)) {
+    const anchor = await anchorBatch(b);
+    await db().collection(BATCHES).doc(b.id).update({ anchor });
+    if (anchor.status === 'ANCHORED') anchored++;
+    if (anchor.status === 'NO_WALLET' || anchor.status === 'LOW_BALANCE') break;
+  }
+  return anchored;
+}
+
+/** Proof wallet and batches, for the admin console (public wallet address only, never the key) */
+export async function proofStatus() {
+  const w = proofWallet();
+  const [balance, waitingSnap, lastSnap] = await Promise.all([
+    w ? walletBalance(w.address) : Promise.resolve(null),
+    db().collection(BATCHES).where('anchor.status', 'in', WAITING).get(),
+    db().collection(BATCHES).where('anchor.status', '==', 'ANCHORED').get(),
+  ]);
+  const waiting = waitingSnap.docs.map(d => d.data() as ProofBatch).sort((a, b) => b.createdAt - a.createdAt);
+  const anchored = lastSnap.docs.map(d => d.data() as ProofBatch).sort((a, b) => (b.anchor.at || 0) - (a.anchor.at || 0));
+  const pick = (b: ProofBatch) => ({ id: b.id, count: b.count, createdAt: b.createdAt, status: b.anchor.status, tx: b.anchor.tx || null, tries: b.anchor.tries || 0, lastTryAt: b.anchor.lastTryAt || null, lastError: b.anchor.lastError || null, at: b.anchor.at || null });
+  const unbatched = (await db().collection(PROOFS).where('batched', '==', false).get()).docs.length;
+  return {
+    wallet: w ? { address: w.address, lamports: balance } : null,
+    rpcHost: rpcHost(),
+    batchEveryMin: Math.round(BATCH_MS / 60000),
+    retryEveryMin: Math.round(ANCHOR_RETRY_MS / 60000),
+    minLamports: MIN_LAMPORTS,
+    unbatched,
+    waiting: waiting.slice(0, 10).map(pick),
+    waitingCount: waiting.length,
+    anchoredCount: anchored.length,
+    lastAnchored: anchored.slice(0, 5).map(pick),
+  };
+}
+
+let cycleRunning = false;
+/** Batches any new seals and anchors waiting batches now (admin "Anchor now"); one run at a time */
+export async function runProofCycleNow(): Promise<{ batched: number; anchored: number; busy?: boolean }> {
+  if (cycleRunning) return { batched: 0, anchored: 0, busy: true };
+  cycleRunning = true;
+  try {
+    return await runProofCycle();
+  } finally {
+    cycleRunning = false;
   }
 }
 
 /** One cycle: batch the new seals, then anchor every batch that isn't on chain yet. Returns what was done. */
 export async function runProofCycle(): Promise<{ batched: number; anchored: number }> {
+  return (await withProofLease(runProofCycleLocked)) ?? { batched: 0, anchored: 0 };
+}
+async function runProofCycleLocked(): Promise<{ batched: number; anchored: number }> {
   let batched = 0;
   const fresh = (await db().collection(PROOFS).where('batched', '==', false).get()).docs
     .map(d => d.data() as SignalProof)
@@ -181,14 +290,7 @@ export async function runProofCycle(): Promise<{ batched: number; anchored: numb
     }
     batched = fresh.length;
   }
-  let anchored = 0;
-  const waiting = (await db().collection(BATCHES).where('anchor.status', 'in', ['PENDING', 'NO_WALLET', 'LOW_BALANCE', 'FAILED']).get()).docs.map(d => d.data() as ProofBatch);
-  for (const b of waiting.sort((x, y) => x.createdAt - y.createdAt).slice(0, 5)) {
-    const anchor = await anchorBatch(b);
-    await db().collection(BATCHES).doc(b.id).update({ anchor });
-    if (anchor.status === 'ANCHORED') anchored++;
-    if (anchor.status === 'NO_WALLET') break;
-  }
+  const anchored = await anchorWaitingLocked();
   return { batched, anchored };
 }
 
@@ -196,17 +298,26 @@ export function registerSignalProofRoutes(app: Express, limiter: (req: Request, 
   if (isFirebaseConfigured() && IS_LEAD_WORKER) {
     const w = proofWallet();
     console.log(w ? `[MarketX Proofs] proof wallet ${w.address}; batches every ${Math.round(BATCH_MS / 60000)} min` : '[MarketX Proofs] no proof wallet set: signals are sealed and batched, anchoring waits for SOLANA_PROOF_SECRET_KEY');
-    let running = false;
     const cycle = () => {
-      if (running) return;
-      running = true;
+      if (cycleRunning) return;
+      cycleRunning = true;
       runProofCycle()
         .then(r => (r.batched || r.anchored) && console.log(`[MarketX Proofs] cycle: ${r.batched} sealed signal(s) batched, ${r.anchored} batch(es) anchored`))
         .catch(err => console.warn('[MarketX Proofs] cycle failed:', err?.message || err))
-        .finally(() => (running = false));
+        .finally(() => (cycleRunning = false));
+    };
+    // Waiting batches are retried every few minutes, not only when the next batch forms
+    const retry = () => {
+      if (cycleRunning) return;
+      cycleRunning = true;
+      anchorWaiting()
+        .then(n => n && console.log(`[MarketX Proofs] retry: ${n} batch(es) anchored`))
+        .catch(err => console.warn('[MarketX Proofs] retry failed:', err?.message || err))
+        .finally(() => (cycleRunning = false));
     };
     setTimeout(cycle, Math.min(BATCH_MS, 5 * 60_000)).unref();
     setInterval(cycle, BATCH_MS).unref();
+    setInterval(retry, ANCHOR_RETRY_MS).unref();
   }
 
   const perIp = createKeyedThrottle({ windowMs: 60_000, max: 30 });
