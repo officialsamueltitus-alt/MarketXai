@@ -72,6 +72,7 @@ import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerU
 import { getApiUrl } from './utils/api';
 import { classifyPrompt } from './utils/promptIntent';
 import { timeframeFromPrompt } from './utils/timeframe';
+import { playChime, primeSound } from './utils/notifySound';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
@@ -1273,8 +1274,13 @@ export default function App() {
     }
     const fresh = watchNotifs.filter(n => !seenWatchNotifsRef.current!.has(n.id) && !n.read);
     watchNotifs.forEach(n => seenWatchNotifsRef.current!.add(n.id));
-    if (fresh.length) setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
+    if (fresh.length) {
+      setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
+      // A chime with it (switch in the watchlist panel): brighter when a setup is ready than when it is building
+      playChime(fresh.some(n => n.title.startsWith('🎯')) ? 'ready' : 'building');
+    }
   }, [notifications]);
+  useEffect(() => primeSound(), []);
 
   /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
   const openChatMessage = (sessionId: string, messageId: string) => {

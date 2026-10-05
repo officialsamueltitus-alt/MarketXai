@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, BellRing, Check, Loader2, Mail, Plus, Radar, RefreshCw, Search, Sparkles, Trash2, Wand2, Layers } from 'lucide-react';
+import { Activity, BellRing, Check, Loader2, Mail, Plus, Radar, RefreshCw, Search, Sparkles, Trash2, Wand2, Layers, Volume2, VolumeX } from 'lucide-react';
 import type { WatchItem } from '../types';
 import { apiFetch } from '../utils/apiClient';
 import { formatMarketPrice } from '../utils/formatPrice';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
+import { playChime, setWatchSound, watchSoundOn } from '../utils/notifySound';
 import { PluginIntro, PluginSheet, ago } from './PluginSheet';
 
 interface WatchlistPanelProps {
@@ -44,6 +45,13 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
   const [timeframe, setTimeframe] = useState('RDM');
   const [verify, setVerify] = useState<Verify | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [sound, setSound] = useState(watchSoundOn);
+  const toggleSound = () => {
+    const on = !sound;
+    setSound(on);
+    setWatchSound(on);
+    if (on) playChime('ready', true);
+  };
   const [, setTick] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -183,6 +191,20 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           ))}
         </div>
       </form>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={sound}
+        onClick={toggleSound}
+        className="mt-2 w-full flex items-center gap-2.5 px-3 h-10 rounded-xl bg-white/[0.025] border border-white/[0.06] text-left cursor-pointer hover:bg-white/[0.05] transition-colors"
+      >
+        {sound ? <Volume2 className="w-4 h-4 text-violet-300 shrink-0" /> : <VolumeX className="w-4 h-4 text-slate-500 shrink-0" />}
+        <span className="text-xs text-slate-300">Sound when a setup is found</span>
+        <span className="ml-auto text-[10px] text-slate-500 hidden sm:inline">while MarketX is open</span>
+        <span className={`relative ml-auto sm:ml-0 w-9 h-5 rounded-full transition-colors shrink-0 ${sound ? 'bg-violet-500' : 'bg-white/[0.12]'}`} aria-hidden="true">
+          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${sound ? 'left-[18px]' : 'left-0.5'}`} />
+        </span>
+      </button>
       {verify && (
         <div className={`mt-2 rounded-2xl border px-3 py-2.5 mx-fade-in ${verify.error ? 'bg-rose-500/[0.06] border-rose-500/20' : 'bg-white/[0.025] border-white/[0.06]'}`} aria-live="polite">
           {verify.error ? (

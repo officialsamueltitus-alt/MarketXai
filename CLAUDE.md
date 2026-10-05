@@ -74,7 +74,8 @@
   `apple-touch-icon.png`, `marketx-maskable-512.png`, `/favicon.ico`), referenced with `?v=3` (bump `LOGO_V` in `MarketXIcon.tsx`
   and every other `?v=` ref when the files change). Render any size with `python3 brand/logo-ball.py OUT.png --size N [--no-shadow]`;
   master `brand/marketx-logo-ball-1080.png`, flat mark `brand/marketx-logo-flat-512.png`.
-- SEO (`index.html`): link previews use `public/brand/marketx-og-1200x630.jpg` (og:image + twitter:image, with size/alt tags);
+- SEO (`index.html`): link previews use `public/brand/marketx-og-1200x630.jpg?v=4` (og:image + twitter:image + JSON-LD, with size/alt tags;
+  design: "Ask any market. Get the trade." + live XAU/USD trade card; bump `?v=` on all three refs when the image changes);
   JSON-LD is an @graph of Organization (logo, sameAs X), WebSite and SoftwareApplication; `public/site.webmanifest` lists the icons.
 - Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
@@ -135,7 +136,9 @@
   a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
-  email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis.
+  email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a
+  chime while the site is open (`src/utils/notifySound.ts`, Web Audio, no file; brighter for ready than building; short vibration on phones;
+  unlocked on the first tap; per-device switch "Sound when a setup is found" in the panel, localStorage `mx.watchSound`).
 - Market email budget (owner-specified, to stay clear of Gmail limits): price alerts and the watchlist share ONE allowance of
   `MARKET_MAIL_PER_DAY` (default 5) emails per trader per day (site time zone day, `claimMarketMail` / `nextMarketMail` in
   `server/account.ts`, counter `users.marketMail`). Site notifications are never capped. Hits found in the same alert cycle go out
