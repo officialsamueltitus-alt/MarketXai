@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ShieldCheck, CheckCircle2, XCircle, Loader2, Clock, ExternalLink, Copy, Fingerprint, Layers, Link2 } from 'lucide-react';
+import { ArrowLeft, ShieldCheck, CheckCircle2, XCircle, Loader2, Clock, ExternalLink, Copy, Fingerprint, Layers, Link2, FileText } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 import { apiFetch } from '../utils/apiClient';
 import { formatMarketPrice } from '../utils/formatPrice';
@@ -17,9 +17,38 @@ interface ProofResponse {
     path: Array<{ side: 'L' | 'R'; hash: string }>;
     memo: string;
     createdAt: number;
-    anchor: { status: 'ANCHORED' | 'WAITING'; tx: string | null; slot: number | null; at: number | null; wallet: string | null };
+    anchor: { status: 'ANCHORED' | 'WAITING'; tx: string | null; slot: number | null; at: number | null };
+  };
+  /** The readable record: the trade and its result written on Solana in plain words once the trade ends (or after 24h) */
+  reveal?: null | {
+    state: 'TRACKING' | 'POSTING' | 'POSTED';
+    revealAt: number;
+    result: null | { code: 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA'; text: string; final: boolean };
+    memo: string | null;
+    tx: string | null;
+    at: number | null;
   };
 }
+const RESULT_TONE: Record<string, string> = {
+  WIN: 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200',
+  LOSS: 'bg-rose-500/15 border-rose-400/30 text-rose-200',
+  MISSED: 'bg-slate-500/15 border-slate-400/30 text-slate-200',
+  NOT_TRIGGERED: 'bg-slate-500/15 border-slate-400/30 text-slate-200',
+  OPEN: 'bg-sky-500/15 border-sky-400/30 text-sky-200',
+  NO_DATA: 'bg-slate-500/15 border-slate-400/30 text-slate-300',
+};
+const solscan = (tx: string) => `https://solscan.io/tx/${encodeURIComponent(tx)}`;
+const explorer = (tx: string) => `https://explorer.solana.com/tx/${encodeURIComponent(tx)}`;
+const TxLinks: React.FC<{ tx: string }> = ({ tx }) => (
+  <span className="mt-2 flex flex-wrap gap-2">
+    <a href={solscan(tx)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-slate-200">
+      Solscan <ExternalLink className="w-3 h-3" />
+    </a>
+    <a href={explorer(tx)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-slate-200">
+      Solana Explorer <ExternalLink className="w-3 h-3" />
+    </a>
+  </span>
+);
 type Step = 'ok' | 'bad' | 'wait' | 'pending';
 
 const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
@@ -162,6 +191,23 @@ export default function ProofPage() {
                         </div>
                       ))}
                     </div>
+                    {(data.reveal?.result || anchored) && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        {data.reveal?.result && (
+                          <span className={`inline-flex items-center h-8 px-3 rounded-full border text-xs font-semibold ${RESULT_TONE[data.reveal.result.code] || RESULT_TONE.NO_DATA}`}>{data.reveal.result.text}</span>
+                        )}
+                        {data.reveal?.state === 'POSTED' && data.reveal.tx && (
+                          <a href={solscan(data.reveal.tx)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-white text-slate-900 text-xs font-semibold hover:bg-slate-200 transition">
+                            <FileText className="w-3.5 h-3.5" /> Read the result on Solscan <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                        {anchored && (
+                          <a href={solscan(data.batch!.anchor.tx!)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-white/[0.07] border border-white/[0.1] text-xs font-semibold text-slate-100 hover:bg-white/[0.12] transition">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" /> Seal on Solscan <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -194,7 +240,7 @@ export default function ProofPage() {
                       <span className="font-mono text-slate-200">{short(data.batch.root)}</span>.
                     </>
                   ) : (
-                    'Signals are batched every few hours. Check back soon.'
+                    'Signals are written to Solana within a minute or two. Check back soon.'
                   )
                 }
               />
@@ -207,14 +253,7 @@ export default function ProofPage() {
                     <>
                       Written {data.batch!.anchor.at ? when(data.batch!.anchor.at) : ''} in transaction{' '}
                       <span className="font-mono text-slate-200">{short(data.batch!.anchor.tx!, 8)}</span>. Open it and read the memo: it carries the same root.
-                      <span className="mt-2 flex flex-wrap gap-2">
-                        <a href={`https://solscan.io/tx/${data.batch!.anchor.tx}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-slate-200">
-                          Solscan <ExternalLink className="w-3 h-3" />
-                        </a>
-                        <a href={`https://explorer.solana.com/tx/${data.batch!.anchor.tx}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-slate-200">
-                          Solana Explorer <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </span>
+                      <TxLinks tx={data.batch!.anchor.tx!} />
                     </>
                   ) : data.batch ? (
                     'The batch is sealed and waiting for its Solana transaction. Check back soon.'
@@ -223,6 +262,30 @@ export default function ProofPage() {
                   )
                 }
               />
+              {data.reveal && (
+                <StepRow
+                  state={data.reveal.state === 'POSTED' ? 'ok' : 'wait'}
+                  icon={FileText}
+                  title="The trade and its result, in plain words on Solana"
+                  text={
+                    data.reveal.state === 'POSTED' && data.reveal.tx ? (
+                      <>
+                        Written {data.reveal.at ? when(data.reveal.at) : ''}. Anyone can open the transaction and read the pair, entry, stop, targets, time and
+                        result in its memo, no blockchain knowledge needed. The fingerprint in it matches the seal above.
+                        {data.reveal.memo && <span className="mt-2 block p-2.5 rounded-xl bg-black/30 border border-white/[0.06] font-mono text-[11px] text-slate-300 break-words">{data.reveal.memo}</span>}
+                        <TxLinks tx={data.reveal.tx} />
+                      </>
+                    ) : data.reveal.state === 'POSTING' ? (
+                      <>The result is in: {data.reveal.result?.text}. It is being written on Solana now. Check back in a few minutes.</>
+                    ) : (
+                      <>
+                        While the trade runs, only its sealed fingerprint is public, so nobody can copy it. When it ends, or by {when(data.reveal.revealAt)} at the
+                        latest, the trade and its result are written on Solana in plain words.
+                      </>
+                    )
+                  }
+                />
+              )}
             </ol>
 
             <details className="mt-6 rounded-2xl bg-white/[0.02] border border-white/[0.06]">

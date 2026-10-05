@@ -180,14 +180,21 @@
   lookups, per-worker budgets (`SAFETY_RPC_PER_MIN` 60, `RUGCHECK_PER_MIN` 30). `GET /api/token-safety/:mint` public, 12/min per IP.
   Signal proofs (`server/signalProof.ts`, `ProofBadge`, `/proof/<id>` page `src/proof/ProofPage.tsx`): `signalProofMiddleware` seals every
   LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
-  entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (6h): Merkle batch
+  entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (1 min, only when new seals exist; "sealed now"): Merkle batch
   (`proofBatches`, leaf SHA-256(0x00‖hash), node SHA-256(0x01‖L‖R)), memo "MarketX proof v1 <batch> <root> n=<count>" sent from the proof
   wallet (one tx per batch, ~0.000005 SOL); no wallet / low balance / failure = waits and retries every `PROOF_RETRY_MS`
-  (10 min; batching stays on the 6h cycle). A sent but unconfirmed tx is stored and looked up first (`memoStatus`), so a batch is
+  (10 min). A sent but unconfirmed tx is stored and looked up first (`memoStatus`), so a batch is
   never written twice; batching and sending run under a Firestore lease (`adminConfig/proofLease`), one worker at a time. Each
   batch keeps `anchor.lastError` / `tries` / `lastTryAt`; Admin, Overview → "Solana signal proofs" (`/api/admin/proofs`) shows the
   proof wallet address + balance, RPC host, waiting batches with their reason, the last anchored txs (Solscan) and "Anchor now". `GET /api/proofs/:id` public (30/min per
   IP); the page recomputes the hash and Merkle path in the browser and links Solscan / Solana Explorer.
+  Readable result records ("sealed now, readable later", owner-specified): each seal carries `reveal` (TRACKING → DUE → SENT → POSTED).
+  `trackReveals` (lead worker, `REVEAL_TRACK_MS` 5 min) follows the trade on 1-minute candles with `evaluateBars` (same rules as alerts);
+  when it ends (all TPs, SL, or TP1 before entry) or `REVEAL_AFTER_MS` (24h) after issue, `revealResult` fixes the result (WIN / LOSS /
+  MISSED / NOT_TRIGGERED / OPEN / NO_DATA) and the proof cycle writes ONE readable memo per trade (`revealMemo`, ≤500 bytes: pair, side,
+  entry, SL, TPs, issue time, result, fingerprint, proof link), only after its seal batch is anchored; sent txs are looked up before any
+  resend. Live signals never go on chain readable. The proof page shows the result, "Read the result on Solscan" and "Seal on Solscan"
+  for everyone; the public API never returns the proof wallet (fund it from an exchange, never from the main wallet).
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it

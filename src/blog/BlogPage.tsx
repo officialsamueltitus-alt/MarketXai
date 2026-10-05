@@ -483,9 +483,14 @@ const SECTIONS: Section[] = [
               fresh read, or <B>Solscan</B> to see the token yourself.
             </>,
             <>
-              <B>Signal proofs.</B> Every buy or sell signal is sealed the moment it is served: a fingerprint of its levels and time. The fingerprints are written
-              to the Solana blockchain in batches. Tap <B>Proof on Solana</B> on a trade card to open its proof page, where your browser checks the fingerprint,
+              <B>Signal proofs.</B> Every buy or sell signal is sealed the moment it is served: a fingerprint of its levels and time, written to the Solana
+              blockchain within a minute or two. Tap <B>Proof on Solana</B> on a trade card to open its proof page, where your browser checks the fingerprint,
               the batch and the Solana transaction for you.
+            </>,
+            <>
+              <B>The result, in plain words.</B> While a trade runs, only its fingerprint is public, so nobody can copy it. When it ends, or a day after it was
+              given, the trade itself (pair, entry, stop, targets, time) and its result are written on Solana in readable text. Tap <B>Read the result on
+              Solscan</B> on the proof page to see it, no blockchain knowledge needed.
             </>,
           ]}
         />

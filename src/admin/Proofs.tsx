@@ -27,7 +27,7 @@ export const ProofsCard: React.FC = () => {
     setNote(null);
     try {
       const r = await apiFetch<any>('/api/admin/proofs/anchor', { method: 'POST' });
-      setNote(r.busy ? 'Another run is already in progress. Refresh in a minute.' : `${r.batched} new signal(s) batched, ${r.anchored} batch(es) written on Solana.`);
+      setNote(r.busy ? 'Another run is already in progress. Refresh in a minute.' : `${r.batched} new signal(s) batched, ${r.anchored} batch(es) written on Solana, ${r.revealed ?? 0} result record(s) written.`);
       reload();
     } catch (e: any) {
       setNote(e?.message || 'Could not run it now.');
@@ -87,6 +87,27 @@ export const ProofsCard: React.FC = () => {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {data.reveals && (
+        <div className="mt-4">
+          <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Readable result records</div>
+          <p className="text-xs text-slate-400">
+            {data.reveals.tracking} trade(s) being followed · {data.reveals.waiting} result(s) waiting to be written · {data.reveals.posted} written. A record goes out when the trade
+            ends, or {data.reveals.revealAfterHours}h after it was served.
+          </p>
+          {data.reveals.lastError && <p className="mt-1 text-xs text-amber-300/90">{data.reveals.lastError}</p>}
+          {data.reveals.last.length > 0 && (
+            <ul className="mt-1.5 divide-y divide-white/[0.05]">
+              {data.reveals.last.map((r: any) => (
+                <li key={r.id} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <a href={`/proof/${encodeURIComponent(r.id)}`} target="_blank" rel="noopener noreferrer" className="font-mono text-slate-300 hover:text-white">{r.id}</a>
+                  <span className="text-slate-500">{r.result}</span>
+                  {r.tx && <a href={solscanTx(r.tx)} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:text-white">View on Solscan <ExternalLink className="inline w-3 h-3" /></a>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {data.lastAnchored.length > 0 && (
