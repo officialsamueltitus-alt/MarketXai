@@ -139,6 +139,16 @@
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a
   chime while the site is open (`src/utils/notifySound.ts`, Web Audio, no file; brighter for ready than building; short vibration on phones;
   unlocked on the first tap; per-device switch "Sound when a setup is found" in the panel, localStorage `mx.watchSound`).
+- Web push (`server/webPush.ts`, `public/sw.js`, `src/utils/push.ts`, `PushToggle.tsx` in the watchlist + price alerts panels): phone/desktop
+  notifications with the device's own sound, even when MarketX is closed. No SDK: VAPID ES256 JWT + RFC 8291 aes128gcm with Node crypto
+  (verified against http_ece / web-push). Keys: `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` if set, else generated once and kept in Firestore
+  `adminConfig/webPush` (never sent to clients except the public key; changing keys invalidates every subscription). Subscriptions
+  `pushSubs/{sha256(endpoint)}` (max 8 per trader, a device belongs to whoever signed in last, unlinked on sign-out; 404/410/403 deletes).
+  The server only POSTs to allowlisted push hosts (FCM, Mozilla, Apple, Windows; https, no port/credentials). Watchlist setups and alert hits
+  (one per alert per cycle) are pushed, not capped by the email budget; the payload carries the exact deep link (`/?watchlist=1&focus=`,
+  `/?alerts=1&focus=`). The service worker has NO fetch handler (no caching), is served `no-cache`, skips the popup when MarketX is focused
+  (except Apple, which revokes silent pushes) and posts `mx-push` (refresh now) / `mx-open` (route the tapped link) to the app. iPhone/iPad
+  need Add to Home Screen (iOS 16.4+); the toggle explains it.
 - Market email budget (owner-specified, to stay clear of Gmail limits): price alerts and the watchlist share ONE allowance of
   `MARKET_MAIL_PER_DAY` (default 5) emails per trader per day (site time zone day, `claimMarketMail` / `nextMarketMail` in
   `server/account.ts`, counter `users.marketMail`). Site notifications are never capped. Hits found in the same alert cycle go out

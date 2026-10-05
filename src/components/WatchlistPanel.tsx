@@ -5,6 +5,7 @@ import { apiFetch } from '../utils/apiClient';
 import { formatMarketPrice } from '../utils/formatPrice';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { playChime, setWatchSound, watchSoundOn } from '../utils/notifySound';
+import { PushToggle } from './PushToggle';
 import { PluginIntro, PluginSheet, ago } from './PluginSheet';
 
 interface WatchlistPanelProps {
@@ -205,6 +206,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${sound ? 'left-[18px]' : 'left-0.5'}`} />
         </span>
       </button>
+      <PushToggle what="setups" onToast={onToast} />
       {verify && (
         <div className={`mt-2 rounded-2xl border px-3 py-2.5 mx-fade-in ${verify.error ? 'bg-rose-500/[0.06] border-rose-500/20' : 'bg-white/[0.025] border-white/[0.06]'}`} aria-live="polite">
           {verify.error ? (

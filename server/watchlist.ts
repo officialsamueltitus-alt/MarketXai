@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
+import { sendPush } from './webPush';
 import { claimMarketMail, getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
@@ -243,6 +244,8 @@ async function sendNotice(item: WatchItem, setup: WatchSetup) {
     { type: 'market', title, message, actionType: 'open_watchlist', actionPayload: { itemId: item.id, symbol: item.symbol, timeframe: tf } } as any,
     mail
   );
+  // Phone / desktop notification on every device the trader turned it on (plays the device's own sound)
+  sendPush(item.uid, { title, body: message, url: `/?watchlist=1&focus=${encodeURIComponent(item.id)}`, tag: `wl-${item.id}`, kind: 'watchlist' }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
