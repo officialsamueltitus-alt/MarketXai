@@ -168,6 +168,46 @@ export async function submitMemo(wallet: ProofWallet, memo: string, cosigners: P
   return signature;
 }
 
+export const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+/** Lamports that keep a plain (no data) account alive on Solana: rent-exempt minimum for 0 bytes */
+export const RENT_EXEMPT_EMPTY = 890_880;
+
+/**
+ * Activates an address on Solana: the fee payer sends it the rent-exempt minimum (System transfer) and the address
+ * co-signs a memo, so explorers show the account as existing, with this first transaction. Legacy transaction,
+ * byte-identical to @solana/web3.js. Returns the wire bytes and the signature (tx id).
+ */
+export function buildActivationTransaction(payer: ProofWallet, account: ProofWallet, recentBlockhash: string, lamports: number, memo: string): { wire: Uint8Array; signature: string } {
+  const memoBytes = Buffer.from(memo, 'utf8');
+  if (memoBytes.length > 400) throw new Error('memo too long');
+  if (account.address === payer.address) throw new Error('same account');
+  const blockhash = base58Decode(recentBlockhash);
+  if (blockhash.length !== 32) throw new Error('bad blockhash');
+  const data = Buffer.alloc(12);
+  data.writeUInt32LE(2, 0); // System program: Transfer
+  data.writeBigUInt64LE(BigInt(lamports), 4);
+  const message = Uint8Array.from([
+    // Header: 2 signatures (payer, account), both writable; 2 read-only unsigned (System and Memo programs)
+    2, 0, 2,
+    ...shortVec(4), ...payer.publicKey, ...account.publicKey, ...base58Decode(SYSTEM_PROGRAM_ID), ...base58Decode(MEMO_PROGRAM_ID),
+    ...blockhash,
+    ...shortVec(2),
+    // Transfer: payer -> account
+    2, ...shortVec(2), 0, 1, ...shortVec(data.length), ...data,
+    // Memo, signed by the account
+    3, ...shortVec(1), 1, ...shortVec(memoBytes.length), ...memoBytes,
+  ]);
+  const sigs = [payer.sign(message), account.sign(message)];
+  return { wire: Uint8Array.from([...shortVec(2), ...sigs[0], ...sigs[1], ...message]), signature: base58Encode(sigs[0]) };
+}
+
+export async function submitActivation(payer: ProofWallet, account: ProofWallet, lamports: number, memo: string): Promise<string> {
+  const latest = await solanaRpc<{ value: { blockhash: string } }>('getLatestBlockhash', [{ commitment: 'finalized' }]);
+  const { wire, signature } = buildActivationTransaction(payer, account, latest.value.blockhash, lamports, memo);
+  await solanaRpc('sendTransaction', [Buffer.from(wire).toString('base64'), { encoding: 'base64', preflightCommitment: 'confirmed', maxRetries: 3 }], 10000);
+  return signature;
+}
+
 /** Where a sent transaction stands: confirmed (with its slot), failed on chain, or not seen yet */
 export async function memoStatus(signature: string): Promise<{ state: 'CONFIRMED'; slot: number | null } | { state: 'FAILED' } | { state: 'UNKNOWN' }> {
   const st = await solanaRpc<{ value: Array<{ slot: number; err: unknown; confirmationStatus?: string } | null> }>('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]);

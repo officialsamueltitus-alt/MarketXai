@@ -205,8 +205,16 @@
   It co-signs (read-only signer, pays nothing) each readable result record of that trader's trades, so searching it on Solscan lists
   all their trades and results. Seals store `uid` (server only, never returned); older seals are matched to their trader via the
   `alertOffers` doc made in the same response (closest within 3s, a tie between traders stays unmatched). `GET /api/trader-id`
-  (signed in), Settings card `TraderIdCard.tsx`, and the proof page shows the ID with an "All trades" Solscan link. Never change
-  the secret (every ID would change).
+  (signed in), card `TraderIdCard.tsx` in the Profile tab (owner-specified, not Settings), and the proof page shows the ID with an
+  "All trades" Solscan link. Never change the secret (every ID would change).
+  Activation (an address with no SOL "does not exist" on explorers): `ensureTraderId` indexes the ID in `traderIds/{address}` {uid,
+  state QUEUED → SENT → ACTIVE} on first open (and when a record is co-signed); existing traders are indexed once (`adminConfig/
+  traderIdIndex`). The proof cycle (`activateTraderIds`, under the proof lease) sends ONE tx per ID: System transfer of the rent-exempt
+  minimum (890,880 lamports, `buildActivationTransaction`, byte-identical to @solana/web3.js) + a memo the ID co-signs; skipped if the ID
+  already holds that much, waits when the proof wallet would drop under rent + 200k lamports, capped by `ID_ACTIVATIONS_PER_DAY` (300).
+  Public ID checker (owner-specified, `/checker?id=`, `src/checker/CheckerPage.tsx`, `GET /api/checker/:id`, 20/min per IP): picture,
+  display name, username, verified badge, join date, the ID (Solscan link, on-chain state) and the track record (one result per signal,
+  last 10). Never email, credits, plan details or the account id; banned/suspended accounts are not shown.
 - One record per signal (owner-specified, `signalKey` in `server/journal.ts` = pair + timeframe + side + every level): the same signal
   is ONE price alert per trader (`startAlert` reuses the twin alert and adds the new card to `offerIds`, which the client matches cards
   by), ONE journal trade (manual add of the same trade, open or opened within a minute, is 409 `DUPLICATE_TRADE`) and ONE track record

@@ -45,7 +45,6 @@ import { TelegramIcon, XLogoIcon } from './SocialIcons';
 import { MARKETX_TELEGRAM_URL, MARKETX_X_URL } from '../utils/campaign';
 import { formatMarketPrice } from '../utils/formatPrice';
 import { PushToggle } from './PushToggle';
-import { TraderIdCard } from './TraderIdCard';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -559,9 +558,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <PushToggle what="setups and alerts" onToast={onToast} />
                 </div>
-
-                {/* MarketX ID: the trader's own Solana address listing every trade and result */}
-                <TraderIdCard onToast={onToast} />
 
                 <button
                   type="button"
