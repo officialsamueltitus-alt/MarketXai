@@ -180,7 +180,11 @@
   LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
   entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (6h): Merkle batch
   (`proofBatches`, leaf SHA-256(0x00‖hash), node SHA-256(0x01‖L‖R)), memo "MarketX proof v1 <batch> <root> n=<count>" sent from the proof
-  wallet (one tx per batch, ~0.000005 SOL); no wallet / low balance / failure = waits and retries. `GET /api/proofs/:id` public (30/min per
+  wallet (one tx per batch, ~0.000005 SOL); no wallet / low balance / failure = waits and retries every `PROOF_RETRY_MS`
+  (10 min; batching stays on the 6h cycle). A sent but unconfirmed tx is stored and looked up first (`memoStatus`), so a batch is
+  never written twice; batching and sending run under a Firestore lease (`adminConfig/proofLease`), one worker at a time. Each
+  batch keeps `anchor.lastError` / `tries` / `lastTryAt`; Admin, Overview → "Solana signal proofs" (`/api/admin/proofs`) shows the
+  proof wallet address + balance, RPC host, waiting batches with their reason, the last anchored txs (Solscan) and "Anchor now". `GET /api/proofs/:id` public (30/min per
   IP); the page recomputes the hash and Merkle path in the browser and links Solscan / Solana Explorer.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade

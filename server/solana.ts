@@ -155,17 +155,32 @@ export function buildMemoTransaction(wallet: ProofWallet, recentBlockhash: strin
   return { wire: Uint8Array.from([...shortVec(1), ...sig, ...message]), signature: base58Encode(sig) };
 }
 
-/** Sends a memo and waits for confirmation. Throws on failure (the caller retries on its next cycle). */
-export async function sendMemo(wallet: ProofWallet, memo: string): Promise<{ signature: string; slot: number | null }> {
+/** Signs and sends a memo; returns its signature (tx id) as soon as the network accepts it */
+export async function submitMemo(wallet: ProofWallet, memo: string): Promise<string> {
   const latest = await solanaRpc<{ value: { blockhash: string } }>('getLatestBlockhash', [{ commitment: 'finalized' }]);
   const { wire, signature } = buildMemoTransaction(wallet, latest.value.blockhash, memo);
   await solanaRpc('sendTransaction', [Buffer.from(wire).toString('base64'), { encoding: 'base64', preflightCommitment: 'confirmed', maxRetries: 3 }], 10000);
+  return signature;
+}
+
+/** Where a sent transaction stands: confirmed (with its slot), failed on chain, or not seen yet */
+export async function memoStatus(signature: string): Promise<{ state: 'CONFIRMED'; slot: number | null } | { state: 'FAILED' } | { state: 'UNKNOWN' }> {
+  const st = await solanaRpc<{ value: Array<{ slot: number; err: unknown; confirmationStatus?: string } | null> }>('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]);
+  const s = st?.value?.[0];
+  if (!s) return { state: 'UNKNOWN' };
+  if (s.err) return { state: 'FAILED' };
+  if (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized') return { state: 'CONFIRMED', slot: s.slot ?? null };
+  return { state: 'UNKNOWN' };
+}
+
+/** Sends a memo and waits for confirmation. Throws on failure (the caller retries on its next cycle). */
+export async function sendMemo(wallet: ProofWallet, memo: string): Promise<{ signature: string; slot: number | null }> {
+  const signature = await submitMemo(wallet, memo);
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, i < 3 ? 1500 : 3000));
-    const st = await solanaRpc<{ value: Array<{ slot: number; err: unknown; confirmationStatus?: string } | null> }>('getSignatureStatuses', [[signature]]).catch(() => null);
-    const s = st?.value?.[0];
-    if (s?.err) throw new Error('memo transaction failed');
-    if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return { signature, slot: s.slot ?? null };
+    const st = await memoStatus(signature).catch(() => ({ state: 'UNKNOWN' as const }));
+    if (st.state === 'FAILED') throw new Error('memo transaction failed');
+    if (st.state === 'CONFIRMED') return { signature, slot: st.slot };
   }
   throw new Error('memo not confirmed in time');
 }
