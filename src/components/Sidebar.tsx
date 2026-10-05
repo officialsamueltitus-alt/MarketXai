@@ -44,6 +44,7 @@ import {
 import { TelegramIcon, XLogoIcon } from './SocialIcons';
 import { MARKETX_TELEGRAM_URL, MARKETX_X_URL } from '../utils/campaign';
 import { formatMarketPrice } from '../utils/formatPrice';
+import { PushToggle } from './PushToggle';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -88,6 +89,8 @@ interface SidebarProps {
   onTogglePlugin?: (id: PluginId, enabled: boolean) => Promise<void>;
   /** Opens the full Connectors / Plugins popup */
   onOpenConnectors?: () => void;
+  /** Short confirmation messages (Settings → Notifications) */
+  onToast?: (message: string, type?: 'success' | 'info') => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -129,6 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenPlugin,
   onTogglePlugin,
   onOpenConnectors,
+  onToast,
 }) => {
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
@@ -539,6 +543,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Notifications: phone / desktop notifications for watchlist setups and price alerts (per device) */}
+                <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                    <span className="w-7 h-7 rounded-lg bg-orange-500/15 border border-orange-500/30 flex items-center justify-center shrink-0">
+                      <Bell className="w-3.5 h-3.5 text-orange-300" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block">Notifications</span>
+                      <span className="block text-[10px] font-normal text-slate-400 truncate">Watchlist setups and price alerts</span>
+                    </span>
+                  </div>
+                  <PushToggle what="setups and alerts" onToast={onToast} />
                 </div>
 
                 <button

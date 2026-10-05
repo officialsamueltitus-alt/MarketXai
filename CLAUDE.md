@@ -139,7 +139,7 @@
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a
   chime while the site is open (`src/utils/notifySound.ts`, Web Audio, no file; brighter for ready than building; short vibration on phones;
   unlocked on the first tap; per-device switch "Sound when a setup is found" in the panel, localStorage `mx.watchSound`).
-- Web push (`server/webPush.ts`, `public/sw.js`, `src/utils/push.ts`, `PushToggle.tsx` in the watchlist + price alerts panels): phone/desktop
+- Web push (`server/webPush.ts`, `public/sw.js`, `src/utils/push.ts`, `PushToggle.tsx` in the sidebar Settings → Notifications card, owner-specified): phone/desktop
   notifications with the device's own sound, even when MarketX is closed. No SDK: VAPID ES256 JWT + RFC 8291 aes128gcm with Node crypto
   (verified against http_ece / web-push). Keys: `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` if set, else generated once and kept in Firestore
   `adminConfig/webPush` (never sent to clients except the public key; changing keys invalidates every subscription). Subscriptions

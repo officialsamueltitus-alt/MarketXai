@@ -412,9 +412,9 @@ const SECTIONS: Section[] = [
           your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry), and the same results across MarketX.
         </Note>
         <Note title="Sound and phone notifications">
-          While MarketX is open, a new watchlist setup plays a short chime (turn it off with <B>Sound when a setup is found</B> in the watchlist). Turn on
-          <B> Phone notifications</B> in the watchlist or price alerts and setups and alert hits reach your phone or computer with its own notification
-          sound, even when MarketX is closed. Tap one to open that exact pair or alert. On iPhone and iPad, first tap Share, then Add to Home Screen, and
+          While MarketX is open, a new watchlist setup plays a short chime (turn it off with <B>Sound when a setup is found</B> in the watchlist). Open
+          <B> Settings</B> in the side menu and switch on <B>Phone notifications</B>: setups and alert hits then reach your phone or computer with its own
+          notification sound, even when MarketX is closed. Tap one to open that exact pair or alert. On iPhone and iPad, first tap Share, then Add to Home Screen, and
           open MarketX from there.
         </Note>
         <Note title="Connectors / Plugins">

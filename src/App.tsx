@@ -2317,6 +2317,7 @@ export default function App() {
         onOpenPlugin={openPluginPanel}
         onTogglePlugin={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
         onOpenConnectors={() => (authUser ? setIsConnectorsOpen(true) : setIsAuthModalOpen(true))}
+        onToast={(message, type) => setToastNotification({ message, type: type || 'success' })}
       />
 
       {/* Main Workspace Area */}
