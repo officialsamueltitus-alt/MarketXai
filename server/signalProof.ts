@@ -26,6 +26,7 @@ import { createKeyedThrottle, clientIp } from './security';
 import { loadProofWallet, memoStatus, rpcHost, submitMemo, walletBalance, type ProofWallet } from './solana';
 import { evaluateBars, type AlertHit, type Bar } from './priceAlerts';
 import { exactPrice } from '../src/utils/formatPrice';
+import { traderKey } from './traderId';
 
 const PROOFS = 'signalProofs';
 const BATCHES = 'proofBatches';
@@ -47,6 +48,9 @@ const NO_DATA_AFTER_MS = 72 * 3600e3;
 /** Candles count as fresh when the last one is at most this old; a result is never decided on stale data */
 const FRESH_MS = 10 * 60_000;
 const REVEALS_PER_RUN = 20;
+const NEW_REVEAL: Reveal = { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 };
+/** Candle series tried in turn: the first one reaching back to where the check starts is used (feeds return ~300 bars) */
+const TRACK_TFS = ['1M', '15M', '1H', '4H'];
 const SITE = String(process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '');
 
 export interface SignalPayload {
@@ -85,6 +89,8 @@ export interface SignalProof {
   batched: boolean;
   batchId?: string;
   reveal?: Reveal;
+  /** Who got the signal (server only, never returned): their MarketX ID co-signs the readable record */
+  uid?: string | null;
 }
 export interface ProofBatch {
   id: string;
@@ -158,7 +164,8 @@ export function signalProofMiddleware(_req: Request, res: Response, next: NextFu
         const sealed = sealSignal(s, id);
         if (sealed) {
           s.proof = { id, hash: sealed.hash, issuedAt: sealed.payload.issuedAt };
-          const doc: SignalProof = { id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false, reveal: { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 } };
+          const uid = ((res.locals.user as any)?.uid as string | undefined) || null;
+          const doc: SignalProof = { id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false, reveal: { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 }, uid };
           db().collection(PROOFS).doc(id).set(doc).catch(err => console.warn('[MarketX Proofs] seal save failed:', err?.message || err));
         }
       }
@@ -329,7 +336,8 @@ async function runProofCycleLocked(): Promise<{ batched: number; anchored: numbe
     await db().collection(BATCHES).doc(id).set(batch);
     for (let i = 0; i < fresh.length; i += 400) {
       const w = db().batch();
-      for (const p of fresh.slice(i, i + 400)) w.update(db().collection(PROOFS).doc(p.id), { batched: true, batchId: id });
+      // Seals made by an older version get followed too, so they also get their readable record
+      for (const p of fresh.slice(i, i + 400)) w.update(db().collection(PROOFS).doc(p.id), { batched: true, batchId: id, ...(p.reveal ? {} : { reveal: NEW_REVEAL }) });
       await w.commit();
     }
     batched = fresh.length;
@@ -343,8 +351,8 @@ async function runProofCycleLocked(): Promise<{ batched: number; anchored: numbe
 // Readable result records ("sealed now, readable later")
 // ---------------------------------------------------------------------------
 export interface SignalProofDeps {
-  /** Recent 1-minute candles for a symbol (oldest first), or null when the feed is unavailable */
-  getBars?: (symbol: string) => Promise<Bar[] | null>;
+  /** Recent candles of a timeframe ('1M', '15M', '1H', '4H') for a symbol (oldest first), or null when unavailable */
+  getBars?: (symbol: string, tf: string) => Promise<Bar[] | null>;
 }
 const utc = (t: number) => `${new Date(t).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
@@ -387,6 +395,27 @@ export function revealMemo(p: SignalPayload, hash: string, result: NonNullable<R
   return Buffer.from(memo).subarray(0, 500).toString('utf8').replace(/�$/, '');
 }
 
+/**
+ * Once: every seal made before readable records existed gets followed too, so each trader's whole history (all their
+ * trades so far) ends up readable under their MarketX ID. Older trades are checked on coarser candles when needed.
+ */
+export async function backfillReveals(): Promise<number> {
+  const flag = db().collection('adminConfig').doc('revealBackfill');
+  if ((await flag.get()).data()?.done) return 0;
+  let n = 0;
+  const snap = await db().collection(PROOFS).get();
+  const missing = snap.docs.filter(d => !(d.data() as SignalProof).reveal);
+  for (let i = 0; i < missing.length; i += 400) {
+    const w = db().batch();
+    for (const d of missing.slice(i, i + 400)) w.update(d.ref, { reveal: NEW_REVEAL });
+    await w.commit();
+    n += Math.min(400, missing.length - i);
+  }
+  await flag.set({ done: true, at: Date.now(), count: n });
+  if (n) console.log(`[MarketX Proofs] ${n} earlier signal(s) will get their readable result record`);
+  return n;
+}
+
 let trackRunning = false;
 /** Follows every trade that is not revealed yet on 1-minute candles (one series per symbol) and marks results due */
 export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Promise<number> {
@@ -409,29 +438,46 @@ export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Pro
     for (let i = 0; i < symbols.length; i += 4) {
       await Promise.all(
         symbols.slice(i, i + 4).map(async sym => {
-          const bars = await deps.getBars!(sym).catch(() => null);
-          for (const { p, s } of bySymbol.get(sym)!) {
+          // Series fetched once per symbol and timeframe; each trade uses the finest one reaching back to its last check
+          const group = bySymbol.get(sym)!;
+          const series = new Map<string, Promise<Bar[] | null>>();
+          const fetchTf = (tf: string) => {
+            if (!series.has(tf)) series.set(tf, deps.getBars!(sym, tf).catch(() => null));
+            return series.get(tf)!;
+          };
+          for (const { p, s } of group) {
             const r = p.reveal!;
             const update: Partial<Reveal> = {};
             let entered = r.entered;
             let hits = r.hits || [];
             let closed = false;
-            if (bars?.length) {
-              const ev = evaluateBars({ direction: s.direction, entry: s.entry, stop: s.stop, tps: s.targets, entered, hits, createdAt: s.issuedAt, scanFrom: r.scanFrom }, bars);
+            const startT = Math.max(Math.floor(s.issuedAt / 60e3) * 60e3, r.scanFrom || 0);
+            // Only candles that cover the whole stretch since the last check: a gap could hide a hit
+            let bars: Bar[] | null = null;
+            for (const tf of TRACK_TFS) {
+              const got = await fetchTf(tf);
+              if (got?.length && got[0].t <= startT) {
+                bars = got;
+                break;
+              }
+            }
+            const usable = !!bars;
+            if (usable) {
+              const ev = evaluateBars({ direction: s.direction, entry: s.entry, stop: s.stop, tps: s.targets, entered, hits, createdAt: s.issuedAt, scanFrom: r.scanFrom }, bars!);
               entered = ev.entered;
               hits = [...hits, ...ev.hits];
               closed = ev.closed;
-              Object.assign(update, { entered, hits, scanFrom: bars[bars.length - 1].t });
+              Object.assign(update, { entered, hits, scanFrom: bars![bars!.length - 1].t });
             }
             const revealAt = s.issuedAt + REVEAL_AFTER_MS;
-            const lastT = bars?.length ? bars[bars.length - 1].t : 0;
+            const lastT = usable ? bars![bars!.length - 1].t : 0;
             // "Still running at <time>": the end of the last candle checked, never past now
             const seenUntil = Math.min(now, lastT + 60_000);
             if (closed || (now >= revealAt && lastT >= revealAt - FRESH_MS && seenUntil > s.issuedAt)) {
               Object.assign(update, { state: 'DUE', result: revealResult(hits, entered, s.targets.length, closed, seenUntil) });
               due++;
             } else if (now >= revealAt + NO_DATA_AFTER_MS) {
-              Object.assign(update, { state: 'DUE', result: hits.length ? revealResult(hits, entered, s.targets.length, false, now) : { code: 'NO_DATA', text: 'Result unknown, no price data was available', final: false, at: now } });
+              Object.assign(update, { state: 'DUE', result: hits.length ? revealResult(hits, entered, s.targets.length, false, now) : { code: 'NO_DATA', text: 'Result unknown, no complete price data was available', final: false, at: now } });
               due++;
             }
             if (Object.keys(update).length) await db().collection(PROOFS).doc(p.id).update(Object.fromEntries(Object.entries(update).map(([k, v]) => [`reveal.${k}`, v])));
@@ -443,6 +489,30 @@ export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Pro
   } finally {
     trackRunning = false;
   }
+}
+
+/**
+ * Who got a signal sealed before seals carried it: the price-alert offer recorded with the same signal (same symbol and
+ * levels, within seconds). Saved on the proof (null when there is no match) so it is looked up once.
+ */
+async function ownerOf(p: SignalProof, s: SignalPayload): Promise<string | null> {
+  let uid: string | null = null;
+  try {
+    // The proof and its offer are made in the same response, milliseconds apart; identical levels can come up for several
+    // traders, so the closest one wins and a tie between two different traders is left unmatched
+    const snap = await db().collection('alertOffers').where('createdAt', '>=', s.issuedAt - 3_000).where('createdAt', '<=', s.issuedAt + 3_000).get();
+    const same = (a: number, b: number) => Math.abs(a - b) <= Math.abs(b) * 1e-9;
+    const match = snap.docs
+      .map(d => d.data() as any)
+      .filter(o => o.uid && o.symbol === s.symbol && o.direction === s.direction && same(Number(o.stop), s.stop) && same(Number(o.entry?.optimal), s.entry.optimal))
+      .map(o => ({ uid: String(o.uid), gap: Math.abs(Number(o.createdAt) - s.issuedAt) }))
+      .sort((x, y) => x.gap - y.gap);
+    if (match.length && !match.some(m => m.uid !== match[0].uid && m.gap - match[0].gap < 50)) uid = match[0].uid;
+  } catch {
+    return null;
+  }
+  await db().collection(PROOFS).doc(p.id).update({ uid }).catch(() => {});
+  return uid;
 }
 
 /** Writes the readable records that are due (after their seal is on Solana); call under the proof lease */
@@ -492,7 +562,10 @@ async function postRevealsLocked(): Promise<number> {
     }
     const memo = r.memo || revealMemo(s, p.hash, r.result!);
     try {
-      const tx = await submitMemo(w, memo);
+      // The trader's MarketX ID co-signs, so the record is listed under their ID on any explorer
+      const uid = p.uid === undefined ? await ownerOf(p, s) : p.uid;
+      const cosigners = uid ? [await traderKey(uid)] : [];
+      const tx = await submitMemo(w, memo, cosigners);
       await ref.update({ 'reveal.state': 'SENT', 'reveal.memo': memo, 'reveal.tx': tx, 'reveal.sentAt': now, 'reveal.tries': (r.tries || 0) + 1, 'reveal.lastError': null });
       sent.push(p.id);
     } catch (err: any) {
@@ -520,6 +593,14 @@ async function postRevealsLocked(): Promise<number> {
 }
 
 /** What the public proof page may show about the result (the readable record and its transaction) */
+async function publicTraderId(p: SignalProof): Promise<string | null> {
+  if (!p.uid) return null;
+  try {
+    return (await traderKey(p.uid)).address;
+  } catch {
+    return null;
+  }
+}
 function publicReveal(p: SignalProof) {
   const r = p.reveal;
   if (!r) return null;
@@ -564,6 +645,7 @@ export function registerSignalProofRoutes(app: Express, limiter: (req: Request, 
         .then(n => n && console.log(`[MarketX Proofs] ${n} trade result(s) ready to be written`))
         .catch(err => console.warn('[MarketX Proofs] result tracking failed:', err?.message || err));
     if (deps.getBars) setInterval(track, TRACK_MS).unref();
+    setTimeout(() => backfillReveals().catch(err => console.warn('[MarketX Proofs] backfill failed:', err?.message || err)), 30_000).unref();
   }
 
   const perIp = createKeyedThrottle({ windowMs: 60_000, max: 30 });
@@ -595,11 +677,11 @@ export function registerSignalProofRoutes(app: Express, limiter: (req: Request, 
           };
         }
       }
-      res.json({ proof: { id: p.id, hash: p.hash, canonical: p.canonical, prefix: PREFIX, issuedAt: p.issuedAt, status: batch?.anchor.status === 'ANCHORED' ? 'ANCHORED' : batch ? 'BATCHED' : 'SEALED' }, batch, reveal: publicReveal(p) });
+      res.json({ proof: { id: p.id, hash: p.hash, canonical: p.canonical, prefix: PREFIX, issuedAt: p.issuedAt, status: batch?.anchor.status === 'ANCHORED' ? 'ANCHORED' : batch ? 'BATCHED' : 'SEALED' }, batch, reveal: publicReveal(p), traderId: await publicTraderId(p) });
     } catch {
       res.status(503).json({ error: 'UNAVAILABLE', message: 'Proofs are unavailable right now. Try again shortly.' });
     }
   });
 }
 
-export const __proofInternals = { PREFIX, leafOf, nodeOf, resetWallet: () => (wallet = undefined), trackReveals };
+export const __proofInternals = { PREFIX, leafOf, nodeOf, resetWallet: () => (wallet = undefined), trackReveals, backfillReveals };

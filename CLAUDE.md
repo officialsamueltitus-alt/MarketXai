@@ -195,6 +195,16 @@
   entry, SL, TPs, issue time, result, fingerprint, proof link), only after its seal batch is anchored; sent txs are looked up before any
   resend. Live signals never go on chain readable. The proof page shows the result, "Read the result on Solscan" and "Seal on Solscan"
   for everyone; the public API never returns the proof wallet (fund it from an exchange, never from the main wallet).
+  Result tracking picks, per trade, the finest candle series reaching back to its last check (`TRACK_TFS` 1M, 15M, 1H, 4H; feeds
+  return ~300 bars), never a series with a gap. Seals made before readable records get one too (`backfillReveals` once, flag
+  `adminConfig/revealBackfill`, plus at batching). The proof page polls every 15s while a step is waiting.
+  MarketX ID (owner-specified, `server/traderId.ts`): every trader (new and existing) has a Solana address derived, never stored:
+  ed25519 seed = HMAC-SHA256(`TRADER_ID_SECRET` or a secret generated once in `adminConfig/traderIds`, "marketx-trader-id-v1:" + uid).
+  It co-signs (read-only signer, pays nothing) each readable result record of that trader's trades, so searching it on Solscan lists
+  all their trades and results. Seals store `uid` (server only, never returned); older seals are matched to their trader via the
+  `alertOffers` doc made in the same response (closest within 3s, a tie between traders stays unmatched). `GET /api/trader-id`
+  (signed in), Settings card `TraderIdCard.tsx`, and the proof page shows the ID with an "All trades" Solscan link. Never change
+  the secret (every ID would change).
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it

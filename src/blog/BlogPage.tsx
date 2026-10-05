@@ -492,6 +492,11 @@ const SECTIONS: Section[] = [
               given, the trade itself (pair, entry, stop, targets, time) and its result are written on Solana in readable text. Tap <B>Read the result on
               Solscan</B> on the proof page to see it, no blockchain knowledge needed.
             </>,
+            <>
+              <B>Your MarketX ID.</B> Every trader has their own MarketX ID, a Solana address shown in <B>Settings</B>. Search it on Solscan (or tap
+              <B> View my trades on Solscan</B>) to see every trade you took on MarketX and its result. Your name and email are never on chain, and the ID
+              is for records only: never send funds to it.
+            </>,
           ]}
         />
         <Note title="Why it matters">

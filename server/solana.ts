@@ -137,28 +137,33 @@ function shortVec(n: number): number[] {
   }
 }
 
-/** Legacy transaction: one Memo instruction, signed by the fee payer. Returns the wire bytes and the signature (tx id). */
-export function buildMemoTransaction(wallet: ProofWallet, recentBlockhash: string, memo: string): { wire: Uint8Array; signature: string } {
+/**
+ * Legacy transaction: one Memo instruction, signed by the fee payer. Returns the wire bytes and the signature (tx id).
+ * Co-signers (a trader's MarketX ID) sign the memo too: the Memo program checks they signed, and the transaction shows up
+ * in each co-signer's history on any explorer. They are read-only signers and never pay anything.
+ */
+export function buildMemoTransaction(wallet: ProofWallet, recentBlockhash: string, memo: string, cosigners: ProofWallet[] = []): { wire: Uint8Array; signature: string } {
   const memoBytes = Buffer.from(memo, 'utf8');
   if (memoBytes.length > 500) throw new Error('memo too long');
   const blockhash = base58Decode(recentBlockhash);
   if (blockhash.length !== 32) throw new Error('bad blockhash');
+  const extra = cosigners.filter((c, i) => c.address !== wallet.address && cosigners.findIndex(x => x.address === c.address) === i).slice(0, 4);
   const message = Uint8Array.from([
-    // Header: 1 signature required, 0 read-only signed, 1 read-only unsigned (the Memo program)
-    1, 0, 1,
-    ...shortVec(2), ...wallet.publicKey, ...base58Decode(MEMO_PROGRAM_ID),
+    // Header: fee payer + co-signers sign, the co-signers are read-only, 1 read-only unsigned (the Memo program)
+    1 + extra.length, extra.length, 1,
+    ...shortVec(2 + extra.length), ...wallet.publicKey, ...extra.flatMap(c => [...c.publicKey]), ...base58Decode(MEMO_PROGRAM_ID),
     ...blockhash,
-    // One instruction: program index 1, no accounts, the memo text as data
-    ...shortVec(1), 1, ...shortVec(0), ...shortVec(memoBytes.length), ...memoBytes,
+    // One instruction: the Memo program (last key), the co-signers as its accounts, the memo text as data
+    ...shortVec(1), 1 + extra.length, ...shortVec(extra.length), ...extra.map((_, i) => 1 + i), ...shortVec(memoBytes.length), ...memoBytes,
   ]);
-  const sig = wallet.sign(message);
-  return { wire: Uint8Array.from([...shortVec(1), ...sig, ...message]), signature: base58Encode(sig) };
+  const sigs = [wallet, ...extra].map(w => w.sign(message));
+  return { wire: Uint8Array.from([...shortVec(sigs.length), ...sigs.flatMap(sg => [...sg]), ...message]), signature: base58Encode(sigs[0]) };
 }
 
 /** Signs and sends a memo; returns its signature (tx id) as soon as the network accepts it */
-export async function submitMemo(wallet: ProofWallet, memo: string): Promise<string> {
+export async function submitMemo(wallet: ProofWallet, memo: string, cosigners: ProofWallet[] = []): Promise<string> {
   const latest = await solanaRpc<{ value: { blockhash: string } }>('getLatestBlockhash', [{ commitment: 'finalized' }]);
-  const { wire, signature } = buildMemoTransaction(wallet, latest.value.blockhash, memo);
+  const { wire, signature } = buildMemoTransaction(wallet, latest.value.blockhash, memo, cosigners);
   await solanaRpc('sendTransaction', [Buffer.from(wire).toString('base64'), { encoding: 'base64', preflightCommitment: 'confirmed', maxRetries: 3 }], 10000);
   return signature;
 }

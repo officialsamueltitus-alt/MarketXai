@@ -28,6 +28,8 @@ interface ProofResponse {
     tx: string | null;
     at: number | null;
   };
+  /** The MarketX ID of the trader who got this signal: their Solana address, listing all their trade records */
+  traderId?: string | null;
 }
 const RESULT_TONE: Record<string, string> = {
   WIN: 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200',
@@ -104,6 +106,24 @@ export default function ProofPage() {
       .then(setData)
       .catch(err => setError(err?.message || 'Proof not found.'));
   }, [id]);
+  // While a step is still waiting (seal on its way to Solana, result being written), check again on its own
+  const waiting = !!data && (data.batch?.anchor.status !== 'ANCHORED' || data.reveal?.state === 'POSTING');
+  useEffect(() => {
+    if (!waiting) return;
+    let tries = 0;
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (++tries > 40) return clearInterval(t);
+      apiFetch<ProofResponse>(`/api/proofs/${encodeURIComponent(id)}`)
+        .then(next => {
+          setHashOk('pending');
+          setPathOk('pending');
+          setData(next);
+        })
+        .catch(() => {});
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [waiting, id]);
   // The two checks, done here in the browser
   useEffect(() => {
     if (!data) return;
@@ -174,6 +194,20 @@ export default function ProofPage() {
                       {signal.direction === 'LONG' ? 'Buy' : 'Sell'} {signal.symbol} <span className="text-slate-400 font-normal">on the {signal.timeframe}</span>
                     </h1>
                     <p className="mt-1 text-sm text-slate-400">Served by MarketX {when(signal.issuedAt)}</p>
+                    {data.traderId && (
+                      <a
+                        href={`https://solscan.io/account/${encodeURIComponent(data.traderId)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Every trade this trader took on MarketX, with its result, on Solscan"
+                        className="mt-2 inline-flex max-w-full items-center gap-1.5 text-xs text-slate-300 hover:text-white"
+                      >
+                        <span className="shrink-0 text-slate-500">MarketX ID</span>
+                        <span className="font-mono truncate">{short(data.traderId, 6)}</span>
+                        <span className="shrink-0 text-emerald-300">All trades</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                    )}
                     <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm tabular-nums">
                       <div className="p-3 rounded-2xl bg-black/25 border border-white/[0.06]">
                         <div className="text-[10px] uppercase tracking-wider text-amber-300/80">Entry</div>
@@ -240,7 +274,7 @@ export default function ProofPage() {
                       <span className="font-mono text-slate-200">{short(data.batch.root)}</span>.
                     </>
                   ) : (
-                    'Signals are written to Solana within a minute or two. Check back soon.'
+                    'Signals are written to Solana within a minute or two. This page updates by itself.'
                   )
                 }
               />
@@ -256,9 +290,9 @@ export default function ProofPage() {
                       <TxLinks tx={data.batch!.anchor.tx!} />
                     </>
                   ) : data.batch ? (
-                    'The batch is sealed and waiting for its Solana transaction. Check back soon.'
+                    'The batch is sealed and on its way to Solana. This page updates by itself.'
                   ) : (
-                    'Waiting for its batch.'
+                    'Waiting for its batch. This page updates by itself.'
                   )
                 }
               />
@@ -298,7 +332,8 @@ export default function ProofPage() {
               </div>
             </details>
             <p className="mt-6 text-[11px] text-slate-500 leading-relaxed">
-              A proof shows when a signal was served and that it was never edited. It says nothing about whether the trade will win. Proofs never include who asked for the signal.
+              A proof shows when a signal was served and that it was never edited. It says nothing about whether the trade will win. Proofs never include a
+              name or email: the result record is listed under the trader's MarketX ID only.
             </p>
           </>
         )}
