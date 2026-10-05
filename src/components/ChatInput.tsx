@@ -3,6 +3,7 @@ import { MarketXText } from './MarketXText';
 import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
   ArrowUp,
+  ShieldCheck,
   Clock,
   Zap,
   Sparkles,
@@ -96,13 +97,14 @@ const SLASH_COMMANDS = [
   { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
   { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
   { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
+  { id: 'safety', label: 'Token Safety', description: 'Check any Solana token before you buy: type its $ticker or address', icon: ShieldCheck },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
   { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -258,6 +260,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [comingSoonLabel]);
 
   const selectSlashCommand = (cmd: (typeof SLASH_COMMANDS)[number]) => {
+    // Token Safety runs in the chat: "/token-safety " is kept so the trader types the $ticker or address after it
+    if (cmd.id === 'safety') {
+      setInput('/token-safety ');
+      setTimeout(() => textareaRef.current?.focus(), 0);
+      return;
+    }
     setInput('');
     if (LIVE_COMMANDS.has(cmd.id) && onCommand?.(cmd.id)) {
       textareaRef.current?.blur();
@@ -611,9 +619,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <div role="listbox" aria-label="Commands" className="p-1.5 max-h-[min(60vh,400px)] overflow-y-auto overscroll-contain">
               <div className="px-2.5 pt-1.5 pb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
                 <span>Commands</span>
-                <span className="inline-flex items-center gap-1 text-amber-300/80">
-                  <Lock className="w-3 h-3" /> Soon: private testing
-                </span>
+                {filteredCommands.some(c => !LIVE_COMMANDS.has(c.id)) && (
+                  <span className="inline-flex items-center gap-1 text-amber-300/80">
+                    <Lock className="w-3 h-3" /> Soon: private testing
+                  </span>
+                )}
               </div>
               {filteredCommands.map((cmd, i) => {
                 const Icon = cmd.icon;
@@ -639,7 +649,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
                         {LIVE_COMMANDS.has(cmd.id) ? (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{cmd.id === 'preference' ? 'Free' : commandBadge || 'Live'}
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{cmd.id === 'preference' || cmd.id === 'safety' ? 'Free' : commandBadge || 'Live'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>

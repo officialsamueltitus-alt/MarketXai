@@ -474,8 +474,9 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>Token safety.</B> Analyze or ask about a Solana token (by name, $ticker or contract address) and a <B>Token safety</B> card appears under the
-              result. It reads the token straight from the blockchain: whether more can still be minted, whether wallets can be frozen, special transfer
+              <B>Token safety.</B> Ask in the chat, for free: <B>is $WIF safe?</B>, <B>rug check</B> followed by a contract address, or type <B>/token-safety</B>
+              and the token. You can also tap <B>Safety check</B> after typing just a coin. It works for any Solana token, including coins listed on
+              exchanges like WIF or BONK, and it also appears under analyses and answers about Solana tokens. It reads the token straight from the blockchain: whether more can still be minted, whether wallets can be frozen, special transfer
               rules, how much the largest holders own, whether the liquidity is locked, the pool's size and age, and known danger flags.
             </>,
             <>

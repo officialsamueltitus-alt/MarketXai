@@ -11,7 +11,7 @@ import { readSessionCookie, verifySessionToken } from './server/session';
 import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
 import { WORKERS, perWorker } from './server/workers';
 import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
-import { classifyPrompt } from './src/utils/promptIntent';
+import { classifyPrompt, isSafetyRequest, safetySubject, solanaAddressIn } from './src/utils/promptIntent';
 import { DATA_SOURCES_FACTS, asksAboutDataSources } from './server/dataSources';
 import {
   refreshNewsFeeds,
@@ -34,7 +34,7 @@ import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAl
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
 import { registerFxRoutes } from './server/fx';
-import { registerTokenSafetyRoutes, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
+import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerDedupe } from './server/dedupe';
@@ -3117,8 +3117,38 @@ function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
     choices: [
       { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
       { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+      // Crypto tokens (not the majors) also get the free safety check
+      ...(asset.type === 'crypto' && !/^(BTC|ETH|SOL|XRP|BNB|ADA|DOGE|LTC|TRX|DOT|AVAX|LINK|TON|XLM|BCH)\//.test(label) ? [{ kind: 'safety', label: 'Safety check', prompt: `Is ${label.split('/')[0]} safe?` }] : []),
     ],
   });
+}
+
+/**
+ * "Is $WIF safe?", "rug check <address>", "/safety BONK": answered with the free on-chain safety check before any
+ * credit is charged (the browser normally calls /api/token-safety/check itself; this catches the rest). Only for a
+ * Solana address or a named crypto token: "is it safe to buy gold now" stays a normal question.
+ */
+async function tokenSafetyGate(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  if (typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage || b.action) return next();
+  const prompt = b.prompt.trim().slice(0, 200);
+  if (!isSafetyRequest(prompt)) return next();
+  const subject = solanaAddressIn(prompt) || safetySubject(prompt);
+  const slash = /^\/(token-?safety|safety|rugcheck|rug)\b/i.test(prompt);
+  if (!slash && !solanaAddressIn(prompt) && !(subject && promptNamesAsset(subject) && extractAssetInfo(subject).type === 'crypto')) return next();
+  try {
+    const a = await safetyAnswer(prompt, q => resolveAssetInfo(q, q));
+    const label = a.label || '';
+    res.json({
+      success: true,
+      isAnalysis: false,
+      message: a.message,
+      ...(a.tokenSafety ? { tokenSafety: a.tokenSafety } : {}),
+      ...(label ? { choices: [{ kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` }, { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` }] } : {}),
+    });
+  } catch {
+    res.status(503).json({ error: 'UNAVAILABLE', message: 'The safety check is unavailable right now. No credit was used.' });
+  }
 }
 
 /** RDM (scan every timeframe) is Pro only once the free period ends: checked before any credit is used */
@@ -3239,7 +3269,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, rdmProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {

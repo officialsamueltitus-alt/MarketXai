@@ -26,6 +26,32 @@ const PLAN_HINT = /\b(outlook|forecast|bias|prediction|predict|levels?|zones?|en
 
 export type PromptIntent = 'analysis' | 'question' | 'clarify';
 
+// Token safety ("is $WIF safe?", "rug check <address>", "/safety BONK", "honeypot?"): a free on-chain check of a
+// Solana token, answered before any credit is used. Only for crypto: "is it safe to buy gold now" is a market question.
+const SAFETY =
+  /^\/(token-?safety|safety|rugcheck|rug)\b|\b(rug ?check|rug ?pull|rugged|is (it|this|that) (a )?rug|honey ?pot|safety (check|score)|token safety|(check|scan|audit) (this |the |my )?(token|contract|coin|ca|mint)|is .{1,48}\b(safe|legit|a scam|scam)\b|safe to (buy|ape|hold|trade)|(mint|freeze) authority|lp (locked|burn(ed)?)|liquidity (locked|burn(ed)?))/i;
+export function isSafetyRequest(prompt: string): boolean {
+  const text = String(prompt || '').trim();
+  if (!text || text.length > 200 || !SAFETY.test(text)) return false;
+  // "What is a rug pull?" is a lesson, unless a token address is in it
+  if (/^(what|why|how|explain|define|teach)\b/i.test(text) && !solanaAddressIn(text)) return false;
+  return true;
+}
+/** A Solana token address written in the prompt (base58, 32 to 44 characters), if any */
+export function solanaAddressIn(prompt: string): string | null {
+  const m = String(prompt || '').match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/);
+  return m ? m[0] : null;
+}
+/** The words around the token, without the safety wording ("is $WIF safe?" -> "$WIF") */
+export function safetySubject(prompt: string): string {
+  return String(prompt || '')
+    .replace(/^\/(token-?safety|safety|rugcheck|rug)\b/i, ' ')
+    .replace(/\b(is|it|this|that|a|an|the|my|check|scan|audit|rug ?check|rug ?pull|rugged|rug|honey ?pot|safety|score|token|contract|coin|ca|mint|safe|legit|scam|to|buy|ape|hold|trade|please|pls|can you|for me|on solana|solana)\b/gi, ' ')
+    .replace(/[?!.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Just a market and nothing else ("EURUSD", "gold", "$WIF", "BTC/USDT"): ask what the trader wants. */
 export function isBarePair(prompt: string, namesAsset: boolean): boolean {
   const text = String(prompt || '').trim();
