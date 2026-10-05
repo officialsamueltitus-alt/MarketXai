@@ -72,6 +72,8 @@ import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerU
 import { getApiUrl } from './utils/api';
 import { classifyPrompt } from './utils/promptIntent';
 import { timeframeFromPrompt } from './utils/timeframe';
+import { playChime, primeSound } from './utils/notifySound';
+import { onPushMessages, syncPush, unlinkPush } from './utils/push';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
@@ -773,6 +775,8 @@ export default function App() {
   }, [currentSessionId]);
 
   const handleSignOut = useCallback(async () => {
+    // This device stops getting the trader's phone notifications before the session ends
+    await unlinkPush();
     await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     setAuthUser(null);
     resetToSignedOut();
@@ -1273,8 +1277,38 @@ export default function App() {
     }
     const fresh = watchNotifs.filter(n => !seenWatchNotifsRef.current!.has(n.id) && !n.read);
     watchNotifs.forEach(n => seenWatchNotifsRef.current!.add(n.id));
-    if (fresh.length) setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
+    if (fresh.length) {
+      setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
+      // A chime with it (switch in the watchlist panel): brighter when a setup is ready than when it is building
+      playChime(fresh.some(n => n.title.startsWith('🎯')) ? 'ready' : 'building');
+    }
   }, [notifications]);
+  useEffect(() => primeSound(), []);
+  // Phone / desktop notifications: this device is linked to whoever signs in; a push that arrives while MarketX is
+  // open refreshes the notices at once (toast + chime), and a tapped notification opens its exact item
+  useEffect(() => {
+    if (authUser) syncPush();
+  }, [authUser]);
+  useEffect(
+    () =>
+      onPushMessages({
+        push: () => {
+          if (authUser) refreshNotifications(true);
+        },
+        open: url => {
+          const q = new URL(url, window.location.origin).searchParams;
+          const focus = q.get('focus') || '';
+          if (q.get('watchlist') === '1') {
+            setWatchFocus(/^wl_[a-f0-9]{16}$/.test(focus) ? focus : null);
+            openPluginPanel('watchlist');
+          } else if (q.get('alerts') === '1') {
+            setAlertFocus(/^al_of_[a-z0-9]{8,40}$/.test(focus) ? focus : null);
+            openPluginPanel('alerts');
+          }
+        },
+      }),
+    [authUser, refreshNotifications, openPluginPanel]
+  );
 
   /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
   const openChatMessage = (sessionId: string, messageId: string) => {

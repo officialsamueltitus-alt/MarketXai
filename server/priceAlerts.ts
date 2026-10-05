@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendEmail } from './mailer';
+import { sendPush } from './webPush';
 import { claimMarketMail, getUser, nextMarketMail, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
@@ -399,6 +400,11 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
     for (const h of fresh) {
       const m = hitMessage(a, h);
       await notifyActivity(a.uid, { type: 'market', title: m.title, message: m.message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any);
+    }
+    if (fresh.length) {
+      // One phone / desktop notification per alert per cycle (the newest hit; the tag replaces older ones)
+      const last = hitMessage(a, fresh[fresh.length - 1]);
+      sendPush(a.uid, { title: last.title, body: last.message, url: `/?alerts=1&focus=${encodeURIComponent(a.id)}`, tag: `al-${a.id}`, kind: 'alert' }).catch(() => {});
     }
     if (fresh.length && (await claimMarketMail(a.uid).catch(() => false))) {
       const msgs = fresh.map(h => hitMessage(a, h));

@@ -411,6 +411,12 @@ const SECTIONS: Section[] = [
           take elsewhere you log yourself; close them with the exit price or profit and loss. Either way you get your win rate, R, streak and best markets. <B>/track-record</B> shows how
           your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry), and the same results across MarketX.
         </Note>
+        <Note title="Sound and phone notifications">
+          While MarketX is open, a new watchlist setup plays a short chime (turn it off with <B>Sound when a setup is found</B> in the watchlist). Turn on
+          <B> Phone notifications</B> in the watchlist or price alerts and setups and alert hits reach your phone or computer with its own notification
+          sound, even when MarketX is closed. Tap one to open that exact pair or alert. On iPhone and iPad, first tap Share, then Add to Home Screen, and
+          open MarketX from there.
+        </Note>
         <Note title="Connectors / Plugins">
           Every command you turn on appears in Settings, Connectors / Plugins. Two are shown there; tap the expand icon to see them all in one window. Open a
           command from there, or use its switch to turn it off. Turning one off keeps your pairs, trades and results.

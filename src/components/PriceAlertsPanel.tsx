@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles, RefreshCw, Zap, Hand } from 'lucide-react';
+import { PushToggle } from './PushToggle';
 import type { PriceAlertItem, AlertLiveQuote, AlertMode } from '../types';
 import { formatMarketPrice } from '../utils/formatPrice';
 
@@ -305,6 +306,7 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
                 </div>
               </div>
             )}
+            <PushToggle what="alert hits" />
             {loading && !alerts.length ? (
             <div className="py-16 flex justify-center text-slate-500">
               <Loader2 className="w-5 h-5 animate-spin" />

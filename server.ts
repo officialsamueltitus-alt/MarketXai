@@ -38,6 +38,7 @@ import { registerTokenSafetyRoutes, startTokenSafety, tokenSafetyMiddleware } fr
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
+import { registerPushRoutes } from './server/webPush';
 import { exactPrice } from './src/utils/formatPrice';
 import { proGateActive, proGuard } from './server/proAccess';
 import { registerSupportRoutes } from './server/support';
@@ -2116,6 +2117,7 @@ registerSignalProofRoutes(app, generalApiRateLimiter);
 registerJournalRoutes(app, generalApiRateLimiter);
 // Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there
 registerPluginRoutes(app, generalApiRateLimiter);
+registerPushRoutes(app, generalApiRateLimiter);
 // Every coin listed on Binance, Bybit and MEXC (refreshed every 6 hours), so any listed coin or meme can be analyzed
 startCryptoUniverse();
 // Stored answers: expired ones are removed hourly (one worker does it)
@@ -4312,8 +4314,9 @@ async function startServer() {
       immutable: true,
       setHeaders: (res, filePath) => {
         // Only content-hashed bundles are immutable; index.html and public files (boot scripts, icons) revalidate
-        if (filePath.endsWith('index.html') || !filePath.includes(`${path.sep}assets${path.sep}`)) {
-          res.setHeader('Cache-Control', filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=3600');
+        if (filePath.endsWith('index.html') || filePath.endsWith(`${path.sep}sw.js`) || !filePath.includes(`${path.sep}assets${path.sep}`)) {
+          // The service worker always revalidates so a deploy updates it at once
+          res.setHeader('Cache-Control', filePath.endsWith('index.html') || filePath.endsWith(`${path.sep}sw.js`) ? 'no-cache' : 'public, max-age=3600');
         } else {
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         }
