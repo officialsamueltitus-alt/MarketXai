@@ -74,8 +74,9 @@
   `apple-touch-icon.png`, `marketx-maskable-512.png`, `/favicon.ico`), referenced with `?v=3` (bump `LOGO_V` in `MarketXIcon.tsx`
   and every other `?v=` ref when the files change). Render any size with `python3 brand/logo-ball.py OUT.png --size N [--no-shadow]`;
   master `brand/marketx-logo-ball-1080.png`, flat mark `brand/marketx-logo-flat-512.png`.
-- SEO (`index.html`): link previews use `public/brand/marketx-og-1200x630.jpg?v=4` (og:image + twitter:image + JSON-LD, with size/alt tags;
-  design: "Ask any market. Get the trade." + live XAU/USD trade card; bump `?v=` on all three refs when the image changes);
+- SEO (`index.html`): link previews use `public/brand/marketx-share-2026.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
+  `marketx-og-1200x630.jpg` holds the same picture for old links; a new image gets a NEW file name so social caches refetch;
+  design: "Ask any market. Get the trade." + live XAU/USD trade card);
   JSON-LD is an @graph of Organization (logo, sameAs X), WebSite and SoftwareApplication; `public/site.webmanifest` lists the icons.
 - Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
