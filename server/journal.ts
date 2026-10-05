@@ -97,6 +97,11 @@ export function scoreTrade(t: Pick<JournalTrade, 'direction' | 'entry' | 'stop' 
 }
 
 /** Validates a trade from the client; returns the clean fields or an error message */
+/** Same pair, side and levels: the same trade */
+export function sameTrade(a: Pick<JournalTrade, 'symbol' | 'direction' | 'entry' | 'stop' | 'target'>, b: Pick<JournalTrade, 'symbol' | 'direction' | 'entry' | 'stop' | 'target'>): boolean {
+  return a.symbol.toUpperCase() === b.symbol.toUpperCase() && a.direction === b.direction && a.entry === b.entry && (a.stop ?? null) === (b.stop ?? null) && (a.target ?? null) === (b.target ?? null);
+}
+
 export function parseTrade(body: any, existing?: JournalTrade): { trade?: Omit<JournalTrade, 'id' | 'uid' | 'createdAt' | 'updatedAt'>; error?: string } {
   const pick = <K extends keyof JournalTrade>(k: K) => (body?.[k] !== undefined ? body[k] : existing?.[k]);
   const symbol = cleanText(pick('symbol'), 24).toUpperCase();
@@ -196,11 +201,22 @@ export interface TrackRecordEntry {
   tpsTotal: number;
   createdAt: number;
   closedAt: number;
+  /** signalKey of the signal (records made before it was stored are matched by the cleanup) */
+  signalKey?: string;
 }
 export interface AlertLike {
   id: string; uid: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; tps: number[]; entered: boolean;
   hits: Array<{ kind: string; at: number; price?: number }>; createdAt: number; updatedAt?: number; active: boolean; endedReason?: string;
   entry?: { min: number; max: number; optimal: number }; stop?: number; execution?: 'LIMIT' | 'MARKET';
+}
+
+/**
+ * The same signal (pair, timeframe, side and every level), however many times it was served or turned on. Used so a
+ * signal is only ever one price alert, one journal trade and one track record result.
+ */
+export function signalKey(a: { symbol: string; timeframe: string; direction: string; entry?: { min: number; max: number; optimal: number }; stop?: number; tps: number[] }): string {
+  const parts = [String(a.symbol).toUpperCase(), String(a.timeframe || '').toUpperCase(), a.direction, a.entry?.min, a.entry?.max, a.entry?.optimal, a.stop, a.tps];
+  return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);
 }
 
 /** Outcome of an alert: a win once a target is hit, a loss when the stop goes first, otherwise no result */
@@ -222,8 +238,11 @@ export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
   const last = a.hits.length ? Math.max(...a.hits.map(h => h.at)) : Date.now();
   const entry: TrackRecordEntry = {
     id: a.id, uid: a.uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit,
-    tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last,
+    tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a),
   };
+  // One result per signal per trader: a twin record of the same signal is never added
+  const twins = (await db().collection(RECORDS).where('uid', '==', a.uid).get()).docs.map(d => d.data() as TrackRecordEntry);
+  if (twins.some(t => t.id !== a.id && t.signalKey === entry.signalKey)) return;
   await db().collection(RECORDS).doc(a.id).set(entry);
 }
 
@@ -342,6 +361,17 @@ export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 't
   };
 }
 
+/** Keeps one result per signal (the earliest), so the same signal never counts twice */
+export function uniqueSignals(entries: TrackRecordEntry[]): TrackRecordEntry[] {
+  const seen = new Map<string, TrackRecordEntry>();
+  for (const e of entries) {
+    const k = e.signalKey || e.id;
+    const cur = seen.get(k);
+    if (!cur || e.createdAt < cur.createdAt) seen.set(k, e);
+  }
+  return [...seen.values()];
+}
+
 /** The trader's own record: archived outcomes plus alerts still in storage (finished ones counted, live ones listed) */
 async function personalRecord(uid: string) {
   const [archived, alerts] = await Promise.all([
@@ -362,10 +392,10 @@ async function personalRecord(uid: string) {
     }
     if (outcome === 'WIN' || outcome === 'LOSS' || outcome === 'MISSED') {
       const last = a.hits.length ? Math.max(...a.hits.map(h => h.at)) : a.updatedAt || a.createdAt;
-      byId.set(a.id, { id: a.id, uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit, tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last });
+      byId.set(a.id, { id: a.id, uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit, tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a) });
     }
   }
-  const entries = [...byId.values()].sort((a, b) => b.closedAt - a.closedAt);
+  const entries = uniqueSignals([...byId.values()]).sort((a, b) => b.closedAt - a.closedAt);
   return {
     stats: recordStats(entries),
     entries: entries.slice(0, 60).map(({ uid: _u, ...e }) => e),
@@ -378,7 +408,8 @@ let globalCache: { at: number; value: ReturnType<typeof recordStats> & { since: 
 async function globalRecord() {
   if (globalCache && Date.now() - globalCache.at < 10 * 60_000) return globalCache.value;
   const snap = await db().collection(RECORDS).orderBy('closedAt', 'desc').limit(1000).get();
-  const entries = snap.docs.map(d => d.data() as TrackRecordEntry);
+  // A signal given to several traders (same pair, timeframe and levels) counts once in MarketX's record
+  const entries = uniqueSignals(snap.docs.map(d => d.data() as TrackRecordEntry));
   const value = { ...recordStats(entries), since: entries.length ? Math.min(...entries.map(e => e.createdAt)) : null };
   globalCache = { at: Date.now(), value };
   return value;
@@ -416,6 +447,11 @@ export function registerJournalRoutes(app: Express, limiter: (req: Request, res:
     if (count >= MAX_TRADES) return res.status(429).json({ error: 'JOURNAL_FULL', message: `Your journal holds up to ${MAX_TRADES} trades. Delete some old ones first.` });
     const { trade, error } = parseTrade(req.body);
     if (!trade) return res.status(400).json({ error: 'BAD_TRADE', message: error });
+    // The same trade twice (typed again, or already logged by its price alert) is refused: one record per trade
+    const mineNow = (await db().collection(TRADES).where('uid', '==', uid).get()).docs.map(d => d.data() as JournalTrade);
+    if (mineNow.some(x => sameTrade(x, trade) && (x.status === 'OPEN' || Math.abs((x.openedAt || 0) - (trade.openedAt || 0)) < 60_000))) {
+      return res.status(409).json({ error: 'DUPLICATE_TRADE', message: 'This trade is already in your journal.' });
+    }
     const t = Date.now();
     const doc: JournalTrade = { id: `jt_${crypto.randomBytes(8).toString('hex')}`, uid, ...trade, createdAt: t, updatedAt: t, source: 'MANUAL' };
     await db().collection(TRADES).doc(doc.id).set(doc);

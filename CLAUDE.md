@@ -80,6 +80,8 @@
   JSON-LD is an @graph of Organization (logo, sameAs X), WebSite and SoftwareApplication; `public/site.webmanifest` lists the icons.
 - Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
+  Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
+  and spoken when the video has a voice-over) as its final card.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
@@ -205,6 +207,12 @@
   `alertOffers` doc made in the same response (closest within 3s, a tie between traders stays unmatched). `GET /api/trader-id`
   (signed in), Settings card `TraderIdCard.tsx`, and the proof page shows the ID with an "All trades" Solscan link. Never change
   the secret (every ID would change).
+- One record per signal (owner-specified, `signalKey` in `server/journal.ts` = pair + timeframe + side + every level): the same signal
+  is ONE price alert per trader (`startAlert` reuses the twin alert and adds the new card to `offerIds`, which the client matches cards
+  by), ONE journal trade (manual add of the same trade, open or opened within a minute, is 409 `DUPLICATE_TRADE`) and ONE track record
+  result (`archiveAlertOutcome` skips a twin; personal and MarketX-wide stats count each signal once via `uniqueSignals`). `server/dedupe.ts`
+  (lead worker, after deploy + every 6h) removes older duplicates: keeps the active alert (else most hits, else oldest), moves its journal
+  trade/result onto it when only the copy had one, keeps notes, repoints offers.
 - Trade journal (`/trade-journal`, `server/journal.ts`, `journalTrades`) and track record (`/track-record`): trades are validated server-side
   (stop/target side checked, R and WIN/LOSS/BE scored on close). Auto + manual (owner-specified): turning on a price alert logs the trade
   (`openAutoJournal`, id `autoJournalId(alertId)`, `source: 'AUTO'`, `auto.state` TRACKING); when the alert ends, `closeAutoJournal` scores it

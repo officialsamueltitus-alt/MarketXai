@@ -1133,15 +1133,17 @@ export default function App() {
     const m: Record<string, 'on' | 'ended'> = {};
     // Switched off by the trader: the setup can be watched again; played out or expired: finished
     for (const a of priceAlerts) {
-      if (a.active) m[a.offerId] = 'on';
-      else if (a.endedReason !== 'TURNED_OFF' && !m[a.offerId]) m[a.offerId] = 'ended';
+      for (const o of a.offerIds?.length ? a.offerIds : [a.offerId]) {
+        if (a.active) m[o] = 'on';
+        else if (a.endedReason !== 'TURNED_OFF' && !m[o]) m[o] = 'ended';
+      }
     }
     return m;
   }, [priceAlerts]);
   const toggleAlertForStrategy = useCallback((strategy: StrategyResult) => {
     const offerId = strategy.alertOffer?.id;
     if (!offerId) return;
-    const current = priceAlerts.find(a => a.offerId === offerId && a.active);
+    const current = priceAlerts.find(a => a.active && (a.offerIds?.length ? a.offerIds : [a.offerId]).includes(offerId));
     if (current) removeAlert(current.id);
     else createAlert(offerId, strategy.symbol);
   }, [priceAlerts, removeAlert, createAlert]);

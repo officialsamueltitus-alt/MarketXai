@@ -7,7 +7,7 @@ import { claimMarketMail, getUser, nextMarketMail, notifyActivity, requireAuth, 
 import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
-import { archiveAlertOutcome, openAutoJournal } from './journal';
+import { archiveAlertOutcome, openAutoJournal, signalKey } from './journal';
 import { exactPrice } from '../src/utils/formatPrice';
 
 // ===========================================================================
@@ -57,6 +57,8 @@ export interface PriceAlert extends AlertLevels {
   entered: boolean;
   hits: AlertHit[];
   endedReason?: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF';
+  /** Every served copy of this same signal (each result card): they all show this one alert */
+  offerIds?: string[];
 }
 export interface Bar { t: number; o: number; h: number; l: number; c: number }
 export interface PriceAlertDeps {
@@ -272,9 +274,20 @@ type StartResult = { alert: PriceAlert } | { error: 'ENDED' | 'TOO_MANY_ALERTS';
 /** Starts watching an offer (tapped by the trader, or by itself in Auto mode); the journal, track record and notices follow it */
 async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> {
   const mine = (await db().collection(ALERTS).where('uid', '==', uid).get()).docs.map(d => d.data() as PriceAlert);
-  const id = `al_${offer.id}`;
+  // The same signal served again (same pair, timeframe and levels) is the SAME alert: never a second alert, journal trade
+  // or track record result
+  const own = `al_${offer.id}`;
+  const key = signalKey(offer);
+  const twin = mine.some(a => a.id === own) ? null : mine.filter(a => signalKey(a) === key).sort((a, b) => Number(b.active) - Number(a.active) || a.createdAt - b.createdAt)[0];
+  const id = twin ? twin.id : own;
   const existing = mine.find(a => a.id === id);
-  if (existing?.active) return { alert: existing };
+  if (existing?.active) {
+    if (!twin) return { alert: existing };
+    const offerIds = [...new Set([...(existing.offerIds || [existing.offerId]), offer.id])].slice(-20);
+    await db().collection(ALERTS).doc(id).update({ offerIds });
+    await db().collection(OFFERS).doc(offer.id).update({ emailPending: false, alertId: id }).catch(() => {});
+    return { alert: { ...existing, offerIds } };
+  }
   if (existing && existing.hits.some(h => ['SL', 'MISSED', `TP${existing.tps.length}`].includes(h.kind))) {
     return { error: 'ENDED', message: 'This setup has already played out.' };
   }
@@ -286,7 +299,8 @@ async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> 
   const alert: PriceAlert = {
     ...(levels as AlertLevels),
     // Turned back on: watch from now (moves while it was off are not reported late)
-    id, uid, offerId, createdAt: now, updatedAt: now, expiresAt, active: true,
+    id, uid, offerId: existing?.offerId || offerId, offerIds: [...new Set([...(existing?.offerIds || (existing ? [existing.offerId] : [])), offerId])].slice(-20),
+    createdAt: now, updatedAt: now, expiresAt, active: true,
     entered: existing?.entered || offer.execution === 'MARKET', hits: existing?.hits || [],
   };
   await db().collection(ALERTS).doc(id).set(alert);
@@ -302,7 +316,7 @@ async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> 
 // ---------------------------------------------------------------------------
 function toClient(a: PriceAlert) {
   return {
-    id: a.id, offerId: a.offerId, symbol: a.symbol, name: a.name, timeframe: a.timeframe, direction: a.direction, execution: a.execution,
+    id: a.id, offerId: a.offerId, offerIds: a.offerIds || [a.offerId], symbol: a.symbol, name: a.name, timeframe: a.timeframe, direction: a.direction, execution: a.execution,
     entry: a.entry, stop: a.stop, tps: a.tps, createdAt: a.createdAt, expiresAt: a.expiresAt, active: a.active, entered: a.entered,
     hits: a.hits, endedReason: a.endedReason || null,
   };
@@ -323,6 +337,8 @@ async function listAlerts(uid: string) {
 // Monitor (lead worker only)
 // ---------------------------------------------------------------------------
 const watched = new Map<string, PriceAlert>();
+/** Stops watching an alert at once (the duplicate cleanup removed it) */
+export const forgetAlert = (id: string) => watched.delete(id);
 let lastSync = 0;
 let ticking = false;
 
