@@ -11,7 +11,7 @@ import { readSessionCookie, verifySessionToken } from './server/session';
 import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
 import { WORKERS, perWorker } from './server/workers';
 import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
-import { classifyPrompt, isSafetyRequest, safetySubject, solanaAddressIn } from './src/utils/promptIntent';
+import { classifyPrompt, isMajorCoin, isSafetyRequest, safetySubject, solanaAddressIn, wantsSafetyCheck } from './src/utils/promptIntent';
 import { DATA_SOURCES_FACTS, asksAboutDataSources } from './server/dataSources';
 import {
   refreshNewsFeeds,
@@ -3118,7 +3118,7 @@ function clarifyBarePair(req: Request, res: Response, next: NextFunction) {
       { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
       { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
       // Crypto tokens (not the majors) also get the free safety check
-      ...(asset.type === 'crypto' && !/^(BTC|ETH|SOL|XRP|BNB|ADA|DOGE|LTC|TRX|DOT|AVAX|LINK|TON|XLM|BCH)\//.test(label) ? [{ kind: 'safety', label: 'Safety check', prompt: `Is ${label.split('/')[0]} safe?` }] : []),
+      ...(asset.type === 'crypto' && !isMajorCoin(label) ? [{ kind: 'safety', label: 'Safety check', prompt: `Is ${label.split('/')[0]} safe?` }] : []),
     ],
   });
 }
@@ -3135,7 +3135,11 @@ async function tokenSafetyGate(req: Request, res: Response, next: NextFunction) 
   if (!isSafetyRequest(prompt)) return next();
   const subject = solanaAddressIn(prompt) || safetySubject(prompt);
   const slash = /^\/(token-?safety|safety|rugcheck|rug)\b/i.test(prompt);
-  if (!slash && !solanaAddressIn(prompt) && !(subject && promptNamesAsset(subject) && extractAssetInfo(subject).type === 'crypto')) return next();
+  if (!slash && !solanaAddressIn(prompt)) {
+    const coin = subject && promptNamesAsset(subject) ? extractAssetInfo(subject) : null;
+    // "Is BTC safe to buy now?" is a market question; only tokens (or an outright rug check) get the safety check
+    if (!coin || coin.type !== 'crypto' || !wantsSafetyCheck(prompt, coin.symbol)) return next();
+  }
   try {
     const a = await safetyAnswer(prompt, q => resolveAssetInfo(q, q));
     const label = a.label || '';

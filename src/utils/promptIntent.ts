@@ -37,6 +37,19 @@ export function isSafetyRequest(prompt: string): boolean {
   if (/^(what|why|how|explain|define|teach)\b/i.test(text) && !solanaAddressIn(text)) return false;
   return true;
 }
+/** Major coins on their own blockchains (not Solana tokens): no safety check to offer for them */
+const MAJOR_COIN = /^(BTC|ETH|SOL|XRP|BNB|ADA|DOGE|LTC|TRX|DOT|AVAX|LINK|TON|XLM|BCH)$/;
+export function isMajorCoin(symbol: string): boolean {
+  return MAJOR_COIN.test(String(symbol || '').split('/')[0].toUpperCase());
+}
+/**
+ * Whether a safety-worded prompt about a coin should run the token safety check. "Is BTC safe to buy now?" about a major
+ * coin is a market question, not a rug check; it only runs the check when asked outright ("/safety BTC", "rug check ETH").
+ */
+export function wantsSafetyCheck(prompt: string, symbol: string): boolean {
+  if (!isMajorCoin(symbol)) return true;
+  return /^\/(token-?safety|safety|rugcheck|rug)\b|\b(rug ?check|rugged|honey ?pot|safety (check|score)|token safety|(mint|freeze) authority)\b/i.test(String(prompt || ''));
+}
 /** A Solana token address written in the prompt (base58, 32 to 44 characters), if any */
 export function solanaAddressIn(prompt: string): string | null {
   const m = String(prompt || '').match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/);

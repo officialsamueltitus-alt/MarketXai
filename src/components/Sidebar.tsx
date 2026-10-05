@@ -189,6 +189,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ? 'w-[86vw] max-w-[320px] lg:w-[280px] translate-x-0 opacity-100 shadow-2xl shadow-black/60 lg:shadow-none'
             : 'w-[86vw] max-w-[320px] -translate-x-full lg:translate-x-0 lg:w-0 lg:border-0 opacity-0 pointer-events-none'
         }`}
+        // Closed, the menu is off screen: keep its buttons out of the tab order and away from screen readers
+        inert={!isOpen}
       >
         <div className="w-full h-full flex flex-col min-w-0 bg-transparent">
           {/* Top: New Prompt/Analysis Button & Mobile Close X Button */}

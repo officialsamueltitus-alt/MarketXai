@@ -70,7 +70,7 @@ import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
 import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
-import { classifyPrompt, isSafetyRequest, safetySubject, solanaAddressIn } from './utils/promptIntent';
+import { classifyPrompt, isMajorCoin, isSafetyRequest, safetySubject, solanaAddressIn, wantsSafetyCheck } from './utils/promptIntent';
 import { timeframeFromPrompt } from './utils/timeframe';
 import { playChime, primeSound } from './utils/notifySound';
 import { onPushMessages, syncPush, unlinkPush } from './utils/push';
@@ -1465,7 +1465,7 @@ export default function App() {
     if (!resolvedBaseStrategy && !chartImage && isSafetyRequest(promptText)) {
       const subject = safetySubject(promptText);
       const subjectAsset = subject ? extractAssetInfo(subject) : null;
-      const namesToken = !!solanaAddressIn(promptText) || (!!subjectAsset && subjectAsset.type === 'crypto' && (subjectAsset.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(subject)));
+      const namesToken = !!solanaAddressIn(promptText) || (!!subjectAsset && subjectAsset.type === 'crypto' && (subjectAsset.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(subject)) && wantsSafetyCheck(promptText, subjectAsset.symbol));
       // "/safety ..." always goes to the check (it says which token it needs when none is named)
       if (namesToken || /^\/(token-?safety|safety|rugcheck|rug)\b/i.test(promptText.trim())) {
         runSafetyCheck(promptText);
@@ -1492,7 +1492,7 @@ export default function App() {
           { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
           { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
           // Crypto tokens (not the majors) also get the free safety check
-          ...(assetInfo.type === 'crypto' && !/^(BTC|ETH|SOL|XRP|BNB|ADA|DOGE|LTC|TRX|DOT|AVAX|LINK|TON|XLM|BCH)\//.test(label)
+          ...(assetInfo.type === 'crypto' && !isMajorCoin(label)
             ? [{ kind: 'safety' as const, label: 'Safety check', prompt: `Is ${label.split('/')[0]} safe?` }]
             : []),
         ],

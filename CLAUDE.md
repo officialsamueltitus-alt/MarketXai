@@ -182,7 +182,8 @@
   lookups, per-worker budgets (`SAFETY_RPC_PER_MIN` 60, `RUGCHECK_PER_MIN` 30). `GET /api/token-safety/:mint` public, 12/min per IP.
   Safety check in chat (owner-specified, free, no credit): `isSafetyRequest` in `src/utils/promptIntent.ts` ("is $WIF safe?", "rug check
   <address>", "honeypot", "/token-safety BONK" or "/safety", lessons like "what is a rug pull" excluded; only a crypto token or a Solana
-  address, so "is it safe to buy gold" stays a question). The client answers via `POST /api/token-safety/check` (signed in, 15/min per
+  address, so "is it safe to buy gold" stays a question; major coins on their own chains, `isMajorCoin`, only on an outright rug check or
+  `/safety`, so "is BTC safe to buy now?" stays a market question, `wantsSafetyCheck`). The client answers via `POST /api/token-safety/check` (signed in, 15/min per
   trader; a live "Reading the token from the Solana blockchain" step, then the card + Analyze / Info buttons); `tokenSafetyGate` (before
   `chargeAnalysisCredit`) does the same if one reaches the analyze route. `safetyAnswer` finds the mint: an address in the prompt, an
   on-chain token, or an exchange-listed coin whose most liquid pool is on Solana (WIF, BONK, JUP via `lookupDexToken`); SOL itself is
