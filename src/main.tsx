@@ -21,9 +21,12 @@ if (isCampaignRoute && window.location.pathname !== '/campaigns/explain-marketx'
 // Signal proofs are public standalone pages (/proof/<id>), verified in the browser
 const ProofPage = lazyWithReload(() => import('./proof/ProofPage'));
 const isProofRoute = /^\/proof\/sp_[a-z0-9]{8,40}\/?$/.test(window.location.pathname);
+// Public MarketX ID checker (/checker?id=<MarketX ID>)
+const CheckerPage = lazyWithReload(() => import('./checker/CheckerPage'));
+const isCheckerRoute = /^\/checker\/?$/i.test(window.location.pathname);
 // The app itself is a fixed, full-height shell (body can't scroll). The console is a normal scrolling
 // page, so it gets its own document styles: native window scroll, touch momentum, selectable text.
-if (isAdminRoute || isBlogRoute || isCampaignRoute || isProofRoute) {
+if (isAdminRoute || isBlogRoute || isCampaignRoute || isProofRoute || isCheckerRoute) {
   document.documentElement.classList.add(isAdminRoute ? 'mx-admin-page' : 'mx-blog-page');
   document.body.classList.remove('overflow-hidden', 'select-none');
 }
@@ -79,6 +82,10 @@ createRoot(document.getElementById('root')!).render(
       ) : isProofRoute ? (
         <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
           <ProofPage />
+        </Suspense>
+      ) : isCheckerRoute ? (
+        <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>
+          <CheckerPage />
         </Suspense>
       ) : isCampaignRoute ? (
         <Suspense fallback={<div className="mx-backdrop min-h-[100dvh]" />}>

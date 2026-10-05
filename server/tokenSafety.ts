@@ -14,6 +14,9 @@
 import type { Express, NextFunction, Request, Response } from 'express';
 import { isSolanaAddress, solanaRpc } from './solana';
 import { createKeyedThrottle, clientIp } from './security';
+import { lookupDexToken } from './cryptoUniverse';
+import { requireAuth } from './account';
+import { safetySubject, solanaAddressIn } from '../src/utils/promptIntent';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'unknown';
 export interface SafetyCheck {
@@ -292,6 +295,78 @@ export function tokenSafetyMiddleware(_req: Request, res: Response, next: NextFu
   next();
 }
 
+// ---------------------------------------------------------------------------
+// Direct check from chat ("is $WIF safe?", "rug check <address>", "/safety BONK"): free, no credit
+// ---------------------------------------------------------------------------
+export interface SafetyAnswer {
+  status: number;
+  message: string;
+  tokenSafety?: TokenSafety;
+  token?: { symbol: string; name: string; address: string; priceUsd?: number; liquidityUsd?: number };
+  /** Ticker (or address) to offer "Analyze" / "Info" for */
+  label?: string;
+}
+/**
+ * Finds the Solana token a safety request is about and runs the check: a mint address in the prompt, an on-chain token
+ * MarketX resolved, or a coin listed on an exchange whose most liquid pool is on Solana (WIF, BONK, JUP...).
+ */
+export async function safetyAnswer(prompt: string, resolve: (q: string) => Promise<any>): Promise<SafetyAnswer> {
+  const addr = solanaAddressIn(prompt);
+  const subject = addr || safetySubject(prompt);
+  if (!subject) return { status: 400, message: 'Which token should I check? Send its $ticker or Solana contract address, e.g. **is $WIF safe?**' };
+  let mint: string | null = null;
+  let ctx: SafetyContext = {};
+  let name = '';
+  let priceUsd: number | undefined;
+  if (addr) {
+    if (!isSolanaAddress(addr)) return { status: 400, message: 'That is not a valid Solana token address.' };
+    mint = addr;
+    const dex = await lookupDexToken(addr).catch(() => null);
+    if (dex && dex.chainId === 'solana') {
+      ctx = { symbol: dex.symbol, liquidityUsd: dex.liquidityUsd, pairCreatedAt: dex.pairCreatedAt, pairAddress: dex.pairAddress };
+      name = dex.name;
+      priceUsd = dex.priceUsd;
+    }
+  } else {
+    const asset = await Promise.race([resolve(subject).catch(() => null), new Promise<any>(r => setTimeout(() => r(null), 6000))]);
+    const direct = solanaTokenOf(asset);
+    if (direct) {
+      mint = direct.mint;
+      ctx = direct.ctx;
+      name = asset?.dex?.name || '';
+      priceUsd = asset?.dex?.priceUsd;
+    } else if (asset && asset.type === 'crypto' && !asset.unresolved) {
+      const base = String(asset.symbol || '').split('/')[0].toUpperCase();
+      if (base === 'SOL') return { status: 200, message: '**SOL** is Solana’s own coin, not a token: nobody can mint more at will, freeze wallets or pull its liquidity. The token safety check is for tokens that live on Solana, like $WIF or $BONK.', label: 'SOL' };
+      const dex = await lookupDexToken(base).catch(() => null);
+      if (dex && dex.chainId === 'solana') {
+        mint = dex.address;
+        ctx = { symbol: dex.symbol, liquidityUsd: dex.liquidityUsd, pairCreatedAt: dex.pairCreatedAt, pairAddress: dex.pairAddress };
+        name = dex.name;
+        priceUsd = dex.priceUsd;
+      } else if (dex) {
+        return { status: 422, message: `**${base}** trades mainly on ${dex.chainId.charAt(0).toUpperCase() + dex.chainId.slice(1)}, not Solana. The token safety check covers Solana tokens for now.`, label: base };
+      } else if (/^(BTC|ETH|XRP|BNB|ADA|DOGE|LTC|TRX|DOT|AVAX|LINK|TON|XLM|BCH)$/.test(base)) {
+        return { status: 422, message: `**${base}** is a major coin on its own blockchain, not a Solana token. The token safety check covers Solana tokens, like $WIF or $BONK.`, label: base };
+      }
+    } else if (asset && asset.type && asset.type !== 'crypto') {
+      return { status: 422, message: 'The token safety check is for Solana tokens. Send a $ticker or a Solana contract address, e.g. **is $BONK safe?**' };
+    }
+  }
+  if (!mint) return { status: 404, message: `I couldn’t find a Solana token for **${subject.slice(0, 48)}**. Try its contract address, which you can copy from the project’s page or a DEX.` };
+  const safety = await checkSolanaToken(mint, ctx);
+  const sym = safety.symbol || ctx.symbol || 'this token';
+  // One line above the card: the card itself carries the verdict, every check and the disclaimer
+  const lines = [`**Safety check: $${sym.replace(/^\$/, '')}** on Solana, read straight from the chain. Tap “See all checks” for the details.`];
+  return {
+    status: 200,
+    message: lines.join('\n\n'),
+    tokenSafety: safety,
+    token: { symbol: sym, name: name || sym, address: mint, priceUsd, liquidityUsd: ctx.liquidityUsd },
+    label: ctx.symbol || sym,
+  };
+}
+
 export function registerTokenSafetyRoutes(
   app: Express,
   deps: { resolve: (mint: string) => Promise<any> },
@@ -308,6 +383,20 @@ export function registerTokenSafetyRoutes(
       const ctx = solanaTokenOf(asset)?.ctx || {};
       const safety = await checkSolanaToken(mint, ctx);
       res.json({ tokenSafety: safety });
+    } catch {
+      res.status(503).json({ error: 'UNAVAILABLE', message: 'The safety check is unavailable right now. Try again shortly.' });
+    }
+  });
+
+  // From chat: "is $WIF safe?", "rug check <address>", "/safety BONK". Free (no credit), 15 a minute per trader.
+  const perUser = createKeyedThrottle({ windowMs: 60_000, max: 15 });
+  app.post('/api/token-safety/check', limiter, requireAuth, async (req: Request, res: Response) => {
+    const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim().slice(0, 200) : '';
+    if (!prompt) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Which token should I check?' });
+    if (perUser.hit((res.locals.user as any)?.uid || clientIp(req))) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many checks. Please wait a minute.' });
+    try {
+      const a = await safetyAnswer(prompt, deps.resolve);
+      res.json({ ok: a.status === 200, message: a.message, tokenSafety: a.tokenSafety || null, token: a.token || null, label: a.label || null });
     } catch {
       res.status(503).json({ error: 'UNAVAILABLE', message: 'The safety check is unavailable right now. Try again shortly.' });
     }

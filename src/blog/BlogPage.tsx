@@ -474,8 +474,9 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>Token safety.</B> Analyze or ask about a Solana token (by name, $ticker or contract address) and a <B>Token safety</B> card appears under the
-              result. It reads the token straight from the blockchain: whether more can still be minted, whether wallets can be frozen, special transfer
+              <B>Token safety.</B> Ask in the chat, for free: <B>is $WIF safe?</B>, <B>rug check</B> followed by a contract address, or type <B>/token-safety</B>
+              and the token. You can also tap <B>Safety check</B> after typing just a coin. It works for any Solana token, including coins listed on
+              exchanges like WIF or BONK, and it also appears under analyses and answers about Solana tokens. It reads the token straight from the blockchain: whether more can still be minted, whether wallets can be frozen, special transfer
               rules, how much the largest holders own, whether the liquidity is locked, the pool's size and age, and known danger flags.
             </>,
             <>
@@ -493,7 +494,9 @@ const SECTIONS: Section[] = [
               Solscan</B> on the proof page to see it, no blockchain knowledge needed.
             </>,
             <>
-              <B>Your MarketX ID.</B> Every trader has their own MarketX ID, a Solana address shown in <B>Settings</B>. Search it on Solscan (or tap
+              <B>Your MarketX ID.</B> Every trader has their own MarketX ID, a Solana address shown on your <B>Profile</B>. Activate it once
+              by sending a small amount of SOL to it (the exact amount is shown on your Profile), so it exists on Solana. Anyone can paste an ID into the <B>ID checker</B> (on the home page, or marketx.world/checker) to see that trader's public
+              profile and results. Search it on Solscan (or tap
               <B> View my trades on Solscan</B>) to see every trade you took on MarketX and its result. Your name and email are never on chain, and the ID
               is for records only: never send funds to it.
             </>,

@@ -70,7 +70,7 @@ import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
 import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
-import { classifyPrompt } from './utils/promptIntent';
+import { classifyPrompt, isMajorCoin, isSafetyRequest, safetySubject, solanaAddressIn, wantsSafetyCheck } from './utils/promptIntent';
 import { timeframeFromPrompt } from './utils/timeframe';
 import { playChime, primeSound } from './utils/notifySound';
 import { onPushMessages, syncPush, unlinkPush } from './utils/push';
@@ -1379,6 +1379,52 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser, sessions]);
 
+  // Free token safety check from the chat ("is $WIF safe?"): a live "reading the chain" step, then the safety card
+  // with the next steps (analysis, info). No credit, no intro steps.
+  const runSafetyCheck = async (promptText: string) => {
+    const now = Date.now();
+    const sessionId = currentSessionId || `session-${now}`;
+    if (!currentSessionId) setCurrentSessionId(sessionId);
+    const askId = `msg-assistant-${now + 1}`;
+    const step: ActivityStep = { id: 'safety', title: 'Reading the token from the Solana blockchain', status: 'active', startedAt: now };
+    const userMsg: ChatMessage = { id: `msg-user-${now}`, role: 'user', content: promptText, timestamp: now };
+    const pending: ChatMessage = { id: askId, role: 'assistant', content: '', status: 'searching', activity: [step], timestamp: now + 1 };
+    setSessions(prev =>
+      prev.some(x => x.id === sessionId)
+        ? prev.map(x => (x.id === sessionId ? { ...x, lastMessage: promptText, updatedAt: now, messages: [...x.messages, userMsg, pending] } : x))
+        : [{ id: sessionId, title: promptText.slice(0, 32), lastMessage: promptText, updatedAt: now, messages: [userMsg, pending] }, ...prev]
+    );
+    const finish = (patch: Partial<ChatMessage>) =>
+      setSessions(prev => prev.map(x => (x.id !== sessionId ? x : { ...x, messages: x.messages.map(m => (m.id === askId ? { ...m, ...patch } : m)) })));
+    try {
+      const r = await apiFetch<{ ok: boolean; message: string; tokenSafety: TokenSafety | null; label: string | null }>('/api/token-safety/check', {
+        method: 'POST',
+        body: JSON.stringify({ prompt: promptText }),
+      });
+      const end = Date.now();
+      const label = r.label || '';
+      finish({
+        content: r.message,
+        status: 'completed',
+        tokenSafety: r.tokenSafety || undefined,
+        activity: [{ ...step, status: 'done', endedAt: end, detail: r.tokenSafety ? `${r.tokenSafety.checks.length} checks` : undefined }],
+        durationSeconds: Math.max(1, Math.round((end - now) / 1000)),
+        choices: label
+          ? [
+              { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
+              { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+            ]
+          : undefined,
+      });
+    } catch (err: any) {
+      finish({
+        content: err?.message || 'The safety check is unavailable right now. Try again shortly.',
+        status: 'completed',
+        activity: [{ ...step, status: 'error', endedAt: Date.now() }],
+      });
+    }
+  };
+
   // Send a message and generate institutional strategy
   const handleSendMessage = async (
     promptText: string,
@@ -1415,6 +1461,18 @@ export default function App() {
     );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
 
+    // "Is $WIF safe?", "rug check <address>", "/safety BONK": the free on-chain safety check, right in the chat (no credit)
+    if (!resolvedBaseStrategy && !chartImage && isSafetyRequest(promptText)) {
+      const subject = safetySubject(promptText);
+      const subjectAsset = subject ? extractAssetInfo(subject) : null;
+      const namesToken = !!solanaAddressIn(promptText) || (!!subjectAsset && subjectAsset.type === 'crypto' && (subjectAsset.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(subject)) && wantsSafetyCheck(promptText, subjectAsset.symbol));
+      // "/safety ..." always goes to the check (it says which token it needs when none is named)
+      if (namesToken || /^\/(token-?safety|safety|rugcheck|rug)\b/i.test(promptText.trim())) {
+        runSafetyCheck(promptText);
+        return;
+      }
+    }
+
     // Just a pair ("EURUSD", "gold", "$WIF"): ask whether they want an analysis or information. Answered right here,
     // no request and no credit (the server does the same if a bare pair ever reaches it)
     const namesAssetHere = assetInfo.symbol !== 'BTC/USDT' || /\b(btc|xbt|bitcoin)\b/i.test(promptText);
@@ -1433,6 +1491,10 @@ export default function App() {
         choices: [
           { kind: 'analysis', label: `Analyze ${label}`, prompt: `Analyze ${label}` },
           { kind: 'info', label: `Info about ${label}`, prompt: `Tell me about ${label}` },
+          // Crypto tokens (not the majors) also get the free safety check
+          ...(assetInfo.type === 'crypto' && !isMajorCoin(label)
+            ? [{ kind: 'safety' as const, label: 'Safety check', prompt: `Is ${label.split('/')[0]} safe?` }]
+            : []),
         ],
         timestamp: now + 1,
       };

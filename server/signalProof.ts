@@ -26,7 +26,7 @@ import { createKeyedThrottle, clientIp } from './security';
 import { loadProofWallet, memoStatus, rpcHost, submitMemo, walletBalance, type ProofWallet } from './solana';
 import { evaluateBars, type AlertHit, type Bar } from './priceAlerts';
 import { exactPrice } from '../src/utils/formatPrice';
-import { traderKey } from './traderId';
+import { ensureTraderId, traderKey } from './traderId';
 
 const PROOFS = 'signalProofs';
 const BATCHES = 'proofBatches';
@@ -564,6 +564,7 @@ async function postRevealsLocked(): Promise<number> {
     try {
       // The trader's MarketX ID co-signs, so the record is listed under their ID on any explorer
       const uid = p.uid === undefined ? await ownerOf(p, s) : p.uid;
+      if (uid) await ensureTraderId(uid).catch(() => {});
       const cosigners = uid ? [await traderKey(uid)] : [];
       const tx = await submitMemo(w, memo, cosigners);
       await ref.update({ 'reveal.state': 'SENT', 'reveal.memo': memo, 'reveal.tx': tx, 'reveal.sentAt': now, 'reveal.tries': (r.tries || 0) + 1, 'reveal.lastError': null });

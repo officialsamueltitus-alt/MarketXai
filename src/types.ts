@@ -219,7 +219,7 @@ export interface ChatMessage {
 }
 
 export interface MessageChoice {
-  kind: 'analysis' | 'info';
+  kind: 'analysis' | 'info' | 'safety';
   label: string;
   prompt: string;
 }

@@ -168,6 +168,10 @@ export async function submitMemo(wallet: ProofWallet, memo: string, cosigners: P
   return signature;
 }
 
+export const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+/** Lamports that keep a plain (no data) account alive on Solana: rent-exempt minimum for 0 bytes */
+export const RENT_EXEMPT_EMPTY = 890_880;
+
 /** Where a sent transaction stands: confirmed (with its slot), failed on chain, or not seen yet */
 export async function memoStatus(signature: string): Promise<{ state: 'CONFIRMED'; slot: number | null } | { state: 'FAILED' } | { state: 'UNKNOWN' }> {
   const st = await solanaRpc<{ value: Array<{ slot: number; err: unknown; confirmationStatus?: string } | null> }>('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]);

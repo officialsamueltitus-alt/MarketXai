@@ -180,6 +180,15 @@
   program/pool-owned accounts set apart (owner not System-owned); RugCheck: LP lock, rugged, mutable metadata, extra danger flags;
   DexScreener: liquidity, pool age. Verdict LOW_RISK / CAUTION / HIGH_RISK / UNKNOWN (never "safe"), score 0-100. Cached 10 min, shared
   lookups, per-worker budgets (`SAFETY_RPC_PER_MIN` 60, `RUGCHECK_PER_MIN` 30). `GET /api/token-safety/:mint` public, 12/min per IP.
+  Safety check in chat (owner-specified, free, no credit): `isSafetyRequest` in `src/utils/promptIntent.ts` ("is $WIF safe?", "rug check
+  <address>", "honeypot", "/token-safety BONK" or "/safety", lessons like "what is a rug pull" excluded; only a crypto token or a Solana
+  address, so "is it safe to buy gold" stays a question; major coins on their own chains, `isMajorCoin`, only on an outright rug check or
+  `/safety`, so "is BTC safe to buy now?" stays a market question, `wantsSafetyCheck`). The client answers via `POST /api/token-safety/check` (signed in, 15/min per
+  trader; a live "Reading the token from the Solana blockchain" step, then the card + Analyze / Info buttons); `tokenSafetyGate` (before
+  `chargeAnalysisCredit`) does the same if one reaches the analyze route. `safetyAnswer` finds the mint: an address in the prompt, an
+  on-chain token, or an exchange-listed coin whose most liquid pool is on Solana (WIF, BONK, JUP via `lookupDexToken`); SOL itself is
+  explained, tokens on other chains get "trades mainly on X, not Solana". Bare crypto tokens get a third "Safety check" button
+  (`MessageChoice.kind` 'safety'); the composer's slash menu lists Token Safety (Free).
   Signal proofs (`server/signalProof.ts`, `ProofBadge`, `/proof/<id>` page `src/proof/ProofPage.tsx`): `signalProofMiddleware` seals every
   LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
   entry, stop, targets, issuedAt), stored in `signalProofs` (no identity). Lead worker every `PROOF_BATCH_MS` (1 min, only when new seals exist; "sealed now"): Merkle batch
@@ -205,8 +214,17 @@
   It co-signs (read-only signer, pays nothing) each readable result record of that trader's trades, so searching it on Solscan lists
   all their trades and results. Seals store `uid` (server only, never returned); older seals are matched to their trader via the
   `alertOffers` doc made in the same response (closest within 3s, a tie between traders stays unmatched). `GET /api/trader-id`
-  (signed in), Settings card `TraderIdCard.tsx`, and the proof page shows the ID with an "All trades" Solscan link. Never change
-  the secret (every ID would change).
+  (signed in), card `TraderIdCard.tsx` in the Profile tab (owner-specified, not Settings), a small "Check a MarketX ID" strip on the home
+  page (opens `/checker?id=`), and the proof page shows the ID with an
+  "All trades" Solscan link. Never change the secret (every ID would change).
+  Activation (owner-specified: done by the OWNER, once): an address with no SOL "does not exist" on explorers. The Profile's ID card asks the
+  trader to send `ACTIVATION_SOL` (0.001 SOL, above the 890,880-lamport rent-exempt minimum) to their ID from any wallet or exchange;
+  `refreshActivation` reads the balance (at most every 15s per ID, on `GET /api/trader-id`, "I've sent it, check", and checker lookups) and
+  marks `traderIds/{address}` ACTIVE once it holds the minimum. MarketX never pays for or moves it. `ensureTraderId` indexes IDs
+  (first open, co-signed records, and once for existing traders via `adminConfig/traderIdIndex`). Records are co-signed by the ID either way.
+  Public ID checker (owner-specified, `/checker?id=`, `src/checker/CheckerPage.tsx`, `GET /api/checker/:id`, 20/min per IP): picture,
+  display name, username, verified badge, join date, the ID (Solscan link, on-chain state) and the track record (one result per signal,
+  last 10). Never email, credits, plan details or the account id; banned/suspended accounts are not shown.
 - One record per signal (owner-specified, `signalKey` in `server/journal.ts` = pair + timeframe + side + every level): the same signal
   is ONE price alert per trader (`startAlert` reuses the twin alert and adds the new card to `offerIds`, which the client matches cards
   by), ONE journal trade (manual add of the same trade, open or opened within a minute, is 409 `DUPLICATE_TRADE`) and ONE track record

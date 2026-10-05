@@ -8,6 +8,7 @@ import { TOKEN_RANGE_TEXT } from '../utils/tokens';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
+import { TraderIdCard } from './TraderIdCard';
 import { RewardEmailNotificationModal } from './RewardEmailNotificationModal';
 import { getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import {
@@ -169,6 +170,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         </div>
       </section>
+
+      {/* MarketX ID: the trader's own Solana address listing every trade and result */}
+      <TraderIdCard />
 
       {/* Credited reward notice */}
       {xShareReward && xShareReward.status === 'credited' && xShareReward.notifiedOnSite && (

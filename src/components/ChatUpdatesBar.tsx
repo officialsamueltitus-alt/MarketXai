@@ -234,20 +234,20 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
 
   return (
     <div className="relative h-0">
+      <div ref={noticeRef} className="absolute inset-x-3 bottom-2 z-20 flex justify-center pointer-events-none">
       <div
         key={current.id}
-        ref={noticeRef}
-        className="mx-pop-in absolute inset-x-3 sm:inset-x-5 bottom-2 z-20 overflow-hidden rounded-2xl bg-[var(--mx-surface-2)]/95 backdrop-blur border border-white/[0.09] shadow-[0_16px_40px_-16px_rgba(0,0,0,0.9)]"
+        className="mx-pop-in pointer-events-auto w-full sm:w-[min(75%,30rem)] overflow-hidden rounded-xl bg-[var(--mx-surface-2)]/95 backdrop-blur border border-white/[0.09] shadow-[0_16px_40px_-16px_rgba(0,0,0,0.9)]"
         role="status"
         aria-live="polite"
       >
-        <div className="flex items-center gap-2.5 pl-2.5 pr-1.5 py-2">
-          <span className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${TONES[current.tone]}`}>
-            <Icon className="w-4 h-4" />
+        <div className="flex items-center gap-2 pl-2 pr-1 py-1.5">
+          <span className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${TONES[current.tone]}`}>
+            <Icon className="w-3 h-3" />
           </span>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500 leading-none">{current.label}</div>
-            <p className="mt-1 text-[13px] text-slate-200 leading-snug line-clamp-2">{current.text}</p>
+            <div className="text-[8px] font-medium uppercase tracking-wider text-slate-500 leading-none">{current.label}</div>
+            <p className="mt-0.5 text-[11px] text-slate-200 leading-snug line-clamp-2">{current.text}</p>
           </div>
           {current.cta && current.onAction && (
             <button
@@ -257,10 +257,10 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
                 current.onAction?.();
                 clear();
               }}
-              className="h-7 pl-3 pr-2 rounded-full bg-white text-slate-950 text-xs font-medium hover:bg-slate-200 active:scale-[0.97] transition inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
+              className="h-6 pl-2.5 pr-1.5 rounded-full bg-white text-slate-950 text-[11px] font-medium hover:bg-slate-200 active:scale-[0.97] transition inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
             >
               {current.cta}
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3 h-3" />
             </button>
           )}
           <button
@@ -269,17 +269,18 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
               if (current.notificationId) props.onNotificationSeen(current.notificationId);
               clear();
             }}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors shrink-0 cursor-pointer"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors shrink-0 cursor-pointer"
             aria-label="Close update"
             title="Close"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3 h-3" />
           </button>
         </div>
         {/* Time left before the update clears itself */}
         <div className="h-[2px] bg-white/[0.04]">
           <div className="mx-update-timer h-full bg-white/25" style={{ animationDuration: `${VISIBLE_MS}ms` }} />
         </div>
+      </div>
       </div>
     </div>
   );

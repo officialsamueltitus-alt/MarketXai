@@ -38,7 +38,8 @@ import {
   Check,
   Cpu,
   LineChart,
-  Info
+  Info,
+  ShieldCheck
 } from 'lucide-react';
 import { formatMarketPrice } from '../utils/formatPrice';
 
@@ -1101,10 +1102,12 @@ Rationale: ${strategy.entryZone.rationale}
                               className={`h-10 px-4 rounded-xl text-[13px] font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                                 c.kind === 'analysis'
                                   ? 'bg-indigo-500 text-white hover:bg-indigo-400'
-                                  : 'border border-white/[0.14] text-slate-100 hover:bg-white/[0.06]'
+                                  : c.kind === 'safety'
+                                    ? 'border border-emerald-400/40 text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20'
+                                    : 'border border-white/[0.14] text-slate-100 hover:bg-white/[0.06]'
                               }`}
                             >
-                              {c.kind === 'analysis' ? <LineChart className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                              {c.kind === 'analysis' ? <LineChart className="w-4 h-4" /> : c.kind === 'safety' ? <ShieldCheck className="w-4 h-4" /> : <Info className="w-4 h-4" />}
                               {c.label}
                             </button>
                           ))}
