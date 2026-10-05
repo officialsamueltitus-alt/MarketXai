@@ -163,8 +163,10 @@
   `/backtest` command, routes, panel or history fetcher.
   Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
   risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);
-  lots rounded DOWN to 0.01, under 0.01 flagged. Stop by entry/stop/target prices (direction from the stop) or in pips (forex 0.0001, JPY 0.01)
-  / points (1.00 price move). Contract presets (forex 100k, gold 100, silver 5k, oil 1k, index/crypto/stock/synthetic 1) and quote currency
+  lots rounded DOWN to 0.01, under 0.01 flagged, shown in trader terms (owner-specified): lot type (Standard 1.00, Mini 0.10, Micro 0.01,
+  `lotBreakdown`), e.g. "1 mini + 6 micro lots", and a Standard/Mini/Micro row with the pip value of each. Stop by entry/stop/target prices
+  (direction from the stop) or in pips as MT4/MT5 count them (`pipSize`: forex 0.0001, JPY 0.01, gold 0.10, silver and oil 0.01) / points
+  (1.00 price move) for indices, crypto, stocks and synthetics. Contract presets (forex 100k, gold 100, silver 5k, oil 1k, index/crypto/stock/synthetic 1) and quote currency
   are guessed from the symbol and editable. Live FX from `GET /api/fx` (`server/fx.ts`, open.er-api.com USD table, 1h cache) or typed by hand.
   Trade cards have a "Lot size" button that opens it filled with that trade (`calcSeed`).
 - Solana (owner-specified, free to run): `server/solana.ts` (no SDK: base58, JSON-RPC via `SOLANA_RPC_URL` default public mainnet, never
