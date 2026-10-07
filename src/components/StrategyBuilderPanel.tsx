@@ -133,7 +133,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
     try {
       return await fn();
     } catch (e: any) {
-      if (e?.status === 402 || e?.code === 'PRO_REQUIRED' || /Pro feature/.test(e?.message || '')) onProRequired(e?.message || 'Strategy mode is a Pro feature.');
+      if (e?.status === 402 || e?.code === 'PRO_REQUIRED' || /Pro feature/.test(e?.message || '')) onProRequired(e?.message || 'The Strategy Builder is a Pro feature.');
       else setError(e?.message || 'Something went wrong. Please try again.');
       return null;
     } finally {
@@ -181,14 +181,14 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
       const on = await call('mode', () => apiFetch<StrategyState>('/api/strategies/mode', { method: 'POST', body: JSON.stringify({ enabled: true, strategyId: out.saved.id }) }));
       if (on) apply(on);
     } else apply(out);
-    onToast(use ? `Strategy mode is on: "${out.saved.name}" now runs your analyses` : `"${out.saved.name}" saved`, 'success');
+    onToast(use ? `Strategy Builder is on: "${out.saved.name}" now finds your trades` : `"${out.saved.name}" saved`, 'success');
     setView('home');
   };
   const setMode = async (enabled: boolean, strategyId?: string) => {
     const out = await call(`mode:${strategyId || 'off'}`, () => apiFetch<StrategyState>('/api/strategies/mode', { method: 'POST', body: JSON.stringify({ enabled, strategyId }) }));
     if (out) {
       apply(out);
-      onToast(enabled ? 'Strategy mode is on' : 'Strategy mode is off: the MarketX engine runs your analyses again', 'success');
+      onToast(enabled ? 'Strategy Builder is on: your strategy finds your trades' : 'Strategy Builder is off: the MarketX engine finds your trades again', 'success');
     }
   };
   const remove = async (s: Saved) => {
@@ -203,7 +203,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
   // ---------------------------------------------------------------- home
   const home = (
     <div className="pt-4 space-y-4">
-      {/* Strategy mode */}
+      {/* Strategy Builder on / off */}
       <section className={`relative overflow-hidden p-4 rounded-3xl border ${state?.enabled ? 'border-emerald-400/30 bg-emerald-500/[0.06]' : 'border-white/[0.08] bg-white/[0.03]'}`}>
         <div aria-hidden="true" className="pointer-events-none absolute -top-16 -right-10 w-48 h-48 rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.25),transparent_65%)]" />
         <div className="relative flex items-start gap-3">
@@ -211,11 +211,11 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
             <Power className="w-4 h-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-white">Strategy mode {state?.enabled ? 'is on' : 'is off'}</h3>
+            <h3 className="text-sm font-semibold text-white">Strategy Builder {state?.enabled ? 'is on' : 'is off'}</h3>
             <p className="mt-0.5 text-xs text-slate-400 leading-snug">
               {state?.enabled && active
-                ? <>Your analyses and watchlist run <span className="text-white font-medium">{active.name}</span>. Credits, alerts, journal, track record and Solana proofs work as usual.</>
-                : 'Pick one of your strategies to run every analysis and your watchlist with it. Off = the MarketX engine.'}
+                ? <>MarketX finds your trades with <span className="text-white font-medium">{active.name}</span> instead of its own engine. Signals, RDM, timeframes, alerts, journal and Solana proofs (tagged Personal strategy) work as usual.</>
+                : 'Turn it on with one of your strategies and MarketX finds every trade with your rules instead of its own engine. Off = the MarketX engine.'}
             </p>
           </div>
           {state?.enabled && (
@@ -512,7 +512,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
       onClose={onClose}
       label="Strategy Builder"
       title="Strategy Builder"
-      subtitle={state?.enabled && active ? `Strategy mode on · ${active.name}` : 'Your own strategy, run on real candles'}
+      subtitle={state?.enabled && active ? `On · ${active.name}` : 'Your own strategy, run on real candles'}
       icon={Target}
       gradient="from-violet-500/30 to-emerald-500/25"
       iconTone="text-violet-100"

@@ -55,6 +55,8 @@ export interface JournalTrade {
   updatedAt: number;
   /** MANUAL (typed by the trader) or AUTO (from a price alert); missing on older trades = MANUAL */
   source?: 'MANUAL' | 'AUTO';
+  /** Strategy Builder: logged from a trade the trader's own strategy found (shown as "Personal strategy") */
+  userStrategy?: string;
   /** Auto trades only */
   auto?: AutoInfo;
 }
@@ -287,6 +289,7 @@ export async function openAutoJournal(a: AlertLike): Promise<void> {
       notes: cur.exists ? (cur.data() as JournalTrade).notes : '',
       openedAt: cur.exists ? (cur.data() as JournalTrade).openedAt : now, closedAt: null,
       createdAt: cur.exists ? (cur.data() as JournalTrade).createdAt : now, updatedAt: now, source: 'AUTO',
+      ...(a.userStrategy ? { userStrategy: cleanText(a.userStrategy, 48) } : {}),
       auto: {
         alertId: a.id, state: 'TRACKING', execution: a.execution === 'MARKET' ? 'MARKET' : 'LIMIT', targets: a.tps.slice(0, 3),
         tpsHit: 0, endedReason: null, enteredAt: entered ? now : null,

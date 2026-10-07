@@ -272,7 +272,7 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Commands">
           Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
-          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below) and <B>/strategy</B> (see Strategy Builder below). Still
+          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below) and <B>/strategy-builder</B> (see Strategy Builder below). Still
           in private testing and marked Soon: Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
@@ -444,7 +444,7 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>/strategy.</B> Type it in the input. Tap <B>New strategy</B> and explain your strategy the way you would to a friend (what you look for, where
+              <B>/strategy-builder.</B> Type it in the input. Tap <B>New strategy</B> and explain your strategy the way you would to a friend (what you look for, where
               the stop goes, where you take profit, which timeframes and markets), then answer the guided questions: the setup, direction, timeframes, markets,
               what keeps you out of a trade (trend, RSI, sessions), your stop and your targets.
             </>,
@@ -458,15 +458,16 @@ const SECTIONS: Section[] = [
               in mind yourself. Name it, then <B>Save and use</B>.
             </>,
             <>
-              <B>Strategy mode.</B> While it is on, every analysis and your watchlist run your strategy on real candles instead of the MarketX engine. Results
-              look the same, use the same credits, and price alerts, the journal and Solana proofs work as usual. A violet chip next to the input box shows which
-              strategy is running; tap it to switch or turn Strategy mode off.
+              <B>Turn it on.</B> While the Strategy Builder is on, MarketX finds every trade with your strategy instead of its own engine, in your analyses and
+              on your watchlist. Everything else stays the same: the signal, RDM, timeframes, credits, price alerts and the journal. Each trade is tagged
+              <B>Personal strategy</B>, on its card, in your journal and track record, and on its Solana record. A violet chip next to the input box shows which
+              strategy is running; tap it to switch or turn the Strategy Builder off.
             </>,
           ]}
         />
         <Note title="Good to know">
           Your strategy only trades the timeframes and markets you chose; ask for another and it says so. If your strategy finds nothing, you get a clear No
-          signal with the reason and your rules. Results from your own strategy count in your own track record, not in MarketX's. Strategy mode is free until
+          signal with the reason and your rules. Results from your own strategy count in your own track record, not in MarketX's. The Strategy Builder is free until
           1 November 2026, then part of Pro.
         </Note>
       </>

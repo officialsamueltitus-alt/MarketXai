@@ -3265,7 +3265,7 @@ async function serveUserStrategyAnalysis(
   const r = (p: number) => Number(p.toFixed(dec));
   const sig = best?.r.signal || null;
   s.timeframe = tf;
-  s.name = `Your strategy: ${st.name}`;
+  s.name = `Personal strategy: ${st.name}`;
   s.strategyEngine = { method: 'USER_STRATEGY', strategyId: st.id, strategyName: st.name, setup: SETUPS[rules.setup].name, candles: used?.candles || 0, timeframe: tf };
   s.userStrategy = { id: st.id, name: st.name, setup: SETUPS[rules.setup].short };
   s.toolsUsed = { candles: used?.candles || 0, zones: 0, rsi: used?.r.indicators.rsi ?? null, emaTrend: null, divergence: null };
@@ -3298,7 +3298,7 @@ async function serveUserStrategyAnalysis(
       const msg = err instanceof StrategyEngineUnavailable ? 'Your strategy engine is unavailable right now.' : 'Your strategy analysis could not be finished.';
       return res.status(503).json({ error: 'STRATEGY_ENGINE_UNAVAILABLE', message: `${msg} Your credit was refunded, please try again in a moment.` });
     }
-    s.detailedThesis = `> **Your strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
+    s.detailedThesis = `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
   } else {
     const reason = stop || used?.r.reason || 'No signal from your strategy right now.';
     s.tradeType = 'NO_SIGNAL';
@@ -3309,7 +3309,7 @@ async function serveUserStrategyAnalysis(
     delete s.stopLoss;
     s.takeProfits = [];
     s.detailedThesis =
-      `> **Your strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
+      `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
     s.signalStatus = { state: 'PENDING_CONFIRMATION', verdict: 'No Signal Opportunity', details: reason };
   }
   if (sig) s.signalStatus = evaluateSignalExecutionStatus(s.tradeType, price, s.entryZone.optimal, s.stopLoss.price, s.takeProfits);
@@ -3340,7 +3340,7 @@ async function strategyProGate(req: Request, res: Response, next: NextFunction) 
     if (locked)
       return res.status(402).json({
         error: 'PRO_REQUIRED',
-        message: 'Strategy mode is a Pro feature now. Turn it off in the Strategy Builder to use the MarketX engine, or upgrade to Pro. No credit was used.',
+        message: 'The Strategy Builder is a Pro feature now. Turn it off in /strategy-builder to use the MarketX engine, or upgrade to Pro. No credit was used.',
       });
   } catch {}
   next();

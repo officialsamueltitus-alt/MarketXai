@@ -828,8 +828,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={onOpenStrategy}
                 className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-violet-100 bg-violet-500/15 border-violet-400/30 hover:bg-violet-500/20 max-w-[11rem]"
-                title={`Strategy mode is on: analyses run your strategy "${strategyName}" (open the Strategy Builder)`}
-                aria-label={`Strategy mode: ${strategyName} (open the Strategy Builder)`}
+                title={`Strategy Builder is on: your strategy "${strategyName}" finds your trades (tap to open /strategy-builder)`}
+                aria-label={`Strategy Builder on: ${strategyName} (open the Strategy Builder)`}
               >
                 <Target className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline truncate">{strategyName}</span>

@@ -469,6 +469,8 @@ export interface WatchItem {
 
 // ---------------- Trade journal (/trade-journal, see server/journal.ts) ----------------
 export interface JournalTrade {
+  /** Logged from a trade the trader's own strategy found (Strategy Builder): its name */
+  userStrategy?: string;
   id: string;
   symbol: string;
   direction: 'LONG' | 'SHORT';
@@ -539,6 +541,8 @@ export interface TrackRecordEntry {
   tpsTotal: number;
   createdAt: number;
   closedAt: number;
+  /** Found with the trader's own strategy (Strategy Builder): its name */
+  userStrategy?: string;
 }
 export interface TrackRecordPayload {
   stats: TrackRecordStats;

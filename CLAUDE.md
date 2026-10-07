@@ -77,8 +77,8 @@
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
-- Strategy Builder + Strategy mode (owner-specified, Option B: rules in code, API 2 for words): `/strategy` (`StrategyBuilderPanel.tsx`, slash
-  command live; library + My strategies + Strategy mode switch; build = 1 Explain (free text, guiding questions) → 2 Guided (setup, direction,
+- Strategy Builder (owner-specified, Option B: rules in code, API 2 for words; called "Strategy Builder on/off" to traders, never "Strategy mode"):
+  `/strategy-builder` (`StrategyBuilderPanel.tsx`, slash command live; library + My strategies + on/off; build = 1 Explain (free text, guiding questions) → 2 Guided (setup, direction,
   timeframes, markets, trend/RSI/session filters, stop, targets, min R, params) → 3 Review (plain rules + "Not automated" list, name, Save / Save and
   use)). Shared rules `src/utils/strategyRules.ts` (`StrategyRules`, 10 setups `SETUPS`: SMC_OB_RETEST, ICT_SWEEP_FVG, EMA_PULLBACK,
   BREAKOUT_RETEST, RSI_DIVERGENCE, MA_CROSS, SR_BOUNCE, BOLLINGER_REVERSION, SESSION_BREAKOUT, RANGE_SWEEP; 11 `STRATEGY_TEMPLATES`, none is the
@@ -97,7 +97,9 @@
   USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from API 2 (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
   refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. Offers/alerts/track
   record carry `userStrategy` and MarketX-wide stats exclude it. Watchlist items carry `strategyId` (`syncWatchStrategy` on mode change or rule
-  edit; scanned with the rules, no AI). Client: violet strategy chip in the composer (opens the builder), card tag "Your strategy · name".
+  edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
+  journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
+  page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). Violet composer chip opens the builder.
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the

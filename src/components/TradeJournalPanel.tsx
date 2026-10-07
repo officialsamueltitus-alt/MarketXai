@@ -315,6 +315,11 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                             <Zap className="w-2.5 h-2.5" /> Auto
                           </span>
                         )}
+                        {t.userStrategy && (
+                          <span title={`Found with your personal strategy: ${t.userStrategy}`} className="h-5 px-1.5 rounded-md bg-fuchsia-500/10 border border-fuchsia-400/25 text-[10px] font-semibold text-fuchsia-200 inline-flex items-center max-w-[9rem] truncate">
+                            Personal strategy
+                          </span>
+                        )}
                         <span className="ml-auto text-xs font-mono tabular-nums text-right">
                           {t.r !== null && <span className={t.r >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{fmtR(t.r)}</span>}
                           {t.pnl !== null && <span className={`ml-1.5 ${t.pnl >= 0 ? 'text-emerald-300/80' : 'text-rose-300/80'}`}>{fmtMoney(t.pnl)}</span>}

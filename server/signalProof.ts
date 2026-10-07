@@ -91,6 +91,9 @@ export interface SignalProof {
   reveal?: Reveal;
   /** Who got the signal (server only, never returned): their MarketX ID co-signs the readable record */
   uid?: string | null;
+  /** PERSONAL_STRATEGY: found by the trader's own strategy (Strategy Builder), not the MarketX engine; shown on the
+   *  proof page and written into the readable result record on Solana */
+  tag?: 'PERSONAL_STRATEGY';
 }
 export interface ProofBatch {
   id: string;
@@ -163,9 +166,10 @@ export function signalProofMiddleware(_req: Request, res: Response, next: NextFu
         const id = `sp_${Date.now().toString(36)}${crypto.randomBytes(8).toString('hex')}`;
         const sealed = sealSignal(s, id);
         if (sealed) {
-          s.proof = { id, hash: sealed.hash, issuedAt: sealed.payload.issuedAt };
+          const personal = !!s.userStrategy;
+          s.proof = { id, hash: sealed.hash, issuedAt: sealed.payload.issuedAt, ...(personal ? { tag: 'PERSONAL_STRATEGY' } : {}) };
           const uid = ((res.locals.user as any)?.uid as string | undefined) || null;
-          const doc: SignalProof = { id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false, reveal: { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 }, uid };
+          const doc: SignalProof = { id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false, reveal: { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 }, uid, ...(personal ? { tag: 'PERSONAL_STRATEGY' as const } : {}) };
           db().collection(PROOFS).doc(id).set(doc).catch(err => console.warn('[MarketX Proofs] seal save failed:', err?.message || err));
         }
       }
@@ -374,10 +378,10 @@ export function revealResult(hits: AlertHit[], entered: boolean, targets: number
 
 const sideText = (p: SignalPayload) => `${p.direction === 'LONG' ? 'BUY' : 'SELL'}${p.execution === 'MARKET' ? '' : ' LIMIT'}`;
 /** The readable memo: the trade itself, its result, its fingerprint and where to verify it (always under 500 bytes) */
-export function revealMemo(p: SignalPayload, hash: string, result: NonNullable<Reveal['result']>): string {
+export function revealMemo(p: SignalPayload, hash: string, result: NonNullable<Reveal['result']>, tag?: SignalProof['tag']): string {
   const e = p.entry;
   const parts = [
-    'MarketX signal result',
+    tag === 'PERSONAL_STRATEGY' ? 'MarketX signal result (personal strategy)' : 'MarketX signal result',
     `${p.symbol.slice(0, 24)} ${p.timeframe}`.trim(),
     sideText(p),
     `Entry ${exactPrice(e.optimal)}${e.min !== e.max ? ` (${exactPrice(e.min)} to ${exactPrice(e.max)})` : ''}`,
@@ -560,7 +564,7 @@ async function postRevealsLocked(): Promise<number> {
     } catch {
       continue;
     }
-    const memo = r.memo || revealMemo(s, p.hash, r.result!);
+    const memo = r.memo || revealMemo(s, p.hash, r.result!, p.tag);
     try {
       // The trader's MarketX ID co-signs, so the record is listed under their ID on any explorer
       const uid = p.uid === undefined ? await ownerOf(p, s) : p.uid;
@@ -678,7 +682,7 @@ export function registerSignalProofRoutes(app: Express, limiter: (req: Request, 
           };
         }
       }
-      res.json({ proof: { id: p.id, hash: p.hash, canonical: p.canonical, prefix: PREFIX, issuedAt: p.issuedAt, status: batch?.anchor.status === 'ANCHORED' ? 'ANCHORED' : batch ? 'BATCHED' : 'SEALED' }, batch, reveal: publicReveal(p), traderId: await publicTraderId(p) });
+      res.json({ proof: { id: p.id, hash: p.hash, canonical: p.canonical, prefix: PREFIX, issuedAt: p.issuedAt, ...(p.tag ? { tag: p.tag } : {}), status: batch?.anchor.status === 'ANCHORED' ? 'ANCHORED' : batch ? 'BATCHED' : 'SEALED' }, batch, reveal: publicReveal(p), traderId: await publicTraderId(p) });
     } catch {
       res.status(503).json({ error: 'UNAVAILABLE', message: 'Proofs are unavailable right now. Try again shortly.' });
     }

@@ -8,7 +8,7 @@ import { formatMarketPrice } from '../utils/formatPrice';
 // take MarketX's word for it. 1) the fingerprint matches the signal, 2) the fingerprint is in the batch's Merkle root,
 // 3) the root was written to Solana in a transaction anyone can open.
 interface ProofResponse {
-  proof: { id: string; hash: string; canonical: string; prefix: string; issuedAt: number; status: 'SEALED' | 'BATCHED' | 'ANCHORED' };
+  proof: { id: string; hash: string; canonical: string; prefix: string; issuedAt: number; status: 'SEALED' | 'BATCHED' | 'ANCHORED'; tag?: 'PERSONAL_STRATEGY' };
   batch: null | {
     id: string;
     count: number;
@@ -188,12 +188,17 @@ export default function ProofPage() {
                   <ShieldCheck className="w-3.5 h-3.5" />
                   {allGood ? 'Verified on Solana' : hashOk === 'bad' || pathOk === 'bad' ? 'Does not verify' : 'Sealed, waiting for Solana'}
                 </span>
+                {data.proof.tag === 'PERSONAL_STRATEGY' && (
+                  <span title="Found with the trader's own strategy (Strategy Builder), not the MarketX engine" className="ml-2 inline-flex items-center h-7 px-3 rounded-full border border-violet-400/30 bg-violet-500/15 text-xs font-semibold text-violet-100">
+                    Personal strategy
+                  </span>
+                )}
                 {signal && (
                   <>
                     <h1 className="mt-4 text-2xl sm:text-3xl font-semibold text-white tracking-tight">
                       {signal.direction === 'LONG' ? 'Buy' : 'Sell'} {signal.symbol} <span className="text-slate-400 font-normal">on the {signal.timeframe}</span>
                     </h1>
-                    <p className="mt-1 text-sm text-slate-400">Served by MarketX {when(signal.issuedAt)}</p>
+                    <p className="mt-1 text-sm text-slate-400">{data.proof.tag === 'PERSONAL_STRATEGY' ? 'Found with the trader\'s personal strategy on MarketX' : 'Served by MarketX'} {when(signal.issuedAt)}</p>
                     {data.traderId && (
                       <a
                         href={`https://solscan.io/account/${encodeURIComponent(data.traderId)}`}
