@@ -35,6 +35,10 @@ import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
 import { rdmFrames, withDefaults, type AnalysisMode } from './src/utils/preferences';
 import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
+import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
+import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
+import { explainTrade, StrategyEngineUnavailable } from './server/strategyAi';
+import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
@@ -145,7 +149,8 @@ function createRateLimiter(options: { windowMs: number; max: number; message: st
       : hit(`${name}:ip:${ip}`, max, now);
     if (wait) {
       res.setHeader('Retry-After', wait);
-      return res.status(429).json({ error: options.message, retryAfterSeconds: wait });
+      // `message` is what the app shows; `error` keeps the text older clients read
+      return res.status(429).json({ error: options.message, code: 'RATE_LIMITED', message: options.message, retryAfterSeconds: wait });
     }
     next();
   };
@@ -2097,10 +2102,26 @@ registerWatchlistRoutes(
       return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
     candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
-    scan: async (symbol, timeframes, mode) => {
+    scan: async (symbol, timeframes, mode, strategyId) => {
       const asset = await resolveAssetInfo(symbol, symbol);
       const q = await liveQuoteFor(asset);
       if (!q) return [];
+      // Strategy mode: the pair is scanned with the trader's own rules (no AI call), only on the timeframes they trade
+      if (strategyId) {
+        const st = await strategyById(strategyId).catch(() => null);
+        if (!st) return [];
+        const dec = priceDecimals(q.price, asset.symbol.includes('JPY'), asset.type === 'forex');
+        const frames = await Promise.all(
+          timeframes.map(async tf => {
+            if (st.rules.timeframes.length && !st.rules.timeframes.includes(tf)) return { timeframe: tf, price: q.price, equilibrium: 0, plan: null, zones: [] } as ScanFrame;
+            const cs = await fetchCandlesForAsset(asset, tf).catch(() => null);
+            if (!cs) return null;
+            const r = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec });
+            return { timeframe: tf, price: q.price, equilibrium: 0, plan: r.signal ? { direction: r.signal.direction, score: r.signal.score, entry: r.signal.entry } : null, zones: [] } as ScanFrame;
+          })
+        );
+        return Object.assign(frames, { strategyName: st.name });
+      }
       const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q, mode || 'NORMAL').catch(() => null)));
       return maps.map((m, i) => toScanFrame(m, timeframes[i]));
     },
@@ -2113,6 +2134,8 @@ registerWatchlistRoutes(
 );
 // Preference Mode (/preference): the trader's own defaults
 registerPreferenceRoutes(app, generalApiRateLimiter);
+// Strategy Builder (/strategy): the trader's own strategies, run by Strategy mode instead of the general engine
+registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);
 // Token safety (any Solana token by address) and public signal proofs
@@ -3182,6 +3205,119 @@ async function tokenSafetyGate(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/**
+ * Strategy mode analysis: the trader's approved rules run in code on real candles (RDM: on every RDM timeframe their
+ * strategy trades, strongest signal wins), the strategy engine (API 2) explains a trade, and the result has the same
+ * shape as any analysis, so the card, price alerts, journal, track record and Solana proofs work the same. A trade whose
+ * explanation can't be written is refused with a refund (never handed to the general engine); a no-signal result is
+ * explained from the rules themselves.
+ */
+async function serveUserStrategyAnalysis(
+  res: Response,
+  o: {
+    strategy: ActiveStrategy;
+    asset: ReturnType<typeof extractAssetInfo>;
+    ticker: MarketTicker;
+    timeframe: string;
+    frames: string[] | null;
+    prompt: string;
+    slMode: 'normal' | 'tight';
+    newsBrief: NewsBrief | null;
+  }
+) {
+  const { strategy: st, asset, ticker } = o;
+  const rules = st.rules;
+  const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+  const price = ticker.price;
+  const dec = priceDecimals(price, asset.symbol.includes('JPY') || ticker.currency === 'JPY', asset.type === 'forex');
+  const marketKind = ['forex', 'crypto', 'stock', 'commodity', 'synthetic'].includes(asset.type) ? asset.type : null;
+  let stop: string | null = null;
+  if (rules.markets.length && (!marketKind || !rules.markets.includes(marketKind as any)))
+    stop = `No signal. Your strategy "${st.name}" only trades ${rules.markets.join(', ')}; ${asset.symbol} is ${asset.type || 'another market'}.`;
+  let frames = o.frames ? o.frames.filter(tf => !rules.timeframes.length || rules.timeframes.includes(tf)) : [o.timeframe];
+  if (o.frames && !frames.length) frames = rules.timeframes.length ? [...rules.timeframes] : [o.timeframe];
+  if (!stop && !o.frames && rules.timeframes.length && !rules.timeframes.includes(o.timeframe))
+    stop = `No signal. Your strategy "${st.name}" trades on ${rules.timeframes.map(label).join(', ')}; this analysis asked for the ${label(o.timeframe)}. Pick one of those timeframes (or RDM).`;
+
+  let best: { r: UserStrategyResult; tf: string; candles: number } | null = null;
+  let firstNo: { r: UserStrategyResult; tf: string; candles: number } | null = null;
+  if (!stop) {
+    const reads = await Promise.all(
+      frames.map(async tf => {
+        const cs = await Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(r => setTimeout(() => r(null), 7000))]).catch(() => null);
+        if (!cs) return null;
+        return { r: runUserStrategy(cs, rules, { price, timeframe: tf, decimals: dec, slMode: o.slMode }), tf, candles: cs.length };
+      })
+    );
+    for (const x of reads) {
+      if (!x) continue;
+      if (x.r.signal && (!best || x.r.signal.score + Math.log2(timeframeMinutes(x.tf)) * 0.5 > best.r.signal!.score + Math.log2(timeframeMinutes(best.tf)) * 0.5)) best = x;
+      if (!x.r.signal && !firstNo) firstNo = x;
+    }
+    if (!best && !firstNo) stop = `No signal. The live candles could not be loaded to run your strategy "${st.name}" right now. Try again in a moment.`;
+  }
+  const used = best || firstNo;
+  const tf = used?.tf || o.timeframe;
+  const s: any = generateAlgorithmicStrategy(asset, ticker, tf, o.prompt, o.slMode, undefined, o.newsBrief);
+  // Nothing from the general engine's method is shown for a strategy-mode result
+  for (const k of ['demandZone', 'supplyZone', 'poiZones', 'fibonacciLevels', 'unmitigatedZonesCount', 'mitigatedZonesCount', 'equilibrium', 'swingHigh', 'swingLow', 'goldenPocket'])
+    delete s[k];
+  const r = (p: number) => Number(p.toFixed(dec));
+  const sig = best?.r.signal || null;
+  s.timeframe = tf;
+  s.name = `Your strategy: ${st.name}`;
+  s.strategyEngine = { method: 'USER_STRATEGY', strategyId: st.id, strategyName: st.name, setup: SETUPS[rules.setup].name, candles: used?.candles || 0, timeframe: tf };
+  s.userStrategy = { id: st.id, name: st.name, setup: SETUPS[rules.setup].short };
+  s.toolsUsed = { candles: used?.candles || 0, zones: 0, rsi: used?.r.indicators.rsi ?? null, emaTrend: null, divergence: null };
+  if (o.frames) s.timeframeScan = { mode: 'RDM', scanned: frames.length, withSetup: best ? [best.tf] : [], chosen: best?.tf || null, frames };
+  if (sig) {
+    const long = sig.direction === 'LONG';
+    s.tradeType = sig.direction;
+    s.bias = long ? 'BULLISH' : 'BEARISH';
+    s.confidenceScore = Math.max(55, Math.min(92, sig.score));
+    s.execution = sig.execution;
+    s.entryZone = {
+      min: sig.entry.min,
+      max: sig.entry.max,
+      optimal: sig.entry.optimal,
+      rationale: `${sig.execution === 'MARKET' ? `${long ? 'Buy' : 'Sell'} now at market` : `${long ? 'Buy' : 'Sell'} limit`}: ${sig.trigger}`,
+    };
+    s.stopLoss = {
+      price: sig.stop,
+      riskPercent: Number(((Math.abs(sig.entry.optimal - sig.stop) / sig.entry.optimal) * 100).toFixed(2)),
+      rationale: rules.stop.type === 'ATR' ? `${rules.stop.atrMult} × ATR from the entry (your rule)` : `Beyond the setup's invalidation (${sig.zone.label}), your structure stop`,
+    };
+    const exits = [40, 40, 20];
+    s.takeProfits = sig.targets.map((t, i) => ({ level: `TP${i + 1} (${t.label})`, price: t.price, rewardRatio: `1:${t.rr.toFixed(1)}`, exitPercent: exits[i] }));
+    s.riskRewardRatio = `1 : ${sig.rrFinal.toFixed(1)}`;
+    s.setupCheck = { zone: { low: r(Math.min(sig.entry.min, sig.zone.low)), high: r(Math.max(sig.entry.max, sig.zone.high)) }, since: sig.at, issuedAt: Date.now(), timeframe: tf };
+    try {
+      s.detailedThesis = await explainTrade({ strategyName: st.name, rules, symbol: asset.symbol, timeframe: label(tf), price, signal: sig });
+    } catch (err: any) {
+      // A trade is only served with its explanation from the strategy engine; never handed to the general engine
+      const msg = err instanceof StrategyEngineUnavailable ? 'Your strategy engine is unavailable right now.' : 'Your strategy analysis could not be finished.';
+      return res.status(503).json({ error: 'STRATEGY_ENGINE_UNAVAILABLE', message: `${msg} Your credit was refunded, please try again in a moment.` });
+    }
+    s.detailedThesis = `> **Your strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
+  } else {
+    const reason = stop || used?.r.reason || 'No signal from your strategy right now.';
+    s.tradeType = 'NO_SIGNAL';
+    s.bias = 'NEUTRAL';
+    s.confidenceScore = 50;
+    s.riskRewardRatio = '1 : 0';
+    delete s.entryZone;
+    delete s.stopLoss;
+    s.takeProfits = [];
+    s.detailedThesis =
+      `> **Your strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
+    s.signalStatus = { state: 'PENDING_CONFIRMATION', verdict: 'No Signal Opportunity', details: reason };
+  }
+  if (sig) s.signalStatus = evaluateSignalExecutionStatus(s.tradeType, price, s.entryZone.optimal, s.stopLoss.price, s.takeProfits);
+  enforcePreSignalCrosscheck(s);
+  console.log(`[MarketX Strategy Mode] ${asset.symbol} ${tf} "${st.name}" (${rules.setup}): ${s.tradeType}`);
+  return res.json({ success: true, isAnalysis: true, message: s.detailedThesis, strategy: s });
+}
+
 /** RDM (scan every timeframe) is Pro only once the free period ends: checked before any credit is used */
 async function rdmProGate(req: Request, res: Response, next: NextFunction) {
   const b = req.body || {};
@@ -3192,6 +3328,22 @@ async function rdmProGate(req: Request, res: Response, next: NextFunction) {
   if (timeframeFromPrompt(prompt)) return next();
   if (classifyPrompt(prompt, { hasChartImage: !!b.chartImage, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
   return rdmGuard(req, res, next);
+}
+/** Strategy mode is Pro only once the free period ends: checked before any credit is used */
+async function strategyProGate(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  if (!proGateActive() || typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage) return next();
+  const prompt = b.prompt.trim().slice(0, 2000);
+  if (classifyPrompt(prompt, { hasChartImage: false, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
+  try {
+    const { locked } = await strategyModeFor((res.locals.user as any).uid);
+    if (locked)
+      return res.status(402).json({
+        error: 'PRO_REQUIRED',
+        message: 'Strategy mode is a Pro feature now. Turn it off in the Strategy Builder to use the MarketX engine, or upgrade to Pro. No credit was used.',
+      });
+  } catch {}
+  next();
 }
 const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
 
@@ -3300,7 +3452,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3594,6 +3746,22 @@ Do NOT output structured trade card JSON.`;
     // In chart mode the levels come from the uploaded image, never from live candles
     let rdmScan: Awaited<ReturnType<typeof scanAllTimeframes>> | null = null;
     const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
+    // Strategy mode: the trader's own strategy runs this analysis instead of the general engine (same result format)
+    if (!chartMode) {
+      const sm = await strategyModeFor((res.locals.user as any).uid).catch(() => ({ strategy: null, locked: false }));
+      if (sm.strategy) {
+        return serveUserStrategyAnalysis(res, {
+          strategy: sm.strategy,
+          asset,
+          ticker: currentTicker,
+          timeframe: analysisTimeframe,
+          frames: randomTimeframe ? tradePrefs!.rdm : null,
+          prompt: cleanPrompt,
+          slMode: safeSlMode,
+          newsBrief,
+        });
+      }
+    }
     const analysisMode: AnalysisMode = tradePrefs?.mode || 'NORMAL';
     const structureMap = chartMode
       ? null

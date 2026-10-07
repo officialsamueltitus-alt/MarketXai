@@ -36,6 +36,8 @@ export interface WatchSetup {
   foundAt: number;
   /** Confirmation mode: READY = price confirmed at the zone; BUILDING = the zone is waiting for that confirmation */
   confirmation?: boolean;
+  /** Strategy mode: found by the trader's own strategy (its name) */
+  strategy?: string;
 }
 export interface WatchItem {
   id: string;
@@ -49,6 +51,8 @@ export interface WatchItem {
   rdmFrames?: string[];
   /** Analysis mode from Preference Mode (missing = NORMAL): CONFIRMATION is only ready once price confirms at the zone */
   analysisMode?: AnalysisMode;
+  /** Strategy mode: the trader's saved strategy the pair is scanned with (missing/null = the general engine) */
+  strategyId?: string | null;
   addedAt: number;
   updatedAt: number;
   active: boolean;
@@ -93,7 +97,7 @@ export interface WatchlistDeps {
   /** Number of candles readable on a timeframe (0 = no chart data) */
   candles: (symbol: string, timeframe: string) => Promise<number>;
   /** Engine read for each timeframe asked (null entries = no data on that timeframe) */
-  scan: (symbol: string, timeframes: string[], mode?: AnalysisMode) => Promise<Array<ScanFrame | null>>;
+  scan: (symbol: string, timeframes: string[], mode?: AnalysisMode, strategyId?: string | null) => Promise<Array<ScanFrame | null> & { strategyName?: string }>;
   /** Minimum plan score for an RDM pick (same bar as the RDM analysis) */
   rdmMinScore: number;
 }
@@ -140,7 +144,7 @@ const pctText = (n: number) => `${n < 0.1 ? n.toFixed(2) : n.toFixed(1)}%`;
  * Reads the scan of a pair and returns what the trader should know: a setup ready (a valid plan from the engine),
  * a setup building (a fresh zone on the right side of the range that price is approaching), or nothing yet.
  */
-export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: boolean; rdmMinScore: number; confirmation?: boolean }): {
+export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: boolean; rdmMinScore: number; confirmation?: boolean; strategyName?: string }): {
   status: WatchStatus;
   setup: Omit<WatchSetup, 'foundAt'> | null;
   price: number | null;
@@ -149,7 +153,8 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
   if (!loaded.length) return { status: 'NO_DATA', setup: null, price: null };
   const price = loaded[0].price;
   const tfWeight = (tf: string) => Math.log2(Math.max(1, timeframeMinutes(tf))) * 0.5;
-  const minReady = opts.rdm ? Math.max(READY_MIN_SCORE, opts.rdmMinScore) : READY_MIN_SCORE;
+  // A trader's own strategy: any valid trade its rules find is ready (the rules decide quality, not the engine's score)
+  const minReady = opts.strategyName ? 0 : opts.rdm ? Math.max(READY_MIN_SCORE, opts.rdmMinScore) : READY_MIN_SCORE;
 
   // Ready: a plan the engine accepted (fresh, confirmed, levels untouched, price not run away)
   const ready = loaded
@@ -164,16 +169,18 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
       status: 'SETUP',
       price,
       setup: {
-        key: `${opts.confirmation ? 'RC' : 'R'}|${ready.timeframe}|${p.direction}|${p.entry.optimal.toPrecision(6)}`,
+        key: `${opts.strategyName ? 'RS' : opts.confirmation ? 'RC' : 'R'}|${ready.timeframe}|${p.direction}|${p.entry.optimal.toPrecision(6)}`,
         kind: 'READY',
         timeframe: ready.timeframe,
         direction: p.direction,
         score: Math.round(p.score),
         distancePct: Number(distancePct.toFixed(3)),
-        ...(opts.confirmation ? { confirmation: true } : {}),
+        ...(opts.strategyName ? { strategy: opts.strategyName } : opts.confirmation ? { confirmation: true } : {}),
       },
     };
   }
+  // A trader's own strategy only reports trades its rules found
+  if (opts.strategyName) return { status: 'WAITING', setup: null, price };
 
   // Confirmation mode: price is at a zone (or heading to a valid one) and the lower timeframe has not confirmed yet
   if (opts.confirmation) {
@@ -242,7 +249,7 @@ export function statusText(status: WatchStatus, setup: Omit<WatchSetup, 'foundAt
   if (status === 'NO_DATA') return 'Live data is unavailable right now. Retrying shortly.';
   if (status === 'WAITING' || !setup) return tf === 'RDM' ? `Watching ${rdmWhere(frames)} · no setup yet` : `Watching the ${tf} · no setup yet`;
   const where = setup.distancePct === 0 ? 'price is in the zone now' : `price ${pctText(setup.distancePct)} away`;
-  if (status === 'SETUP') return `${sideWord(setup.direction)} setup ${setup.confirmation ? 'confirmed' : 'ready'} on the ${setup.timeframe} · ${where}`;
+  if (status === 'SETUP') return `${sideWord(setup.direction)} setup ${setup.confirmation ? 'confirmed' : 'ready'} on the ${setup.timeframe}${setup.strategy ? ` · ${setup.strategy}` : ''} · ${where}`;
   if (setup.confirmation) return `${sideWord(setup.direction)} zone on the ${setup.timeframe} · waiting for confirmation · ${where}`;
   return `${sideWord(setup.direction)} setup building on the ${setup.timeframe} · ${where}`;
 }
@@ -251,7 +258,7 @@ function toClient(w: WatchItem) {
   return {
     id: w.id, symbol: w.symbol, name: w.name, type: w.type, timeframe: w.timeframe, addedAt: w.addedAt, active: w.active,
     status: w.status, statusText: w.statusText, price: w.price, priceAt: w.priceAt, scannedAt: w.scannedAt,
-    nextScanAt: w.nextScanAt, setup: w.setup, analysisMode: modeOf(w),
+    nextScanAt: w.nextScanAt, setup: w.setup, analysisMode: modeOf(w), strategy: !!w.strategyId,
     ...(w.timeframe === 'RDM' ? { rdmFrames: normalizeRdmTimeframes(w.rdmFrames || []) || [] } : {}),
   };
 }
@@ -271,7 +278,7 @@ async function sendNotice(item: WatchItem, setup: WatchSetup) {
   const ready = setup.kind === 'READY';
   const confirmed = !!setup.confirmation;
   const title = ready
-    ? `${confirmed ? '✅' : '🎯'} ${side} setup ${confirmed ? 'confirmed' : 'ready'} on ${item.symbol} · ${tf}`
+    ? `${confirmed ? '✅' : '🎯'} ${side} setup ${confirmed ? 'confirmed' : 'ready'} on ${item.symbol} · ${tf}${setup.strategy ? ` (${setup.strategy})` : ''}`
     : confirmed
       ? `👀 ${side} zone on ${item.symbol} · ${tf}, waiting for confirmation`
       : `👀 ${side} setup building on ${item.symbol} · ${tf}`;
@@ -318,13 +325,32 @@ function framesFor(tf: string, rdm?: string[]): string[] {
 }
 /** Same-scan key: pairs on RDM with a different timeframe choice are scanned separately */
 const modeOf = (w: WatchItem): AnalysisMode => (w.analysisMode === 'CONFIRMATION' ? 'CONFIRMATION' : 'NORMAL');
-const scanKey = (w: WatchItem) => `${w.symbol}|${w.timeframe}|${modeOf(w)}${w.timeframe === 'RDM' ? '|' + framesFor('RDM', w.rdmFrames).join(',') : ''}`;
+const scanKey = (w: WatchItem) => `${w.symbol}|${w.timeframe}|${w.strategyId ? `S:${w.strategyId}` : modeOf(w)}${w.timeframe === 'RDM' ? '|' + framesFor('RDM', w.rdmFrames).join(',') : ''}`;
 
 /** The trader's scan settings from Preference Mode: RDM timeframes ([] = all) and analysis mode */
-async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: AnalysisMode }> {
+async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: AnalysisMode; strategyId: string | null }> {
   const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
   const p = withDefaults((doc as any)?.preferences);
-  return { rdm: p.rdmTimeframes, mode: p.analysisMode };
+  const sm = (doc as any)?.strategyMode;
+  return { rdm: p.rdmTimeframes, mode: p.analysisMode, strategyId: sm?.enabled && typeof sm.strategyId === 'string' ? sm.strategyId : null };
+}
+
+/** Strategy mode changed (on, off, another strategy, or its rules edited): the trader's pairs scan with it from now on */
+export async function syncWatchStrategy(uid: string, strategyId: string | null) {
+  if (!isFirebaseConfigured()) return;
+  const snap = await db().collection(ITEMS).where('uid', '==', uid).get();
+  const t = now();
+  await Promise.all(
+    snap.docs.map(d => {
+      const w = d.data() as WatchItem;
+      const next: Partial<WatchItem> = {
+        strategyId, setup: null, nextScanAt: t, updatedAt: t,
+        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, w.timeframe, w.rdmFrames) } : {}),
+      };
+      if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, ...next } as WatchItem);
+      return d.ref.update(next);
+    })
+  );
 }
 
 /**
@@ -386,14 +412,14 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
   return outcome.item;
 }
 
-async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL') {
-  const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: mode === 'CONFIRMATION' };
+async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL', strategyId?: string | null) {
+  const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: !strategyId && mode === 'CONFIRMATION' };
   try {
     const frames = await Promise.race([
-      deps.scan(symbol, framesFor(tf, rdm), mode),
+      deps.scan(symbol, framesFor(tf, rdm), mode, strategyId || null),
       new Promise<Array<ScanFrame | null>>(r => setTimeout(() => r([]), 25_000)),
     ]);
-    return summarizeScan(frames, opts);
+    return summarizeScan(frames, { ...opts, ...(strategyId ? { strategyName: (frames as any).strategyName || 'your strategy' } : {}) });
   } catch {
     return summarizeScan([], opts);
   }
@@ -404,7 +430,7 @@ export async function scanItemNow(itemId: string, deps: WatchlistDeps): Promise<
   const snap = await db().collection(ITEMS).doc(itemId).get();
   if (!snap.exists) return null;
   const item = snap.data() as WatchItem;
-  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames, modeOf(item));
+  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames, modeOf(item), item.strategyId);
   const saved = await applyScan(itemId, result, deps);
   if (saved && IS_LEAD_WORKER && saved.active) watched.set(saved.id, saved);
   return saved;
@@ -439,7 +465,7 @@ async function tick(deps: WatchlistDeps) {
       await Promise.all(
         keys.slice(i, i + FETCH_CONCURRENCY).map(async k => {
           const items = groups.get(k)!;
-          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames, modeOf(items[0]));
+          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames, modeOf(items[0]), items[0].strategyId);
           for (const w of items) {
             try {
               const saved = await applyScan(w.id, result, deps);
@@ -579,6 +605,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
       timeframe,
       ...(rdm ? { rdmFrames: rdm } : {}),
       analysisMode: sp.mode,
+      ...(sp.strategyId ? { strategyId: sp.strategyId } : {}),
       addedAt: t,
       updatedAt: t,
       active: true,

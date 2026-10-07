@@ -77,6 +77,27 @@
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
+- Strategy Builder + Strategy mode (owner-specified, Option B: rules in code, API 2 for words): `/strategy` (`StrategyBuilderPanel.tsx`, slash
+  command live; library + My strategies + Strategy mode switch; build = 1 Explain (free text, guiding questions) → 2 Guided (setup, direction,
+  timeframes, markets, trend/RSI/session filters, stop, targets, min R, params) → 3 Review (plain rules + "Not automated" list, name, Save / Save and
+  use)). Shared rules `src/utils/strategyRules.ts` (`StrategyRules`, 10 setups `SETUPS`: SMC_OB_RETEST, ICT_SWEEP_FVG, EMA_PULLBACK,
+  BREAKOUT_RETEST, RSI_DIVERGENCE, MA_CROSS, SR_BOUNCE, BOLLINGER_REVERSION, SESSION_BREAKOUT, RANGE_SWEEP; 11 `STRATEGY_TEMPLATES`, none is the
+  general engine's S&D + Fibonacci; `normalizeRules` clamps everything; `describeRules`, `shortSummary`). Rules engine `server/userStrategy.ts`
+  (`runUserStrategy`: setup on the latest candles, sells on the mirrored chart; filters; STRUCTURE/ATR stop; R + structure targets in price
+  order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price).
+  API 2 `server/strategyAi.ts`: its own key `GEMINI_STRATEGY_API_KEY` (ideally another Google Cloud project), own client and `STRATEGY_MODELS`;
+  `compileStrategy` (free text + guided → rules JSON; guided-only = no call; the trader's text only ever in the user message, fenced and
+  labelled untrusted, never in a system instruction; reply validated/clamped; `notSupported` listed) and `explainTrade` (write-up of a found
+  trade; levels never changed; provider names scrubbed). Storage `server/strategyBuilder.ts`: `userStrategies/{st_…}` (max 10, names via
+  `giftNoteProblem`), `users.strategyMode {enabled, strategyId}`, routes `GET/POST /api/strategies`, `/compile` (20/h per trader), `PUT/DELETE
+  /api/strategies/:id`, `POST /api/strategies/mode`; build/save/switch-on are Pro after `PRO_GATE_AT` (off and delete always work).
+  Analysis: `strategyProGate` (402 before credits for a locked mode) then, after the normal credit charge, `serveUserStrategyAnalysis` in
+  `server.ts` replaces the general engine for analyses (not questions, not chart screenshots): candles → rules (RDM = RDM choice ∩ strategy
+  timeframes, strongest wins), market/timeframe the strategy doesn't trade = NO_SIGNAL saying so, same result shape (`strategyEngine.method`
+  USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from API 2 (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
+  refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. Offers/alerts/track
+  record carry `userStrategy` and MarketX-wide stats exclude it. Watchlist items carry `strategyId` (`syncWatchStrategy` on mode change or rule
+  edit; scanned with the rules, no AI). Client: violet strategy chip in the composer (opens the builder), card tag "Your strategy · name".
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
@@ -261,7 +282,7 @@
   ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
   alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
   writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
-- Pro gate (owner-specified, `server/proAccess.ts`): the four commands and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
+- Pro gate (owner-specified, `server/proAccess.ts`): the four commands, Strategy mode and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
   (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
   and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not
   gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or

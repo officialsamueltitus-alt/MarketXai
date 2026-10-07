@@ -48,9 +48,10 @@ const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournal
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
+const StrategyBuilderPanel = lazyWithReload(() => import('./components/StrategyBuilderPanel').then(m => ({ default: m.StrategyBuilderPanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -169,7 +170,9 @@ export default function App() {
   // Command panels (/watchlist, /trade-journal, /track-record) and the Connectors / Plugins popup
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
   // Tools without an on/off switch: /preference
-  const [openTool, setOpenTool] = useState<'preference' | null>(null);
+  const [openTool, setOpenTool] = useState<'preference' | 'strategy' | null>(null);
+  // Strategy mode: the trader's active strategy (the composer chip names it)
+  const [activeStrategy, setActiveStrategy] = useState<{ id: string; name: string } | null>(null);
   const [calcSeed, setCalcSeed] = useState<CalcSeed | null>(null);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const watchlistLinkRef = useRef(false);
@@ -1243,7 +1246,7 @@ export default function App() {
     const data = await apiFetch<{ preferences: Preferences }>('/api/preferences', { method: 'PUT', body: JSON.stringify(change) });
     setUserProfile(p => ({ ...p, preferences: data.preferences }));
   }, []);
-  const openToolPanel = useCallback((id: 'preference') => {
+  const openToolPanel = useCallback((id: 'preference' | 'strategy') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
       return;
@@ -1253,6 +1256,23 @@ export default function App() {
     setOpenPlugin(null);
     setOpenTool(id);
   }, [authUser, proAccess, showProUpsell]);
+  // Strategy mode: which strategy is running (the composer chip names it)
+  useEffect(() => {
+    if (!authUser) {
+      setActiveStrategy(null);
+      return;
+    }
+    let live = true;
+    apiFetch<{ enabled: boolean; activeId: string | null; strategies: Array<{ id: string; name: string }> }>('/api/strategies')
+      .then(st => {
+        const a = st.enabled ? st.strategies.find(x => x.id === st.activeId) : null;
+        if (live) setActiveStrategy(a ? { id: a.id, name: a.name } : null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [authUser]);
   // A link from a watchlist email opens the watchlist once signed in
   useEffect(() => {
     if (authUser && watchlistLinkRef.current) {
@@ -2286,6 +2306,22 @@ export default function App() {
           onOpenTool={openToolPanel}
         />
       </Deferred>
+      {/* Strategy Builder (/strategy) */}
+      <Deferred when={openTool === 'strategy'}>
+        <StrategyBuilderPanel
+          isOpen={openTool === 'strategy'}
+          onClose={() => setOpenTool(null)}
+          onToast={showToast}
+          onState={st => {
+            const a = st.enabled ? st.strategies.find(x => x.id === st.activeId) : null;
+            setActiveStrategy(a ? { id: a.id, name: a.name } : null);
+          }}
+          onProRequired={msg => {
+            setOpenTool(null);
+            showProUpsell(msg);
+          }}
+        />
+      </Deferred>
       {/* Preference Mode (/preference) */}
       <Deferred when={openTool === 'preference'}>
         <PreferencePanel
@@ -2538,7 +2574,7 @@ export default function App() {
                     onCommand={id =>
                       PLUGIN_COMMAND[id]
                         ? (openPluginPanel(PLUGIN_COMMAND[id]), true)
-                        : id === 'preference'
+                        : id === 'preference' || id === 'strategy'
                           ? (openToolPanel(id), true)
                           : false
                     }
@@ -2548,6 +2584,8 @@ export default function App() {
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
                     onRdmTimeframesChange={authUser ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
+                    strategyName={authUser ? activeStrategy?.name || null : null}
+                    onOpenStrategy={() => openToolPanel('strategy')}
                     onOpenPreference={() => setOpenTool('preference')}
                     onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
                     onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}

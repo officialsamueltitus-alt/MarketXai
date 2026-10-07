@@ -272,8 +272,8 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Commands">
           Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
-          Watchlist, journal and track record below) and <B>/preference</B> (see Preference Mode below). Still in private testing and marked Soon: Strategy,
-          Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below) and <B>/strategy</B> (see Strategy Builder below). Still
+          in private testing and marked Soon: Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -430,6 +430,44 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
+        </Note>
+      </>
+    ),
+  },
+  {
+    id: 'strategy-builder',
+    title: 'Strategy Builder',
+    icon: Target,
+    lead: 'Run your own strategy instead of the MarketX engine: write it in your own words, answer a few questions, or start from SMC, ICT and other popular methods.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/strategy.</B> Type it in the input. Tap <B>New strategy</B> and explain your strategy the way you would to a friend (what you look for, where
+              the stop goes, where you take profit, which timeframes and markets), then answer the guided questions: the setup, direction, timeframes, markets,
+              what keeps you out of a trade (trend, RSI, sessions), your stop and your targets.
+            </>,
+            <>
+              Or open the <B>strategy library</B>: SMC order blocks, ICT liquidity sweeps with fair value gaps (with or without the London and New York killzones),
+              trend pullbacks, moving average crossovers, breakout and retest, RSI divergence, support and resistance, Bollinger mean reversion, the London
+              breakout and the Wyckoff spring. Use one as it is or tweak it.
+            </>,
+            <>
+              <B>Review your rules.</B> MarketX shows your strategy as clear rules, and lists anything it can't automate (news, discretion) so you keep that part
+              in mind yourself. Name it, then <B>Save and use</B>.
+            </>,
+            <>
+              <B>Strategy mode.</B> While it is on, every analysis and your watchlist run your strategy on real candles instead of the MarketX engine. Results
+              look the same, use the same credits, and price alerts, the journal and Solana proofs work as usual. A violet chip next to the input box shows which
+              strategy is running; tap it to switch or turn Strategy mode off.
+            </>,
+          ]}
+        />
+        <Note title="Good to know">
+          Your strategy only trades the timeframes and markets you chose; ask for another and it says so. If your strategy finds nothing, you get a clear No
+          signal with the reason and your rules. Results from your own strategy count in your own track record, not in MarketX's. Strategy mode is free until
+          1 November 2026, then part of Pro.
         </Note>
       </>
     ),

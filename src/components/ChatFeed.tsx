@@ -812,6 +812,14 @@ Rationale: ${strategy.entryZone.rationale}
                             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/[0.06] text-slate-200 border border-white/[0.1]">
                               {strategy.timeframe} TF
                             </span>
+                            {strategy.userStrategy && (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-500/15 text-violet-100 border border-violet-400/30 max-w-[14rem] truncate"
+                                title={`Your strategy: ${strategy.userStrategy.name} (${strategy.userStrategy.setup})`}
+                              >
+                                Your strategy · {strategy.userStrategy.name}
+                              </span>
+                            )}
                             {strategy.analysisMode === 'CONFIRMATION' && strategy.confirmationRead && (
                               <span
                                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${

@@ -94,6 +94,8 @@ export interface StrategyResult {
   alreadyMoved?: 'NEAR_TP' | 'NEAR_SL';
   /** Tools the engine ran for this analysis (live candles, zones, RSI 14, EMA 50) */
   /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
+  /** Strategy mode: the trader's own strategy produced this result (not the general engine) */
+  userStrategy?: { id: string; name: string; setup: string };
   /** Confirmation analysis (Preference Mode): set on every result analysed in that mode */
   analysisMode?: 'NORMAL' | 'CONFIRMATION';
   confirmationRead?: {

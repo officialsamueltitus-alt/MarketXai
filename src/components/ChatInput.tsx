@@ -98,7 +98,7 @@ const SLASH_COMMANDS = [
   { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
   { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
-  { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
+  { id: 'strategy', label: 'Strategy Builder', description: 'Build your own strategy (or pick SMC, ICT…) and run it in every analysis', icon: Target },
   { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
   { id: 'safety', label: 'Token Safety', description: 'Check any Solana token before you buy: type its $ticker or address', icon: ShieldCheck },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
@@ -107,7 +107,7 @@ const SLASH_COMMANDS = [
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -130,6 +130,9 @@ interface ChatInputProps {
   onRdmTimeframesChange?: (next: string[]) => Promise<void>;
   /** Confirmation analysis is on (Preference Mode): a chip says so and opens Preference Mode */
   confirmationMode?: boolean;
+  /** Strategy mode is on: the strategy's name (a chip says so and opens the Strategy Builder) */
+  strategyName?: string | null;
+  onOpenStrategy?: () => void;
   onOpenPreference?: () => void;
   /** Opens Connectors / Plugins (every command in one place) */
   onOpenConnectors?: () => void;
@@ -160,6 +163,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onRdmTimeframesChange,
   confirmationMode,
   onOpenPreference,
+  strategyName,
+  onOpenStrategy,
   onOpenConnectors,
   connectorsOn = 0,
   defaultTimeframe,
@@ -818,7 +823,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
             </button>
 
-            {confirmationMode && (
+            {strategyName && (
+              <button
+                type="button"
+                onClick={onOpenStrategy}
+                className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-violet-100 bg-violet-500/15 border-violet-400/30 hover:bg-violet-500/20 max-w-[11rem]"
+                title={`Strategy mode is on: analyses run your strategy "${strategyName}" (open the Strategy Builder)`}
+                aria-label={`Strategy mode: ${strategyName} (open the Strategy Builder)`}
+              >
+                <Target className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline truncate">{strategyName}</span>
+              </button>
+            )}
+
+            {confirmationMode && !strategyName && (
               <button
                 type="button"
                 onClick={onOpenPreference}
