@@ -223,7 +223,7 @@ const SecuritySection: React.FC<{ session: { custom: boolean; updatedAt: number 
           <p className="text-slate-300 font-medium">How the console is protected</p>
           <p>Passwords are stored only as salted scrypt hashes. Sessions last 4 hours, are HTTP-only and same-site, and lock after 30 idle minutes.</p>
           <p>Five wrong passwords from one network lock sign-in for 15 minutes. Changing or resetting the password signs out every other admin session.</p>
-          <p>Locked out of a custom password? Delete the document adminConfig/auth in the Firebase console to restore the default.</p>
+          <p>Locked out of a custom password? Ask the site owner to remove the saved custom admin password in the database; the default from the server settings then works again.</p>
         </div>
       </Card>
 
