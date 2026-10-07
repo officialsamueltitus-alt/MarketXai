@@ -1,6 +1,6 @@
 // Strategy Builder: the rules a trader's strategy runs on, shared by the server (validation, the rules engine in
 // server/userStrategy.ts) and the client (the builder, the review screen). A strategy is written in free text and/or the
-// guided questions; the strategy engine (API 2) turns it into these rules, the trader approves them, and every analysis
+// guided questions; the Strategy Builder's words engine turns it into these rules, the trader approves them, and every analysis
 // in Strategy mode runs them in code on real candles. None of the setups is the general MarketX engine (supply and demand
 // zones entered with the Fibonacci retracement).
 import { SUPPORTED_TIMEFRAMES } from './timeframe';

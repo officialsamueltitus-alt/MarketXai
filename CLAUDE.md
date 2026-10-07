@@ -79,7 +79,7 @@
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
-- Strategy Builder (owner-specified, Option B: rules in code, API 2 for words; called "Strategy Builder on/off" to traders, never "Strategy mode"):
+- Strategy Builder (owner-specified, Option B: rules in code, the engine for words; called "Strategy Builder on/off" to traders, never "Strategy mode"):
   `/strategy-builder` (`StrategyBuilderPanel.tsx`, slash command live; library + My strategies + on/off; build = 1 Explain (free text, guiding questions) → 2 Guided (setup, direction,
   timeframes, markets, trend/RSI/session filters, stop, targets, min R, params) → 3 Review (plain rules + "Not automated" list, name, Save / Save and
   use)). Shared rules `src/utils/strategyRules.ts` (`StrategyRules`, 10 setups `SETUPS`: SMC_OB_RETEST, ICT_SWEEP_FVG, EMA_PULLBACK,
@@ -87,7 +87,9 @@
   general engine's S&D + Fibonacci; `normalizeRules` clamps everything; `describeRules`, `shortSummary`). Rules engine `server/userStrategy.ts`
   (`runUserStrategy`: setup on the latest candles, sells on the mirrored chart; filters; STRUCTURE/ATR stop; R + structure targets in price
   order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price).
-  API 2 `server/strategyAi.ts`: its own key `GEMINI_STRATEGY_API_KEY` (ideally another Google Cloud project), own client and `STRATEGY_MODELS`;
+  Words engine `server/strategyAi.ts` (owner-specified: API 2 removed, ONE key): uses the general engine's connection (`useMainEngine(getGeminiClient)`
+  in `server.ts`, same `GEMINI_API_KEY` and the same three models; `getGeminiClient`/`modelsToTry` are only called, never changed), but every request
+  carries only the Strategy Builder's own instructions, never the general engine's prompts (and vice versa); with the builder off it never runs;
   `compileStrategy` (free text + guided → rules JSON; guided-only = no call; the trader's text only ever in the user message, fenced and
   labelled untrusted, never in a system instruction; reply validated/clamped; `notSupported` listed) and `explainTrade` (write-up of a found
   trade; levels never changed; provider names scrubbed). Storage `server/strategyBuilder.ts`: `userStrategies/{st_…}` (max 10, names via
@@ -96,7 +98,7 @@
   Analysis: `strategyProGate` (402 before credits for a locked mode) then, after the normal credit charge, `serveUserStrategyAnalysis` in
   `server.ts` replaces the general engine for analyses (not questions, not chart screenshots): candles → rules (RDM = RDM choice ∩ strategy
   timeframes, strongest wins), market/timeframe the strategy doesn't trade = NO_SIGNAL saying so, same result shape (`strategyEngine.method`
-  USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from API 2 (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
+  USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from the words engine (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
   refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. Offers/alerts/track
   record carry `userStrategy` and MarketX-wide stats exclude it. Watchlist items carry `strategyId` (`syncWatchStrategy` on mode change or rule
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,

@@ -37,7 +37,7 @@ import { rdmFrames, withDefaults, type AnalysisMode } from './src/utils/preferen
 import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
 import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
-import { explainTrade, StrategyEngineUnavailable } from './server/strategyAi';
+import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
@@ -2135,6 +2135,8 @@ registerWatchlistRoutes(
 // Preference Mode (/preference): the trader's own defaults
 registerPreferenceRoutes(app, generalApiRateLimiter);
 // Strategy Builder (/strategy): the trader's own strategies, run by Strategy mode instead of the general engine
+// The Strategy Builder uses the same engine connection, with only its own instructions per request
+useMainEngine(getGeminiClient);
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);
@@ -3207,7 +3209,7 @@ async function tokenSafetyGate(req: Request, res: Response, next: NextFunction) 
 
 /**
  * Strategy mode analysis: the trader's approved rules run in code on real candles (RDM: on every RDM timeframe their
- * strategy trades, strongest signal wins), the strategy engine (API 2) explains a trade, and the result has the same
+ * strategy trades, strongest signal wins), the Strategy Builder's own instructions (same engine connection) explain a trade, and the result has the same
  * shape as any analysis, so the card, price alerts, journal, track record and Solana proofs work the same. A trade whose
  * explanation can't be written is refused with a refund (never handed to the general engine); a no-signal result is
  * explained from the rules themselves.

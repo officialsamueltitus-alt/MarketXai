@@ -1,7 +1,8 @@
 // ===========================================================================
-// The strategy engine ("API 2"): a second Gemini connection used only by the Strategy Builder, separate from the
-// general MarketX engine (its own key GEMINI_STRATEGY_API_KEY, its own client and model list STRATEGY_MODELS). Ideally the
-// key comes from a different Google Cloud project, so the two never share quota or billing.
+// The Strategy Builder's words engine. It runs on MarketX's one Gemini connection (the same key and models as the general
+// engine, handed over by server.ts via useMainEngine), but every request carries ONLY the Strategy Builder's own
+// instructions below: the general engine's prompts are never sent here, and these are never sent there. Each request is
+// independent, so the two can't mix. With the Strategy Builder off, nothing in this file runs.
 //
 // It does two jobs and never decides a trade level:
 //   1. compile: turns a trader's own words (plus their guided answers) into the rules in src/utils/strategyRules.ts,
@@ -10,29 +11,21 @@
 // A trader's text is DATA: it never goes into a system instruction, it is fenced and labelled as untrusted, and the reply
 // must be JSON that is validated and clamped (normalizeRules) before anything uses it.
 // ===========================================================================
-import { GoogleGenAI } from '@google/genai';
+import type { GoogleGenAI } from '@google/genai';
 import { describeRules, normalizeRules, shortSummary, SETUPS, SETUP_IDS, SESSIONS, MARKETS, type StrategyRules } from '../src/utils/strategyRules';
 import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
-const MODELS = (process.env.STRATEGY_MODELS || 'gemini-3.8-flash,gemini-3.1-flash-lite,gemini-flash-latest')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
-const TIMEOUT_MS = Math.max(3000, Number(process.env.STRATEGY_AI_TIMEOUT_MS) || 20_000);
+// Same models, same order as the general engine
+const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+const TIMEOUT_MS = 20_000;
 
-let client: GoogleGenAI | null = null;
-let clientKey = '';
-function strategyClient(): GoogleGenAI | null {
-  const key = process.env.GEMINI_STRATEGY_API_KEY || '';
-  if (!key) return null;
-  if (!client || clientKey !== key) {
-    client = new GoogleGenAI({ apiKey: key });
-    clientKey = key;
-  }
-  return client;
+let mainEngine: (() => GoogleGenAI | null) | null = null;
+/** server.ts hands over the general engine's client (the one GEMINI_API_KEY connection) */
+export function useMainEngine(getClient: () => GoogleGenAI | null) {
+  mainEngine = getClient;
 }
-/** Whether the strategy engine (API 2) is set up on this server */
-export const strategyEngineReady = () => !!process.env.GEMINI_STRATEGY_API_KEY;
+/** Whether the engine is set up on this server */
+export const strategyEngineReady = () => !!process.env.GEMINI_API_KEY;
 
 export class StrategyEngineUnavailable extends Error {
   constructor(message = 'The strategy engine is unavailable right now.') {
@@ -48,7 +41,7 @@ export function __setStrategyModel(fn: typeof override) {
 
 async function ask(system: string, user: string, json: boolean): Promise<string> {
   if (override) return override({ system, user, json });
-  const ai = strategyClient();
+  const ai = mainEngine ? mainEngine() : null;
   if (!ai) throw new StrategyEngineUnavailable('The strategy engine is not set up on this server yet.');
   let last: any = null;
   for (const model of MODELS) {
@@ -113,7 +106,7 @@ export interface CompiledStrategy {
   rules: StrategyRules;
   summary: string;
   notSupported: string[];
-  /** true when API 2 read the trader's words; false when only the guided answers were used */
+  /** true when the engine read the trader's words; false when only the guided answers were used */
   usedEngine: boolean;
 }
 

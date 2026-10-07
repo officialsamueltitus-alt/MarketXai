@@ -119,7 +119,9 @@ export function loadProofWallet(raw = process.env.SOLANA_PROOF_SECRET_KEY): Proo
       sign: message => Uint8Array.from(crypto.sign(null, Buffer.from(message), key)),
     };
   } catch (err: any) {
-    console.warn(`[MarketX Proofs] SOLANA_PROOF_SECRET_KEY could not be read (${err?.message || 'invalid'}); proofs stay sealed but are not anchored.`);
+    // Never log the parser's message: Node quotes part of the input (the secret key) in JSON errors
+    const why = err?.message === 'wrong length' || err?.message === 'public key mismatch' ? err.message : err instanceof SyntaxError ? 'not valid JSON' : 'not a valid key';
+    console.warn(`[MarketX Proofs] SOLANA_PROOF_SECRET_KEY could not be read (${why}); proofs stay sealed but are not anchored.`);
     return null;
   }
 }

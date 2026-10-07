@@ -157,7 +157,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
       await t.sendMail({ from, to, subject, text, html, ...(attachments ? { attachments } : {}) });
       return true;
     } catch (err: any) {
-      console.warn(`[MarketX Mail] Failed to send "${subject}" to ${to}: ${err?.message || err}`);
+      console.warn(`[MarketX Mail] Failed to send "${subject}" to ${String(to).replace(/^(.{0,2})[^@]*(@.*)$/, (_m, a, d) => `${a}***${d}`)}: ${err?.message || err}`);
       return false;
     }
   });

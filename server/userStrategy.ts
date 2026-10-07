@@ -1,6 +1,6 @@
 // ===========================================================================
 // Strategy mode: runs a trader's approved rules (src/utils/strategyRules.ts) on real candles, in code. No AI decides a
-// level here: the strategy engine (API 2, server/strategyAi.ts) only turns words into rules and writes the explanation.
+// level here: the Strategy Builder's words engine (server/strategyAi.ts, same connection as the general engine) only turns words into rules and writes the explanation.
 // Every setup is read as a buy; sells run the same code on the mirrored chart (prices negated). A setup must have formed
 // on the latest candles; filters, stop, targets and the minimum reward then decide, and the same guards as the general
 // engine apply: stop on the right side, targets ahead of price, and price not already half-way to TP1.
