@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
@@ -126,6 +126,65 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
       }
     >
       <div className="pt-4 space-y-3">
+        <Section icon={ScanSearch} title="Analysis mode" text="How MarketX decides a trade is ready. Used by every analysis and by your watchlist.">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2" role="radiogroup" aria-label="Analysis mode">
+            {(
+              [
+                ['NORMAL', 'Normal', 'Signals a fresh, untouched zone ahead of price, with a limit entry. The way MarketX works by default.', Target, 'text-sky-300'],
+                ['CONFIRMATION', 'Confirmation', 'Waits for price to reach the zone and prove it holds, then gives a market entry with a tighter stop.', CandlestickChart, 'text-emerald-300'],
+              ] as const
+            ).map(([id, title, text, Icon, tone]) => {
+              const on = p.analysisMode === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => !on && save({ analysisMode: id })}
+                  className={`relative p-3 rounded-2xl text-left border transition cursor-pointer ${
+                    on ? (id === 'CONFIRMATION' ? 'bg-emerald-500/[0.07] border-emerald-400/50' : 'bg-white/[0.07] border-sky-400/50') : 'bg-black/20 border-white/[0.06] hover:bg-white/[0.05]'
+                  }`}
+                >
+                  <span className="flex items-center justify-between">
+                    <Icon className={`w-4 h-4 ${tone}`} />
+                    <span
+                      className={`w-4 h-4 rounded-full border flex items-center justify-center ${on ? (id === 'CONFIRMATION' ? 'border-emerald-400 bg-emerald-400' : 'border-sky-400 bg-sky-400') : 'border-white/20'}`}
+                      aria-hidden="true"
+                    >
+                      {on && <Check className="w-2.5 h-2.5 text-slate-950" strokeWidth={3} />}
+                    </span>
+                  </span>
+                  <span className="mt-1.5 block text-sm font-semibold text-white">{title}</span>
+                  <span className="block text-[11px] text-slate-500 leading-snug">{text}</span>
+                </button>
+              );
+            })}
+          </div>
+          {p.analysisMode === 'CONFIRMATION' && (
+            <div className="mt-2.5 p-3 rounded-2xl bg-emerald-500/[0.04] border border-emerald-400/15 mx-fade-in">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-emerald-300/80 mb-2">How confirmation works</div>
+              <ol className="space-y-1.5">
+                {[
+                  ['Zone found', 'MarketX finds the setup and its point of interest, as usual. No order yet.'],
+                  ['Price confirms', 'When price reaches the zone, a lower timeframe must show it holding: a liquidity sweep or false breakout, an engulfing candle, a pin bar, a morning or evening star, or a structure break, checked with RSI.'],
+                  ['Trade ready', 'Only then you get the entry and the alert, with the stop beyond the reaction wick (even after a wick-out or false breakout).'],
+                ].map(([t, d], i) => (
+                  <li key={t} className="flex gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-emerald-400/15 text-emerald-200 text-[10px] font-bold flex items-center justify-center shrink-0 mt-px">{i + 1}</span>
+                    <span className="min-w-0 text-[11px] leading-snug text-slate-400">
+                      <span className="font-semibold text-slate-200">{t}.</span> {d}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-2 flex items-center gap-1 text-[10px] text-slate-500">
+                <ChevronRight className="w-3 h-3" /> Fewer trades, each one confirmed. Analyses say "waiting for confirmation" until price confirms.
+              </p>
+            </div>
+          )}
+        </Section>
+
         <Section icon={LineChart} title="Analysis defaults" text="What a new prompt starts with. You can still change it in the composer for any single prompt.">
           <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Timeframe</div>
           <div className="flex gap-1 overflow-x-auto no-scrollbar p-1 rounded-full bg-black/25 border border-white/[0.08]" role="radiogroup" aria-label="Default timeframe">

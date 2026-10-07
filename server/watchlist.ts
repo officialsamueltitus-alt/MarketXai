@@ -8,7 +8,7 @@ import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
 import { SUPPORTED_TIMEFRAMES, timeframeMinutes } from '../src/utils/timeframe';
-import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults } from '../src/utils/preferences';
+import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults, type AnalysisMode } from '../src/utils/preferences';
 
 // ===========================================================================
 // Watchlist (/watchlist): the trader approves monitoring once, then adds pairs. Each pair is checked first (MarketX
@@ -34,6 +34,8 @@ export interface WatchSetup {
   /** Distance from the live price to the entry side of the zone, in percent */
   distancePct: number;
   foundAt: number;
+  /** Confirmation mode: READY = price confirmed at the zone; BUILDING = the zone is waiting for that confirmation */
+  confirmation?: boolean;
 }
 export interface WatchItem {
   id: string;
@@ -45,6 +47,8 @@ export interface WatchItem {
   timeframe: string;
   /** RDM only: the timeframes it scans, from the trader's Preference Mode ([] or missing = all) */
   rdmFrames?: string[];
+  /** Analysis mode from Preference Mode (missing = NORMAL): CONFIRMATION is only ready once price confirms at the zone */
+  analysisMode?: AnalysisMode;
   addedAt: number;
   updatedAt: number;
   active: boolean;
@@ -78,6 +82,8 @@ export interface ScanFrame {
   equilibrium: number;
   plan: { direction: 'LONG' | 'SHORT'; score: number; entry: { min: number; max: number; optimal: number } } | null;
   zones: ScanZone[];
+  /** Confirmation mode: the plan (if any) is confirmed; otherwise what the zone is waiting for */
+  confirm?: { state: 'CONFIRMED' | 'WAITING_PATTERN' | 'WAITING_TAP' | 'NONE'; direction?: 'LONG' | 'SHORT'; zone?: { low: number; high: number; kind: 'DEMAND' | 'SUPPLY' } };
 }
 export interface WatchlistDeps {
   /** The market a query names ("EURUSD", "gold", "$WIF", a contract address), or null when nothing is listed */
@@ -87,7 +93,7 @@ export interface WatchlistDeps {
   /** Number of candles readable on a timeframe (0 = no chart data) */
   candles: (symbol: string, timeframe: string) => Promise<number>;
   /** Engine read for each timeframe asked (null entries = no data on that timeframe) */
-  scan: (symbol: string, timeframes: string[]) => Promise<Array<ScanFrame | null>>;
+  scan: (symbol: string, timeframes: string[], mode?: AnalysisMode) => Promise<Array<ScanFrame | null>>;
   /** Minimum plan score for an RDM pick (same bar as the RDM analysis) */
   rdmMinScore: number;
 }
@@ -134,7 +140,7 @@ const pctText = (n: number) => `${n < 0.1 ? n.toFixed(2) : n.toFixed(1)}%`;
  * Reads the scan of a pair and returns what the trader should know: a setup ready (a valid plan from the engine),
  * a setup building (a fresh zone on the right side of the range that price is approaching), or nothing yet.
  */
-export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: boolean; rdmMinScore: number }): {
+export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: boolean; rdmMinScore: number; confirmation?: boolean }): {
   status: WatchStatus;
   setup: Omit<WatchSetup, 'foundAt'> | null;
   price: number | null;
@@ -158,14 +164,43 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
       status: 'SETUP',
       price,
       setup: {
-        key: `R|${ready.timeframe}|${p.direction}|${p.entry.optimal.toPrecision(6)}`,
+        key: `${opts.confirmation ? 'RC' : 'R'}|${ready.timeframe}|${p.direction}|${p.entry.optimal.toPrecision(6)}`,
         kind: 'READY',
         timeframe: ready.timeframe,
         direction: p.direction,
         score: Math.round(p.score),
         distancePct: Number(distancePct.toFixed(3)),
+        ...(opts.confirmation ? { confirmation: true } : {}),
       },
     };
+  }
+
+  // Confirmation mode: price is at a zone (or heading to a valid one) and the lower timeframe has not confirmed yet
+  if (opts.confirmation) {
+    const waiting = loaded
+      .filter(f => f.confirm?.zone && (f.confirm.state === 'WAITING_PATTERN' || f.confirm.state === 'WAITING_TAP'))
+      .sort((a, b) => (a.confirm!.state === 'WAITING_PATTERN' ? 0 : 1) - (b.confirm!.state === 'WAITING_PATTERN' ? 0 : 1) || tfWeight(b.timeframe) - tfWeight(a.timeframe))[0];
+    if (waiting) {
+      const c = waiting.confirm!;
+      const z = c.zone!;
+      const inZone = waiting.price >= z.low && waiting.price <= z.high;
+      const edge = z.kind === 'DEMAND' ? z.high : z.low;
+      const distancePct = inZone || c.state === 'WAITING_PATTERN' ? 0 : Math.abs((waiting.price - edge) / waiting.price) * 100;
+      const zoneScore = waiting.zones.find(x => x.low === z.low && x.high === z.high)?.score;
+      return {
+        status: 'BUILDING',
+        price,
+        setup: {
+          key: `C|${waiting.timeframe}|${z.kind}|${z.low.toPrecision(6)}|${c.state === 'WAITING_PATTERN' ? 'AT' : 'TO'}`,
+          kind: 'BUILDING',
+          timeframe: waiting.timeframe,
+          direction: z.kind === 'DEMAND' ? 'LONG' : 'SHORT',
+          score: Math.round(zoneScore ?? 0),
+          distancePct: Number(distancePct.toFixed(3)),
+          confirmation: true,
+        },
+      };
+    }
   }
 
   // Building: price drifting toward a fresh zone (demand only in discount, supply only in premium)
@@ -207,7 +242,8 @@ export function statusText(status: WatchStatus, setup: Omit<WatchSetup, 'foundAt
   if (status === 'NO_DATA') return 'Live data is unavailable right now. Retrying shortly.';
   if (status === 'WAITING' || !setup) return tf === 'RDM' ? `Watching ${rdmWhere(frames)} · no setup yet` : `Watching the ${tf} · no setup yet`;
   const where = setup.distancePct === 0 ? 'price is in the zone now' : `price ${pctText(setup.distancePct)} away`;
-  if (status === 'SETUP') return `${sideWord(setup.direction)} setup ready on the ${setup.timeframe} · ${where}`;
+  if (status === 'SETUP') return `${sideWord(setup.direction)} setup ${setup.confirmation ? 'confirmed' : 'ready'} on the ${setup.timeframe} · ${where}`;
+  if (setup.confirmation) return `${sideWord(setup.direction)} zone on the ${setup.timeframe} · waiting for confirmation · ${where}`;
   return `${sideWord(setup.direction)} setup building on the ${setup.timeframe} · ${where}`;
 }
 
@@ -215,7 +251,7 @@ function toClient(w: WatchItem) {
   return {
     id: w.id, symbol: w.symbol, name: w.name, type: w.type, timeframe: w.timeframe, addedAt: w.addedAt, active: w.active,
     status: w.status, statusText: w.statusText, price: w.price, priceAt: w.priceAt, scannedAt: w.scannedAt,
-    nextScanAt: w.nextScanAt, setup: w.setup,
+    nextScanAt: w.nextScanAt, setup: w.setup, analysisMode: modeOf(w),
     ...(w.timeframe === 'RDM' ? { rdmFrames: normalizeRdmTimeframes(w.rdmFrames || []) || [] } : {}),
   };
 }
@@ -233,15 +269,28 @@ async function sendNotice(item: WatchItem, setup: WatchSetup) {
   const side = sideWord(setup.direction);
   const where = setup.distancePct === 0 ? 'Price is in the zone right now.' : `Price is ${pctText(setup.distancePct)} from the zone.`;
   const ready = setup.kind === 'READY';
-  const title = ready ? `🎯 ${side} setup ready on ${item.symbol} · ${tf}` : `👀 ${side} setup building on ${item.symbol} · ${tf}`;
+  const confirmed = !!setup.confirmation;
+  const title = ready
+    ? `${confirmed ? '✅' : '🎯'} ${side} setup ${confirmed ? 'confirmed' : 'ready'} on ${item.symbol} · ${tf}`
+    : confirmed
+      ? `👀 ${side} zone on ${item.symbol} · ${tf}, waiting for confirmation`
+      : `👀 ${side} setup building on ${item.symbol} · ${tf}`;
   const message = ready
-    ? `${where} Ask MarketX to analyze ${item.symbol} on the ${tf} for the full plan.`
-    : `${where} MarketX keeps watching and tells you when it is ready.`;
+    ? `${confirmed ? 'Price confirmed the zone. ' : ''}${where} Ask MarketX to analyze ${item.symbol} on the ${tf} for the full plan.`
+    : confirmed
+      ? `${where} MarketX tells you the moment price confirms it.`
+      : `${where} MarketX keeps watching and tells you when it is ready.`;
   // Emails share the trader's small daily market allowance with price alerts; the site notice always goes out
   const mail = (await claimMarketMail(item.uid).catch(() => false))
     ? {
         subject: title,
-        lines: [ready ? `A ${side} setup is ready on ${item.symbol} (${tf}). ${where}` : `A ${side} setup is building on ${item.symbol} (${tf}). ${where}`],
+        lines: [
+          ready
+            ? `A ${side} setup is ${confirmed ? 'confirmed' : 'ready'} on ${item.symbol} (${tf}). ${where}`
+            : confirmed
+              ? `A ${side} zone on ${item.symbol} (${tf}) is waiting for confirmation. ${where}`
+              : `A ${side} setup is building on ${item.symbol} (${tf}). ${where}`,
+        ],
         options: {
           rows: [['Setup quality', `${setup.score}/100`], ...(item.price ? [['Price', fmtPrice(item.price)] as [string, string]] : [])] as [string, string][],
           cta: { label: ready ? 'Get the plan' : 'Open this pair', url: siteLink(`/?watchlist=1&focus=${encodeURIComponent(item.id)}`) },
@@ -268,27 +317,35 @@ function framesFor(tf: string, rdm?: string[]): string[] {
   return tf === 'RDM' ? rdmFrames(rdm) : [tf];
 }
 /** Same-scan key: pairs on RDM with a different timeframe choice are scanned separately */
-const scanKey = (w: WatchItem) => `${w.symbol}|${w.timeframe}${w.timeframe === 'RDM' ? '|' + framesFor('RDM', w.rdmFrames).join(',') : ''}`;
+const modeOf = (w: WatchItem): AnalysisMode => (w.analysisMode === 'CONFIRMATION' ? 'CONFIRMATION' : 'NORMAL');
+const scanKey = (w: WatchItem) => `${w.symbol}|${w.timeframe}|${modeOf(w)}${w.timeframe === 'RDM' ? '|' + framesFor('RDM', w.rdmFrames).join(',') : ''}`;
 
-/** The trader's RDM choice from Preference Mode ([] = all) */
-async function rdmChoice(uid: string): Promise<string[]> {
+/** The trader's scan settings from Preference Mode: RDM timeframes ([] = all) and analysis mode */
+async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: AnalysisMode }> {
   const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
-  return withDefaults((doc as any)?.preferences).rdmTimeframes;
+  const p = withDefaults((doc as any)?.preferences);
+  return { rdm: p.rdmTimeframes, mode: p.analysisMode };
 }
 
-/** Preference Mode changed the RDM timeframes: every RDM pair of that trader scans the new set from now on */
-export async function syncRdmFrames(uid: string, choice: string[]) {
+/**
+ * Preference Mode changed the RDM timeframes or the analysis mode: the trader's pairs scan the new way from now on
+ * (RDM pairs take the new timeframes; every pair takes the mode) and are rescanned.
+ */
+export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; mode: AnalysisMode }) {
   if (!isFirebaseConfigured()) return;
-  const frames = normalizeRdmTimeframes(choice) || [];
+  const frames = normalizeRdmTimeframes(prefs.rdmFrames) || [];
   const snap = await db().collection(ITEMS).where('uid', '==', uid).get();
   const t = now();
   await Promise.all(
     snap.docs.map(d => {
       const w = d.data() as WatchItem;
-      if (w.timeframe !== 'RDM') return null;
+      const rdm = w.timeframe === 'RDM';
+      const changed = modeOf(w) !== prefs.mode || (rdm && (normalizeRdmTimeframes(w.rdmFrames || []) || []).join(',') !== frames.join(','));
+      if (!changed) return null;
       const next: Partial<WatchItem> = {
-        rdmFrames: frames, setup: null, nextScanAt: t, updatedAt: t,
-        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, 'RDM', frames) } : { statusText: `Paused · ${rdmWhere(frames)}` }),
+        ...(rdm ? { rdmFrames: frames } : {}),
+        analysisMode: prefs.mode, setup: null, nextScanAt: t, updatedAt: t,
+        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, w.timeframe, rdm ? frames : undefined) } : { statusText: `Paused · ${tfLabel(w.timeframe, frames)}` }),
       };
       if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, ...next } as WatchItem);
       return d.ref.update(next);
@@ -329,15 +386,16 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
   return outcome.item;
 }
 
-async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[]) {
+async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL') {
+  const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: mode === 'CONFIRMATION' };
   try {
     const frames = await Promise.race([
-      deps.scan(symbol, framesFor(tf, rdm)),
+      deps.scan(symbol, framesFor(tf, rdm), mode),
       new Promise<Array<ScanFrame | null>>(r => setTimeout(() => r([]), 25_000)),
     ]);
-    return summarizeScan(frames, { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore });
+    return summarizeScan(frames, opts);
   } catch {
-    return summarizeScan([], { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore });
+    return summarizeScan([], opts);
   }
 }
 
@@ -346,7 +404,7 @@ export async function scanItemNow(itemId: string, deps: WatchlistDeps): Promise<
   const snap = await db().collection(ITEMS).doc(itemId).get();
   if (!snap.exists) return null;
   const item = snap.data() as WatchItem;
-  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames);
+  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames, modeOf(item));
   const saved = await applyScan(itemId, result, deps);
   if (saved && IS_LEAD_WORKER && saved.active) watched.set(saved.id, saved);
   return saved;
@@ -381,7 +439,7 @@ async function tick(deps: WatchlistDeps) {
       await Promise.all(
         keys.slice(i, i + FETCH_CONCURRENCY).map(async k => {
           const items = groups.get(k)!;
-          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames);
+          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames, modeOf(items[0]));
           for (const w of items) {
             try {
               const saved = await applyScan(w.id, result, deps);
@@ -494,8 +552,9 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     if (!asset) return res.status(404).json({ error: 'UNKNOWN_ASSET', message: `MarketX couldn't find a live market for "${query}". Check the pair, or try its ticker (e.g. EURUSD, XAUUSD, BTC).` });
     if (mine.some(w => w.symbol === asset.symbol)) return res.status(409).json({ error: 'ALREADY_WATCHING', message: `${asset.symbol} is already on your watchlist.` });
 
-    // RDM scans the timeframes chosen in Preference Mode
-    const rdm = timeframe === 'RDM' ? await rdmChoice(uid) : undefined;
+    // RDM scans the timeframes chosen in Preference Mode, and every pair scans in the trader's analysis mode
+    const sp = await scanPrefs(uid);
+    const rdm = timeframe === 'RDM' ? sp.rdm : undefined;
     // Real-time check: a live quote and a readable chart on the timeframe it will be scanned on (RDM: 1H, or the
     // first chosen timeframe of an hour or more)
     const rdmList = framesFor('RDM', rdm);
@@ -519,6 +578,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
       type: String(asset.type || '').slice(0, 16),
       timeframe,
       ...(rdm ? { rdmFrames: rdm } : {}),
+      analysisMode: sp.mode,
       addedAt: t,
       updatedAt: t,
       active: true,
@@ -552,7 +612,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     const w = await ownItem(uid, String(req.params.id || ''));
     if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
     const t = now();
-    const rdm = timeframe === 'RDM' ? await rdmChoice(uid) : [];
+    const rdm = timeframe === 'RDM' ? (await scanPrefs(uid)).rdm : [];
     // A paused pair keeps its new timeframe and is scanned when the watchlist is turned back on
     await db().collection(ITEMS).doc(w.id).update({
       timeframe, rdmFrames: rdm, setup: null, nextScanAt: t + scanGapMs(timeframe), updatedAt: t,

@@ -444,11 +444,18 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
+              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose your <B>analysis mode</B> (Normal or Confirmation, see below), the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
               show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
             </>,
           ]}
         />
+        <Note title="Analysis mode: Normal or Confirmation" tone="emerald">
+          <B>Normal</B> (the default) gives you a fresh, untouched zone ahead of price with a limit entry. <B>Confirmation</B> waits: MarketX
+          still finds the zone, but only calls the trade once price reaches it and a lower timeframe shows it holding, such as a liquidity sweep or
+          false breakout, an engulfing candle, a pin bar, a morning or evening star, or a structure break. Then you get the entry at market with the
+          stop beyond the reaction wick, and the watchlist only says ready at that moment. Until then the result says <B>waiting for
+          confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
+        </Note>
         <Note title="Trade calculator">
           In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
           at risk. Enter your account size, then your entry and stop prices (or the stop in pips or points). It handles forex, gold, silver, oil, indices,

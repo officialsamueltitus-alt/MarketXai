@@ -30,6 +30,7 @@ import {
   Shuffle,
   Radar,
   Trophy,
+  CandlestickChart,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -127,6 +128,9 @@ interface ChatInputProps {
   rdmTimeframes?: string[];
   /** Saves a new RDM choice to Preference Mode (signed in only) */
   onRdmTimeframesChange?: (next: string[]) => Promise<void>;
+  /** Confirmation analysis is on (Preference Mode): a chip says so and opens Preference Mode */
+  confirmationMode?: boolean;
+  onOpenPreference?: () => void;
   /** Opens Connectors / Plugins (every command in one place) */
   onOpenConnectors?: () => void;
   /** How many commands are switched on (shown as a dot count on the Connectors button) */
@@ -154,6 +158,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onLockedFeature,
   rdmTimeframes,
   onRdmTimeframesChange,
+  confirmationMode,
+  onOpenPreference,
   onOpenConnectors,
   connectorsOn = 0,
   defaultTimeframe,
@@ -811,6 +817,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {slMode === 'tight' ? <Crosshair className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5 text-slate-500" />}
               <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
             </button>
+
+            {confirmationMode && (
+              <button
+                type="button"
+                onClick={onOpenPreference}
+                className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-emerald-200 bg-emerald-500/10 border-emerald-400/30 hover:bg-emerald-500/15"
+                title="Confirmation analysis is on: a trade is only called once price confirms at the zone (change it in Preference Mode)"
+                aria-label="Confirmation analysis is on (open Preference Mode)"
+              >
+                <CandlestickChart className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Confirmation</span>
+              </button>
+            )}
 
             {onOpenConnectors && (
               <button

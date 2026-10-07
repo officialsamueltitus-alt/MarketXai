@@ -57,6 +57,23 @@
   one) shown in Preference Mode, under RDM in the composer's timeframe pop-up (picking RDM keeps it open, Done closes) and under RDM in the
   watchlist (add form and a pair's timeframe edit); a change anywhere saves the preference and is used everywhere. Shared helpers
   `normalizeRdmTimeframes` / `rdmFrames` / `rdmLabel` in `src/utils/preferences.ts` (every timeframe ticked is stored as []).
+  Analysis mode (owner-specified, Preference Mode `users.preferences.analysisMode` NORMAL default / CONFIRMATION, two cards in
+  `PreferencePanel.tsx` + "How confirmation works", a green chip in the composer when on, a note in the watchlist): NORMAL is the engine
+  above, untouched. CONFIRMATION (`server/confirmation.ts`, `applyConfirmation` inside `buildStructureMap` when the mode is passed; reads
+  the lower timeframe `confirmationTimeframe` alongside, e.g. 1H→5m, 4H→30m, 1D→2H): candidate zones = right territory, displacement
+  FVG, first or second touch (a tapped zone can confirm), Fib confluence (`planForZone`, exported only). No trade until price touches the
+  zone in the recent window (3 HTF candles of LTF bars) and an LTF candle at/after the reaction extreme shows a confirmation that closes
+  in the zone's upper half (sells mirrored): liquidity sweep / false breakout (wick through the distal, close back inside), local-low sweep,
+  engulfing, pin bar, morning/evening star, structure break; RSI(14) on the LTF not 70+ for buys / 30- for sells, divergence adds score.
+  Price closing through the zone = no trade; confirmation older than 2 HTF candles = played out. Then: MARKET entry at the live price,
+  stop beyond the reaction extreme wick (+0.4 LTF ATR, tight 0.2; min risk 0.8 / 0.5 LTF ATR), targets from the engine's ladder (TP1 ≥ 1R),
+  score ≥ `CONFIRM_MIN_SCORE` 70; "already moved" is judged from the confirmation close against the TP1 that paid 1R from there (a target
+  hit since, or half-way = no trade). Otherwise NO_SIGNAL with "Setup found, waiting for confirmation" (WAITING_TAP: valid zone ahead;
+  WAITING_PATTERN: price at the zone). The analyze handler tags results `analysisMode` + `confirmationRead` {state, ltf, zone, patterns,
+  sweptZone}, prepends a "> **Confirmation analysis:**" note and rewrites the entry/stop rationales for confirmed trades (prompt text
+  untouched; card tag "Confirmed · 5m" / "Waiting for confirmation"). Watchlist items carry `analysisMode` (scan key includes it): READY
+  only when confirmed (`setup.confirmation`, "confirmed" notices), BUILDING = waiting for confirmation; `syncWatchPrefs` moves a trader's
+  pairs when the mode or RDM timeframes change.
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
@@ -143,7 +160,7 @@
 - Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);
   a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM, or the first
   chosen RDM timeframe of an hour or more). RDM pairs scan the trader's RDM timeframes (`rdmFrames` on the item, copied on add / switch to RDM;
-  saving the preference calls `syncRdmFrames`, which moves every RDM pair of that trader to the new choice and rescans it). The lead
+  saving the preference calls `syncWatchPrefs`, which moves the trader's pairs to the new RDM choice / analysis mode and rescans them). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a
@@ -165,10 +182,10 @@
   as one email; "Want a price alert?" invitations only use the allowance while 2 emails are still left for real hits. These emails
   stay short: one or two lines, at most 3 rows, no long notes.
 - Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
-  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes}, validated, autosaved
+  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes, analysisMode}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
-  only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Never
-  changes the analysis. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
+  only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Only
+  `analysisMode` and `rdmTimeframes` change how analyses and the watchlist run. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
   `/backtest` command, routes, panel or history fetcher.
   Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
   risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);

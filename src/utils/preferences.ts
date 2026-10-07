@@ -2,6 +2,7 @@
 import { SUPPORTED_TIMEFRAMES } from './timeframe';
 
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
+export type AnalysisMode = 'NORMAL' | 'CONFIRMATION';
 export interface Preferences {
   timeframe: string;
   slMode: 'normal' | 'tight';
@@ -12,6 +13,9 @@ export interface Preferences {
   homeMarket: 'all' | 'forex' | 'stock' | 'crypto' | 'commodity';
   /** Timeframes RDM scans, in engine order; empty = every timeframe (used by the analysis and the watchlist) */
   rdmTimeframes: string[];
+  /** NORMAL: the engine's normal analysis. CONFIRMATION: waits for price to reach the zone and confirm on a lower
+   *  timeframe (sweep, engulfing, pin bar, star, structure break) before calling a trade, stop beyond the reaction wick */
+  analysisMode: AnalysisMode;
   updatedAt?: number;
 }
 
@@ -24,6 +28,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   view: 'DETAILED',
   homeMarket: 'all',
   rdmTimeframes: [],
+  analysisMode: 'NORMAL',
 };
 
 
@@ -31,6 +36,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export function withDefaults(p: Partial<Preferences> | null | undefined): Preferences {
   const out = { ...DEFAULT_PREFERENCES, ...(p && typeof p === 'object' ? p : {}) };
   out.rdmTimeframes = normalizeRdmTimeframes(out.rdmTimeframes) || [];
+  if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
   return out;
 }
 

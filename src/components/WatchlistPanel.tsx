@@ -24,6 +24,8 @@ interface WatchlistPanelProps {
   rdmTimeframes: string[];
   /** Saves a new RDM choice to Preference Mode (every RDM pair follows it) */
   onRdmTimeframesChange: (next: string[]) => Promise<void>;
+  /** Confirmation analysis is on (Preference Mode): ready means confirmed at the zone */
+  confirmationMode?: boolean;
 }
 
 // Every timeframe the engine supports, plus RDM (scan them all)
@@ -42,7 +44,7 @@ const STATUS: Record<WatchItem['status'], { label: string; pill: string; dot: st
   NO_DATA: { label: 'No data', pill: 'bg-rose-500/10 text-rose-300 border-rose-500/25', dot: 'bg-rose-400' },
 };
 
-export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange }) => {
+export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode }) => {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [max, setMax] = useState(12);
   const [loading, setLoading] = useState(false);
@@ -208,6 +210,12 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           </div>
         )}
       </form>
+      {confirmationMode && (
+        <p className="mt-2 px-3 py-2 rounded-xl bg-emerald-500/[0.06] border border-emerald-400/20 text-[11px] leading-snug text-emerald-200/90">
+          <span className="font-semibold">Confirmation analysis is on.</span> A pair is ready only once price reaches its zone and confirms it on a lower
+          timeframe. Until then it shows "waiting for confirmation". Change it in Preference Mode.
+        </p>
+      )}
       <button
         type="button"
         role="switch"

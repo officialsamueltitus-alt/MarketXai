@@ -33,7 +33,8 @@ import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
-import { rdmFrames, withDefaults } from './src/utils/preferences';
+import { rdmFrames, withDefaults, type AnalysisMode } from './src/utils/preferences';
+import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
@@ -2071,6 +2072,7 @@ const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
         price: m.price,
         equilibrium: m.equilibrium,
         plan: m.plan ? { direction: m.plan.direction, score: m.plan.score, entry: m.plan.entry } : null,
+        ...(confirmationOf(m) ? { confirm: { state: confirmationOf(m)!.state, direction: confirmationOf(m)!.direction, zone: confirmationOf(m)!.zone } } : {}),
         zones: [...m.demandZones, ...m.supplyZones].map(z => ({
           kind: z.kind, proximal: z.proximal, low: z.low, high: z.high, fresh: z.fresh, liveFirstTouch: z.liveFirstTouch,
           priceInside: z.priceInside, distanceAtr: z.distanceAtr, score: z.score, territory: z.territory,
@@ -2095,11 +2097,11 @@ registerWatchlistRoutes(
       return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
     candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
-    scan: async (symbol, timeframes) => {
+    scan: async (symbol, timeframes, mode) => {
       const asset = await resolveAssetInfo(symbol, symbol);
       const q = await liveQuoteFor(asset);
       if (!q) return [];
-      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q).catch(() => null)));
+      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q, mode || 'NORMAL').catch(() => null)));
       return maps.map((m, i) => toScanFrame(m, timeframes[i]));
     },
     // Read when a scan runs (the constant is declared further down this file)
@@ -2677,15 +2679,15 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   return candles;
 }
 
-/** The timeframes RDM scans for this trader: their Preference Mode choice (every timeframe by default) */
-async function rdmTimeframesFor(res: Response): Promise<string[]> {
+/** How this trader's analyses run (Preference Mode): RDM timeframes (all by default) and Normal / Confirmation analysis */
+async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode }> {
   const uid = (res.locals.user as any)?.uid;
-  if (!uid) return [...SUPPORTED_TIMEFRAMES];
+  if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL' };
   try {
-    const doc = (await userRef(uid).get()).data() as any;
-    return rdmFrames(withDefaults(doc?.preferences).rdmTimeframes);
+    const prefs = withDefaults(((await userRef(uid).get()).data() as any)?.preferences);
+    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode };
   } catch {
-    return [...SUPPORTED_TIMEFRAMES];
+    return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL' };
   }
 }
 
@@ -2705,10 +2707,11 @@ async function scanAllTimeframes(
   prompt: string,
   currency?: string,
   quote?: { high24h?: number; low24h?: number },
-  frames: string[] = SUPPORTED_TIMEFRAMES
+  frames: string[] = SUPPORTED_TIMEFRAMES,
+  mode: AnalysisMode = 'NORMAL'
 ): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null; frames: string[] } }> {
   const maps = await Promise.all(
-    frames.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote).catch(() => null))
+    frames.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote, mode).catch(() => null))
   );
   const loaded = maps.map((m, i) => ({ m, tf: frames[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
   const valid = loaded.filter(x => x.m.plan && x.m.plan.score >= RDM_MIN_SCORE);
@@ -2739,11 +2742,15 @@ async function buildStructureMap(
   slMode: 'normal' | 'tight',
   prompt: string,
   currency?: string,
-  quote?: { high24h?: number; low24h?: number }
+  quote?: { high24h?: number; low24h?: number },
+  mode: AnalysisMode = 'NORMAL'
 ): Promise<MarketMap | null> {
-  const candles = await Promise.race([
-    fetchCandlesForAsset(asset, tf),
-    new Promise<null>(resolve => setTimeout(() => resolve(null), 7000)),
+  const within7s = <T,>(p: Promise<T>) => Promise.race([p, new Promise<null>(resolve => setTimeout(() => resolve(null), 7000))]);
+  // Confirmation analysis also reads a lower timeframe (fetched alongside)
+  const ltf = mode === 'CONFIRMATION' ? confirmationTimeframe(tf) : null;
+  const [candles, ltfCandles] = await Promise.all([
+    within7s(fetchCandlesForAsset(asset, tf)),
+    ltf ? within7s(fetchCandlesForAsset(asset, ltf)).catch(() => null) : Promise.resolve(null),
   ]);
   if (!candles) return null;
   const lower = prompt.toLowerCase();
@@ -2754,7 +2761,10 @@ async function buildStructureMap(
       quote && Number(quote.high24h) > 0 && Number(quote.low24h) > 0
         ? { high: Number(quote.high24h), low: Number(quote.low24h), since: Date.now() - 24 * 3600e3 }
         : null;
-    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
+    const map = buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
+    // Confirmation analysis: no trade until price reaches the zone and confirms on the lower timeframe
+    if (map && ltf) applyConfirmation(map, candles, ltfCandles, { ltf, slMode });
+    return map;
   } catch (err: any) {
     console.warn('[MarketX Strategy] map failed:', err?.message || err);
     return null;
@@ -3583,11 +3593,52 @@ Do NOT output structured trade card JSON.`;
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
     // In chart mode the levels come from the uploaded image, never from live candles
     let rdmScan: Awaited<ReturnType<typeof scanAllTimeframes>> | null = null;
+    const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
+    const analysisMode: AnalysisMode = tradePrefs?.mode || 'NORMAL';
     const structureMap = chartMode
       ? null
       : randomTimeframe
-        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, await rdmTimeframesFor(res))).map
-        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, tradePrefs!.rdm, analysisMode)).map
+        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, analysisMode);
+    // Confirmation analysis: every result says so; a trade carries its confirmation, otherwise what it is waiting for
+    const confirmRead = confirmationOf(structureMap);
+    if (confirmRead) {
+      const sendC = res.json.bind(res);
+      res.json = ((body: any) => {
+        if (body?.strategy && typeof body.strategy === 'object') {
+          const s = body.strategy;
+          const traded = s.tradeType === 'LONG' || s.tradeType === 'SHORT';
+          s.analysisMode = 'CONFIRMATION';
+          s.confirmationRead = {
+            state: traded ? 'CONFIRMED' : confirmRead.state,
+            ltf: confirmRead.ltf,
+            ...(confirmRead.zone ? { zone: confirmRead.zone, direction: confirmRead.direction } : {}),
+            ...(traded && confirmRead.entry ? { patterns: confirmRead.entry.patterns, confirmedAt: confirmRead.entry.confirmedAt, reactionExtreme: confirmRead.entry.reactionExtreme, sweptZone: confirmRead.entry.sweptZone } : {}),
+          };
+          // A confirmed trade's entry and stop come from the confirmation, so their explanations say so
+          if (traded && confirmRead.entry) {
+            const e = confirmRead.entry;
+            const ltfLabel = e.ltf.replace(/^(\d+)M$/, '$1m');
+            const long = s.tradeType === 'LONG';
+            if (s.entryZone && typeof s.entryZone === 'object')
+              s.entryZone.rationale = `${long ? 'Buy' : 'Sell'} now at market: price reached the ${long ? 'demand' : 'supply'} zone and confirmed it on the ${ltfLabel} (${e.patterns.slice(0, 2).join(', ').toLowerCase()})`;
+            if (s.stopLoss && typeof s.stopLoss === 'object')
+              s.stopLoss.rationale = `Beyond the reaction ${long ? 'low' : 'high'} ${e.reactionExtreme}${e.sweptZone ? ' (the wick that swept the zone)' : ''} on the ${ltfLabel}, with a buffer`;
+          }
+          const note = traded && confirmRead.entry
+            ? `> **Confirmation analysis:** ${confirmRead.entry.note}\n\n`
+            : confirmRead.state === 'WAITING_PATTERN' || confirmRead.state === 'WAITING_TAP'
+              ? `> **Confirmation analysis:** ${confirmRead.text}\n\n`
+              : '';
+          if (note) {
+            for (const [obj, key] of [[s, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
+              if (typeof obj[key] === 'string' && !obj[key].includes('**Confirmation analysis:**')) obj[key] = note + obj[key];
+            }
+          }
+        }
+        return sendC(body);
+      }) as typeof res.json;
+    }
     if (rdmScan) {
       analysisTimeframe = rdmScan.tf;
       // Every analysis result served from here says which timeframe the scan used
