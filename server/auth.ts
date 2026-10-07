@@ -255,7 +255,39 @@ export async function deleteAccountData(uid: string, email: string): Promise<Use
   if (credSnap.exists && credSnap.data()?.uid === uid) await credentialsRef(email).delete();
   const tokens = await db().collection('authTokens').where('uid', '==', uid).get();
   await Promise.all(tokens.docs.map(d => d.ref.delete()));
+  await deleteOwnedRecords(uid);
   return doc;
+}
+
+/**
+ * Data a trader owns outside their own user document. Deleted: live alerts and watchlist pairs (so nothing keeps
+ * scanning, notifying or emailing a deleted account), push devices, the journal, saved strategies (their own words),
+ * alert offers, the MarketX ID index entry, the support thread and campaign submissions. Unlinked (kept without the
+ * account id): track-record results and Solana seals, which feed public stats and on-chain proofs.
+ */
+async function deleteOwnedRecords(uid: string) {
+  // Every record of this trader in a collection, in chunks of 300 writes
+  const each = async (col: string, fn: (ref: FirebaseFirestore.DocumentReference) => Promise<unknown>) => {
+    const snap = await db().collection(col).where('uid', '==', uid).get();
+    for (let i = 0; i < snap.docs.length; i += 300) await Promise.all(snap.docs.slice(i, i + 300).map(d => fn(d.ref)));
+  };
+  // Live alerts and watchlist pairs are switched off first (the monitors resync on updatedAt and drop them within
+  // seconds), then deleted a little later, so an in-memory copy can't fire a notice or recreate the record
+  const live = ['priceAlerts', 'watchItems'];
+  await Promise.allSettled(live.map(col => each(col, ref => ref.update({ active: false, endedReason: 'ACCOUNT_DELETED', updatedAt: Date.now() }))));
+  setTimeout(() => {
+    Promise.allSettled(live.map(col => each(col, ref => ref.delete()))).catch(() => {});
+  }, 90_000).unref();
+  const tasks: Array<Promise<unknown>> = [
+    ...['pushSubs', 'journalTrades', 'userStrategies', 'alertOffers', 'traderIds', 'campaignSubmissions'].map(col =>
+      each(col, ref => ref.delete())
+    ),
+    ...['trackRecord', 'signalProofs'].map(col => each(col, ref => ref.update({ uid: null }))),
+    db().recursiveDelete(db().collection('supportThreads').doc(uid)).then(() => db().collection('supportThreads').doc(uid).delete()),
+  ];
+  const results = await Promise.allSettled(tasks);
+  const failed = results.filter(r => r.status === 'rejected').length;
+  if (failed) console.warn(`[MarketX Auth] account cleanup: ${failed} collection(s) could not be cleared`);
 }
 
 /** Bans or unbans an email address from creating new accounts. */
@@ -307,7 +339,9 @@ export function registerAuthRoutes(app: Express) {
     const result = await reserveSignup(email, signals, guardHelpers);
     if (!result.ok) {
       const verdict = result as { error: string; message: string };
-      console.warn(`[MarketX Access] Sign-up blocked (${verdict.error}) for ${email} from ${signals.ip || 'unknown IP'}`);
+      // Logs keep only a masked address (no full emails in server logs)
+      const masked = email.replace(/^(.{0,2})[^@]*(@.*)$/, (_m, a, d) => `${a}***${d}`);
+      console.warn(`[MarketX Access] Sign-up blocked (${verdict.error}) for ${masked} from ${signals.ip || 'unknown IP'}`);
       res.status(403).json({ error: verdict.error, message: verdict.message });
       return null;
     }

@@ -31,7 +31,9 @@ function ensureApp(): App | null {
     app = getApps()[0] || initializeApp({ credential: cert(serviceAccount as any) });
     return app;
   } catch (err: any) {
-    initError = `Invalid FIREBASE_SERVICE_ACCOUNT: ${err?.message || err}`;
+    // A JSON error message quotes part of the input (the private key), so it is never logged as-is
+    const why = err instanceof SyntaxError ? 'not valid JSON (or base64 JSON)' : String(err?.message || err).replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, '[key]').slice(0, 160);
+    initError = `Invalid FIREBASE_SERVICE_ACCOUNT: ${why}`;
     console.error(`[MarketX Firebase] ${initError}`);
     return null;
   }
