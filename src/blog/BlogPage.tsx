@@ -266,8 +266,8 @@ const SECTIONS: Section[] = [
           a word like buy, sell, setup or outlook (gold 4H, sell BTC) to go straight to the analysis.
         </Note>
         <Note title="Watch it work">
-          After you send, the process report shows each step as it happens: <B>Starting…</B>, <B>Waking up MarketX engine</B>, <B>Looking at prompt</B>,
-          reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
+          After you send, the process report shows each step as it happens: <B>Starting…</B>, <B>Waking up MarketX engine</B>, <B>Looking at prompt</B> (the analysis begins once these three are done; Stop works at any time),
+          then reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
           live price, checking today's news and building the plan. It then folds into one line such as Worked for 14s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
         <Note title="Commands">
