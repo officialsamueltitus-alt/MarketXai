@@ -25,7 +25,7 @@ import {
   type NewsBrief,
   dayKey as newsDay,
 } from './server/news';
-import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
+import { registerAccountRoutes, requireAuth, chargeAnalysisCredit, userRef } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
@@ -33,6 +33,7 @@ import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
+import { rdmFrames, withDefaults } from './src/utils/preferences';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
@@ -2676,11 +2677,24 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   return candles;
 }
 
+/** The timeframes RDM scans for this trader: their Preference Mode choice (every timeframe by default) */
+async function rdmTimeframesFor(res: Response): Promise<string[]> {
+  const uid = (res.locals.user as any)?.uid;
+  if (!uid) return [...SUPPORTED_TIMEFRAMES];
+  try {
+    const doc = (await userRef(uid).get()).data() as any;
+    return rdmFrames(withDefaults(doc?.preferences).rdmTimeframes);
+  } catch {
+    return [...SUPPORTED_TIMEFRAMES];
+  }
+}
+
 /** A setup the RDM scan may serve must clear this plan score (the normal signal floor is 70) */
 const RDM_MIN_SCORE = 75;
 
 /**
- * RDM (random timeframe): build the map on every supported timeframe and keep the strongest valid setup, one whose
+ * RDM (random timeframe): build the map on every timeframe the trader chose for RDM in Preference Mode (all of them by
+ * default) and keep the strongest valid setup, one whose
  * zone is fresh, levels untouched, indicators confirmed and live price sitting between the entry and TP1 (all enforced
  * by buildMarketMap). Higher timeframes get a slight edge on near ties (less noise). No valid setup anywhere = NO_SIGNAL.
  */
@@ -2690,17 +2704,18 @@ async function scanAllTimeframes(
   slMode: 'normal' | 'tight',
   prompt: string,
   currency?: string,
-  quote?: { high24h?: number; low24h?: number }
-): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null } }> {
+  quote?: { high24h?: number; low24h?: number },
+  frames: string[] = SUPPORTED_TIMEFRAMES
+): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null; frames: string[] } }> {
   const maps = await Promise.all(
-    SUPPORTED_TIMEFRAMES.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote).catch(() => null))
+    frames.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote).catch(() => null))
   );
-  const loaded = maps.map((m, i) => ({ m, tf: SUPPORTED_TIMEFRAMES[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
+  const loaded = maps.map((m, i) => ({ m, tf: frames[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
   const valid = loaded.filter(x => x.m.plan && x.m.plan.score >= RDM_MIN_SCORE);
   const rank = (x: { m: MarketMap; tf: string }) => x.m.plan!.score + Math.log2(timeframeMinutes(x.tf)) * 0.5;
   valid.sort((a, b) => rank(b) - rank(a));
   const best = valid[0];
-  const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null };
+  const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null, frames: [...frames] };
   if (best) return { map: best.m, tf: best.tf, info };
   const fallback = loaded.find(x => x.tf === '4H') || loaded[0];
   if (!fallback) return { map: null, tf: '4H', info };
@@ -2710,7 +2725,9 @@ async function scanAllTimeframes(
   m.alternate = null;
   m.movedSetup = null;
   m.mitigatedSetup = null;
-  m.noSignalReason = `No signal on any timeframe. Scanned ${loaded.length} timeframes (1m to 1W) and none has a fresh, confirmed, high-probability setup with price sitting between its entry and TP1 right now. Stand aside and scan again later.`;
+  const all = frames.length === SUPPORTED_TIMEFRAMES.length;
+  const span = all ? '1m to 1W' : frames.map(tf => tf.replace(/^(\d+)M$/, '$1m')).join(', ');
+  m.noSignalReason = `No signal on ${all ? 'any timeframe' : 'your RDM timeframes'}. Scanned ${loaded.length} timeframe${loaded.length === 1 ? '' : 's'} (${span}) and none has a fresh, confirmed, high-probability setup with price sitting between its entry and TP1 right now. Stand aside and scan again later.`;
   return { map: m, tf: fallback.tf, info };
 }
 
@@ -3569,7 +3586,7 @@ Do NOT output structured trade card JSON.`;
     const structureMap = chartMode
       ? null
       : randomTimeframe
-        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker)).map
+        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, await rdmTimeframesFor(res))).map
         : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
     if (rdmScan) {
       analysisTimeframe = rdmScan.tf;
@@ -3580,9 +3597,11 @@ Do NOT output structured trade card JSON.`;
         if (body?.strategy && typeof body.strategy === 'object') {
           body.strategy.timeframeScan = scanInfo;
           const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+          // Says which timeframes were scanned when the trader narrowed RDM in Preference Mode
+          const checked = `${scanInfo.scanned} timeframe${scanInfo.scanned === 1 ? '' : 's'} checked${scanInfo.frames.length < SUPPORTED_TIMEFRAMES.length ? ` (your RDM choice: ${scanInfo.frames.map(label).join(', ')})` : ''}`;
           const note = scanInfo.chosen
-            ? `> **RDM scan:** ${scanInfo.scanned} timeframes checked, valid setups on ${scanInfo.withSetup.map(label).join(', ')}. This trade uses **${label(scanInfo.chosen)}**, the strongest.\n\n`
-            : `> **RDM scan:** ${scanInfo.scanned} timeframes checked, none has a valid setup right now.\n\n`;
+            ? `> **RDM scan:** ${checked}, valid setups on ${scanInfo.withSetup.map(label).join(', ')}. This trade uses **${label(scanInfo.chosen)}**, the strongest.\n\n`
+            : `> **RDM scan:** ${checked}, none has a valid setup right now.\n\n`;
           for (const [obj, key] of [[body.strategy, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
             if (typeof obj[key] === 'string' && !obj[key].startsWith('> **RDM scan:**')) obj[key] = note + obj[key];
           }

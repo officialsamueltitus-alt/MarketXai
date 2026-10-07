@@ -50,8 +50,13 @@
   "Waking up MarketX engine" 5s, "Looking at prompt" 3s. The request is sent first and runs during them (no added server time); the
   result waits for the intro; Stop works during it.
   RDM timeframe (composer option `RDM`): the analyze handler (`scanAllTimeframes` in `server.ts`) builds the map on every
-  supported timeframe, keeps plans scoring 75+, serves the strongest (slight edge to higher timeframes) and tags the result
-  `timeframeScan` + an "RDM scan" note; a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
+  timeframe the trader chose for RDM (`users.preferences.rdmTimeframes`, [] = all, `rdmTimeframesFor`), keeps plans scoring 75+, serves the
+  strongest (slight edge to higher timeframes) and tags the result `timeframeScan` (+ `frames`) + an "RDM scan" note naming a narrowed choice;
+  a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
+  RDM timeframes (owner-specified): ONE setting in Preference Mode, shared picker `RdmTimeframePicker.tsx` (All or any timeframes, at least
+  one) shown in Preference Mode, under RDM in the composer's timeframe pop-up (picking RDM keeps it open, Done closes) and under RDM in the
+  watchlist (add form and a pair's timeframe edit); a change anywhere saves the preference and is used everywhere. Shared helpers
+  `normalizeRdmTimeframes` / `rdmFrames` / `rdmLabel` in `src/utils/preferences.ts` (every timeframe ticked is stored as []).
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
@@ -136,7 +141,9 @@
   returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
   price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
 - Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);
-  a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM). The lead
+  a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM, or the first
+  chosen RDM timeframe of an hour or more). RDM pairs scan the trader's RDM timeframes (`rdmFrames` on the item, copied on add / switch to RDM;
+  saving the preference calls `syncRdmFrames`, which moves every RDM pair of that trader to the new choice and rescans it). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a
@@ -158,7 +165,7 @@
   as one email; "Want a price alert?" invitations only use the allowance while 2 emails are still left for real hits. These emails
   stay short: one or two lines, at most 3 rows, no long notes.
 - Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
-  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket}, validated, autosaved
+  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
   only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Never
   changes the analysis. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no

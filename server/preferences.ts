@@ -8,6 +8,7 @@
 //   the trade calculator's starting values
 // - view: DETAILED shows the full write-up under each trade; SIMPLE leads with the levels and folds the write-up
 // - homeMarket: which market list the Markets tab opens on
+// - rdmTimeframes: which timeframes RDM scans ([] = all), for RDM analyses and RDM watchlist pairs alike
 // Free for everyone.
 // ===========================================================================
 import type { Express, NextFunction, Request, Response } from 'express';
@@ -15,7 +16,8 @@ import { getUser, requireAuth, userRef, type UserDoc } from './account';
 import { createKeyedThrottle } from './security';
 import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
-import { DEFAULT_PREFERENCES, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
+import { DEFAULT_PREFERENCES, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
+import { syncRdmFrames } from './watchlist';
 export { DEFAULT_PREFERENCES };
 export type { Preferences };
 
@@ -69,6 +71,11 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (!(MARKETS as readonly string[]).includes(body.homeMarket)) return { error: 'Choose a market list.' };
     next.homeMarket = body.homeMarket;
   }
+  if (has('rdmTimeframes')) {
+    const list = normalizeRdmTimeframes(body.rdmTimeframes);
+    if (!list) return { error: 'Choose RDM timeframes from the list.' };
+    next.rdmTimeframes = list;
+  }
   return { prefs: next };
 }
 
@@ -96,6 +103,9 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
     if ('error' in out) return res.status(400).json({ error: 'BAD_REQUEST', message: out.error });
     const prefs = { ...out.prefs, updatedAt: Date.now() };
     await userRef(uid).update({ preferences: prefs });
+    // RDM pairs on the watchlist scan the same timeframes as an RDM analysis
+    const before = readPreferences(doc).rdmTimeframes.join(',');
+    if (before !== prefs.rdmTimeframes.join(',')) await syncRdmFrames(uid, prefs.rdmTimeframes).catch(err => console.warn('[MarketX Preferences] RDM watchlist sync failed:', err?.message || err));
     res.json({ preferences: prefs });
   }));
 }

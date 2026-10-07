@@ -5,6 +5,7 @@ import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
 import type { AlertMode } from '../types';
 import { PluginSheet } from './PluginSheet';
+import { RdmTimeframePicker } from './RdmTimeframePicker';
 
 // /preference: the trader's own defaults (server/preferences.ts). Every change saves on its own.
 interface PreferencePanelProps {
@@ -145,6 +146,14 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
                 </button>
               );
             })}
+          </div>
+          <div id="mx-rdm-timeframes" className="mt-3 p-3 rounded-2xl bg-black/20 border border-white/[0.06]">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">RDM timeframes</span>
+              {rdmLocked && <span className="text-[10px] font-semibold text-amber-300">Pro</span>}
+            </div>
+            <p className="text-[11px] text-slate-500 leading-snug mb-2">Choose the timeframes RDM searches, or All. Used wherever you pick RDM: the composer and the watchlist.</p>
+            <RdmTimeframePicker value={p.rdmTimeframes} onChange={next => onSave({ rdmTimeframes: next })} disabled={rdmLocked} />
           </div>
           <div className="mt-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Stop loss</div>
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Default stop loss">

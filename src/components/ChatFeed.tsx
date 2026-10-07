@@ -815,7 +815,7 @@ Rationale: ${strategy.entryZone.rationale}
                             {strategy.timeframeScan && (
                               <span
                                 className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-200 border border-indigo-400/30"
-                                title={`RDM scanned ${strategy.timeframeScan.scanned} timeframes${strategy.timeframeScan.chosen ? ` and used ${strategy.timeframe}` : ''}`}
+                                title={`RDM scanned ${strategy.timeframeScan.frames?.length ? strategy.timeframeScan.frames.map(tf => tf.replace(/^(\d+)M$/, '$1m')).join(', ') : `${strategy.timeframeScan.scanned} timeframes`}${strategy.timeframeScan.chosen ? ` and used ${strategy.timeframe}` : ''}`}
                               >
                                 RDM · {strategy.timeframeScan.chosen ? `picked ${strategy.timeframe}` : `${strategy.timeframeScan.scanned} TFs scanned`}
                               </span>

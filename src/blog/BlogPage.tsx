@@ -237,7 +237,9 @@ const SECTIONS: Section[] = [
           liquidity to trade, you're told so and no credit is used.
         </Note>
         <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
-          Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you. It keeps only valid, high probability setups
+          Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you, or only the ones you pick: when you
+          choose RDM, the timeframes it searches appear right under it. Tap <B>All</B>, or tap the timeframes you want (for example 1H, 4H and 1D). Your
+          choice is saved to Preference Mode and used everywhere you pick RDM, in the input box and on the watchlist. It keeps only valid, high probability setups
           where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The
           result shows an <B>RDM · picked 1H</B> tag (or whichever timeframe it used) and the write up lists the timeframes that had a valid setup. If no timeframe
           has one, you get a clear No signal. One analysis, one credit.
@@ -395,7 +397,8 @@ const SECTIONS: Section[] = [
               <B>/watchlist.</B> Type it in the input and approve the watchlist once. MarketX then watches the pairs you add on its own, all day.
             </>,
             <>
-              <B>Add a pair</B> (EURUSD, gold, BTC, a meme coin) and pick a timeframe. Pick <B>RDM</B> to have the pair scanned on every timeframe. Before a pair
+              <B>Add a pair</B> (EURUSD, gold, BTC, a meme coin) and pick a timeframe. Pick <B>RDM</B> to have the pair scanned on every timeframe, or only on the RDM timeframes you
+              chose (the same choice as in the input box and Preference Mode; change it there or right here and every RDM pair follows). Before a pair
               is added, MarketX confirms it can read its live price and chart; if it can't, the pair is not added and you are told why.
             </>,
             <>
@@ -441,7 +444,7 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose the timeframe and stop loss new prompts start with, your account size, currency and risk per trade, whether results
+              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
               show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
             </>,
           ]}

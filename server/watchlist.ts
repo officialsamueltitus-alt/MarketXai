@@ -8,6 +8,7 @@ import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
 import { SUPPORTED_TIMEFRAMES, timeframeMinutes } from '../src/utils/timeframe';
+import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults } from '../src/utils/preferences';
 
 // ===========================================================================
 // Watchlist (/watchlist): the trader approves monitoring once, then adds pairs. Each pair is checked first (MarketX
@@ -42,6 +43,8 @@ export interface WatchItem {
   type: string;
   /** A supported timeframe ("15M", "1H", "4H"...) or "RDM" (every timeframe) */
   timeframe: string;
+  /** RDM only: the timeframes it scans, from the trader's Preference Mode ([] or missing = all) */
+  rdmFrames?: string[];
   addedAt: number;
   updatedAt: number;
   active: boolean;
@@ -118,7 +121,12 @@ export function scanGapMs(tf: string): number {
   return Math.min(MAX_SCAN_GAP_MS, Math.max(MIN_SCAN_GAP_MS, timeframeMinutes(tf) * 60_000));
 }
 
-const tfLabel = (tf: string) => (tf === 'RDM' ? 'every timeframe' : tf);
+const tfLabel = (tf: string, frames?: string[]) => (tf === 'RDM' ? rdmWhere(frames) : tf);
+/** "every timeframe", or the trader's RDM choice ("1H, 4H, 1D") */
+function rdmWhere(frames?: string[]): string {
+  const c = normalizeRdmTimeframes(frames || []);
+  return !c || !c.length ? 'every timeframe' : rdmLabel(c);
+}
 const sideWord = (d: 'LONG' | 'SHORT') => (d === 'LONG' ? 'BUY' : 'SELL');
 const pctText = (n: number) => `${n < 0.1 ? n.toFixed(2) : n.toFixed(1)}%`;
 
@@ -194,10 +202,10 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
   return { status: 'WAITING', setup: null, price };
 }
 
-export function statusText(status: WatchStatus, setup: Omit<WatchSetup, 'foundAt'> | null, tf: string): string {
-  if (status === 'SCANNING') return `Scanning ${tf === 'RDM' ? 'every timeframe' : `the ${tf}`}…`;
+export function statusText(status: WatchStatus, setup: Omit<WatchSetup, 'foundAt'> | null, tf: string, frames?: string[]): string {
+  if (status === 'SCANNING') return `Scanning ${tf === 'RDM' ? rdmWhere(frames) : `the ${tf}`}…`;
   if (status === 'NO_DATA') return 'Live data is unavailable right now. Retrying shortly.';
-  if (status === 'WAITING' || !setup) return tf === 'RDM' ? 'Watching every timeframe · no setup yet' : `Watching the ${tf} · no setup yet`;
+  if (status === 'WAITING' || !setup) return tf === 'RDM' ? `Watching ${rdmWhere(frames)} · no setup yet` : `Watching the ${tf} · no setup yet`;
   const where = setup.distancePct === 0 ? 'price is in the zone now' : `price ${pctText(setup.distancePct)} away`;
   if (status === 'SETUP') return `${sideWord(setup.direction)} setup ready on the ${setup.timeframe} · ${where}`;
   return `${sideWord(setup.direction)} setup building on the ${setup.timeframe} · ${where}`;
@@ -208,6 +216,7 @@ function toClient(w: WatchItem) {
     id: w.id, symbol: w.symbol, name: w.name, type: w.type, timeframe: w.timeframe, addedAt: w.addedAt, active: w.active,
     status: w.status, statusText: w.statusText, price: w.price, priceAt: w.priceAt, scannedAt: w.scannedAt,
     nextScanAt: w.nextScanAt, setup: w.setup,
+    ...(w.timeframe === 'RDM' ? { rdmFrames: normalizeRdmTimeframes(w.rdmFrames || []) || [] } : {}),
   };
 }
 
@@ -255,8 +264,36 @@ const watched = new Map<string, WatchItem>();
 let lastSync = 0;
 let ticking = false;
 
-function framesFor(tf: string): string[] {
-  return tf === 'RDM' ? [...SUPPORTED_TIMEFRAMES] : [tf];
+function framesFor(tf: string, rdm?: string[]): string[] {
+  return tf === 'RDM' ? rdmFrames(rdm) : [tf];
+}
+/** Same-scan key: pairs on RDM with a different timeframe choice are scanned separately */
+const scanKey = (w: WatchItem) => `${w.symbol}|${w.timeframe}${w.timeframe === 'RDM' ? '|' + framesFor('RDM', w.rdmFrames).join(',') : ''}`;
+
+/** The trader's RDM choice from Preference Mode ([] = all) */
+async function rdmChoice(uid: string): Promise<string[]> {
+  const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
+  return withDefaults((doc as any)?.preferences).rdmTimeframes;
+}
+
+/** Preference Mode changed the RDM timeframes: every RDM pair of that trader scans the new set from now on */
+export async function syncRdmFrames(uid: string, choice: string[]) {
+  if (!isFirebaseConfigured()) return;
+  const frames = normalizeRdmTimeframes(choice) || [];
+  const snap = await db().collection(ITEMS).where('uid', '==', uid).get();
+  const t = now();
+  await Promise.all(
+    snap.docs.map(d => {
+      const w = d.data() as WatchItem;
+      if (w.timeframe !== 'RDM') return null;
+      const next: Partial<WatchItem> = {
+        rdmFrames: frames, setup: null, nextScanAt: t, updatedAt: t,
+        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, 'RDM', frames) } : { statusText: `Paused · ${rdmWhere(frames)}` }),
+      };
+      if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, ...next } as WatchItem);
+      return d.ref.update(next);
+    })
+  );
 }
 
 /** Saves a scan result; notifies when it found a setup the trader has not heard about (decided in a transaction) */
@@ -275,7 +312,7 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
     const notified = fresh ? [...cur.notified, setup!.key].slice(-30) : cur.notified;
     const next: Partial<WatchItem> = {
       status: result.status,
-      statusText: statusText(result.status, result.setup, cur.timeframe),
+      statusText: statusText(result.status, result.setup, cur.timeframe, cur.rdmFrames),
       price: result.price ?? cur.price,
       priceAt: result.price ? t : cur.priceAt,
       scannedAt: t,
@@ -292,10 +329,10 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
   return outcome.item;
 }
 
-async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps) {
+async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[]) {
   try {
     const frames = await Promise.race([
-      deps.scan(symbol, framesFor(tf)),
+      deps.scan(symbol, framesFor(tf, rdm)),
       new Promise<Array<ScanFrame | null>>(r => setTimeout(() => r([]), 25_000)),
     ]);
     return summarizeScan(frames, { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore });
@@ -309,7 +346,7 @@ export async function scanItemNow(itemId: string, deps: WatchlistDeps): Promise<
   const snap = await db().collection(ITEMS).doc(itemId).get();
   if (!snap.exists) return null;
   const item = snap.data() as WatchItem;
-  const result = await scanFrames(item.symbol, item.timeframe, deps);
+  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames);
   const saved = await applyScan(itemId, result, deps);
   if (saved && IS_LEAD_WORKER && saved.active) watched.set(saved.id, saved);
   return saved;
@@ -336,7 +373,7 @@ async function tick(deps: WatchlistDeps) {
     const groups = new Map<string, WatchItem[]>();
     for (const w of watched.values()) {
       if (!w.active || w.nextScanAt > t) continue;
-      const k = `${w.symbol}|${w.timeframe}`;
+      const k = scanKey(w);
       (groups.get(k) || groups.set(k, []).get(k)!).push(w);
     }
     const keys = [...groups.keys()];
@@ -344,7 +381,7 @@ async function tick(deps: WatchlistDeps) {
       await Promise.all(
         keys.slice(i, i + FETCH_CONCURRENCY).map(async k => {
           const items = groups.get(k)!;
-          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps);
+          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames);
           for (const w of items) {
             try {
               const saved = await applyScan(w.id, result, deps);
@@ -372,7 +409,7 @@ export async function setWatchlistEnabled(uid: string, enabled: boolean) {
   await Promise.all(
     snap.docs.map(d => {
       const w = d.data() as WatchItem;
-      if (enabled && !w.active) return d.ref.update({ active: true, status: 'SCANNING', statusText: statusText('SCANNING', null, w.timeframe), nextScanAt: t, updatedAt: t });
+      if (enabled && !w.active) return d.ref.update({ active: true, status: 'SCANNING', statusText: statusText('SCANNING', null, w.timeframe, w.rdmFrames), nextScanAt: t, updatedAt: t });
       if (!enabled && w.active) return d.ref.update({ active: false, updatedAt: t });
       return null;
     })
@@ -457,8 +494,12 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     if (!asset) return res.status(404).json({ error: 'UNKNOWN_ASSET', message: `MarketX couldn't find a live market for "${query}". Check the pair, or try its ticker (e.g. EURUSD, XAUUSD, BTC).` });
     if (mine.some(w => w.symbol === asset.symbol)) return res.status(409).json({ error: 'ALREADY_WATCHING', message: `${asset.symbol} is already on your watchlist.` });
 
-    // Real-time check: a live quote and a readable chart on the timeframe it will be scanned on
-    const verifyTf = timeframe === 'RDM' ? '1H' : timeframe;
+    // RDM scans the timeframes chosen in Preference Mode
+    const rdm = timeframe === 'RDM' ? await rdmChoice(uid) : undefined;
+    // Real-time check: a live quote and a readable chart on the timeframe it will be scanned on (RDM: 1H, or the
+    // first chosen timeframe of an hour or more)
+    const rdmList = framesFor('RDM', rdm);
+    const verifyTf = timeframe === 'RDM' ? (rdmList.includes('1H') ? '1H' : rdmList.find(f => timeframeMinutes(f) >= 60) || rdmList[rdmList.length - 1]) : timeframe;
     const timeout = <T,>(p: Promise<T>, fallback: T) => Promise.race([p.catch(() => fallback), new Promise<T>(r => setTimeout(() => r(fallback), VERIFY_TIMEOUT_MS))]);
     const [quote, bars] = await Promise.all([timeout(deps.quote(asset.symbol), null), timeout(deps.candles(asset.symbol, verifyTf), 0)]);
     if (!quote || !finite(quote.price)) {
@@ -477,11 +518,12 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
       name: String(asset.name || asset.symbol).slice(0, 60),
       type: String(asset.type || '').slice(0, 16),
       timeframe,
+      ...(rdm ? { rdmFrames: rdm } : {}),
       addedAt: t,
       updatedAt: t,
       active: true,
       status: 'SCANNING',
-      statusText: statusText('SCANNING', null, timeframe),
+      statusText: statusText('SCANNING', null, timeframe, rdm),
       price: quote.price,
       priceAt: t,
       scannedAt: null,
@@ -510,12 +552,13 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     const w = await ownItem(uid, String(req.params.id || ''));
     if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
     const t = now();
+    const rdm = timeframe === 'RDM' ? await rdmChoice(uid) : [];
     // A paused pair keeps its new timeframe and is scanned when the watchlist is turned back on
     await db().collection(ITEMS).doc(w.id).update({
-      timeframe, setup: null, nextScanAt: t + scanGapMs(timeframe), updatedAt: t,
-      ...(w.active ? { status: 'SCANNING', statusText: statusText('SCANNING', null, timeframe) } : { status: 'WAITING', statusText: `Paused · ${timeframe === 'RDM' ? 'every timeframe' : timeframe}` }),
+      timeframe, rdmFrames: rdm, setup: null, nextScanAt: t + scanGapMs(timeframe), updatedAt: t,
+      ...(w.active ? { status: 'SCANNING', statusText: statusText('SCANNING', null, timeframe, rdm) } : { status: 'WAITING', statusText: `Paused · ${tfLabel(timeframe, rdm)}` }),
     });
-    if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, timeframe, nextScanAt: t + scanGapMs(timeframe) });
+    if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, timeframe, rdmFrames: rdm, nextScanAt: t + scanGapMs(timeframe) });
     if (w.active) scanItemNow(w.id, deps).catch(() => {});
     res.json({ items: await listItems(uid), max: MAX_PAIRS });
   }));

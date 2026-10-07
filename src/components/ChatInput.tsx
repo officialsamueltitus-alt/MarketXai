@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { RdmTimeframePicker } from './RdmTimeframePicker';
+import { rdmLabel } from '../utils/preferences';
 import { MarketXText } from './MarketXText';
 import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
@@ -121,6 +123,10 @@ interface ChatInputProps {
   /** RDM is Pro only (after the free period): shown locked, and choosing it calls onLockedFeature */
   rdmLocked?: boolean;
   onLockedFeature?: (feature: 'RDM') => void;
+  /** Timeframes RDM scans, from Preference Mode ([] = all); picking RDM shows them to change */
+  rdmTimeframes?: string[];
+  /** Saves a new RDM choice to Preference Mode (signed in only) */
+  onRdmTimeframesChange?: (next: string[]) => Promise<void>;
   /** Opens Connectors / Plugins (every command in one place) */
   onOpenConnectors?: () => void;
   /** How many commands are switched on (shown as a dot count on the Connectors button) */
@@ -146,6 +152,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onCommand,
   rdmLocked = false,
   onLockedFeature,
+  rdmTimeframes,
+  onRdmTimeframesChange,
   onOpenConnectors,
   connectorsOn = 0,
   defaultTimeframe,
@@ -506,7 +514,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (!tfOpen || !el) return;
     root.style.setProperty('--mx-popover-h', `${el.offsetHeight + 8}px`);
     return () => root.style.setProperty('--mx-popover-h', '0px');
-  }, [tfOpen]);
+    // The RDM picker changes the menu's height
+  }, [tfOpen, timeframe]);
 
   const chooseTimeframe = (v: string) => {
     if (v === 'RDM' && rdmLocked) {
@@ -515,6 +524,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
     setTimeframe(v);
+    // RDM keeps the menu open so the trader can pick which timeframes it scans
+    if (v === 'RDM' && onRdmTimeframesChange) return;
     setTfOpen(false);
     textareaRef.current?.focus({ preventScroll: true });
   };
@@ -582,7 +593,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         >
           <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
             <span className="text-[11px] font-medium text-slate-400">Timeframe</span>
-            <span className="text-[11px] text-slate-500">{timeframe === 'RDM' ? 'RDM scans every timeframe' : 'Stays selected until you change it'}</span>
+            <span className="text-[11px] text-slate-500 truncate ml-2">{timeframe === 'RDM' ? `RDM scans ${rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}` : 'Stays selected until you change it'}</span>
           </div>
           <div role="listbox" aria-label="Timeframe" aria-orientation="horizontal" onKeyDown={onTfKeyDown} className="flex items-center pb-2.5 pt-1">
             {/* RDM stays pinned on the left so it is always in view; the timeframes scroll beside it */}
@@ -591,6 +602,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {TIMEFRAMES.filter(t => t.value !== 'RDM').map(renderTf)}
             </div>
           </div>
+          {/* RDM picked: choose which timeframes it searches (saved to Preference Mode, used everywhere) */}
+          {timeframe === 'RDM' && !rdmLocked && onRdmTimeframesChange && (
+            <div className="mx-3 mb-3 pt-2.5 border-t border-white/[0.08]">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[11px] font-medium text-slate-400">RDM searches</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTfOpen(false);
+                    textareaRef.current?.focus({ preventScroll: true });
+                  }}
+                  className="h-6 px-2.5 rounded-full bg-white text-slate-900 text-[11px] font-semibold cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+              <RdmTimeframePicker compact value={rdmTimeframes || []} onChange={onRdmTimeframesChange} />
+            </div>
+          )}
         </div>
       )}
 

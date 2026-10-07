@@ -94,7 +94,7 @@ export interface StrategyResult {
   alreadyMoved?: 'NEAR_TP' | 'NEAR_SL';
   /** Tools the engine ran for this analysis (live candles, zones, RSI 14, EMA 50) */
   /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
-  timeframeScan?: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null };
+  timeframeScan?: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null; /** Timeframes the scan walked (the trader's RDM choice) */ frames?: string[] };
   toolsUsed?: { candles: number; zones: number; rsi: number | null; emaTrend: 'RISING' | 'FALLING' | 'FLAT' | null; divergence: 'BULLISH' | 'BEARISH' | null };
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';
@@ -438,6 +438,8 @@ export interface WatchItem {
   type: string;
   /** A timeframe ("15M", "1H"...) or "RDM" (every timeframe) */
   timeframe: string;
+  /** RDM only: the timeframes it scans, from Preference Mode ([] = all) */
+  rdmFrames?: string[];
   addedAt: number;
   active: boolean;
   status: WatchStatus;

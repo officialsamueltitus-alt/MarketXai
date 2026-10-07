@@ -2251,6 +2251,8 @@ export default function App() {
             handleSendMessage(tf === 'RDM' ? `Analyze ${symbol}` : `Analyze ${symbol} on the ${tf}`, tf);
           }}
           onToast={showToast}
+          rdmTimeframes={preferences.rdmTimeframes}
+          onRdmTimeframesChange={next => savePreferences({ rdmTimeframes: next })}
         />
       </Deferred>
       <Deferred when={openPlugin === 'journal'}>
@@ -2542,6 +2544,8 @@ export default function App() {
                     defaultTimeframe={authUser ? preferences.timeframe : undefined}
                     defaultSlMode={authUser ? preferences.slMode : undefined}
                     rdmLocked={!proAccess}
+                    rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
+                    onRdmTimeframesChange={authUser ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
                     onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}
                     connectorsOn={authUser ? Object.values(pluginStates).filter(Boolean).length : 0}
