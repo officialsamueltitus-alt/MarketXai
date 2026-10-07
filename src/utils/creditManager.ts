@@ -67,7 +67,7 @@ export function getDailyResetCountdown(state: Pick<CreditState, 'nextDailyResetA
   };
 }
 
-/** Campaign credits left (the one exemption: they still work after the daily limit, until used up). */
+/** Campaign credits left: used first; the daily analyses pause (no refill) until they run out. */
 export function campaignCreditsLeft(state: CreditState): number {
   return Math.max(0, Math.min(state.campaignCredits ?? 0, state.availableCredits));
 }

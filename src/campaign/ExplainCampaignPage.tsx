@@ -93,7 +93,7 @@ const FAQ = [
   },
   {
     q: 'What are campaign credits?',
-    a: 'They work like normal credits, one per analysis, and keep working even after your daily analyses run out, until you use them up.',
+    a: 'They work like normal credits, one per analysis, and are used first. While you have any left, your daily analyses are paused and kept (no daily refill), then they pick up again once your campaign credits run out.',
   },
 ];
 
@@ -481,7 +481,7 @@ const StatusCard: React.FC<{ submission: Submission; reward: number }> = ({ subm
             {s.postUrl.replace(/^https:\/\//, '')} <ArrowUpRight className="w-3 h-3 shrink-0" />
           </a>
           {s.status === 'pending' && <p className="mt-2 text-xs text-slate-400">We review every post by hand. You will get a notification and an email as soon as it is approved.</p>}
-          {s.status === 'approved' && <p className="mt-2 text-xs text-slate-400">Thank you for explaining MarketX. Your campaign credits keep working even after your daily analyses run out.</p>}
+          {s.status === 'approved' && <p className="mt-2 text-xs text-slate-400">Thank you for explaining MarketX. Your campaign credits are used first; your daily analyses pick up again when they run out.</p>}
           {s.status === 'rejected' && (
             <p className="mt-2 text-xs text-slate-300">
               <span className="text-slate-400">Reason:</span> {s.reviewNote || 'The post did not meet the campaign requirements.'}

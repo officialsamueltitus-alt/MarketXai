@@ -220,10 +220,10 @@ export const CampaignBanner: React.FC<CampaignBannerProps> = ({
           {isCredited
             ? xShareReward?.previouslyClaimed
               ? 'This campaign was already claimed with your email. It can only be claimed once per person.'
-              : '+10 credits were added to your balance. They keep working even after your daily limit, until used up. Campaign completed, it can only be claimed once.'
+              : '+10 credits were added to your balance. They are used first, and your daily analyses pick up again when they run out. Campaign completed, it can only be claimed once.'
             : isPending
             ? 'Posted! Your credits unlock automatically when the timer ends.'
-            : 'Complete the steps in order. Credits arrive 10 hours after you post and keep working even after your daily limit.'}
+            : 'Complete the steps in order. Credits arrive 10 hours after you post and are used before your daily analyses.'}
         </p>
         {isCredited ? (
           <span className="h-10 px-4 rounded-full bg-emerald-500/10 text-emerald-300 text-sm font-medium inline-flex items-center justify-center gap-1.5 shrink-0">

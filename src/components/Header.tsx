@@ -13,7 +13,7 @@ interface HeaderProps {
   maxCredits: number;
   /** Local time of the next automatic refill */
   refillLabel?: string;
-  /** Campaign credits left: they keep working after the daily limit */
+  /** Campaign credits left: used first, the daily analyses pause until they run out */
   campaignCredits?: number;
   onOpenCredits: () => void;
   onResetChat: () => void;
@@ -132,18 +132,18 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
         {(() => {
           const unlimited = credits >= 99999;
-          // After today's analyses, campaign credits carry on until used up (the one exemption)
-          const onCampaign = !unlimited && credits <= 0 && campaignCredits > 0;
-          const paused = !unlimited && credits <= 0 && campaignCredits <= 0;
+          // Campaign credits are used first; the daily analyses are paused (kept, not refilled) until they run out
+          const onCampaign = !unlimited && campaignCredits > 0;
+          const paused = !unlimited && !onCampaign && credits <= 0;
           const count = unlimited ? '∞' : onCampaign ? campaignCredits : credits;
           const label = unlimited ? 'credits' : onCampaign ? 'campaign' : paused ? `until ${refillLabel}` : 'left today';
           const title = unlimited
             ? 'Unlimited analyses'
             : onCampaign
-              ? `Today's analyses are used up. ${campaignCredits} campaign credit${campaignCredits === 1 ? '' : 's'} left; daily analyses refill at ${refillLabel}.`
+              ? `${campaignCredits} campaign credit${campaignCredits === 1 ? '' : 's'} left, used first. Your ${credits} daily ${credits === 1 ? 'analysis is' : 'analyses are'} paused until they run out.`
               : paused
                 ? `Today's analyses are used up. They refill at ${refillLabel}.`
-                : `${credits} of ${maxCredits} analyses left today${campaignCredits > 0 ? `, plus ${campaignCredits} campaign credits` : ''}. Refills at ${refillLabel}.`;
+                : `${credits} of ${maxCredits} analyses left today. Refills at ${refillLabel}.`;
           return (
             <button
               type="button"
