@@ -300,7 +300,7 @@
   in `requireAuth` and at sign-in.
 
 ## Deployment
-- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client; `npm audit` is clean).
+- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory); `npm audit` is clean.
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
   and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
