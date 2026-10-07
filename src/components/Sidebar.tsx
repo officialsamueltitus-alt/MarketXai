@@ -9,7 +9,7 @@ import { MarketXIcon } from './MarketXIcon';
 import { VerifiedBadge } from './VerifiedBadge';
 import { CreditsPanel } from './CreditsPanel';
 import { ProfileView } from './ProfileView';
-import { isUnlimitedUser } from '../utils/creditManager';
+import { campaignCreditsLeft, isUnlimitedUser } from '../utils/creditManager';
 import {
   History,
   Coins,
@@ -575,7 +575,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="block text-[10px] text-slate-400 font-mono truncate">
                         {isUnlimitedUser(userProfile.email)
                           ? 'Unlimited access'
-                          : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining} ${creditState.dailyUsageRemaining === 1 ? 'analysis' : 'analyses'} left today`}
+                          : campaignCreditsLeft(creditState) > 0
+                            ? `${campaignCreditsLeft(creditState)} campaign credits first • daily paused`
+                            : `${creditState.availableCredits} credits • ${creditState.dailyUsageRemaining} ${creditState.dailyUsageRemaining === 1 ? 'analysis' : 'analyses'} left today`}
                       </span>
                     </span>
                   </span>

@@ -222,6 +222,7 @@ export const TrackRecordPanel: React.FC<TrackRecordPanelProps> = ({ isOpen, onCl
                     <span className="text-sm font-semibold text-white font-mono truncate">{e.symbol}</span>
                     <span className={`text-[10px] font-bold ${e.direction === 'LONG' ? 'text-emerald-300' : 'text-rose-300'}`}>{e.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
                     <span className="text-[10px] font-mono text-slate-500">{e.timeframe}</span>
+                    {e.userStrategy && <span title={`Personal strategy: ${e.userStrategy}`} className="text-[9px] font-semibold text-fuchsia-200 px-1 rounded bg-fuchsia-500/10 border border-fuchsia-400/20">Personal</span>}
                     {e.outcome === 'WIN' && (
                       <span className="ml-auto flex gap-0.5" aria-label={`${e.tpsHit} of ${e.tpsTotal} targets`}>
                         {Array.from({ length: e.tpsTotal || 3 }, (_, i) => (

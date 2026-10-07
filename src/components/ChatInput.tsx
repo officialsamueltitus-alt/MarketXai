@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { RdmTimeframePicker } from './RdmTimeframePicker';
+import { rdmLabel } from '../utils/preferences';
 import { MarketXText } from './MarketXText';
 import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
@@ -28,6 +30,7 @@ import {
   Shuffle,
   Radar,
   Trophy,
+  CandlestickChart,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -95,7 +98,7 @@ const SLASH_COMMANDS = [
   { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
   { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
-  { id: 'strategy', label: 'Strategy', description: 'Build and save custom trading strategies', icon: Target },
+  { id: 'strategy', label: 'Strategy Builder', description: 'Build your own strategy (or pick SMC, ICT…) and run it in every analysis', icon: Target },
   { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
   { id: 'safety', label: 'Token Safety', description: 'Check any Solana token before you buy: type its $ticker or address', icon: ShieldCheck },
   { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
@@ -104,7 +107,7 @@ const SLASH_COMMANDS = [
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety']);
+const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -121,6 +124,16 @@ interface ChatInputProps {
   /** RDM is Pro only (after the free period): shown locked, and choosing it calls onLockedFeature */
   rdmLocked?: boolean;
   onLockedFeature?: (feature: 'RDM') => void;
+  /** Timeframes RDM scans, from Preference Mode ([] = all); picking RDM shows them to change */
+  rdmTimeframes?: string[];
+  /** Saves a new RDM choice to Preference Mode (signed in only) */
+  onRdmTimeframesChange?: (next: string[]) => Promise<void>;
+  /** Confirmation analysis is on (Preference Mode): a chip says so and opens Preference Mode */
+  confirmationMode?: boolean;
+  /** Strategy mode is on: the strategy's name (a chip says so and opens the Strategy Builder) */
+  strategyName?: string | null;
+  onOpenStrategy?: () => void;
+  onOpenPreference?: () => void;
   /** Opens Connectors / Plugins (every command in one place) */
   onOpenConnectors?: () => void;
   /** How many commands are switched on (shown as a dot count on the Connectors button) */
@@ -146,6 +159,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onCommand,
   rdmLocked = false,
   onLockedFeature,
+  rdmTimeframes,
+  onRdmTimeframesChange,
+  confirmationMode,
+  onOpenPreference,
+  strategyName,
+  onOpenStrategy,
   onOpenConnectors,
   connectorsOn = 0,
   defaultTimeframe,
@@ -506,7 +525,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (!tfOpen || !el) return;
     root.style.setProperty('--mx-popover-h', `${el.offsetHeight + 8}px`);
     return () => root.style.setProperty('--mx-popover-h', '0px');
-  }, [tfOpen]);
+    // The RDM picker changes the menu's height
+  }, [tfOpen, timeframe]);
 
   const chooseTimeframe = (v: string) => {
     if (v === 'RDM' && rdmLocked) {
@@ -515,6 +535,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
     setTimeframe(v);
+    // RDM keeps the menu open so the trader can pick which timeframes it scans
+    if (v === 'RDM' && onRdmTimeframesChange) return;
     setTfOpen(false);
     textareaRef.current?.focus({ preventScroll: true });
   };
@@ -582,7 +604,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         >
           <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
             <span className="text-[11px] font-medium text-slate-400">Timeframe</span>
-            <span className="text-[11px] text-slate-500">{timeframe === 'RDM' ? 'RDM scans every timeframe' : 'Stays selected until you change it'}</span>
+            <span className="text-[11px] text-slate-500 truncate ml-2">{timeframe === 'RDM' ? `RDM scans ${rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}` : 'Stays selected until you change it'}</span>
           </div>
           <div role="listbox" aria-label="Timeframe" aria-orientation="horizontal" onKeyDown={onTfKeyDown} className="flex items-center pb-2.5 pt-1">
             {/* RDM stays pinned on the left so it is always in view; the timeframes scroll beside it */}
@@ -591,6 +613,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {TIMEFRAMES.filter(t => t.value !== 'RDM').map(renderTf)}
             </div>
           </div>
+          {/* RDM picked: choose which timeframes it searches (saved to Preference Mode, used everywhere) */}
+          {timeframe === 'RDM' && !rdmLocked && onRdmTimeframesChange && (
+            <div className="mx-3 mb-3 pt-2.5 border-t border-white/[0.08]">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[11px] font-medium text-slate-400">RDM searches</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTfOpen(false);
+                    textareaRef.current?.focus({ preventScroll: true });
+                  }}
+                  className="h-6 px-2.5 rounded-full bg-white text-slate-900 text-[11px] font-semibold cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+              <RdmTimeframePicker compact value={rdmTimeframes || []} onChange={onRdmTimeframesChange} />
+            </div>
+          )}
         </div>
       )}
 
@@ -781,6 +822,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {slMode === 'tight' ? <Crosshair className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5 text-slate-500" />}
               <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
             </button>
+
+            {strategyName && (
+              <button
+                type="button"
+                onClick={onOpenStrategy}
+                className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-violet-100 bg-violet-500/15 border-violet-400/30 hover:bg-violet-500/20 max-w-[11rem]"
+                title={`Strategy Builder is on: your strategy "${strategyName}" finds your trades (tap to open /strategy-builder)`}
+                aria-label={`Strategy Builder on: ${strategyName} (open the Strategy Builder)`}
+              >
+                <Target className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline truncate">{strategyName}</span>
+              </button>
+            )}
+
+            {confirmationMode && !strategyName && (
+              <button
+                type="button"
+                onClick={onOpenPreference}
+                className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-emerald-200 bg-emerald-500/10 border-emerald-400/30 hover:bg-emerald-500/15"
+                title="Confirmation analysis is on: a trade is only called once price confirms at the zone (change it in Preference Mode)"
+                aria-label="Confirmation analysis is on (open Preference Mode)"
+              >
+                <CandlestickChart className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Confirmation</span>
+              </button>
+            )}
 
             {onOpenConnectors && (
               <button

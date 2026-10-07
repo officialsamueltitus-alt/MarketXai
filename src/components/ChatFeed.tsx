@@ -812,10 +812,36 @@ Rationale: ${strategy.entryZone.rationale}
                             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/[0.06] text-slate-200 border border-white/[0.1]">
                               {strategy.timeframe} TF
                             </span>
+                            {strategy.userStrategy && (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-500/15 text-violet-100 border border-violet-400/30 max-w-[14rem] truncate"
+                                title={`Personal strategy: ${strategy.userStrategy.name} (${strategy.userStrategy.setup}). Found with your rules, not the MarketX engine.`}
+                              >
+                                Personal strategy · {strategy.userStrategy.name}
+                              </span>
+                            )}
+                            {strategy.analysisMode === 'CONFIRMATION' && strategy.confirmationRead && (
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                  strategy.confirmationRead.state === 'CONFIRMED'
+                                    ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30'
+                                    : 'bg-amber-500/10 text-amber-200 border-amber-400/25'
+                                }`}
+                                title={
+                                  strategy.confirmationRead.state === 'CONFIRMED'
+                                    ? `Confirmation analysis: ${(strategy.confirmationRead.patterns || []).join(', ')}`
+                                    : 'Confirmation analysis: the setup waits for price to confirm at the zone'
+                                }
+                              >
+                                {strategy.confirmationRead.state === 'CONFIRMED'
+                                  ? `Confirmed · ${strategy.confirmationRead.ltf.replace(/^(\d+)M$/, '$1m')}`
+                                  : 'Waiting for confirmation'}
+                              </span>
+                            )}
                             {strategy.timeframeScan && (
                               <span
                                 className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-200 border border-indigo-400/30"
-                                title={`RDM scanned ${strategy.timeframeScan.scanned} timeframes${strategy.timeframeScan.chosen ? ` and used ${strategy.timeframe}` : ''}`}
+                                title={`RDM scanned ${strategy.timeframeScan.frames?.length ? strategy.timeframeScan.frames.map(tf => tf.replace(/^(\d+)M$/, '$1m')).join(', ') : `${strategy.timeframeScan.scanned} timeframes`}${strategy.timeframeScan.chosen ? ` and used ${strategy.timeframe}` : ''}`}
                               >
                                 RDM · {strategy.timeframeScan.chosen ? `picked ${strategy.timeframe}` : `${strategy.timeframeScan.scanned} TFs scanned`}
                               </span>

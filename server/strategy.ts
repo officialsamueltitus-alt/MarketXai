@@ -586,7 +586,7 @@ export interface SessionRange {
   since: number;
 }
 
-function planForZone(
+export function planForZone(
   z: SDZone,
   candles: Candle[],
   price: number,

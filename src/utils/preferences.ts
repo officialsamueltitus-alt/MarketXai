@@ -1,5 +1,8 @@
 // Preference Mode: the shape and defaults shared by the server (validation, storage) and the client (panel, cards).
+import { SUPPORTED_TIMEFRAMES } from './timeframe';
+
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
+export type AnalysisMode = 'NORMAL' | 'CONFIRMATION';
 export interface Preferences {
   timeframe: string;
   slMode: 'normal' | 'tight';
@@ -8,6 +11,11 @@ export interface Preferences {
   riskPct: number;
   view: 'DETAILED' | 'SIMPLE';
   homeMarket: 'all' | 'forex' | 'stock' | 'crypto' | 'commodity';
+  /** Timeframes RDM scans, in engine order; empty = every timeframe (used by the analysis and the watchlist) */
+  rdmTimeframes: string[];
+  /** NORMAL: the engine's normal analysis. CONFIRMATION: waits for price to reach the zone and confirm on a lower
+   *  timeframe (sweep, engulfing, pin bar, star, structure break) before calling a trade, stop beyond the reaction wick */
+  analysisMode: AnalysisMode;
   updatedAt?: number;
 }
 
@@ -19,12 +27,42 @@ export const DEFAULT_PREFERENCES: Preferences = {
   riskPct: 1,
   view: 'DETAILED',
   homeMarket: 'all',
+  rdmTimeframes: [],
+  analysisMode: 'NORMAL',
 };
 
 
 /** Stored preferences with every missing field filled in */
 export function withDefaults(p: Partial<Preferences> | null | undefined): Preferences {
-  return { ...DEFAULT_PREFERENCES, ...(p && typeof p === 'object' ? p : {}) };
+  const out = { ...DEFAULT_PREFERENCES, ...(p && typeof p === 'object' ? p : {}) };
+  out.rdmTimeframes = normalizeRdmTimeframes(out.rdmTimeframes) || [];
+  if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
+  return out;
+}
+
+/**
+ * A valid RDM timeframe choice: known timeframes only, no repeats, in engine order. Every timeframe (or none) is stored
+ * as [] ("all"), so a timeframe added to the engine later is scanned too. null = not a list of known timeframes.
+ */
+export function normalizeRdmTimeframes(list: unknown): string[] | null {
+  if (!Array.isArray(list)) return null;
+  const want = new Set(list.map(x => String(x || '').trim().toUpperCase()));
+  for (const tf of want) if (!SUPPORTED_TIMEFRAMES.includes(tf)) return null;
+  const out = SUPPORTED_TIMEFRAMES.filter(tf => want.has(tf));
+  return out.length === SUPPORTED_TIMEFRAMES.length ? [] : out;
+}
+
+/** The timeframes an RDM scan walks for this choice ([] = all of them) */
+export function rdmFrames(choice: string[] | null | undefined): string[] {
+  const c = normalizeRdmTimeframes(choice);
+  return c && c.length ? c : [...SUPPORTED_TIMEFRAMES];
+}
+
+const tfShort = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+/** "All timeframes", or the chosen ones ("1H, 4H, 1D") */
+export function rdmLabel(choice: string[] | null | undefined): string {
+  const c = normalizeRdmTimeframes(choice);
+  return !c || !c.length ? 'All timeframes' : c.map(tfShort).join(', ');
 }
 
 const SYMBOL: Record<Currency, string> = { USD: '$', NGN: '₦', EUR: '€', GBP: '£' };

@@ -25,7 +25,7 @@ import {
   type NewsBrief,
   dayKey as newsDay,
 } from './server/news';
-import { registerAccountRoutes, requireAuth, chargeAnalysisCredit } from './server/account';
+import { registerAccountRoutes, requireAuth, chargeAnalysisCredit, userRef } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
 import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
@@ -33,6 +33,12 @@ import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
+import { rdmFrames, withDefaults, type AnalysisMode } from './src/utils/preferences';
+import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
+import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
+import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
+import { explainTrade, StrategyEngineUnavailable } from './server/strategyAi';
+import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
@@ -143,7 +149,8 @@ function createRateLimiter(options: { windowMs: number; max: number; message: st
       : hit(`${name}:ip:${ip}`, max, now);
     if (wait) {
       res.setHeader('Retry-After', wait);
-      return res.status(429).json({ error: options.message, retryAfterSeconds: wait });
+      // `message` is what the app shows; `error` keeps the text older clients read
+      return res.status(429).json({ error: options.message, code: 'RATE_LIMITED', message: options.message, retryAfterSeconds: wait });
     }
     next();
   };
@@ -2070,6 +2077,7 @@ const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
         price: m.price,
         equilibrium: m.equilibrium,
         plan: m.plan ? { direction: m.plan.direction, score: m.plan.score, entry: m.plan.entry } : null,
+        ...(confirmationOf(m) ? { confirm: { state: confirmationOf(m)!.state, direction: confirmationOf(m)!.direction, zone: confirmationOf(m)!.zone } } : {}),
         zones: [...m.demandZones, ...m.supplyZones].map(z => ({
           kind: z.kind, proximal: z.proximal, low: z.low, high: z.high, fresh: z.fresh, liveFirstTouch: z.liveFirstTouch,
           priceInside: z.priceInside, distanceAtr: z.distanceAtr, score: z.score, territory: z.territory,
@@ -2094,11 +2102,27 @@ registerWatchlistRoutes(
       return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
     candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
-    scan: async (symbol, timeframes) => {
+    scan: async (symbol, timeframes, mode, strategyId) => {
       const asset = await resolveAssetInfo(symbol, symbol);
       const q = await liveQuoteFor(asset);
       if (!q) return [];
-      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q).catch(() => null)));
+      // Strategy mode: the pair is scanned with the trader's own rules (no AI call), only on the timeframes they trade
+      if (strategyId) {
+        const st = await strategyById(strategyId).catch(() => null);
+        if (!st) return [];
+        const dec = priceDecimals(q.price, asset.symbol.includes('JPY'), asset.type === 'forex');
+        const frames = await Promise.all(
+          timeframes.map(async tf => {
+            if (st.rules.timeframes.length && !st.rules.timeframes.includes(tf)) return { timeframe: tf, price: q.price, equilibrium: 0, plan: null, zones: [] } as ScanFrame;
+            const cs = await fetchCandlesForAsset(asset, tf).catch(() => null);
+            if (!cs) return null;
+            const r = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec });
+            return { timeframe: tf, price: q.price, equilibrium: 0, plan: r.signal ? { direction: r.signal.direction, score: r.signal.score, entry: r.signal.entry } : null, zones: [] } as ScanFrame;
+          })
+        );
+        return Object.assign(frames, { strategyName: st.name });
+      }
+      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q, mode || 'NORMAL').catch(() => null)));
       return maps.map((m, i) => toScanFrame(m, timeframes[i]));
     },
     // Read when a scan runs (the constant is declared further down this file)
@@ -2110,6 +2134,8 @@ registerWatchlistRoutes(
 );
 // Preference Mode (/preference): the trader's own defaults
 registerPreferenceRoutes(app, generalApiRateLimiter);
+// Strategy Builder (/strategy): the trader's own strategies, run by Strategy mode instead of the general engine
+registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);
 // Token safety (any Solana token by address) and public signal proofs
@@ -2676,11 +2702,24 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   return candles;
 }
 
+/** How this trader's analyses run (Preference Mode): RDM timeframes (all by default) and Normal / Confirmation analysis */
+async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode }> {
+  const uid = (res.locals.user as any)?.uid;
+  if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL' };
+  try {
+    const prefs = withDefaults(((await userRef(uid).get()).data() as any)?.preferences);
+    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode };
+  } catch {
+    return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL' };
+  }
+}
+
 /** A setup the RDM scan may serve must clear this plan score (the normal signal floor is 70) */
 const RDM_MIN_SCORE = 75;
 
 /**
- * RDM (random timeframe): build the map on every supported timeframe and keep the strongest valid setup, one whose
+ * RDM (random timeframe): build the map on every timeframe the trader chose for RDM in Preference Mode (all of them by
+ * default) and keep the strongest valid setup, one whose
  * zone is fresh, levels untouched, indicators confirmed and live price sitting between the entry and TP1 (all enforced
  * by buildMarketMap). Higher timeframes get a slight edge on near ties (less noise). No valid setup anywhere = NO_SIGNAL.
  */
@@ -2690,17 +2729,19 @@ async function scanAllTimeframes(
   slMode: 'normal' | 'tight',
   prompt: string,
   currency?: string,
-  quote?: { high24h?: number; low24h?: number }
-): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null } }> {
+  quote?: { high24h?: number; low24h?: number },
+  frames: string[] = SUPPORTED_TIMEFRAMES,
+  mode: AnalysisMode = 'NORMAL'
+): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null; frames: string[] } }> {
   const maps = await Promise.all(
-    SUPPORTED_TIMEFRAMES.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote).catch(() => null))
+    frames.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote, mode).catch(() => null))
   );
-  const loaded = maps.map((m, i) => ({ m, tf: SUPPORTED_TIMEFRAMES[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
+  const loaded = maps.map((m, i) => ({ m, tf: frames[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
   const valid = loaded.filter(x => x.m.plan && x.m.plan.score >= RDM_MIN_SCORE);
   const rank = (x: { m: MarketMap; tf: string }) => x.m.plan!.score + Math.log2(timeframeMinutes(x.tf)) * 0.5;
   valid.sort((a, b) => rank(b) - rank(a));
   const best = valid[0];
-  const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null };
+  const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null, frames: [...frames] };
   if (best) return { map: best.m, tf: best.tf, info };
   const fallback = loaded.find(x => x.tf === '4H') || loaded[0];
   if (!fallback) return { map: null, tf: '4H', info };
@@ -2710,7 +2751,9 @@ async function scanAllTimeframes(
   m.alternate = null;
   m.movedSetup = null;
   m.mitigatedSetup = null;
-  m.noSignalReason = `No signal on any timeframe. Scanned ${loaded.length} timeframes (1m to 1W) and none has a fresh, confirmed, high-probability setup with price sitting between its entry and TP1 right now. Stand aside and scan again later.`;
+  const all = frames.length === SUPPORTED_TIMEFRAMES.length;
+  const span = all ? '1m to 1W' : frames.map(tf => tf.replace(/^(\d+)M$/, '$1m')).join(', ');
+  m.noSignalReason = `No signal on ${all ? 'any timeframe' : 'your RDM timeframes'}. Scanned ${loaded.length} timeframe${loaded.length === 1 ? '' : 's'} (${span}) and none has a fresh, confirmed, high-probability setup with price sitting between its entry and TP1 right now. Stand aside and scan again later.`;
   return { map: m, tf: fallback.tf, info };
 }
 
@@ -2722,11 +2765,15 @@ async function buildStructureMap(
   slMode: 'normal' | 'tight',
   prompt: string,
   currency?: string,
-  quote?: { high24h?: number; low24h?: number }
+  quote?: { high24h?: number; low24h?: number },
+  mode: AnalysisMode = 'NORMAL'
 ): Promise<MarketMap | null> {
-  const candles = await Promise.race([
-    fetchCandlesForAsset(asset, tf),
-    new Promise<null>(resolve => setTimeout(() => resolve(null), 7000)),
+  const within7s = <T,>(p: Promise<T>) => Promise.race([p, new Promise<null>(resolve => setTimeout(() => resolve(null), 7000))]);
+  // Confirmation analysis also reads a lower timeframe (fetched alongside)
+  const ltf = mode === 'CONFIRMATION' ? confirmationTimeframe(tf) : null;
+  const [candles, ltfCandles] = await Promise.all([
+    within7s(fetchCandlesForAsset(asset, tf)),
+    ltf ? within7s(fetchCandlesForAsset(asset, ltf)).catch(() => null) : Promise.resolve(null),
   ]);
   if (!candles) return null;
   const lower = prompt.toLowerCase();
@@ -2737,7 +2784,10 @@ async function buildStructureMap(
       quote && Number(quote.high24h) > 0 && Number(quote.low24h) > 0
         ? { high: Number(quote.high24h), low: Number(quote.low24h), since: Date.now() - 24 * 3600e3 }
         : null;
-    return buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
+    const map = buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
+    // Confirmation analysis: no trade until price reaches the zone and confirms on the lower timeframe
+    if (map && ltf) applyConfirmation(map, candles, ltfCandles, { ltf, slMode });
+    return map;
   } catch (err: any) {
     console.warn('[MarketX Strategy] map failed:', err?.message || err);
     return null;
@@ -3155,6 +3205,119 @@ async function tokenSafetyGate(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/**
+ * Strategy mode analysis: the trader's approved rules run in code on real candles (RDM: on every RDM timeframe their
+ * strategy trades, strongest signal wins), the strategy engine (API 2) explains a trade, and the result has the same
+ * shape as any analysis, so the card, price alerts, journal, track record and Solana proofs work the same. A trade whose
+ * explanation can't be written is refused with a refund (never handed to the general engine); a no-signal result is
+ * explained from the rules themselves.
+ */
+async function serveUserStrategyAnalysis(
+  res: Response,
+  o: {
+    strategy: ActiveStrategy;
+    asset: ReturnType<typeof extractAssetInfo>;
+    ticker: MarketTicker;
+    timeframe: string;
+    frames: string[] | null;
+    prompt: string;
+    slMode: 'normal' | 'tight';
+    newsBrief: NewsBrief | null;
+  }
+) {
+  const { strategy: st, asset, ticker } = o;
+  const rules = st.rules;
+  const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+  const price = ticker.price;
+  const dec = priceDecimals(price, asset.symbol.includes('JPY') || ticker.currency === 'JPY', asset.type === 'forex');
+  const marketKind = ['forex', 'crypto', 'stock', 'commodity', 'synthetic'].includes(asset.type) ? asset.type : null;
+  let stop: string | null = null;
+  if (rules.markets.length && (!marketKind || !rules.markets.includes(marketKind as any)))
+    stop = `No signal. Your strategy "${st.name}" only trades ${rules.markets.join(', ')}; ${asset.symbol} is ${asset.type || 'another market'}.`;
+  let frames = o.frames ? o.frames.filter(tf => !rules.timeframes.length || rules.timeframes.includes(tf)) : [o.timeframe];
+  if (o.frames && !frames.length) frames = rules.timeframes.length ? [...rules.timeframes] : [o.timeframe];
+  if (!stop && !o.frames && rules.timeframes.length && !rules.timeframes.includes(o.timeframe))
+    stop = `No signal. Your strategy "${st.name}" trades on ${rules.timeframes.map(label).join(', ')}; this analysis asked for the ${label(o.timeframe)}. Pick one of those timeframes (or RDM).`;
+
+  let best: { r: UserStrategyResult; tf: string; candles: number } | null = null;
+  let firstNo: { r: UserStrategyResult; tf: string; candles: number } | null = null;
+  if (!stop) {
+    const reads = await Promise.all(
+      frames.map(async tf => {
+        const cs = await Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(r => setTimeout(() => r(null), 7000))]).catch(() => null);
+        if (!cs) return null;
+        return { r: runUserStrategy(cs, rules, { price, timeframe: tf, decimals: dec, slMode: o.slMode }), tf, candles: cs.length };
+      })
+    );
+    for (const x of reads) {
+      if (!x) continue;
+      if (x.r.signal && (!best || x.r.signal.score + Math.log2(timeframeMinutes(x.tf)) * 0.5 > best.r.signal!.score + Math.log2(timeframeMinutes(best.tf)) * 0.5)) best = x;
+      if (!x.r.signal && !firstNo) firstNo = x;
+    }
+    if (!best && !firstNo) stop = `No signal. The live candles could not be loaded to run your strategy "${st.name}" right now. Try again in a moment.`;
+  }
+  const used = best || firstNo;
+  const tf = used?.tf || o.timeframe;
+  const s: any = generateAlgorithmicStrategy(asset, ticker, tf, o.prompt, o.slMode, undefined, o.newsBrief);
+  // Nothing from the general engine's method is shown for a strategy-mode result
+  for (const k of ['demandZone', 'supplyZone', 'poiZones', 'fibonacciLevels', 'unmitigatedZonesCount', 'mitigatedZonesCount', 'equilibrium', 'swingHigh', 'swingLow', 'goldenPocket'])
+    delete s[k];
+  const r = (p: number) => Number(p.toFixed(dec));
+  const sig = best?.r.signal || null;
+  s.timeframe = tf;
+  s.name = `Personal strategy: ${st.name}`;
+  s.strategyEngine = { method: 'USER_STRATEGY', strategyId: st.id, strategyName: st.name, setup: SETUPS[rules.setup].name, candles: used?.candles || 0, timeframe: tf };
+  s.userStrategy = { id: st.id, name: st.name, setup: SETUPS[rules.setup].short };
+  s.toolsUsed = { candles: used?.candles || 0, zones: 0, rsi: used?.r.indicators.rsi ?? null, emaTrend: null, divergence: null };
+  if (o.frames) s.timeframeScan = { mode: 'RDM', scanned: frames.length, withSetup: best ? [best.tf] : [], chosen: best?.tf || null, frames };
+  if (sig) {
+    const long = sig.direction === 'LONG';
+    s.tradeType = sig.direction;
+    s.bias = long ? 'BULLISH' : 'BEARISH';
+    s.confidenceScore = Math.max(55, Math.min(92, sig.score));
+    s.execution = sig.execution;
+    s.entryZone = {
+      min: sig.entry.min,
+      max: sig.entry.max,
+      optimal: sig.entry.optimal,
+      rationale: `${sig.execution === 'MARKET' ? `${long ? 'Buy' : 'Sell'} now at market` : `${long ? 'Buy' : 'Sell'} limit`}: ${sig.trigger}`,
+    };
+    s.stopLoss = {
+      price: sig.stop,
+      riskPercent: Number(((Math.abs(sig.entry.optimal - sig.stop) / sig.entry.optimal) * 100).toFixed(2)),
+      rationale: rules.stop.type === 'ATR' ? `${rules.stop.atrMult} × ATR from the entry (your rule)` : `Beyond the setup's invalidation (${sig.zone.label}), your structure stop`,
+    };
+    const exits = [40, 40, 20];
+    s.takeProfits = sig.targets.map((t, i) => ({ level: `TP${i + 1} (${t.label})`, price: t.price, rewardRatio: `1:${t.rr.toFixed(1)}`, exitPercent: exits[i] }));
+    s.riskRewardRatio = `1 : ${sig.rrFinal.toFixed(1)}`;
+    s.setupCheck = { zone: { low: r(Math.min(sig.entry.min, sig.zone.low)), high: r(Math.max(sig.entry.max, sig.zone.high)) }, since: sig.at, issuedAt: Date.now(), timeframe: tf };
+    try {
+      s.detailedThesis = await explainTrade({ strategyName: st.name, rules, symbol: asset.symbol, timeframe: label(tf), price, signal: sig });
+    } catch (err: any) {
+      // A trade is only served with its explanation from the strategy engine; never handed to the general engine
+      const msg = err instanceof StrategyEngineUnavailable ? 'Your strategy engine is unavailable right now.' : 'Your strategy analysis could not be finished.';
+      return res.status(503).json({ error: 'STRATEGY_ENGINE_UNAVAILABLE', message: `${msg} Your credit was refunded, please try again in a moment.` });
+    }
+    s.detailedThesis = `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
+  } else {
+    const reason = stop || used?.r.reason || 'No signal from your strategy right now.';
+    s.tradeType = 'NO_SIGNAL';
+    s.bias = 'NEUTRAL';
+    s.confidenceScore = 50;
+    s.riskRewardRatio = '1 : 0';
+    delete s.entryZone;
+    delete s.stopLoss;
+    s.takeProfits = [];
+    s.detailedThesis =
+      `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
+    s.signalStatus = { state: 'PENDING_CONFIRMATION', verdict: 'No Signal Opportunity', details: reason };
+  }
+  if (sig) s.signalStatus = evaluateSignalExecutionStatus(s.tradeType, price, s.entryZone.optimal, s.stopLoss.price, s.takeProfits);
+  enforcePreSignalCrosscheck(s);
+  console.log(`[MarketX Strategy Mode] ${asset.symbol} ${tf} "${st.name}" (${rules.setup}): ${s.tradeType}`);
+  return res.json({ success: true, isAnalysis: true, message: s.detailedThesis, strategy: s });
+}
+
 /** RDM (scan every timeframe) is Pro only once the free period ends: checked before any credit is used */
 async function rdmProGate(req: Request, res: Response, next: NextFunction) {
   const b = req.body || {};
@@ -3165,6 +3328,22 @@ async function rdmProGate(req: Request, res: Response, next: NextFunction) {
   if (timeframeFromPrompt(prompt)) return next();
   if (classifyPrompt(prompt, { hasChartImage: !!b.chartImage, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
   return rdmGuard(req, res, next);
+}
+/** Strategy mode is Pro only once the free period ends: checked before any credit is used */
+async function strategyProGate(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  if (!proGateActive() || typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage) return next();
+  const prompt = b.prompt.trim().slice(0, 2000);
+  if (classifyPrompt(prompt, { hasChartImage: false, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
+  try {
+    const { locked } = await strategyModeFor((res.locals.user as any).uid);
+    if (locked)
+      return res.status(402).json({
+        error: 'PRO_REQUIRED',
+        message: 'The Strategy Builder is a Pro feature now. Turn it off in /strategy-builder to use the MarketX engine, or upgrade to Pro. No credit was used.',
+      });
+  } catch {}
+  next();
 }
 const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
 
@@ -3273,7 +3452,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3566,11 +3745,68 @@ Do NOT output structured trade card JSON.`;
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
     // In chart mode the levels come from the uploaded image, never from live candles
     let rdmScan: Awaited<ReturnType<typeof scanAllTimeframes>> | null = null;
+    const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
+    // Strategy mode: the trader's own strategy runs this analysis instead of the general engine (same result format)
+    if (!chartMode) {
+      const sm = await strategyModeFor((res.locals.user as any).uid).catch(() => ({ strategy: null, locked: false }));
+      if (sm.strategy) {
+        return serveUserStrategyAnalysis(res, {
+          strategy: sm.strategy,
+          asset,
+          ticker: currentTicker,
+          timeframe: analysisTimeframe,
+          frames: randomTimeframe ? tradePrefs!.rdm : null,
+          prompt: cleanPrompt,
+          slMode: safeSlMode,
+          newsBrief,
+        });
+      }
+    }
+    const analysisMode: AnalysisMode = tradePrefs?.mode || 'NORMAL';
     const structureMap = chartMode
       ? null
       : randomTimeframe
-        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker)).map
-        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker);
+        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, tradePrefs!.rdm, analysisMode)).map
+        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, analysisMode);
+    // Confirmation analysis: every result says so; a trade carries its confirmation, otherwise what it is waiting for
+    const confirmRead = confirmationOf(structureMap);
+    if (confirmRead) {
+      const sendC = res.json.bind(res);
+      res.json = ((body: any) => {
+        if (body?.strategy && typeof body.strategy === 'object') {
+          const s = body.strategy;
+          const traded = s.tradeType === 'LONG' || s.tradeType === 'SHORT';
+          s.analysisMode = 'CONFIRMATION';
+          s.confirmationRead = {
+            state: traded ? 'CONFIRMED' : confirmRead.state,
+            ltf: confirmRead.ltf,
+            ...(confirmRead.zone ? { zone: confirmRead.zone, direction: confirmRead.direction } : {}),
+            ...(traded && confirmRead.entry ? { patterns: confirmRead.entry.patterns, confirmedAt: confirmRead.entry.confirmedAt, reactionExtreme: confirmRead.entry.reactionExtreme, sweptZone: confirmRead.entry.sweptZone } : {}),
+          };
+          // A confirmed trade's entry and stop come from the confirmation, so their explanations say so
+          if (traded && confirmRead.entry) {
+            const e = confirmRead.entry;
+            const ltfLabel = e.ltf.replace(/^(\d+)M$/, '$1m');
+            const long = s.tradeType === 'LONG';
+            if (s.entryZone && typeof s.entryZone === 'object')
+              s.entryZone.rationale = `${long ? 'Buy' : 'Sell'} now at market: price reached the ${long ? 'demand' : 'supply'} zone and confirmed it on the ${ltfLabel} (${e.patterns.slice(0, 2).join(', ').toLowerCase()})`;
+            if (s.stopLoss && typeof s.stopLoss === 'object')
+              s.stopLoss.rationale = `Beyond the reaction ${long ? 'low' : 'high'} ${e.reactionExtreme}${e.sweptZone ? ' (the wick that swept the zone)' : ''} on the ${ltfLabel}, with a buffer`;
+          }
+          const note = traded && confirmRead.entry
+            ? `> **Confirmation analysis:** ${confirmRead.entry.note}\n\n`
+            : confirmRead.state === 'WAITING_PATTERN' || confirmRead.state === 'WAITING_TAP'
+              ? `> **Confirmation analysis:** ${confirmRead.text}\n\n`
+              : '';
+          if (note) {
+            for (const [obj, key] of [[s, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
+              if (typeof obj[key] === 'string' && !obj[key].includes('**Confirmation analysis:**')) obj[key] = note + obj[key];
+            }
+          }
+        }
+        return sendC(body);
+      }) as typeof res.json;
+    }
     if (rdmScan) {
       analysisTimeframe = rdmScan.tf;
       // Every analysis result served from here says which timeframe the scan used
@@ -3580,9 +3816,11 @@ Do NOT output structured trade card JSON.`;
         if (body?.strategy && typeof body.strategy === 'object') {
           body.strategy.timeframeScan = scanInfo;
           const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+          // Says which timeframes were scanned when the trader narrowed RDM in Preference Mode
+          const checked = `${scanInfo.scanned} timeframe${scanInfo.scanned === 1 ? '' : 's'} checked${scanInfo.frames.length < SUPPORTED_TIMEFRAMES.length ? ` (your RDM choice: ${scanInfo.frames.map(label).join(', ')})` : ''}`;
           const note = scanInfo.chosen
-            ? `> **RDM scan:** ${scanInfo.scanned} timeframes checked, valid setups on ${scanInfo.withSetup.map(label).join(', ')}. This trade uses **${label(scanInfo.chosen)}**, the strongest.\n\n`
-            : `> **RDM scan:** ${scanInfo.scanned} timeframes checked, none has a valid setup right now.\n\n`;
+            ? `> **RDM scan:** ${checked}, valid setups on ${scanInfo.withSetup.map(label).join(', ')}. This trade uses **${label(scanInfo.chosen)}**, the strongest.\n\n`
+            : `> **RDM scan:** ${checked}, none has a valid setup right now.\n\n`;
           for (const [obj, key] of [[body.strategy, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
             if (typeof obj[key] === 'string' && !obj[key].startsWith('> **RDM scan:**')) obj[key] = note + obj[key];
           }

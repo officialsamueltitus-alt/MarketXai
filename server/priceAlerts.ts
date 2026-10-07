@@ -36,6 +36,8 @@ export interface AlertLevels {
   entry: { min: number; max: number; optimal: number };
   stop: number;
   tps: number[];
+  /** Strategy mode: the trader's own strategy that produced the signal (its results stay out of MarketX's own record) */
+  userStrategy?: string;
 }
 export interface AlertOffer extends AlertLevels {
   id: string;
@@ -117,6 +119,7 @@ export function levelsFromStrategy(s: any): AlertLevels | null {
     entry,
     stop,
     tps,
+    ...(s.userStrategy?.name ? { userStrategy: String(s.userStrategy.name).slice(0, 48) } : {}),
   };
 }
 

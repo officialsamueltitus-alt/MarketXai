@@ -94,7 +94,21 @@ export interface StrategyResult {
   alreadyMoved?: 'NEAR_TP' | 'NEAR_SL';
   /** Tools the engine ran for this analysis (live candles, zones, RSI 14, EMA 50) */
   /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
-  timeframeScan?: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null };
+  /** Strategy mode: the trader's own strategy produced this result (not the general engine) */
+  userStrategy?: { id: string; name: string; setup: string };
+  /** Confirmation analysis (Preference Mode): set on every result analysed in that mode */
+  analysisMode?: 'NORMAL' | 'CONFIRMATION';
+  confirmationRead?: {
+    state: 'CONFIRMED' | 'WAITING_PATTERN' | 'WAITING_TAP' | 'NONE';
+    ltf: string;
+    direction?: 'LONG' | 'SHORT';
+    zone?: { low: number; high: number; kind: 'DEMAND' | 'SUPPLY' };
+    patterns?: string[];
+    confirmedAt?: number;
+    reactionExtreme?: number;
+    sweptZone?: boolean;
+  };
+  timeframeScan?: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null; /** Timeframes the scan walked (the trader's RDM choice) */ frames?: string[] };
   toolsUsed?: { candles: number; zones: number; rsi: number | null; emaTrend: 'RISING' | 'FALLING' | 'FLAT' | null; divergence: 'BULLISH' | 'BEARISH' | null };
   /** LIMIT: pending order ahead of price. MARKET: price is on the zone's first touch now, enter at the current price */
   execution?: 'LIMIT' | 'MARKET';
@@ -438,6 +452,10 @@ export interface WatchItem {
   type: string;
   /** A timeframe ("15M", "1H"...) or "RDM" (every timeframe) */
   timeframe: string;
+  /** RDM only: the timeframes it scans, from Preference Mode ([] = all) */
+  rdmFrames?: string[];
+  /** Analysis mode it scans in (Preference Mode) */
+  analysisMode?: 'NORMAL' | 'CONFIRMATION';
   addedAt: number;
   active: boolean;
   status: WatchStatus;
@@ -451,6 +469,8 @@ export interface WatchItem {
 
 // ---------------- Trade journal (/trade-journal, see server/journal.ts) ----------------
 export interface JournalTrade {
+  /** Logged from a trade the trader's own strategy found (Strategy Builder): its name */
+  userStrategy?: string;
   id: string;
   symbol: string;
   direction: 'LONG' | 'SHORT';
@@ -521,6 +541,8 @@ export interface TrackRecordEntry {
   tpsTotal: number;
   createdAt: number;
   closedAt: number;
+  /** Found with the trader's own strategy (Strategy Builder): its name */
+  userStrategy?: string;
 }
 export interface TrackRecordPayload {
   stats: TrackRecordStats;

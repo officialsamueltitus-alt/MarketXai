@@ -237,7 +237,9 @@ const SECTIONS: Section[] = [
           liquidity to trade, you're told so and no credit is used.
         </Note>
         <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
-          Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you. It keeps only valid, high probability setups
+          Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you, or only the ones you pick: when you
+          choose RDM, the timeframes it searches appear right under it. Tap <B>All</B>, or tap the timeframes you want (for example 1H, 4H and 1D). Your
+          choice is saved to Preference Mode and used everywhere you pick RDM, in the input box and on the watchlist. It keeps only valid, high probability setups
           where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The
           result shows an <B>RDM · picked 1H</B> tag (or whichever timeframe it used) and the write up lists the timeframes that had a valid setup. If no timeframe
           has one, you get a clear No signal. One analysis, one credit.
@@ -270,8 +272,8 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Commands">
           Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
-          Watchlist, journal and track record below) and <B>/preference</B> (see Preference Mode below). Still in private testing and marked Soon: Strategy,
-          Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below) and <B>/strategy-builder</B> (see Strategy Builder below). Still
+          in private testing and marked Soon: Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -395,7 +397,8 @@ const SECTIONS: Section[] = [
               <B>/watchlist.</B> Type it in the input and approve the watchlist once. MarketX then watches the pairs you add on its own, all day.
             </>,
             <>
-              <B>Add a pair</B> (EURUSD, gold, BTC, a meme coin) and pick a timeframe. Pick <B>RDM</B> to have the pair scanned on every timeframe. Before a pair
+              <B>Add a pair</B> (EURUSD, gold, BTC, a meme coin) and pick a timeframe. Pick <B>RDM</B> to have the pair scanned on every timeframe, or only on the RDM timeframes you
+              chose (the same choice as in the input box and Preference Mode; change it there or right here and every RDM pair follows). Before a pair
               is added, MarketX confirms it can read its live price and chart; if it can't, the pair is not added and you are told why.
             </>,
             <>
@@ -432,6 +435,45 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'strategy-builder',
+    title: 'Strategy Builder',
+    icon: Target,
+    lead: 'Run your own strategy instead of the MarketX engine: write it in your own words, answer a few questions, or start from SMC, ICT and other popular methods.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/strategy-builder.</B> Type it in the input. Tap <B>New strategy</B> and explain your strategy the way you would to a friend (what you look for, where
+              the stop goes, where you take profit, which timeframes and markets), then answer the guided questions: the setup, direction, timeframes, markets,
+              what keeps you out of a trade (trend, RSI, sessions), your stop and your targets.
+            </>,
+            <>
+              Or open the <B>strategy library</B>: SMC order blocks, ICT liquidity sweeps with fair value gaps (with or without the London and New York killzones),
+              trend pullbacks, moving average crossovers, breakout and retest, RSI divergence, support and resistance, Bollinger mean reversion, the London
+              breakout and the Wyckoff spring. Use one as it is or tweak it.
+            </>,
+            <>
+              <B>Review your rules.</B> MarketX shows your strategy as clear rules, and lists anything it can't automate (news, discretion) so you keep that part
+              in mind yourself. Name it, then <B>Save and use</B>.
+            </>,
+            <>
+              <B>Turn it on.</B> While the Strategy Builder is on, MarketX finds every trade with your strategy instead of its own engine, in your analyses and
+              on your watchlist. Everything else stays the same: the signal, RDM, timeframes, credits, price alerts and the journal. Each trade is tagged
+              <B>Personal strategy</B>, on its card, in your journal and track record, and on its Solana record. A violet chip next to the input box shows which
+              strategy is running; tap it to switch or turn the Strategy Builder off.
+            </>,
+          ]}
+        />
+        <Note title="Good to know">
+          Your strategy only trades the timeframes and markets you chose; ask for another and it says so. If your strategy finds nothing, you get a clear No
+          signal with the reason and your rules. Results from your own strategy count in your own track record, not in MarketX's. The Strategy Builder is free until
+          1 November 2026, then part of Pro.
+        </Note>
+      </>
+    ),
+  },
+  {
     id: 'preference-mode',
     title: 'Preference Mode',
     icon: SlidersHorizontal,
@@ -441,11 +483,18 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose the timeframe and stop loss new prompts start with, your account size, currency and risk per trade, whether results
+              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose your <B>analysis mode</B> (Normal or Confirmation, see below), the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
               show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
             </>,
           ]}
         />
+        <Note title="Analysis mode: Normal or Confirmation" tone="emerald">
+          <B>Normal</B> (the default) gives you a fresh, untouched zone ahead of price with a limit entry. <B>Confirmation</B> waits: MarketX
+          still finds the zone, but only calls the trade once price reaches it and a lower timeframe shows it holding, such as a liquidity sweep or
+          false breakout, an engulfing candle, a pin bar, a morning or evening star, or a structure break. Then you get the entry at market with the
+          stop beyond the reaction wick, and the watchlist only says ready at that moment. Until then the result says <B>waiting for
+          confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
+        </Note>
         <Note title="Trade calculator">
           In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
           at risk. Enter your account size, then your entry and stop prices (or the stop in pips or points). It handles forex, gold, silver, oil, indices,
@@ -517,7 +566,7 @@ const SECTIONS: Section[] = [
     shots: [{ src: '/guide/credits-balance.webp', alt: "Your credits and today\u2019s analyses, with the time they refill.", w: 786, h: 1460 }, { src: '/guide/credits-pro.webp', alt: "Plans: Pro gives you more analyses every day.", w: 786, h: 1604 }],
     title: 'Credits, daily analyses and plans',
     icon: CreditCard,
-    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. The one exemption is campaign credits: they keep working after the daily limit until they run out. If an analysis fails, it is refunded automatically.",
+    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. Campaign credits work differently: they are used first, and while you have any left your daily analyses are paused and kept (no 3:00 AM refill), then they pick up again once the campaign credits run out. If an analysis fails, it is refunded automatically.",
     body: (
       <>
         <Table
@@ -540,8 +589,8 @@ const SECTIONS: Section[] = [
           in the Plans window.
         </Note>
         <Note title="Daily limit reached?" tone="amber">
-          If you have campaign credits from the X campaign, you keep going on those until they run out; the credit pill shows how many are left. Otherwise
-          the input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro gives you
+          Campaign credits are always used before your daily analyses, so the limit only shows once they are gone; the credit pill shows how many are left.
+          When both are used up the input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro gives you
           10 analyses a day instead of 3.
         </Note>
       </>

@@ -15,7 +15,8 @@ self.addEventListener('push', event => {
     data = { title: 'MarketX', body: event.data ? event.data.text() : '' };
   }
   const title = data.title || 'MarketX';
-  const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/';
+  // Only this site's own paths (never //host or \\host, which browsers read as another site)
+  const url = typeof data.url === 'string' && /^\/(?![\/\\])/.test(data.url) ? data.url : '/';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       // MarketX open and in front: it shows the notice itself (toast + chime), so no second popup

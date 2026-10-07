@@ -122,7 +122,7 @@ export function onPushMessages(handlers: { push: () => void; open: (url: string)
   const fn = (e: MessageEvent) => {
     const d = e.data || {};
     if (d.type === 'mx-push') handlers.push();
-    else if (d.type === 'mx-open' && typeof d.url === 'string' && d.url.startsWith('/')) handlers.open(d.url);
+    else if (d.type === 'mx-open' && typeof d.url === 'string' && /^\/(?![\/\\])/.test(d.url)) handlers.open(d.url);
   };
   navigator.serviceWorker.addEventListener('message', fn);
   return () => navigator.serviceWorker.removeEventListener('message', fn);

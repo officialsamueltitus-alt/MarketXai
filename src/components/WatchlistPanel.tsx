@@ -6,6 +6,8 @@ import { formatMarketPrice } from '../utils/formatPrice';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { playChime, setWatchSound, watchSoundOn } from '../utils/notifySound';
 import { PluginIntro, PluginSheet, ago } from './PluginSheet';
+import { RdmTimeframePicker } from './RdmTimeframePicker';
+import { rdmLabel } from '../utils/preferences';
 
 interface WatchlistPanelProps {
   isOpen: boolean;
@@ -18,6 +20,12 @@ interface WatchlistPanelProps {
   onToast: (message: string, type?: 'success' | 'info') => void;
   /** The pair a notification or email link points at: scrolled into view and highlighted */
   focusId?: string | null;
+  /** Timeframes RDM scans, from Preference Mode ([] = all) */
+  rdmTimeframes: string[];
+  /** Saves a new RDM choice to Preference Mode (every RDM pair follows it) */
+  onRdmTimeframesChange: (next: string[]) => Promise<void>;
+  /** Confirmation analysis is on (Preference Mode): ready means confirmed at the zone */
+  confirmationMode?: boolean;
 }
 
 // Every timeframe the engine supports, plus RDM (scan them all)
@@ -36,7 +44,7 @@ const STATUS: Record<WatchItem['status'], { label: string; pill: string; dot: st
   NO_DATA: { label: 'No data', pill: 'bg-rose-500/10 text-rose-300 border-rose-500/25', dot: 'bg-rose-400' },
 };
 
-export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId }) => {
+export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode }) => {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [max, setMax] = useState(12);
   const [loading, setLoading] = useState(false);
@@ -55,6 +63,11 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
   const [, setTick] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // One RDM choice for everything: saved to Preference Mode, then the pairs on RDM show their new scan
+  const saveRdm = async (next: string[]) => {
+    await onRdmTimeframesChange(next);
+    load();
+  };
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -180,7 +193,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
               role="radio"
               aria-checked={timeframe === tf.id}
               onClick={() => setTimeframe(tf.id)}
-              title={tf.id === 'RDM' ? 'Scan every timeframe' : `Scan the ${tf.id}`}
+              title={tf.id === 'RDM' ? `RDM: scan ${rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}` : `Scan the ${tf.id}`}
               className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 inline-flex items-center gap-1 transition cursor-pointer ${
                 timeframe === tf.id ? 'bg-white text-slate-900' : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]'
               }`}
@@ -190,7 +203,19 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
             </button>
           ))}
         </div>
+        {timeframe === 'RDM' && (
+          <div className="mt-2 p-2.5 rounded-xl bg-black/20 border border-white/[0.06] mx-fade-in">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">RDM searches</div>
+            <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} />
+          </div>
+        )}
       </form>
+      {confirmationMode && (
+        <p className="mt-2 px-3 py-2 rounded-xl bg-emerald-500/[0.06] border border-emerald-400/20 text-[11px] leading-snug text-emerald-200/90">
+          <span className="font-semibold">Confirmation analysis is on.</span> A pair is ready only once price reaches its zone and confirms it on a lower
+          timeframe. Until then it shows "waiting for confirmation". Change it in Preference Mode.
+        </p>
+      )}
       <button
         type="button"
         role="switch"
@@ -261,7 +286,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           text="Approve MarketX to watch the pairs you add on your account. It scans them on its own, all day, and tells you when a setup is building or ready."
           points={[
             { icon: Activity, tone: 'text-sky-300 bg-sky-500/10', t: 'Live data checked first', d: 'Each pair is added only once its live price and chart are confirmed' },
-            { icon: Radar, tone: 'text-violet-300 bg-violet-500/10', t: 'Scans on its own', d: 'Your timeframe, or RDM to scan every timeframe' },
+            { icon: Radar, tone: 'text-violet-300 bg-violet-500/10', t: 'Scans on its own', d: 'Your timeframe, or RDM to scan the timeframes you choose (or all)' },
             { icon: Sparkles, tone: 'text-emerald-300 bg-emerald-500/10', t: 'Setups building or ready', d: 'Supply and demand zones in the right part of the range' },
             { icon: Mail, tone: 'text-amber-300 bg-amber-500/10', t: 'In your notifications and by email', d: 'Each setup is sent once, never repeated' },
           ]}
@@ -282,7 +307,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
             <Radar className="w-5 h-5 text-violet-300" />
           </span>
           <p className="mt-3 text-sm font-medium text-slate-200">Your watchlist is on</p>
-          <p className="mt-1 text-xs text-slate-500 leading-relaxed">Add a pair above and pick a timeframe. Choose <span className="text-white font-medium">RDM</span> to have every timeframe scanned.</p>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">Add a pair above and pick a timeframe. Choose <span className="text-white font-medium">RDM</span> to have the timeframes you pick (or all of them) scanned.</p>
           <button type="button" onClick={() => inputRef.current?.focus()} className="mt-4 h-9 px-4 rounded-xl bg-white/[0.06] text-xs font-medium text-white hover:bg-white/[0.1] cursor-pointer">
             Add your first pair
           </button>
@@ -320,6 +345,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                     >
                       {i.timeframe === 'RDM' && <Layers className="w-2.5 h-2.5" />}
                       {i.timeframe}
+                      {i.timeframe === 'RDM' && i.rdmFrames && i.rdmFrames.length > 0 && <span className="text-slate-500">·{i.rdmFrames.length}</span>}
                     </button>
                     <span className={`h-5 px-2 rounded-full border text-[10px] font-semibold inline-flex items-center shrink-0 ${st.pill}`}>{i.active ? st.label : 'Paused'}</span>
                     <span className="ml-auto text-sm font-mono text-slate-200 tabular-nums truncate">{i.price ? formatMarketPrice(i.price) : ''}</span>
@@ -339,6 +365,11 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                           {tf.label}
                         </button>
                       ))}
+                      {i.timeframe === 'RDM' && (
+                        <div className="w-full mt-1.5">
+                          <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} disabled={busy === i.id} />
+                        </div>
+                      )}
                     </div>
                   )}
                   <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">{i.statusText}</p>

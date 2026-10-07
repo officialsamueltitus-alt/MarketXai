@@ -102,11 +102,18 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
           <p className="text-xs text-slate-500 mt-0.5">
             {unlimited
               ? 'No daily limit on your account.'
-              : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} analyses left · ${
+              : campaignLeft > 0
+                ? `Paused while your campaign credits are used. ${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} kept for after they run out; no refill until then.`
+                : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} analyses left · ${
                   creditState.dailyUsageLimit - creditState.dailyUsageRemaining
                 } used. Each one uses ${TOKEN_RANGE_TEXT}. Refills every day at ${resetAt}, no rollover.`}
           </p>
-          {!unlimited && (
+          {!unlimited && campaignLeft > 0 && (
+            <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-cyan-500/10 text-[11px] text-cyan-200">
+              <Gift className="w-3 h-3" /> Paused · campaign credits first
+            </span>
+          )}
+          {!unlimited && campaignLeft <= 0 && (
             <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-white/[0.05] text-[11px] text-slate-300">
               <Clock className="w-3 h-3" /> Refills at {resetAt} · in <span className="font-mono">{reset.text}</span>
             </span>
@@ -114,7 +121,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
         </div>
       </section>
 
-      {/* Campaign credits: the one exemption, still usable after the daily limit */}
+      {/* Campaign credits: used first, the daily analyses pause until they run out */}
       {!unlimited && campaignLeft > 0 && (
         <section className="rounded-3xl border border-cyan-400/15 bg-cyan-500/[0.06] p-4 flex items-center gap-3">
           <span className="w-10 h-10 rounded-2xl bg-cyan-500/15 text-cyan-300 flex items-center justify-center shrink-0">
@@ -124,7 +131,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
             <div className="text-sm font-medium text-white">
               {campaignLeft} campaign credit{campaignLeft === 1 ? '' : 's'}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Earned from the X campaign. They keep working after today's limit, until used up.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Earned from the campaign and used first, one per analysis. Your daily analyses pick up again when these run out.</p>
           </div>
         </section>
       )}

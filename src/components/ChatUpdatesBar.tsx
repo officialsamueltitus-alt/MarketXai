@@ -143,10 +143,8 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
         cta: 'Go Pro',
         onAction: p.onOpenPricing,
       });
-      if (p.creditState.dailyUsageRemaining <= 0) {
-        promo.push({ id: 'out', tone: 'amber', icon: AlertTriangle, label: 'Daily limit', text: campaignCreditsLeft(p.creditState) > 0
-            ? `Today's analyses are used up; your campaign credits keep you going. Daily analyses refill at ${formatDailyResetTime(p.creditState)}`
-            : `You've used today's ${p.creditState.dailyUsageLimit} analyses. They refill at ${formatDailyResetTime(p.creditState)}`, cta: 'Upgrade', onAction: p.onOpenPricing });
+      if (p.creditState.dailyUsageRemaining <= 0 && campaignCreditsLeft(p.creditState) <= 0) {
+        promo.push({ id: 'out', tone: 'amber', icon: AlertTriangle, label: 'Daily limit', text: `You've used today's ${p.creditState.dailyUsageLimit} analyses. They refill at ${formatDailyResetTime(p.creditState)}`, cta: 'Upgrade', onAction: p.onOpenPricing });
       }
     } else if (isPro && !unlimited) {
       const sub = getSubscriptionRemainingInfo(p.userProfile);

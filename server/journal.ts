@@ -55,6 +55,8 @@ export interface JournalTrade {
   updatedAt: number;
   /** MANUAL (typed by the trader) or AUTO (from a price alert); missing on older trades = MANUAL */
   source?: 'MANUAL' | 'AUTO';
+  /** Strategy Builder: logged from a trade the trader's own strategy found (shown as "Personal strategy") */
+  userStrategy?: string;
   /** Auto trades only */
   auto?: AutoInfo;
 }
@@ -203,11 +205,13 @@ export interface TrackRecordEntry {
   closedAt: number;
   /** signalKey of the signal (records made before it was stored are matched by the cleanup) */
   signalKey?: string;
+  /** Strategy mode: the trader's own strategy (counted in their own record, not in MarketX's) */
+  userStrategy?: string;
 }
 export interface AlertLike {
   id: string; uid: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; tps: number[]; entered: boolean;
   hits: Array<{ kind: string; at: number; price?: number }>; createdAt: number; updatedAt?: number; active: boolean; endedReason?: string;
-  entry?: { min: number; max: number; optimal: number }; stop?: number; execution?: 'LIMIT' | 'MARKET';
+  entry?: { min: number; max: number; optimal: number }; stop?: number; execution?: 'LIMIT' | 'MARKET'; userStrategy?: string;
 }
 
 /**
@@ -239,6 +243,7 @@ export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
   const entry: TrackRecordEntry = {
     id: a.id, uid: a.uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit,
     tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a),
+    ...(a.userStrategy ? { userStrategy: a.userStrategy } : {}),
   };
   // One result per signal per trader: a twin record of the same signal is never added
   const twins = (await db().collection(RECORDS).where('uid', '==', a.uid).get()).docs.map(d => d.data() as TrackRecordEntry);
@@ -284,6 +289,7 @@ export async function openAutoJournal(a: AlertLike): Promise<void> {
       notes: cur.exists ? (cur.data() as JournalTrade).notes : '',
       openedAt: cur.exists ? (cur.data() as JournalTrade).openedAt : now, closedAt: null,
       createdAt: cur.exists ? (cur.data() as JournalTrade).createdAt : now, updatedAt: now, source: 'AUTO',
+      ...(a.userStrategy ? { userStrategy: cleanText(a.userStrategy, 48) } : {}),
       auto: {
         alertId: a.id, state: 'TRACKING', execution: a.execution === 'MARKET' ? 'MARKET' : 'LIMIT', targets: a.tps.slice(0, 3),
         tpsHit: 0, endedReason: null, enteredAt: entered ? now : null,
@@ -408,8 +414,9 @@ let globalCache: { at: number; value: ReturnType<typeof recordStats> & { since: 
 async function globalRecord() {
   if (globalCache && Date.now() - globalCache.at < 10 * 60_000) return globalCache.value;
   const snap = await db().collection(RECORDS).orderBy('closedAt', 'desc').limit(1000).get();
-  // A signal given to several traders (same pair, timeframe and levels) counts once in MarketX's record
-  const entries = uniqueSignals(snap.docs.map(d => d.data() as TrackRecordEntry));
+  // A signal given to several traders (same pair, timeframe and levels) counts once in MarketX's record; results of
+  // traders' own strategies (Strategy mode) are theirs, not MarketX's, and stay out of it
+  const entries = uniqueSignals(snap.docs.map(d => d.data() as TrackRecordEntry).filter(e => !e.userStrategy));
   const value = { ...recordStats(entries), since: entries.length ? Math.min(...entries.map(e => e.createdAt)) : null };
   globalCache = { at: Date.now(), value };
   return value;

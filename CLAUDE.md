@@ -19,8 +19,10 @@
   Firestore transactions. `firestore.rules` denies all direct client access — keep it that way.
 - Paystack plans are granted only after server verification (verify endpoint or signed webhook).
 - Daily analyses refill every day at 3:00 AM in `CREDIT_RESET_TZ` (default Africa/Lagos, `server/dailyReset.ts`), not 24h after use;
-  the daily limit is a hard stop (402 `DAILY_LIMIT`) until that refill. Only exemption: X campaign credits (`credits.campaign`,
-  part of `available`) keep working after the daily limit until used up; daily use never consumes them.
+  the daily limit is a hard stop (402 `DAILY_LIMIT`) until that refill. Campaign credits (owner-specified, `credits.campaign`, part of
+  `available`, `campaignPool`; Free and Pro alike) are spent FIRST: while any are left the daily analyses are paused (not spent, and
+  `normalizeUser` skips the 3:00 AM refill); the last campaign credit sets `lastDailyReset` to now, so the daily analyses left carry on
+  and the next refill is the following 3:00 AM. Campaign credits can't be gifted (only `available - campaign` is giftable).
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a
@@ -50,11 +52,56 @@
   "Waking up MarketX engine" 5s, "Looking at prompt" 3s. The request is sent first and runs during them (no added server time); the
   result waits for the intro; Stop works during it.
   RDM timeframe (composer option `RDM`): the analyze handler (`scanAllTimeframes` in `server.ts`) builds the map on every
-  supported timeframe, keeps plans scoring 75+, serves the strongest (slight edge to higher timeframes) and tags the result
-  `timeframeScan` + an "RDM scan" note; a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
+  timeframe the trader chose for RDM (`users.preferences.rdmTimeframes`, [] = all, `rdmTimeframesFor`), keeps plans scoring 75+, serves the
+  strongest (slight edge to higher timeframes) and tags the result `timeframeScan` (+ `frames`) + an "RDM scan" note naming a narrowed choice;
+  a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
+  RDM timeframes (owner-specified): ONE setting in Preference Mode, shared picker `RdmTimeframePicker.tsx` (All or any timeframes, at least
+  one) shown in Preference Mode, under RDM in the composer's timeframe pop-up (picking RDM keeps it open, Done closes) and under RDM in the
+  watchlist (add form and a pair's timeframe edit); a change anywhere saves the preference and is used everywhere. Shared helpers
+  `normalizeRdmTimeframes` / `rdmFrames` / `rdmLabel` in `src/utils/preferences.ts` (every timeframe ticked is stored as []).
+  Analysis mode (owner-specified, Preference Mode `users.preferences.analysisMode` NORMAL default / CONFIRMATION, two cards in
+  `PreferencePanel.tsx` + "How confirmation works", a green chip in the composer when on, a note in the watchlist): NORMAL is the engine
+  above, untouched. CONFIRMATION (`server/confirmation.ts`, `applyConfirmation` inside `buildStructureMap` when the mode is passed; reads
+  the lower timeframe `confirmationTimeframe` alongside, e.g. 1H→5m, 4H→30m, 1D→2H): candidate zones = right territory, displacement
+  FVG, first or second touch (a tapped zone can confirm), Fib confluence (`planForZone`, exported only). No trade until price touches the
+  zone in the recent window (3 HTF candles of LTF bars) and an LTF candle at/after the reaction extreme shows a confirmation that closes
+  in the zone's upper half (sells mirrored): liquidity sweep / false breakout (wick through the distal, close back inside), local-low sweep,
+  engulfing, pin bar, morning/evening star, structure break; RSI(14) on the LTF not 70+ for buys / 30- for sells, divergence adds score.
+  Price closing through the zone = no trade; confirmation older than 2 HTF candles = played out. Then: MARKET entry at the live price,
+  stop beyond the reaction extreme wick (+0.4 LTF ATR, tight 0.2; min risk 0.8 / 0.5 LTF ATR), targets from the engine's ladder (TP1 ≥ 1R),
+  score ≥ `CONFIRM_MIN_SCORE` 70; "already moved" is judged from the confirmation close against the TP1 that paid 1R from there (a target
+  hit since, or half-way = no trade). Otherwise NO_SIGNAL with "Setup found, waiting for confirmation" (WAITING_TAP: valid zone ahead;
+  WAITING_PATTERN: price at the zone). The analyze handler tags results `analysisMode` + `confirmationRead` {state, ltf, zone, patterns,
+  sweptZone}, prepends a "> **Confirmation analysis:**" note and rewrites the entry/stop rationales for confirmed trades (prompt text
+  untouched; card tag "Confirmed · 5m" / "Waiting for confirmation"). Watchlist items carry `analysisMode` (scan key includes it): READY
+  only when confirmed (`setup.confirmation`, "confirmed" notices), BUILDING = waiting for confirmation; `syncWatchPrefs` moves a trader's
+  pairs when the mode or RDM timeframes change.
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
+- Strategy Builder (owner-specified, Option B: rules in code, API 2 for words; called "Strategy Builder on/off" to traders, never "Strategy mode"):
+  `/strategy-builder` (`StrategyBuilderPanel.tsx`, slash command live; library + My strategies + on/off; build = 1 Explain (free text, guiding questions) → 2 Guided (setup, direction,
+  timeframes, markets, trend/RSI/session filters, stop, targets, min R, params) → 3 Review (plain rules + "Not automated" list, name, Save / Save and
+  use)). Shared rules `src/utils/strategyRules.ts` (`StrategyRules`, 10 setups `SETUPS`: SMC_OB_RETEST, ICT_SWEEP_FVG, EMA_PULLBACK,
+  BREAKOUT_RETEST, RSI_DIVERGENCE, MA_CROSS, SR_BOUNCE, BOLLINGER_REVERSION, SESSION_BREAKOUT, RANGE_SWEEP; 11 `STRATEGY_TEMPLATES`, none is the
+  general engine's S&D + Fibonacci; `normalizeRules` clamps everything; `describeRules`, `shortSummary`). Rules engine `server/userStrategy.ts`
+  (`runUserStrategy`: setup on the latest candles, sells on the mirrored chart; filters; STRUCTURE/ATR stop; R + structure targets in price
+  order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price).
+  API 2 `server/strategyAi.ts`: its own key `GEMINI_STRATEGY_API_KEY` (ideally another Google Cloud project), own client and `STRATEGY_MODELS`;
+  `compileStrategy` (free text + guided → rules JSON; guided-only = no call; the trader's text only ever in the user message, fenced and
+  labelled untrusted, never in a system instruction; reply validated/clamped; `notSupported` listed) and `explainTrade` (write-up of a found
+  trade; levels never changed; provider names scrubbed). Storage `server/strategyBuilder.ts`: `userStrategies/{st_…}` (max 10, names via
+  `giftNoteProblem`), `users.strategyMode {enabled, strategyId}`, routes `GET/POST /api/strategies`, `/compile` (20/h per trader), `PUT/DELETE
+  /api/strategies/:id`, `POST /api/strategies/mode`; build/save/switch-on are Pro after `PRO_GATE_AT` (off and delete always work).
+  Analysis: `strategyProGate` (402 before credits for a locked mode) then, after the normal credit charge, `serveUserStrategyAnalysis` in
+  `server.ts` replaces the general engine for analyses (not questions, not chart screenshots): candles → rules (RDM = RDM choice ∩ strategy
+  timeframes, strongest wins), market/timeframe the strategy doesn't trade = NO_SIGNAL saying so, same result shape (`strategyEngine.method`
+  USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from API 2 (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
+  refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. Offers/alerts/track
+  record carry `userStrategy` and MarketX-wide stats exclude it. Watchlist items carry `strategyId` (`syncWatchStrategy` on mode change or rule
+  edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
+  journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
+  page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). Violet composer chip opens the builder.
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
@@ -136,7 +183,9 @@
   returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
   price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
 - Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);
-  a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM). The lead
+  a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM, or the first
+  chosen RDM timeframe of an hour or more). RDM pairs scan the trader's RDM timeframes (`rdmFrames` on the item, copied on add / switch to RDM;
+  saving the preference calls `syncWatchPrefs`, which moves the trader's pairs to the new RDM choice / analysis mode and rescans them). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a
@@ -158,10 +207,10 @@
   as one email; "Want a price alert?" invitations only use the allowance while 2 emails are still left for real hits. These emails
   stay short: one or two lines, at most 3 rows, no long notes.
 - Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
-  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket}, validated, autosaved
+  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes, analysisMode}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
-  only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Never
-  changes the analysis. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
+  only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Only
+  `analysisMode` and `rdmTimeframes` change how analyses and the watchlist run. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
   `/backtest` command, routes, panel or history fetcher.
   Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
   risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);
@@ -237,7 +286,7 @@
   ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
   alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
   writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
-- Pro gate (owner-specified, `server/proAccess.ts`): the four commands and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
+- Pro gate (owner-specified, `server/proAccess.ts`): the four commands, Strategy mode and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
   (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
   and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not
   gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
@@ -255,7 +304,7 @@
   in `requireAuth` and at sign-in.
 
 ## Deployment
-- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client; `npm audit` is clean).
+- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory); `npm audit` is clean.
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
   and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).

@@ -217,7 +217,7 @@ export async function approveSubmission(id: string): Promise<ReviewResult> {
     saveNormalized(tx, loaded);
     tx.update(loaded.ref, {
       'credits.available': FieldValue.increment(reward),
-      // Campaign credits keep working after the daily limit, until used up
+      // Campaign credits are used first; the daily analyses pause (no 3:00 AM refill) until they run out
       'credits.campaign': Math.max(0, loaded.doc.credits.campaign ?? 0) + reward,
     });
     const next: CampaignSubmission = { ...s, status: 'approved', reviewedAt: now, updatedAt: now, reviewNote: null, creditsAwarded: reward };
@@ -226,7 +226,7 @@ export async function approveSubmission(id: string): Promise<ReviewResult> {
     addNotificationInTx(tx, s.uid, {
       type: 'reward',
       title: `+${reward} credits: your MarketX post was approved`,
-      message: `Thanks for explaining MarketX on X. ${reward} campaign credits were added to your balance, and they keep working even after your daily analyses run out.`,
+      message: `Thanks for explaining MarketX on X. ${reward} campaign credits were added. They are used first, and your daily analyses are kept for after they run out.`,
     });
     return { ok: true, submission: next };
   });
@@ -237,7 +237,7 @@ export async function approveSubmission(id: string): Promise<ReviewResult> {
       [
         `Hello @${result.submission.username},`,
         `Thanks for explaining MarketX on X. We reviewed your post and ${EXPLAIN_CAMPAIGN.reward} credits are now in your balance.`,
-        'Campaign credits keep working even after your daily analyses run out, until you use them up.',
+        'Campaign credits are used first, one per analysis. Your daily analyses are paused and kept for when they run out.',
       ],
       { cta: { label: 'Use your credits', url: siteLink('/') } }
     );

@@ -131,6 +131,9 @@ export function sanitizeUsername(raw: string): string {
   return (raw || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
 }
 
+/** Campaign credits still usable (never more than the balance they are part of) */
+export const campaignPool = (c: Pick<UserDoc['credits'], 'campaign' | 'available'>) => Math.max(0, Math.min(c.campaign ?? 0, c.available));
+
 // Apply subscription expiry and the daily quota refill at 3:00 AM (site time zone), no rollover
 function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: boolean } {
   let changed = false;
@@ -152,7 +155,11 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
   }
 
   const targetLimit = next.subscription.active ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
-  if (isDailyResetDue(next.credits.lastDailyReset, now)) {
+  // Campaign credits are spent first. While any are left the trader's own daily analyses are paused: not spent and
+  // not refilled at 3:00 AM. When the last campaign credit is used (chargeAnalysisCredit) the refill clock restarts,
+  // so the daily analyses that were left carry on, and the next refill is the following 3:00 AM.
+  const onCampaign = campaignPool(next.credits) > 0;
+  if (!onCampaign && isDailyResetDue(next.credits.lastDailyReset, now)) {
     next.credits.dailyLimit = targetLimit;
     next.credits.dailyRemaining = targetLimit;
     next.credits.lastDailyReset = now;
@@ -349,9 +356,14 @@ export function readChatRef(v: any): ChatRef | null {
 }
 const chatLink = (ref: ChatRef | null) => siteLink(ref ? `/?chat=${encodeURIComponent(ref.sessionId)}&msg=${encodeURIComponent(ref.messageId)}` : '/');
 
-function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: number | null, ref: ChatRef | null = null) {
+type CreditsLeft = { daily: number; campaign: number } | null;
+function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: CreditsLeft, ref: ChatRef | null = null) {
   const open = ref ? { actionType: 'open_chat', actionPayload: { sessionId: ref.sessionId, messageId: ref.messageId } } : {};
-  const left = remaining == null ? [] : ([['Analyses left today', String(remaining)]] as [string, string][]);
+  const left: [string, string][] = [];
+  if (remaining) {
+    if (remaining.campaign > 0) left.push(['Campaign credits left', String(remaining.campaign)]);
+    left.push([remaining.campaign > 0 ? 'Daily analyses (paused)' : 'Analyses left today', String(remaining.daily)]);
+  }
   const s = body?.strategy;
   recordUsage(user.uid, s?.symbol ? 'analysis' : 'chat', s?.symbol || null);
   logActivity(
@@ -412,7 +424,7 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: n
 }
 
 // Wraps res.json so the alert is built from what the analysis route actually returned
-function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, remaining: number | null) {
+function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, remaining: CreditsLeft) {
   const originalJson = res.json.bind(res);
   res.json = ((body: any) => {
     if (res.statusCode < 400 && body && typeof body === 'object') {
@@ -585,7 +597,7 @@ async function settleXShareReward(user: AuthedUser): Promise<boolean> {
     if (!reward || reward.status !== 'pending' || Date.now() < reward.unlockAt) return false;
     tx.update(loaded.ref, {
       'credits.available': FieldValue.increment(reward.creditsAwarded),
-      // Kept in their own pool too: campaign credits still work after the daily limit, until used up
+      // Kept in their own pool too: campaign credits are used first, and the daily analyses pause until they run out
       'credits.campaign': Math.max(0, loaded.doc.credits.campaign ?? 0) + reward.creditsAwarded,
       xShareReward: { ...reward, status: 'credited', notifiedOnSite: true, notifiedEmail: true },
     });
@@ -709,33 +721,37 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       if (!loaded) return { ok: false as const, reason: 'NO_ACCOUNT' };
       const c = loaded.doc.credits;
       saveNormalized(tx, loaded);
-      // The daily limit is a hard stop until the 3:00 AM refill. The one exemption: credits earned from the X
-      // campaign keep working after it, until they are used up.
-      const campaign = Math.max(0, Math.min(c.campaign ?? 0, c.available));
+      // Campaign credits are used first, until they run out. Meanwhile the trader's own daily analyses are paused:
+      // kept as they are and not refilled at 3:00 AM (normalizeUser). Then the daily analyses carry on, and the daily
+      // limit is a hard stop until the 3:00 AM refill. Same for Free and Pro.
+      const campaign = campaignPool(c);
       let dailyDelta = 0;
       let availableDelta = 0;
       let campaignDelta = 0;
-      if (c.dailyRemaining > 0) {
-        dailyDelta = 1;
-        // Daily use never eats into campaign credits
-        availableDelta = c.available - campaign > 0 ? 1 : 0;
-      } else if (campaign > 0) {
+      if (campaign > 0) {
         campaignDelta = 1;
         availableDelta = 1;
+      } else if (c.dailyRemaining > 0) {
+        dailyDelta = 1;
+        availableDelta = c.available > 0 ? 1 : 0;
       } else {
         return { ok: false as const, reason: 'DAILY_LIMIT' };
       }
+      const campaignLeft = campaign - campaignDelta;
+      const lastCampaignCredit = campaignDelta === 1 && campaignLeft === 0;
       tx.update(loaded.ref, {
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
         'credits.available': c.available - availableDelta,
-        'credits.campaign': campaign - campaignDelta,
+        'credits.campaign': campaignLeft,
+        // The pause ends: the refill clock restarts now, so the daily analyses left carry on and refill the following 3:00 AM
+        ...(lastCampaignCredit ? { 'credits.lastDailyReset': Date.now() } : {}),
       });
       return {
         ok: true as const,
         dailyDelta,
         availableDelta,
         campaignDelta,
-        campaignLeft: campaign - campaignDelta,
+        campaignLeft,
         remaining: c.dailyRemaining - dailyDelta,
         limit: c.dailyLimit,
       };
@@ -752,25 +768,25 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       });
     }
 
-    attachAnalysisAlerts(req, res, user, charged.remaining);
+    attachAnalysisAlerts(req, res, user, { daily: charged.remaining, campaign: charged.campaignLeft });
     // Refund the credit if the analysis request fails
     res.on('finish', () => {
       if (res.statusCode < 400) {
-        if (charged.dailyDelta && charged.remaining === 0) {
-          notifyActivity(user.uid, {
-            type: 'system',
-            title: `You've used today's ${charged.limit} analyses`,
-            message:
-              charged.campaignLeft > 0
-                ? `Your ${charged.campaignLeft} campaign credit${charged.campaignLeft === 1 ? '' : 's'} keep you going until they run out. Daily analyses refill at ${CREDIT_RESET_LABEL}.`
-                : `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
-            actionType: 'open_pricing',
-          });
-        } else if (charged.campaignDelta && charged.campaignLeft === 0) {
+        if (charged.campaignDelta && charged.campaignLeft === 0) {
           notifyActivity(user.uid, {
             type: 'system',
             title: 'Campaign credits used up',
-            message: `New prompts are paused until your daily analyses refill automatically at ${CREDIT_RESET_LABEL}.`,
+            message:
+              charged.remaining > 0
+                ? `Your daily analyses take over now: ${charged.remaining} left, refilling at ${CREDIT_RESET_LABEL}.`
+                : `New prompts are paused until your daily analyses refill automatically at ${CREDIT_RESET_LABEL}.`,
+            actionType: 'open_pricing',
+          });
+        } else if (charged.dailyDelta && charged.remaining === 0) {
+          notifyActivity(user.uid, {
+            type: 'system',
+            title: `You've used today's ${charged.limit} analyses`,
+            message: `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
             actionType: 'open_pricing',
           });
         }
@@ -1096,8 +1112,15 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       if (toUid === user.uid) return { error: 'INVALID', message: 'You cannot gift credits to yourself.' };
       const recipient = await loadUserInTx(tx, toUid);
       if (!recipient) return { error: 'NOT_FOUND', message: `No MarketX user named @${toUsername}.` };
-      if (!vip && sender.doc.credits.available < amount) {
-        return { error: 'INSUFFICIENT', message: `Insufficient balance. You have ${sender.doc.credits.available} credits.` };
+      // Campaign credits are a personal reward: they can be used but never gifted
+      const giftable = Math.max(0, sender.doc.credits.available - campaignPool(sender.doc.credits));
+      if (!vip && giftable < amount) {
+        return {
+          error: 'INSUFFICIENT',
+          message: giftable === sender.doc.credits.available
+            ? `Insufficient balance. You have ${giftable} credits.`
+            : `Insufficient balance. You can gift ${giftable} credit${giftable === 1 ? '' : 's'}; campaign credits can't be gifted.`,
+        };
       }
 
       saveNormalized(tx, sender);
