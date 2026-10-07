@@ -223,6 +223,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rdmLocked, timeframe]);
   const [tfOpen, setTfOpen] = useState(false);
+  // The RDM timeframe list drops down when RDM is tapped and folds away again after Save
+  const [rdmEditing, setRdmEditing] = useState(false);
+  useEffect(() => {
+    if (!tfOpen) setRdmEditing(false);
+  }, [tfOpen]);
   const tfButtonRef = useRef<HTMLButtonElement>(null);
   const tfMenuRef = useRef<HTMLDivElement>(null);
   const [slMode, setSlMode] = useState<'normal' | 'tight'>(defaultSlMode || 'normal');
@@ -526,7 +531,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     root.style.setProperty('--mx-popover-h', `${el.offsetHeight + 8}px`);
     return () => root.style.setProperty('--mx-popover-h', '0px');
     // The RDM picker changes the menu's height
-  }, [tfOpen, timeframe]);
+  }, [tfOpen, timeframe, rdmEditing]);
 
   const chooseTimeframe = (v: string) => {
     if (v === 'RDM' && rdmLocked) {
@@ -535,8 +540,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
     setTimeframe(v);
-    // RDM keeps the menu open so the trader can pick which timeframes it scans
-    if (v === 'RDM' && onRdmTimeframesChange) return;
+    // RDM keeps the menu open and drops down the list of timeframes it scans
+    if (v === 'RDM' && onRdmTimeframesChange) {
+      setRdmEditing(true);
+      return;
+    }
     setTfOpen(false);
     textareaRef.current?.focus({ preventScroll: true });
   };
@@ -615,22 +623,35 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
           {/* RDM picked: choose which timeframes it searches (saved to Preference Mode, used everywhere) */}
           {timeframe === 'RDM' && !rdmLocked && onRdmTimeframesChange && (
-            <div className="mx-3 mb-3 pt-2.5 border-t border-white/[0.08]">
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="text-[11px] font-medium text-slate-400">RDM searches</span>
-                <button
-                  type="button"
-                  onClick={() => {
+            rdmEditing ? (
+              <div className="mx-3 mb-3 pt-2.5 border-t border-white/[0.08] mx-pop-in">
+                <div className="mb-1.5 text-[11px] font-medium text-slate-400">RDM searches</div>
+                <RdmTimeframePicker
+                  compact
+                  value={rdmTimeframes || []}
+                  onChange={onRdmTimeframesChange}
+                  onSaved={() => {
+                    setRdmEditing(false);
                     setTfOpen(false);
                     textareaRef.current?.focus({ preventScroll: true });
                   }}
-                  className="h-6 px-2.5 rounded-full bg-white text-slate-900 text-[11px] font-semibold cursor-pointer"
+                  onCancel={() => setRdmEditing(false)}
+                />
+              </div>
+            ) : (
+              <div className="mx-3 mb-3 pt-2.5 border-t border-white/[0.08] flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400 truncate">
+                  RDM scans <span className="text-slate-200 font-medium">{rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRdmEditing(true)}
+                  className="h-6 px-2.5 rounded-full border border-white/[0.12] text-slate-200 text-[11px] font-semibold hover:bg-white/[0.06] cursor-pointer shrink-0"
                 >
-                  Done
+                  Change
                 </button>
               </div>
-              <RdmTimeframePicker compact value={rdmTimeframes || []} onChange={onRdmTimeframesChange} />
-            </div>
+            )
           )}
         </div>
       )}

@@ -28,8 +28,9 @@ export const TechnicalVisualizer: React.FC<TechnicalVisualizerProps> = ({ strate
   } = strategy;
 
   // Compile full POI list (either from poiZones or default fallback from demand & supply)
+  // Personal-strategy results carry no supply/demand zones: only zones that exist are listed
   const allPOIs: POIZone[] = poiZones && poiZones.length > 0 ? poiZones : [
-    {
+    demandZone && {
       name: `${demandZone.timeframe || '4H'} Demand Order Block`,
       type: 'DEMAND',
       min: demandZone.low,
@@ -42,7 +43,7 @@ export const TechnicalVisualizer: React.FC<TechnicalVisualizerProps> = ({ strate
       tapCount: demandZone.tapCount || 0,
       distancePercent: Number((Math.abs(currentPrice - demandZone.high) / (currentPrice || 1) * 100).toFixed(1)),
     },
-    {
+    supplyZone && {
       name: `${supplyZone.timeframe || '4H'} Overhead Supply Zone`,
       type: 'SUPPLY',
       min: supplyZone.low,
@@ -55,7 +56,7 @@ export const TechnicalVisualizer: React.FC<TechnicalVisualizerProps> = ({ strate
       tapCount: supplyZone.tapCount || 0,
       distancePercent: Number((Math.abs(supplyZone.low - currentPrice) / (currentPrice || 1) * 100).toFixed(1)),
     },
-  ];
+  ].filter(Boolean) as POIZone[];
 
   const filteredPOIs = allPOIs.filter(p => {
     if (zoneFilter === 'ALL') return true;

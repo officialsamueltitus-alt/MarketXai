@@ -405,7 +405,8 @@ Generated via MarketX SI (@_MarketX) • https://marketx.world`;
         </div>
 
         {/* Technical Indicators & Confluence Visualizer */}
-        <TechnicalVisualizer strategy={strategy} />
+        {/* The zone map only exists for the MarketX engine's own method (not for a personal strategy) */}
+        {entryZone && stopLoss && (strategy.poiZones?.length || strategy.demandZone || strategy.supplyZone) ? <TechnicalVisualizer strategy={strategy} /> : null}
 
         {/* View Switcher: Strategy Details vs Full Institutional Thesis */}
         <div className="pt-2">

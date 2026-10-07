@@ -3307,8 +3307,9 @@ async function serveUserStrategyAnalysis(
     s.bias = 'NEUTRAL';
     s.confidenceScore = 50;
     s.riskRewardRatio = '1 : 0';
-    delete s.entryZone;
-    delete s.stopLoss;
+    // Same shape as the general engine's no-signal results: neutral levels at the live price, no position
+    s.entryZone = { min: price, max: price, optimal: price, rationale: 'No trade: your strategy rules found no valid setup right now' };
+    s.stopLoss = { price, riskPercent: 0, rationale: 'No position, so no stop' };
     s.takeProfits = [];
     s.detailedThesis =
       `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
