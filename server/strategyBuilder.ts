@@ -1,6 +1,6 @@
 // ===========================================================================
 // Strategy Builder (/strategy): traders write their strategy (their own words and/or the guided questions, or a
-// strategy from the library to tweak), the strategy engine (API 2) turns it into rules, the trader reviews and saves
+// strategy from the library to tweak), the Strategy Builder's words engine turns it into rules, the trader reviews and saves
 // them, and Strategy mode runs them in every analysis and on the watchlist instead of the general MarketX engine.
 // Everything else stays the same: credits, the result card, price alerts, journal, track record, Solana proofs.
 // Pro only once the free period ends (turning off and deleting always work).
