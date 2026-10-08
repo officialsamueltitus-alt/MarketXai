@@ -3,6 +3,10 @@
 import cluster from 'cluster';
 import os from 'os';
 
+// This entry point only ever runs the built site, so it is always production: secure cookies, the content security
+// policy and fixed site links never depend on a hosting setting being present
+if (!process.env.NODE_ENV) process.env.NODE_ENV = 'production';
+
 const cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
 const wanted = Math.floor(Number(process.env.WEB_CONCURRENCY) || 1);
 const workers = Math.max(1, Math.min(wanted, cores, 16));

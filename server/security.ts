@@ -134,6 +134,10 @@ export function corsAndOriginGuard(req: Request, res: Response, next: NextFuncti
     if (origin && !allowed) {
       return res.status(403).json({ error: 'FORBIDDEN_ORIGIN', message: 'Cross-site request blocked.' });
     }
+    // No Origin header: the browser's own marker still says where it came from (a page on another site is refused)
+    if (!origin && String(req.headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site') {
+      return res.status(403).json({ error: 'FORBIDDEN_ORIGIN', message: 'Cross-site request blocked.' });
+    }
     // State-changing API calls must be JSON (HTML forms can't send it cross-site without CORS)
     const type = String(req.headers['content-type'] || '');
     const hasBody = Number(req.headers['content-length'] || 0) > 0 || !!req.headers['transfer-encoding'];

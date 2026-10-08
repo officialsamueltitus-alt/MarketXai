@@ -59,7 +59,9 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   if (!t || !to) return false;
   const from = process.env.SMTP_FROM || `MarketX <${process.env.SMTP_USER}>`;
   const siteUrl = (process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '');
-  const cta = options.cta || { label: 'Open MarketX', url: siteUrl };
+  const ctaIn = options.cta || { label: 'Open MarketX', url: siteUrl };
+  // The button only ever opens a secure web address (anything else falls back to the site)
+  const cta = { label: ctaIn.label, url: /^https:\/\/[^\s"'<>]+$/i.test(String(ctaIn.url || '')) || String(ctaIn.url || '').startsWith(siteUrl) ? ctaIn.url : siteUrl };
   // Light, clean layout in every mail app: white card on a soft white page, dark readable text, brand accents.
   // Tables with bgcolor (Outlook ignores div backgrounds) and "light only" so mail apps don't flip it dark.
   const PAGE = '#f6f6f9';
