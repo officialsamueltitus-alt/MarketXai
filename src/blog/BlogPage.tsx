@@ -238,9 +238,9 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
           Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you, or only the ones you pick: when you
-          choose RDM, the timeframes it searches drop down right under it. Tap <B>All</B>, or tap the timeframes you want (for example 1H, 4H and 1D), then
-          press <B>Save</B> (or <B>Cancel</B> to keep your last choice). The list folds away after you save and a short summary stays under RDM, with a{' '}
-          <B>Change</B> button to open it again. Your choice is saved to Preference Mode and used everywhere you pick RDM, in the input box and on the watchlist. It keeps only valid, high probability setups
+          tap RDM, the timeframes it searches drop down right under it (the list stays closed until you tap RDM, and tapping it again folds it away).
+          Tap <B>All</B>, or tap the timeframes you want (for example 1H, 4H and 1D), then press <B>Save</B> (or <B>Cancel</B> to keep your last
+          choice); the list folds away. Your choice is saved to Preference Mode and used everywhere you pick RDM, in the input box and on the watchlist. It keeps only valid, high probability setups
           where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The
           result shows an <B>RDM · picked 1H</B> tag (or whichever timeframe it used) and the write up lists the timeframes that had a valid setup. If no timeframe
           has one, you get a clear No signal. One analysis, one credit.

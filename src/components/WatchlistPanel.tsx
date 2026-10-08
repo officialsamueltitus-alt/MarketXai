@@ -53,6 +53,8 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
   const [timeframe, setTimeframe] = useState('RDM');
   const [verify, setVerify] = useState<Verify | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  // The RDM timeframe list stays closed until RDM is tapped (add form: 'add'; a pair: its id)
+  const [rdmOpen, setRdmOpen] = useState<string | null>(null);
   const [sound, setSound] = useState(watchSoundOn);
   const toggleSound = () => {
     const on = !sound;
@@ -192,7 +194,10 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
               type="button"
               role="radio"
               aria-checked={timeframe === tf.id}
-              onClick={() => setTimeframe(tf.id)}
+              onClick={() => {
+                setRdmOpen(tf.id === 'RDM' ? (timeframe === 'RDM' && rdmOpen === 'add' ? null : 'add') : null);
+                setTimeframe(tf.id);
+              }}
               title={tf.id === 'RDM' ? `RDM: scan ${rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}` : `Scan the ${tf.id}`}
               className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 inline-flex items-center gap-1 transition cursor-pointer ${
                 timeframe === tf.id ? 'bg-white text-slate-900' : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]'
@@ -203,10 +208,10 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
             </button>
           ))}
         </div>
-        {timeframe === 'RDM' && (
+        {timeframe === 'RDM' && rdmOpen === 'add' && (
           <div className="mt-2 p-2.5 rounded-xl bg-black/20 border border-white/[0.06] mx-fade-in">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">RDM searches</div>
-            <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} />
+            <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} onSaved={() => setRdmOpen(null)} onCancel={() => setRdmOpen(null)} />
           </div>
         )}
       </form>
@@ -359,15 +364,19 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                           role="radio"
                           aria-checked={tf.id === i.timeframe}
                           disabled={busy === i.id}
-                          onClick={() => tf.id !== i.timeframe && changeTf(i.id, tf.id)}
+                          onClick={() => {
+                            if (tf.id === 'RDM') setRdmOpen(i.timeframe === 'RDM' && rdmOpen === i.id ? null : i.id);
+                            else setRdmOpen(null);
+                            if (tf.id !== i.timeframe) changeTf(i.id, tf.id);
+                          }}
                           className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 cursor-pointer ${tf.id === i.timeframe ? 'bg-white text-slate-900' : 'bg-white/[0.04] text-slate-400 hover:text-white'}`}
                         >
                           {tf.label}
                         </button>
                       ))}
-                      {i.timeframe === 'RDM' && (
-                        <div className="w-full mt-1.5">
-                          <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} disabled={busy === i.id} />
+                      {i.timeframe === 'RDM' && rdmOpen === i.id && (
+                        <div className="w-full mt-1.5 mx-fade-in">
+                          <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} disabled={busy === i.id} onSaved={() => setRdmOpen(null)} onCancel={() => setRdmOpen(null)} />
                         </div>
                       )}
                     </div>
