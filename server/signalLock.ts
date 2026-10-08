@@ -18,7 +18,9 @@ import { db, isFirebaseConfigured } from './firebase';
 import { evaluateBars, levelsFromStrategy, tfMinutes, type AlertHit, type AlertOffer, type Bar, type PriceAlert } from './priceAlerts';
 import { exactPrice } from '../src/utils/formatPrice';
 
-const FILL_CANDLES = 20;
+// A pending entry gets 6 candles to fill: zones that react do so within a few candles, and a zone that stays untouched for
+// longer has usually gone stale, so the next valid setup on the pair is never held back for long
+const FILL_CANDLES = 6;
 const COOLDOWN_CANDLES = 3;
 const LOOKBACK_MS = 22 * 86400e3;
 const MAX_WAIT_MS = 4000;
@@ -52,7 +54,7 @@ export function configureSignalLock(deps: { getBars: GetBars }) {
   getBars = deps.getBars;
 }
 
-export const fillWindowMs = (tf: string) => Math.max(60 * 60e3, tfMinutes(tf) * FILL_CANDLES * 60e3);
+export const fillWindowMs = (tf: string) => Math.max(30 * 60e3, tfMinutes(tf) * FILL_CANDLES * 60e3);
 export const cooldownMs = (tf: string) => Math.max(15 * 60e3, tfMinutes(tf) * COOLDOWN_CANDLES * 60e3);
 
 // Finest series that reaches back to the trade's issue time (feeds return ~300 bars), as the proof tracker does

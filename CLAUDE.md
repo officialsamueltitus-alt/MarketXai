@@ -82,7 +82,7 @@
 - Trade lock (owner-specified, `server/signalLock.ts`): ONE running trade per trader, per pair, per timeframe. Analyses are always fresh
   (live candles and price, nothing replayed or shared between traders); `signalLockMiddleware` (installed last on `/api/market/analyze`, so it
   runs before the alert offer, seal and safety wrappers) checks the trader's own `alertOffers` on the same symbol + timeframe: while one is
-  running (waiting for entry, `FILL_CANDLES` 20 candles, or entered) any new LONG/SHORT there is served as NO_SIGNAL with `signalLock`
+  running (waiting for entry, `FILL_CANDLES` 6 candles, at least 30 min, or entered) any new LONG/SHORT there is served as NO_SIGNAL with `signalLock`
   {reason RUNNING} and the running trade at the live price, no offer/seal, credit given back (`res.locals.refundCredit` in
   `chargeAnalysisCredit`; the analysis notice goes out on 'finish', site only). Ends at TP1 (any TP), SL, MISSED (TP1 before entry), not
   filled in time, or the offer's window. After an SL the OPPOSITE side waits `COOLDOWN_CANDLES` 3 candles (COOLDOWN). Status from the
