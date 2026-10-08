@@ -1369,6 +1369,25 @@ function enforcePreSignalCrosscheck<T extends Record<string, any>>(strategy: T):
 }
 
 /**
+ * Personal strategy (Strategy Builder) trades: the trader's own rules already decide the entry (their engine refuses a market
+ * entry that is half-way to TP1 and places limit entries ahead of price), so the general engine's proximity guard ("already
+ * moved") does not apply to them. Only the hard checks do: stop on the right side and not reached, every target ahead of the
+ * entry and not reached, a limit entry not already traded through. The watchlist and the analysis both use this, so they agree.
+ */
+function personalStrategyStatus(direction: 'LONG' | 'SHORT', price: number, entry: number, stop: number, tps: Array<{ level: string; price: number }>) {
+  const st = evaluateSignalExecutionStatus(direction, price, entry, stop, tps);
+  if (st.state !== 'ALREADY_MOVED') return st;
+  return { state: 'ACTIVE' as const, verdict: 'Active Signal (Fresh Untapped Levels)', details: 'Fresh trade from your strategy: the stop loss and every target are still ahead of live price.' };
+}
+function enforcePersonalStrategyCheck(s: any) {
+  if (!s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT')) return s;
+  const st = personalStrategyStatus(s.tradeType, s.currentPrice, s.entryZone?.optimal, s.stopLoss?.price, s.takeProfits || []);
+  s.signalStatus = st;
+  if (st.state === 'ACTIVE') return s;
+  return enforcePreSignalCrosscheck(s);
+}
+
+/**
  * Strict rule: a trade is only signalled when real candles have verified that its zone, entry, stop loss and
  * targets are still untouched. Without that verification (candle feed down) the result is NO_SIGNAL.
  */
@@ -2122,7 +2141,9 @@ registerWatchlistRoutes(
             const cs = await fetchCandlesForAsset(asset, tf).catch(() => null);
             if (!cs) return null;
             const r = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec });
-            return { timeframe: tf, price: q.price, equilibrium: 0, plan: r.signal ? { direction: r.signal.direction, score: r.signal.score, entry: r.signal.entry } : null, zones: [] } as ScanFrame;
+            // A setup is only announced when the analysis would serve it too (same check, so "ready" never turns into "no setup")
+            const ok = r.signal && personalStrategyStatus(r.signal.direction, q.price, r.signal.entry.optimal, r.signal.stop, r.signal.targets.map(t => ({ level: t.label, price: t.price }))).state === 'ACTIVE';
+            return { timeframe: tf, price: q.price, equilibrium: 0, plan: ok ? { direction: r.signal!.direction, score: r.signal!.score, entry: r.signal!.entry } : null, zones: [] } as ScanFrame;
           })
         );
         return Object.assign(frames, { strategyName: st.name });
@@ -3341,8 +3362,9 @@ async function serveUserStrategyAnalysis(
       `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
     s.signalStatus = { state: 'PENDING_CONFIRMATION', verdict: 'No Signal Opportunity', details: reason };
   }
-  if (sig) s.signalStatus = evaluateSignalExecutionStatus(s.tradeType, price, s.entryZone.optimal, s.stopLoss.price, s.takeProfits);
-  enforcePreSignalCrosscheck(s);
+  // The trader's own rules govern the entry; only the hard checks apply (same check as the watchlist's scan)
+  if (sig) enforcePersonalStrategyCheck(s);
+  else enforcePreSignalCrosscheck(s);
   console.log(`[MarketX Strategy Mode] ${asset.symbol} ${tf} "${st.name}" (${rules.setup}): ${s.tradeType}`);
   return res.json({ success: true, isAnalysis: true, message: s.detailedThesis, strategy: s });
 }

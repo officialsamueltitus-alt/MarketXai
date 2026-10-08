@@ -766,7 +766,9 @@ Rationale: ${strategy.entryZone.rationale}
                                 ? strategy.signalStatus?.details || 'Your trade on this pair and timeframe has not ended yet.'
                                 : strategy.userStrategy
                                 ? strategy.tradeType === 'NO_SIGNAL'
-                                  ? `Your rules (${strategy.userStrategy.name}) found no valid setup right now. Wait for the next one.`
+                                  ? strategy.signalStatus?.details && /^No signal/i.test(strategy.signalStatus.details) && !/neutral consolidation/i.test(strategy.signalStatus.details)
+                                    ? `Your rules (${strategy.userStrategy.name}): ${strategy.signalStatus.details.replace(/^No signal[.,]?\s*/i, '')}`
+                                    : `Your rules (${strategy.userStrategy.name}) found no valid setup right now. Wait for the next one.`
                                   : `Your rules (${strategy.userStrategy.name}) found a ${strategy.tradeType === 'LONG' ? 'buy' : 'sell'} setup${strategy.userStrategy.setup ? ` · ${strategy.userStrategy.setup}` : ''}. Entry around $${formatMarketPrice(strategy.entryZone?.optimal, strategy.currentPrice)}.`
                                 : strategy.tradeType === 'LONG'
                                 ? `Buyer absorption defended $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)} with strong volume confluence. Targeting upside expansion.`

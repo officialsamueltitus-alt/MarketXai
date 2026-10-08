@@ -118,7 +118,10 @@
   `server.ts` replaces the general engine for analyses (not questions, not chart screenshots): candles → rules (RDM = RDM choice ∩ strategy
   timeframes, strongest wins), market/timeframe the strategy doesn't trade = NO_SIGNAL saying so, same result shape (`strategyEngine.method`
   USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from the words engine (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
-  refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. Offers/alerts/track
+  refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. A found trade
+  gets ONLY the hard checks (`personalStrategyStatus` / `enforcePersonalStrategyCheck`: stop/targets on the right side and not reached, a
+  limit entry not traded through), never the general engine's "already moved" proximity guard (the trader's rules govern the entry); the
+  watchlist's strategy scan applies the same check, so a "setup ready" there is what the analysis serves. Offers/alerts/track
   record carry `userStrategy` and MarketX-wide stats exclude it. Watchlist items carry `strategyId` (`syncWatchStrategy` on mode change or rule
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
