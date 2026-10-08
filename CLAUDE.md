@@ -82,7 +82,12 @@
 - Trade lock (owner-specified, `server/signalLock.ts`): ONE running trade per trader, per pair, per timeframe. A Preference Mode switch
   "One trade at a time" (`users.preferences.tradeLock`, default ON, `tradeLockOn`): ON = enforced strictly for that trader everywhere (every
   market, timeframe, analysis mode, RDM, Strategy Builder, watchlist, every plan), OFF = no lock and no wait for them. Analyses are always fresh
-  (live candles and price, nothing replayed or shared between traders); `signalLockMiddleware` (installed last on `/api/market/analyze`, so it
+  (live candles and price, nothing replayed or shared between traders). Checked BEFORE the engine first: `signalLockGate` (route chain,
+  before `chargeAnalysisCredit`) resolves the pair + timeframe of an analysis prompt and, when the trader's trade there is RUNNING
+  (`runningTradeFor`, incl. a trade served moments ago, reserved per worker until its response is out), answers with the running trade
+  at the live price: no credit, no engine. RDM (timeframe known only after the scan) and the stop-loss pause (side known only after the
+  analysis) fall to the after-engine check. Tighten SL (`res.locals.tightenedSetup`) is the same trade and never held. After the engine,
+  `signalLockMiddleware` (installed last on `/api/market/analyze`, so it
   runs before the alert offer, seal and safety wrappers) checks the trader's own `alertOffers` on the same symbol + timeframe: while one is
   running (waiting for entry, `FILL_CANDLES` 6 candles, at least 30 min, or entered) any new LONG/SHORT there is served as NO_SIGNAL with `signalLock`
   {reason RUNNING} and the running trade at the live price, no offer/seal, credit given back (`res.locals.refundCredit` in

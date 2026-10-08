@@ -137,14 +137,19 @@ function reservedTrade(uid: string, symbol: string, tf: string, now: number): Ru
   }
   return r.trade;
 }
-function reserve(uid: string, s: any, now: number) {
+function release(key: string) {
+  reserved.delete(key);
+}
+function reserve(uid: string, s: any, now: number): string | null {
   if (reserved.size > 5000) for (const [k, v] of reserved) if (v.until <= now) reserved.delete(k);
   const lv = levelsFromStrategy(s);
-  if (!lv) return;
-  reserved.set(reserveKey(uid, lv.symbol, lv.timeframe), {
+  if (!lv) return null;
+  const key = reserveKey(uid, lv.symbol, lv.timeframe);
+  reserved.set(key, {
     until: now + RESERVE_MS,
     trade: { offerId: '', direction: lv.direction, symbol: lv.symbol, timeframe: lv.timeframe, entry: lv.entry, stop: lv.stop, tps: lv.tps, issuedAt: now, state: lv.execution === 'MARKET' ? 'IN_TRADE' : 'WAITING_ENTRY', fillBy: lv.execution === 'MARKET' ? undefined : now + fillWindowMs(lv.timeframe), endsAt: now + RESERVE_MS },
   });
+  return key;
 }
 
 /** This trader's running trade (or stop-loss cool-down) on a pair and timeframe; null = free to trade */
@@ -179,6 +184,14 @@ export async function tradeLockFor(uid: string, symbol: string, timeframe: strin
   return cooldown;
 }
 
+/** The trader's running trade on a pair and timeframe (a trade served moments ago included), or null; used before the engine runs */
+export async function runningTradeFor(uid: string, symbol: string, timeframe: string, now = Date.now()): Promise<Extract<LockVerdict, { kind: 'RUNNING' }> | null> {
+  const held = reservedTrade(uid, symbol, timeframe, now);
+  if (held) return { kind: 'RUNNING', trade: held };
+  const v = await tradeLockFor(uid, symbol, timeframe, now);
+  return v && v.kind === 'RUNNING' ? v : null;
+}
+
 /** A running trade blocks every new trade on its pair and timeframe; a stop-loss cool-down only blocks the other side */
 export function lockBlocks(v: LockVerdict, side: LockSide): boolean {
   if (!v) return false;
@@ -203,7 +216,8 @@ export function inWords(ms: number): string {
 }
 
 /** Turns a blocked LONG / SHORT into NO_SIGNAL that shows the trader's running trade at the live price */
-export function applyLock(s: any, v: Exclude<LockVerdict, null>, now = Date.now()) {
+export function applyLock(s: any, v: Exclude<LockVerdict, null>, now = Date.now(), charged = true) {
+  const creditLine = charged ? 'Your credit was given back.' : 'No credit was used.';
   const price = Number(s.currentPrice);
   const live = Number.isFinite(price) && price > 0 ? price : null;
   const pair = `${s.symbol} · ${s.timeframe}`;
@@ -216,7 +230,7 @@ export function applyLock(s: any, v: Exclude<LockVerdict, null>, now = Date.now(
     verdict = 'Your trade is still running';
     details = `Your ${SIDE(t.direction)} on ${pair} from ${inWords(now - t.issuedAt)} ago is still running. No new trade on this pair and timeframe until it ends.`;
     lines = [
-      `> **One trade at a time:** your ${SIDE(t.direction)} on ${pair}${t.userStrategy ? ` (personal strategy: ${t.userStrategy})` : ''} from ${inWords(now - t.issuedAt)} ago has not ended yet, so MarketX gives you no new buy or sell here until it does. Your credit was given back.`,
+      `> **One trade at a time:** your ${SIDE(t.direction)} on ${pair}${t.userStrategy ? ` (personal strategy: ${t.userStrategy})` : ''} from ${inWords(now - t.issuedAt)} ago has not ended yet, so MarketX gives you no new buy or sell here until it does. ${creditLine}`,
       '',
       `#### Your running ${sideWord(t.direction)}`,
       `- **Status:** ${t.state === 'IN_TRADE' ? 'in the trade, entry filled' : `waiting for the entry, ${t.fillBy ? `until about ${inWords(t.fillBy - now)} from now` : 'still valid'}`}`,
@@ -232,7 +246,7 @@ export function applyLock(s: any, v: Exclude<LockVerdict, null>, now = Date.now(
     verdict = 'Cooling down after a stop loss';
     details = `Your ${SIDE(t.direction)} on ${pair} hit its stop loss ${inWords(now - v.stoppedAt)} ago. No ${SIDE(blockedSide)} on this pair and timeframe for about ${inWords(v.until - now)}.`;
     lines = [
-      `> **No flip after a stop loss:** your ${SIDE(t.direction)} on ${pair} hit its stop loss ${inWords(now - v.stoppedAt)} ago. MarketX doesn't turn straight into a ${SIDE(blockedSide)} on the same pair and timeframe, so this one waits about ${inWords(v.until - now)} more. Your credit was given back.`,
+      `> **No flip after a stop loss:** your ${SIDE(t.direction)} on ${pair} hit its stop loss ${inWords(now - v.stoppedAt)} ago. MarketX doesn't turn straight into a ${SIDE(blockedSide)} on the same pair and timeframe, so this one waits about ${inWords(v.until - now)} more. ${creditLine}`,
       '',
       ...(live ? [`- **Live price now:** ${px(live)}`, ''] : []),
       `After that, ask again and MarketX reads the chart fresh at the live price. A ${SIDE(t.direction)} on this pair is not held back.`,
@@ -268,6 +282,8 @@ export function signalLockMiddleware(req: Request, res: Response, next: NextFunc
     const uid = (res.locals.user as any)?.uid as string | undefined;
     const s = body?.strategy;
     if (!uid || res.statusCode >= 400 || !s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT') || !levelsFromStrategy(s)) return json(body);
+    // Tighten SL re-sends the trader's own trade with a closer stop: the same trade, never a new one, so it is not held
+    if (res.locals.tightenedSetup) return json(body);
     let sent = false;
     const sym = String(s.symbol).slice(0, 32);
     const tf = String(s.timeframe).slice(0, 8);
@@ -280,7 +296,11 @@ export function signalLockMiddleware(req: Request, res: Response, next: NextFunc
       .then(({ on, v }) => {
         if (sent) return;
         if (!lockBlocks(v, s.tradeType)) {
-          if (on) reserve(uid, s, Date.now());
+          if (on) {
+            // Held only until the response is out: its offer is saved by then, and the stored trade takes over
+            const key = reserve(uid, s, Date.now());
+            if (key) res.once('close', () => release(key));
+          }
           return;
         }
         applyLock(s, v!);
