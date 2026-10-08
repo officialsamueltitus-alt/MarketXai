@@ -752,6 +752,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         availableDelta,
         campaignDelta,
         campaignLeft,
+        chargedAt: Date.now(),
         remaining: c.dailyRemaining - dailyDelta,
         limit: c.dailyLimit,
       };
@@ -792,11 +793,20 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         }
         return;
       }
-      userRef(user.uid)
-        .update({
-          'credits.dailyRemaining': FieldValue.increment(charged.dailyDelta),
-          'credits.available': FieldValue.increment(charged.availableDelta),
-          'credits.campaign': FieldValue.increment(charged.campaignDelta),
+      // In a transaction: a daily analysis is only given back if no 3:00 AM refill happened since the charge
+      // (a refill already restored the full day; adding one more would go over the daily limit)
+      db()
+        .runTransaction(async tx => {
+          const snap = await tx.get(userRef(user.uid));
+          if (!snap.exists) return;
+          const cur = (snap.data() as UserDoc).credits;
+          const refilledSince = (cur.lastDailyReset || 0) > charged.chargedAt;
+          const daily = charged.dailyDelta && !refilledSince ? Math.min(cur.dailyLimit, cur.dailyRemaining + 1) : cur.dailyRemaining;
+          tx.update(userRef(user.uid), {
+            'credits.dailyRemaining': daily,
+            'credits.available': FieldValue.increment(charged.availableDelta),
+            'credits.campaign': FieldValue.increment(charged.campaignDelta),
+          });
         })
         .catch(err => console.warn('[MarketX Credits] Refund failed:', err?.message || err));
     });

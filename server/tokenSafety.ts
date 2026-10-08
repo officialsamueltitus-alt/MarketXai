@@ -355,6 +355,8 @@ export async function safetyAnswer(prompt: string, resolve: (q: string) => Promi
   }
   if (!mint) return { status: 404, message: `I couldn’t find a Solana token for **${subject.slice(0, 48)}**. Try its contract address, which you can copy from the project’s page or a DEX.` };
   const safety = await checkSolanaToken(mint, ctx);
+  // A malformed address from a listing reads as nothing at all: say so instead of failing
+  if (!safety) return { status: 404, message: `I couldn’t read a Solana token for **${subject.slice(0, 48)}** right now. Try its contract address, which you can copy from the project’s page or a DEX.` };
   const sym = safety.symbol || ctx.symbol || 'this token';
   // One line above the card: the card itself carries the verdict, every check and the disclaimer
   const lines = [`**Safety check: $${sym.replace(/^\$/, '')}** on Solana, read straight from the chain. Tap “See all checks” for the details.`];

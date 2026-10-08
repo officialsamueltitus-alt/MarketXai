@@ -1600,10 +1600,14 @@ export default function App() {
     let requestTimedOut = false;
     const onUserStop = () => requestController.abort();
     controller.signal.addEventListener('abort', onUserStop, { once: true });
-    const requestTimer = setTimeout(() => {
-      requestTimedOut = true;
-      requestController.abort();
-    }, requestLimitMs);
+    // Armed when the request is actually sent (after the intro steps), so the intro never counts towards the limit
+    let requestTimer: ReturnType<typeof setTimeout> | undefined;
+    const armRequestTimer = () => {
+      requestTimer = setTimeout(() => {
+        requestTimedOut = true;
+        requestController.abort();
+      }, requestLimitMs);
+    };
 
     const updateAssistant = (patch: Partial<ChatMessage>, sessionPatch?: Partial<ChatSession>) => {
       setSessions(prev =>
@@ -1664,7 +1668,8 @@ export default function App() {
       | { kind: 'chat'; text: string; choices?: MessageChoice[]; research?: ResearchInfo; tokenSafety?: TokenSafety }
       | { kind: 'error'; status: number; code: string; message: string };
 
-    const fetchPromise: Promise<BackendResult | null> = apiFetch<any>('/api/market/analyze', {
+    // Sent only after the intro steps have finished (owner-specified): nothing runs, and no credit is used, before then
+    const sendRequest = (): Promise<BackendResult | null> => apiFetch<any>('/api/market/analyze', {
       method: 'POST',
       body: JSON.stringify({
         prompt: promptText,
@@ -1722,9 +1727,9 @@ export default function App() {
         return { kind: 'error', status: 0, code: 'NETWORK', message: 'Could not reach the MarketX server. Check your connection and try again.' };
       });
 
-    // Intro, on every prompt: "Starting…", "Waking up MarketX engine", "Looking at prompt". The request above is
-    // already on its way, so these steps never delay the answer; Stop works at any moment.
-    const INTRO_MS = 10_000;
+    // Intro, on every prompt: "Starting…", "Waking up MarketX engine", "Looking at prompt". The analysis only begins
+    // once these have finished (the request is sent right after "Looking at prompt"); Stop works at any moment, and a
+    // prompt stopped during the intro is never sent.
     const introWait = (ms: number) =>
       new Promise<void>(resolve => {
         if (controller.signal.aborted) return resolve();
@@ -1748,6 +1753,10 @@ export default function App() {
       if (abortControllerRef.current === controller) abortControllerRef.current = null;
       return;
     }
+    // The intro is done: the analysis begins now
+    const requestSentAt = Date.now();
+    armRequestTimer();
+    const fetchPromise = sendRequest();
 
     // Step: understand the request (done on this device, instantly)
     if (resolvedBaseStrategy) {
@@ -1855,8 +1864,8 @@ export default function App() {
       if (!result || controller.signal.aborted) return;
       // Let the work load visibly (reading, live price, news, analysis) instead of jumping straight to the result
       // when the server answers quickly
-      const minVisibleMs = result.kind === 'error' ? 0 : INTRO_MS + (looksLikeAnalysis || resolvedBaseStrategy ? 4200 : 1600);
-      const remainingMs = minVisibleMs - (Date.now() - requestStartTime);
+      const minVisibleMs = result.kind === 'error' ? 0 : looksLikeAnalysis || resolvedBaseStrategy ? 4200 : 1600;
+      const remainingMs = minVisibleMs - (Date.now() - requestSentAt);
       if (remainingMs > 0) {
         await new Promise<void>(resolve => {
           const done = () => {

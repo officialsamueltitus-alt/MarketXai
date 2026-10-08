@@ -13,11 +13,16 @@ interface RdmTimeframePickerProps {
   /** Smaller chips for the composer pop-up and the watchlist */
   compact?: boolean;
   disabled?: boolean;
+  /** Draft mode (the composer pop-up): taps only change the draft; Save stores it and calls onSaved, Cancel calls onCancel */
+  onSaved?: () => void;
+  onCancel?: () => void;
 }
 
 const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
 
-export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, onChange, compact, disabled }) => {
+export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, onChange, compact, disabled, onSaved, onCancel }) => {
+  const draftMode = !!onSaved;
+  const [saving, setSaving] = useState(false);
   // Shown at once; follows the saved value when it changes elsewhere (or when a save fails)
   const [choice, setChoice] = useState<string[]>(() => normalizeRdmTimeframes(value) || []);
   const [hint, setHint] = useState<string | null>(null);
@@ -30,6 +35,7 @@ export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, o
     const before = choice;
     setChoice(clean);
     setHint(null);
+    if (draftMode) return; // saved only when the trader presses Save
     try {
       await onChange(clean);
     } catch (err: any) {
@@ -45,6 +51,19 @@ export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, o
       return;
     }
     commit(next);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setHint(null);
+    try {
+      await onChange(choice);
+      onSaved?.();
+    } catch (err: any) {
+      setHint(err?.message || 'Could not save that. Try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const chip = (on: boolean) =>
@@ -83,10 +102,28 @@ export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, o
         {hint || (
           <>
             <Check className="inline w-3 h-3 -mt-0.5 mr-0.5 text-emerald-300" />
-            RDM scans {all ? 'every timeframe' : rdmLabel(choice)} and picks the strongest setup. Saved to Preference Mode, used everywhere.
+            RDM scans {all ? 'every timeframe' : rdmLabel(choice)} and picks the strongest setup.{' '}
+            {draftMode ? 'Save to use it everywhere.' : 'Saved to Preference Mode, used everywhere.'}
           </>
         )}
       </p>
+      {draftMode && (
+        <div className="mt-2 flex items-center justify-end gap-2">
+          {onCancel && (
+            <button type="button" onClick={onCancel} className="h-7 px-3 rounded-full text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer">
+              Cancel
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving || disabled}
+            className="h-7 px-3.5 rounded-full bg-white text-slate-900 text-[11px] font-semibold cursor-pointer disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

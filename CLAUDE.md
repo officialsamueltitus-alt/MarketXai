@@ -49,8 +49,8 @@
   result. `evaluateSignalExecutionStatus` applies the same half-way rule to every served trade. The client activity shows
   "Finding tools" then "Using tools" (RSI, EMA, zones from `strategy.toolsUsed`) before the other steps.
   Every prompt sent for analysis or a question opens with three client-side steps (`App.tsx`, `INTRO_MS` 10s): "Starting…" 2s,
-  "Waking up MarketX engine" 5s, "Looking at prompt" 3s. The request is sent first and runs during them (no added server time); the
-  result waits for the intro; Stop works during it.
+  "Waking up MarketX engine" 5s, "Looking at prompt" 3s. Owner-specified: the analysis only begins AFTER them (the request is sent,
+  and the client time limit starts, right after "Looking at prompt"); Stop during the intro sends nothing and uses no credit.
   RDM timeframe (composer option `RDM`): the analyze handler (`scanAllTimeframes` in `server.ts`) builds the map on every
   timeframe the trader chose for RDM (`users.preferences.rdmTimeframes`, [] = all, `rdmTimeframesFor`), keeps plans scoring 75+, serves the
   strongest (slight edge to higher timeframes) and tags the result `timeframeScan` (+ `frames`) + an "RDM scan" note naming a narrowed choice;

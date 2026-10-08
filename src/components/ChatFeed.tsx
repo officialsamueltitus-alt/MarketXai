@@ -746,14 +746,20 @@ Rationale: ${strategy.entryZone.rationale}
                           </div>
                           <div className="space-y-0.5 min-w-0">
                             <span className="text-xs font-bold font-mono tracking-wide block">
-                              {strategy.tradeType === 'LONG'
+                              {strategy.userStrategy
+                                ? `PERSONAL STRATEGY • ${strategy.tradeType === 'LONG' ? 'BUY SETUP' : strategy.tradeType === 'SHORT' ? 'SELL SETUP' : 'NO SETUP YET'}`
+                                : strategy.tradeType === 'LONG'
                                 ? 'HIGH-CONFLUENCE LONG SETUP • STRUCTURAL SUPPORT ALIGNMENT'
                                 : strategy.tradeType === 'SHORT'
                                 ? 'HIGH-CONFLUENCE SHORT SETUP • OVERHEAD RESISTANCE PIVOT'
                                 : 'EQUILIBRIUM CONSOLIDATION • NEUTRAL BIAS'}
                             </span>
                             <p className="text-[11px] opacity-90 leading-relaxed">
-                              {strategy.tradeType === 'LONG'
+                              {strategy.userStrategy
+                                ? strategy.tradeType === 'NO_SIGNAL'
+                                  ? `Your rules (${strategy.userStrategy.name}) found no valid setup right now. Wait for the next one.`
+                                  : `Your rules (${strategy.userStrategy.name}) found a ${strategy.tradeType === 'LONG' ? 'buy' : 'sell'} setup${strategy.userStrategy.setup ? ` · ${strategy.userStrategy.setup}` : ''}. Entry around $${formatMarketPrice(strategy.entryZone?.optimal, strategy.currentPrice)}.`
+                                : strategy.tradeType === 'LONG'
                                 ? `Buyer absorption defended $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)} with strong volume confluence. Targeting upside expansion.`
                                 : strategy.tradeType === 'SHORT'
                                 ? `Sellers defending key pivot above $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}. Invalidation anchored at structural high.`
