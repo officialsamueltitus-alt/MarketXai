@@ -223,7 +223,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rdmLocked, timeframe]);
   const [tfOpen, setTfOpen] = useState(false);
-  // The RDM timeframe list drops down when RDM is tapped and folds away again after Save
+  // The RDM timeframe list stays closed: it drops down only when RDM is tapped, and folds away on Save, Cancel or a second tap
   const [rdmEditing, setRdmEditing] = useState(false);
   useEffect(() => {
     if (!tfOpen) setRdmEditing(false);
@@ -539,12 +539,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       onLockedFeature?.('RDM');
       return;
     }
-    setTimeframe(v);
-    // RDM keeps the menu open and drops down the list of timeframes it scans
+    // RDM keeps the menu open and drops down the list of timeframes it scans (a second tap folds it away)
     if (v === 'RDM' && onRdmTimeframesChange) {
-      setRdmEditing(true);
+      setRdmEditing(open => (timeframe === 'RDM' ? !open : true));
+      setTimeframe(v);
       return;
     }
+    setTimeframe(v);
     setTfOpen(false);
     textareaRef.current?.focus({ preventScroll: true });
   };
@@ -638,20 +639,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   onCancel={() => setRdmEditing(false)}
                 />
               </div>
-            ) : (
-              <div className="mx-3 mb-3 pt-2.5 border-t border-white/[0.08] flex items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-400 truncate">
-                  RDM scans <span className="text-slate-200 font-medium">{rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setRdmEditing(true)}
-                  className="h-6 px-2.5 rounded-full border border-white/[0.12] text-slate-200 text-[11px] font-semibold hover:bg-white/[0.06] cursor-pointer shrink-0"
-                >
-                  Change
-                </button>
-              </div>
-            )
+            ) : null
           )}
         </div>
       )}

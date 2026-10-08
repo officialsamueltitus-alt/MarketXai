@@ -56,8 +56,8 @@
   strongest (slight edge to higher timeframes) and tags the result `timeframeScan` (+ `frames`) + an "RDM scan" note naming a narrowed choice;
   a timeframe named in the prompt still wins; no valid setup anywhere = NO_SIGNAL.
   RDM timeframes (owner-specified): ONE setting in Preference Mode, shared picker `RdmTimeframePicker.tsx` (All or any timeframes, at least
-  one) shown in Preference Mode, under RDM in the composer's timeframe pop-up (picking RDM keeps it open, Done closes) and under RDM in the
-  watchlist (add form and a pair's timeframe edit); a change anywhere saves the preference and is used everywhere. Shared helpers
+  one) shown in Preference Mode (always), and closed by default under RDM in the composer's timeframe pop-up and the watchlist (add form, a
+  pair's timeframe edit): owner-specified, it opens ONLY when RDM is tapped (a second tap, Save or Cancel folds it away; draft mode, Save stores); a change anywhere saves the preference and is used everywhere. Shared helpers
   `normalizeRdmTimeframes` / `rdmFrames` / `rdmLabel` in `src/utils/preferences.ts` (every timeframe ticked is stored as []).
   Analysis mode (owner-specified, Preference Mode `users.preferences.analysisMode` NORMAL default / CONFIRMATION, two cards in
   `PreferencePanel.tsx` + "How confirmation works", a green chip in the composer when on, a note in the watchlist): NORMAL is the engine
