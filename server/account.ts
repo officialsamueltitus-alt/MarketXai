@@ -442,11 +442,19 @@ function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, rem
       const ref = readChatRef(req.body?.ref);
       // Sent once the response is out, so it describes exactly what was served (a trade held back by the trade lock
       // is a no-signal, and its credit was given back)
-      res.once('finish', () => {
+      // 'close' too: a trader who left before the result arrived still gets the "analysis is ready" notice
+      let done = false;
+      const send = () => {
+        if (done) return;
+        done = true;
         const back = !!res.locals.refundCredit;
         const left = remaining && back ? { daily: remaining.daily + charged.daily, campaign: remaining.campaign + charged.campaign } : remaining;
         setImmediate(() => analysisAlert(user, prompt, body, left, ref));
-      });
+      };
+      res.once('finish', send);
+      res.once('close', send);
+      // Already gone before the result was ready: 'close' has fired, so send once the trade lock check is done (≤4s)
+      if (res.destroyed || req.destroyed) setTimeout(send, 5000).unref();
     }
     return originalJson(body);
   }) as Response['json'];

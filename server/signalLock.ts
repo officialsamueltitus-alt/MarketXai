@@ -65,31 +65,40 @@ type TradeStatus =
   | { running: true; state: 'WAITING_ENTRY' | 'IN_TRADE'; fillBy?: number }
   | { running: false; endedBy: 'TP' | 'SL' | 'MISSED' | 'NOT_FILLED' | 'EXPIRED' | 'UNKNOWN'; endedAt: number };
 
-/** Where one of the trader's earlier trades stands now, from its alert's hits (1-minute checks) or fresh candles */
+/** Where one of the trader's earlier trades stands now, from every hit known (earliest end wins) */
 export function statusFromHits(offer: AlertOffer, hits: AlertHit[], now: number): TradeStatus {
-  const end = hits.find(h => h.kind === 'SL' || h.kind === 'MISSED' || h.kind.startsWith('TP'));
+  const sorted = [...hits].sort((a, b) => a.at - b.at);
+  const end = sorted.find(h => h.kind === 'SL' || h.kind === 'MISSED' || h.kind.startsWith('TP'));
   if (end) return { running: false, endedBy: end.kind === 'SL' ? 'SL' : end.kind === 'MISSED' ? 'MISSED' : 'TP', endedAt: end.at };
   if (now >= offer.expiresAt) return { running: false, endedBy: 'EXPIRED', endedAt: offer.expiresAt };
-  if (hits.some(h => h.kind === 'ENTRY')) return { running: true, state: 'IN_TRADE' };
+  // A market entry is filled the moment it is served; a limit entry is filled once price reaches the zone
+  if (offer.execution === 'MARKET' || sorted.some(h => h.kind === 'ENTRY')) return { running: true, state: 'IN_TRADE' };
   const fillBy = offer.createdAt + fillWindowMs(offer.timeframe);
   if (now >= fillBy) return { running: false, endedBy: 'NOT_FILLED', endedAt: fillBy };
   return { running: true, state: 'WAITING_ENTRY', fillBy };
 }
 
 async function tradeStatus(offer: AlertOffer, alert: PriceAlert | undefined, series: (tf: string) => Promise<Bar[] | null>, now: number): Promise<TradeStatus> {
-  // An alert the trader kept on is checked every 15s on 1-minute candles: its hits are the most precise record
-  if (alert && (alert.active || (alert.endedReason && alert.endedReason !== 'TURNED_OFF'))) {
-    return statusFromHits(offer, alert.hits || [], now);
-  }
   if (now >= offer.expiresAt) return { running: false, endedBy: 'EXPIRED', endedAt: offer.expiresAt };
+  const hits: AlertHit[] = [];
+  let known = false;
+  // An alert the trader kept on is checked every 15s on 1-minute candles, but only from the moment it was switched on
+  if (alert && (alert.active || (alert.endedReason && alert.endedReason !== 'TURNED_OFF'))) {
+    hits.push(...(alert.hits || []));
+    known = true;
+  }
+  // Fresh candles cover the whole life of the trade, from the moment it was served (a hit before the alert started counts)
   for (const [tf] of TRACK_TFS) {
     const bars = await series(tf);
     if (!bars || !bars.length || bars[0].t > offer.createdAt) continue;
-    const ev = evaluateBars({ direction: offer.direction, entry: offer.entry, stop: offer.stop, tps: offer.tps, entered: false, hits: [], createdAt: offer.createdAt }, bars);
-    return statusFromHits(offer, ev.hits, now);
+    const ev = evaluateBars({ direction: offer.direction, entry: offer.entry, stop: offer.stop, tps: offer.tps, entered: offer.execution === 'MARKET', hits: [], createdAt: offer.createdAt }, bars);
+    hits.push(...ev.hits);
+    known = true;
+    break;
   }
-  // No candles reach back that far: not provable either way, so the trader is never blocked on a guess
-  return { running: false, endedBy: 'UNKNOWN', endedAt: offer.createdAt };
+  // Neither an alert nor candles reach back that far: not provable either way, so the trader is never blocked on a guess
+  if (!known) return { running: false, endedBy: 'UNKNOWN', endedAt: offer.createdAt };
+  return statusFromHits(offer, hits, now);
 }
 
 const toTrade = (o: AlertOffer, st: { state: 'WAITING_ENTRY' | 'IN_TRADE'; fillBy?: number }): RunningTrade => ({
@@ -111,6 +120,31 @@ const toTrade = (o: AlertOffer, st: { state: 'WAITING_ENTRY' | 'IN_TRADE'; fillB
 export async function tradeLockOn(uid: string): Promise<boolean> {
   const doc = (await db().collection('users').doc(uid).get()).data() as { preferences?: unknown } | undefined;
   return withDefaults(doc?.preferences as any).tradeLock;
+}
+
+// Two analyses finishing at the same moment would both pass before the first one's offer is saved: a trade that just
+// passed is reserved here (per worker) for a short while, and a second one on the same trader, pair and timeframe is held
+const RESERVE_MS = 30_000;
+const reserved = new Map<string, { trade: RunningTrade; until: number }>();
+const reserveKey = (uid: string, symbol: string, tf: string) => `${uid}|${symbol}|${tf}`;
+function reservedTrade(uid: string, symbol: string, tf: string, now: number): RunningTrade | null {
+  const k = reserveKey(uid, symbol, tf);
+  const r = reserved.get(k);
+  if (!r) return null;
+  if (r.until <= now) {
+    reserved.delete(k);
+    return null;
+  }
+  return r.trade;
+}
+function reserve(uid: string, s: any, now: number) {
+  if (reserved.size > 5000) for (const [k, v] of reserved) if (v.until <= now) reserved.delete(k);
+  const lv = levelsFromStrategy(s);
+  if (!lv) return;
+  reserved.set(reserveKey(uid, lv.symbol, lv.timeframe), {
+    until: now + RESERVE_MS,
+    trade: { offerId: '', direction: lv.direction, symbol: lv.symbol, timeframe: lv.timeframe, entry: lv.entry, stop: lv.stop, tps: lv.tps, issuedAt: now, state: lv.execution === 'MARKET' ? 'IN_TRADE' : 'WAITING_ENTRY', fillBy: lv.execution === 'MARKET' ? undefined : now + fillWindowMs(lv.timeframe), endsAt: now + RESERVE_MS },
+  });
 }
 
 /** This trader's running trade (or stop-loss cool-down) on a pair and timeframe; null = free to trade */
@@ -235,10 +269,20 @@ export function signalLockMiddleware(req: Request, res: Response, next: NextFunc
     const s = body?.strategy;
     if (!uid || res.statusCode >= 400 || !s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT') || !levelsFromStrategy(s)) return json(body);
     let sent = false;
+    const sym = String(s.symbol).slice(0, 32);
+    const tf = String(s.timeframe).slice(0, 8);
     const check = tradeLockOn(uid)
-      .then(on => (on ? tradeLockFor(uid, String(s.symbol).slice(0, 32), String(s.timeframe).slice(0, 8)) : null))
-      .then(v => {
-        if (sent || !lockBlocks(v, s.tradeType)) return;
+      .then(async on => {
+        if (!on) return { on, v: null as LockVerdict };
+        const held = reservedTrade(uid, sym, tf, Date.now());
+        return { on, v: held ? ({ kind: 'RUNNING', trade: held } as LockVerdict) : await tradeLockFor(uid, sym, tf) };
+      })
+      .then(({ on, v }) => {
+        if (sent) return;
+        if (!lockBlocks(v, s.tradeType)) {
+          if (on) reserve(uid, s, Date.now());
+          return;
+        }
         applyLock(s, v!);
         if (typeof body.message === 'string') body.message = s.detailedThesis;
         res.locals.refundCredit = true;
