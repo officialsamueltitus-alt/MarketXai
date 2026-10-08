@@ -80,7 +80,9 @@
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
 - Trade lock (owner-specified, `server/signalLock.ts`): ONE running trade per trader, per pair, per timeframe. A Preference Mode switch
-  "One trade at a time" (`users.preferences.tradeLock`, default ON, `tradeLockOn`): ON = enforced strictly for that trader everywhere (every
+  "One trade at a time" (`users.preferences.tradeLock`, owner-specified: default OFF, on only once the trader turns it on, `tradeLockChosenAt`
+  set by the switch, `tradeLockOn`). It only ever bites on a pair + timeframe where the trader ran an analysis and got a trade (their own
+  `alertOffers`); watchlist setups keep notifying normally until then. ON = enforced strictly for that trader everywhere (every
   market, timeframe, analysis mode, RDM, Strategy Builder, watchlist, every plan), OFF = no lock and no wait for them. Analyses are always fresh
   (live candles and price, nothing replayed or shared between traders). Checked BEFORE the engine first: `signalLockGate` (route chain,
   before `chargeAnalysisCredit`) resolves the pair + timeframe of an analysis prompt and, when the trader's trade there is RUNNING
