@@ -42,6 +42,7 @@ import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
+import { applyLock, configureSignalLock, runningTradeFor, signalLockMiddleware, tradeLockOn } from './server/signalLock';
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
@@ -189,6 +190,10 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
+// One running trade per trader, pair and timeframe (installed last, so it runs first: a held-back trade never becomes an
+// alert offer or a seal). Every analysis is still fresh from live candles; this only decides if a new trade may go out.
+configureSignalLock({ getBars: async (symbol, tf) => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf) });
+app.use('/api/market/analyze', signalLockMiddleware);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -3348,6 +3353,55 @@ async function strategyProGate(req: Request, res: Response, next: NextFunction) 
   } catch {}
   next();
 }
+/**
+ * Trade lock, checked BEFORE any credit is charged or the engine runs: when the trader's own trade on this pair and
+ * timeframe is still running (and One trade at a time is on), the result is the running trade at the live price, free.
+ * RDM (timeframe only known after the scan) and the after-stop-loss pause (side only known after the analysis) are
+ * judged after the engine by signalLockMiddleware, with the credit given back.
+ */
+async function signalLockGate(req: Request, res: Response, next: NextFunction) {
+  const b = req.body || {};
+  if (typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage) return next();
+  const prompt = b.prompt.trim().slice(0, 2000);
+  if (!prompt) return next();
+  const tfInPrompt = timeframeFromPrompt(prompt);
+  if (typeof b.timeframe === 'string' && b.timeframe.trim().toUpperCase() === 'RDM' && !tfInPrompt) return next();
+  if (classifyPrompt(prompt, { hasChartImage: false, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
+  try {
+    const uid = (res.locals.user as any)?.uid as string;
+    if (!uid || !(await tradeLockOn(uid))) return next();
+    const picked = typeof b.timeframe === 'string' && /^[0-9]+[mhdwyMHDWY]$/.test(b.timeframe.trim()) ? b.timeframe.trim().toUpperCase() : '4H';
+    const tf = normalizeTimeframe(tfInPrompt || picked);
+    const asset = await resolveAssetInfo(prompt, typeof b.symbol === 'string' ? b.symbol.slice(0, 32).trim() : undefined);
+    if (asset.unresolved) return next();
+    const v = await runningTradeFor(uid, asset.symbol.slice(0, 32), tf);
+    if (!v) return next();
+    const q = await resolveAccurateAssetQuote(asset).catch(() => null);
+    // The held result always shows the live price; without one, the request carries on and is judged after the engine
+    if (!q || !(q.price > 0)) return next();
+    const s: any = {
+      symbol: asset.symbol,
+      name: asset.name,
+      assetType: asset.type,
+      timeframe: tf,
+      currentPrice: q?.price || 0,
+      change24h: q?.change24h ?? 0,
+      high24h: q?.high24h ?? 0,
+      low24h: q?.low24h ?? 0,
+      tradeType: 'NO_SIGNAL',
+      bias: 'NEUTRAL',
+      confidenceScore: 50,
+      takeProfits: [],
+      riskRewardRatio: '1 : 0',
+    };
+    applyLock(s, v, Date.now(), false);
+    console.log(`[MarketX Lock] ${asset.symbol} ${tf}: held before the engine (trade still running)`);
+    return res.json({ success: true, isAnalysis: true, message: s.detailedThesis, strategy: s });
+  } catch (err: any) {
+    console.warn('[MarketX Lock] early check failed:', err?.message || err);
+    return next();
+  }
+}
 const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
@@ -3455,7 +3509,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, signalLockGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3518,6 +3572,7 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
         tightened.newsBrief = tBrief || undefined;
         tightened.highImpactNews = newsBriefToAlert(tBrief, tAsset.symbol) || undefined;
         console.log(`[MarketX] Tightened stop loss for existing ${tightened.symbol} ${tightened.tradeType} setup (${tightened.timeframe})`);
+        res.locals.tightenedSetup = true;
         return res.json({
           success: true,
           isAnalysis: true,

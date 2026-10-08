@@ -79,6 +79,23 @@
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
+- Trade lock (owner-specified, `server/signalLock.ts`): ONE running trade per trader, per pair, per timeframe. A Preference Mode switch
+  "One trade at a time" (`users.preferences.tradeLock`, default ON, `tradeLockOn`): ON = enforced strictly for that trader everywhere (every
+  market, timeframe, analysis mode, RDM, Strategy Builder, watchlist, every plan), OFF = no lock and no wait for them. Analyses are always fresh
+  (live candles and price, nothing replayed or shared between traders). Checked BEFORE the engine first: `signalLockGate` (route chain,
+  before `chargeAnalysisCredit`) resolves the pair + timeframe of an analysis prompt and, when the trader's trade there is RUNNING
+  (`runningTradeFor`, incl. a trade served moments ago, reserved per worker until its response is out), answers with the running trade
+  at the live price: no credit, no engine. RDM (timeframe known only after the scan) and the stop-loss pause (side known only after the
+  analysis) fall to the after-engine check. Tighten SL (`res.locals.tightenedSetup`) is the same trade and never held. After the engine,
+  `signalLockMiddleware` (installed last on `/api/market/analyze`, so it
+  runs before the alert offer, seal and safety wrappers) checks the trader's own `alertOffers` on the same symbol + timeframe: while one is
+  running (waiting for entry, `FILL_CANDLES` 6 candles, at least 30 min, or entered) any new LONG/SHORT there is served as NO_SIGNAL with `signalLock`
+  {reason RUNNING} and the running trade at the live price, no offer/seal, credit given back (`res.locals.refundCredit` in
+  `chargeAnalysisCredit`; the analysis notice goes out on 'finish', site only). Ends at TP1 (any TP), SL, MISSED (TP1 before entry), not
+  filled in time, or the offer's window. After an SL the OPPOSITE side waits `COOLDOWN_CANDLES` 3 candles (COOLDOWN). Status from the
+  trader's alert hits when it is on, else fresh candles (finest series reaching back: 1M, 15M, 1H, 4H); unknown never blocks; any error or
+  over 4s = result unchanged. General engine, Confirmation, RDM (the chosen timeframe) and Strategy Builder alike; the watchlist holds a
+  setup notice for a trader whose trade on that pair/timeframe runs (`holdForRunningTrade`). Engine, prompts and models untouched.
 - Strategy Builder (owner-specified, Option B: rules in code, the engine for words; called "Strategy Builder on/off" to traders, never "Strategy mode"):
   `/strategy-builder` (`StrategyBuilderPanel.tsx`, slash command live; library + My strategies + on/off; build = 1 Explain (free text, guiding questions) → 2 Guided (setup, direction,
   timeframes, markets, trend/RSI/session filters, stop, targets, min R, params) → 3 Review (plain rules + "Not automated" list, name, Save / Save and
@@ -213,10 +230,10 @@
   as one email; "Want a price alert?" invitations only use the allowance while 2 emails are still left for real hits. These emails
   stay short: one or two lines, at most 3 rows, no long notes.
 - Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
-  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes, analysisMode}, validated, autosaved
+  {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes, analysisMode, tradeLock}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
   only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Only
-  `analysisMode` and `rdmTimeframes` change how analyses and the watchlist run. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
+  `analysisMode`, `rdmTimeframes` and `tradeLock` change how analyses and the watchlist run. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
   `/backtest` command, routes, panel or history fetcher.
   Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
   risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);

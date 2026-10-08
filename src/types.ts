@@ -96,6 +96,11 @@ export interface StrategyResult {
   /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
   /** Strategy mode: the trader's own strategy produced this result (not the general engine) */
   userStrategy?: { id: string; name: string; setup: string };
+  /** Trade lock: a new trade was held back because the trader's own trade on this pair and timeframe is still running
+   *  (RUNNING) or its stop loss was just hit and the other side is cooling down (COOLDOWN) */
+  signalLock?:
+    | { reason: 'RUNNING'; side: 'LONG' | 'SHORT'; state: 'WAITING_ENTRY' | 'IN_TRADE'; issuedAt: number; entry: { min: number; max: number }; stop: number; tp1: number; fillBy: number | null }
+    | { reason: 'COOLDOWN'; side: 'LONG' | 'SHORT'; stoppedAt: number; until: number };
   /** Confirmation analysis (Preference Mode): set on every result analysed in that mode */
   analysisMode?: 'NORMAL' | 'CONFIRMATION';
   confirmationRead?: {

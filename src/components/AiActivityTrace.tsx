@@ -15,6 +15,8 @@ interface AiActivityTraceProps {
   seed?: string | number;
   /** Today's fundamentals for this analysis (shown inside the report while the reader's day lasts) */
   news?: NewsBrief | null;
+  /** No token count (a trade held by One trade at a time: nothing was used) */
+  noTokens?: boolean;
 }
 
 export function formatElapsed(ms: number): string {
@@ -239,7 +241,7 @@ const NewsPanel: React.FC<{ news: NewsBrief }> = ({ news }) => {
 };
 
 // Live, step-by-step view of what MarketX is doing, collapsing to "Worked for Ns" when finished
-export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps, seed, news }) => {
+export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running, startedAt, durationSeconds, legacySteps, seed, news, noTokens }) => {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
   // Mounted on first open and kept, so closing animates too
@@ -264,7 +266,7 @@ export const AiActivityTrace: React.FC<AiActivityTraceProps> = ({ steps, running
         });
 
   const tokenSeed = seed ?? startedAt;
-  const tokens = stepTokens(list, now, running, tokenSeed);
+  const tokens = noTokens ? null : stepTokens(list, now, running, tokenSeed);
   const tokenTotal = tokens ? Object.values(tokens).reduce((a, b) => a + b, 0) : 0;
 
   if (running) {

@@ -16,6 +16,9 @@ export interface Preferences {
   /** NORMAL: the engine's normal analysis. CONFIRMATION: waits for price to reach the zone and confirm on a lower
    *  timeframe (sweep, engulfing, pin bar, star, structure break) before calling a trade, stop beyond the reaction wick */
   analysisMode: AnalysisMode;
+  /** One trade at a time (on by default): while the trader's own trade on a pair and timeframe is still running, no new
+   *  buy or sell there, and no flip to the other side right after a stop loss. Off = no lock and no wait for this trader */
+  tradeLock: boolean;
   updatedAt?: number;
 }
 
@@ -29,6 +32,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homeMarket: 'all',
   rdmTimeframes: [],
   analysisMode: 'NORMAL',
+  tradeLock: true,
 };
 
 
@@ -37,6 +41,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   const out = { ...DEFAULT_PREFERENCES, ...(p && typeof p === 'object' ? p : {}) };
   out.rdmTimeframes = normalizeRdmTimeframes(out.rdmTimeframes) || [];
   if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
+  out.tradeLock = out.tradeLock !== false;
   return out;
 }
 

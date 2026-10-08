@@ -2043,7 +2043,8 @@ export default function App() {
         sessionId: targetSessionId!,
         messageId: assistantMessageId,
       };
-      setSavedAnalyses(prev => [newAnalysisItem, ...prev]);
+      // A trade held by One trade at a time is not a new setup: it stays in the chat, not in Saved setups
+      if (!strategy.signalLock) setSavedAnalyses(prev => [newAnalysisItem, ...prev]);
       refreshAccount();
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {

@@ -372,6 +372,16 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: C
       ? { type: 'analysis', title: `Analyzed ${s.symbol} (${s.timeframe || ''})`.replace(' ()', ''), detail: `${s.tradeType || ''} · ${prompt.slice(0, 120)}` }
       : { type: 'chat', title: 'Asked a question', detail: prompt.slice(0, 160) }
   );
+  if (s && s.symbol && s.signalLock) {
+    // Trade lock: a short site notice only (no email), the card explains the running trade
+    notifyActivity(user.uid, {
+      type: 'analysis',
+      title: `${s.symbol} · ${s.timeframe || ''}: no new trade yet`.replace(' · :', ':'),
+      message: s.signalStatus?.details || 'Your trade on this pair and timeframe is still running.',
+      ...open,
+    } as any);
+    return;
+  }
   if (s && s.symbol) {
     const tp1 = s.takeProfits?.[0]?.price;
     notifyActivity(
@@ -424,13 +434,27 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: C
 }
 
 // Wraps res.json so the alert is built from what the analysis route actually returned
-function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, remaining: CreditsLeft) {
+function attachAnalysisAlerts(req: Request, res: Response, user: AuthedUser, remaining: CreditsLeft, charged: { daily: number; campaign: number } = { daily: 0, campaign: 0 }) {
   const originalJson = res.json.bind(res);
   res.json = ((body: any) => {
     if (res.statusCode < 400 && body && typeof body === 'object') {
       const prompt = String(req.body?.prompt || '');
       const ref = readChatRef(req.body?.ref);
-      setImmediate(() => analysisAlert(user, prompt, body, remaining, ref));
+      // Sent once the response is out, so it describes exactly what was served (a trade held back by the trade lock
+      // is a no-signal, and its credit was given back)
+      // 'close' too: a trader who left before the result arrived still gets the "analysis is ready" notice
+      let done = false;
+      const send = () => {
+        if (done) return;
+        done = true;
+        const back = !!res.locals.refundCredit;
+        const left = remaining && back ? { daily: remaining.daily + charged.daily, campaign: remaining.campaign + charged.campaign } : remaining;
+        setImmediate(() => analysisAlert(user, prompt, body, left, ref));
+      };
+      res.once('finish', send);
+      res.once('close', send);
+      // Already gone before the result was ready: 'close' has fired, so send once the trade lock check is done (≤4s)
+      if (res.destroyed || req.destroyed) setTimeout(send, 5000).unref();
     }
     return originalJson(body);
   }) as Response['json'];
@@ -769,10 +793,10 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       });
     }
 
-    attachAnalysisAlerts(req, res, user, { daily: charged.remaining, campaign: charged.campaignLeft });
-    // Refund the credit if the analysis request fails
+    attachAnalysisAlerts(req, res, user, { daily: charged.remaining, campaign: charged.campaignLeft }, { daily: charged.dailyDelta, campaign: charged.campaignDelta });
+    // Refund the credit if the analysis request fails, or the trade lock held the new trade back (res.locals.refundCredit)
     res.on('finish', () => {
-      if (res.statusCode < 400) {
+      if (res.statusCode < 400 && !res.locals.refundCredit) {
         if (charged.campaignDelta && charged.campaignLeft === 0) {
           notifyActivity(user.uid, {
             type: 'system',

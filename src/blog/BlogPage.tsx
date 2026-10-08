@@ -238,8 +238,9 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="RDM: let MarketX pick the timeframe" tone="emerald">
           Choose <B>RDM</B> (random) in the timeframe row and MarketX scans every timeframe from 1m to 1W for you, or only the ones you pick: when you
-          choose RDM, the timeframes it searches appear right under it. Tap <B>All</B>, or tap the timeframes you want (for example 1H, 4H and 1D). Your
-          choice is saved to Preference Mode and used everywhere you pick RDM, in the input box and on the watchlist. It keeps only valid, high probability setups
+          choose RDM, the timeframes it searches drop down right under it. Tap <B>All</B>, or tap the timeframes you want (for example 1H, 4H and 1D), then
+          press <B>Save</B> (or <B>Cancel</B> to keep your last choice). The list folds away after you save and a short summary stays under RDM, with a{' '}
+          <B>Change</B> button to open it again. Your choice is saved to Preference Mode and used everywhere you pick RDM, in the input box and on the watchlist. It keeps only valid, high probability setups
           where price sits between the entry and the first target, with none of the entry, stop loss or targets reached yet, and gives you the strongest one. The
           result shows an <B>RDM · picked 1H</B> tag (or whichever timeframe it used) and the write up lists the timeframes that had a valid setup. If no timeframe
           has one, you get a clear No signal. One analysis, one credit.
@@ -347,6 +348,17 @@ const SECTIONS: Section[] = [
           (market) trades alike. If price has already travelled a large part of the way toward TP1, or is sitting near the stop loss, the move is under way and
           you get <B>No signal, already moved, close to TP</B> (or close to the stop loss) with the prices named, instead of a late entry.
         </Note>
+        <Note title="One trade at a time" tone="amber">
+          While your own trade on a pair and timeframe is still running (waiting for its entry, or in the trade), MarketX gives you no new buy or sell on that
+          same pair and timeframe. You get <B>One trade at a time, your trade is still running</B> with its entry, stop, targets and the live price. When you
+          name the pair and timeframe, this is checked before the analysis starts, so no credit is used; with RDM it is checked once the timeframe is picked, and
+          the credit is given back. It ends as soon as TP1 or the stop loss is hit, price reaches TP1 before the entry, or a pending entry is not filled within a
+          few candles of that timeframe. After a stop loss, MarketX also waits a few candles before giving the opposite side, so it never flips straight after a
+          stop (the same side can come again straight away). <B>Tighten Stop Loss</B> on your running trade still works, as it is the same trade with a closer
+          stop. The watchlist also holds a new setup on that pair and timeframe until your trade ends. Other timeframes and other traders are not affected, and
+          every new analysis is read fresh from the live price. It is on by default, and you can switch it off or on again in Preference Mode under{' '}
+          <B>One trade at a time</B>.
+        </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
           golden pocket is measured on the swing. 3. Demand is only bought in discount and supply only sold in premium, next to their fair value gaps and the
@@ -403,7 +415,8 @@ const SECTIONS: Section[] = [
             </>,
             <>
               Each pair shows <B>Setup ready</B>, <B>Building</B> (a fresh zone price is getting close to) or <B>Watching</B>. When a setup is found you get a
-              notification and an email, once per setup. Tap <B>Get the plan</B> for the full analysis with entry, stop and targets.
+              notification and an email, once per setup. Tap <B>Get the plan</B> for the full analysis with entry, stop and targets. While your own trade on
+              that pair and timeframe is still running, a new setup there waits (the pair says why) until it ends, if One trade at a time is on.
             </>,
           ]}
         />
@@ -484,7 +497,8 @@ const SECTIONS: Section[] = [
           items={[
             <>
               <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose your <B>analysis mode</B> (Normal or Confirmation, see below), the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
-              show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change saves on its own.
+              show the full write-up or lead with the levels, which list the Markets tab opens on, and whether <B>One trade at a time</B> is on. Every change
+              saves on its own.
             </>,
           ]}
         />
@@ -494,6 +508,11 @@ const SECTIONS: Section[] = [
           false breakout, an engulfing candle, a pin bar, a morning or evening star, or a structure break. Then you get the entry at market with the
           stop beyond the reaction wick, and the watchlist only says ready at that moment. Until then the result says <B>waiting for
           confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
+        </Note>
+        <Note title="One trade at a time" tone="emerald">
+          A switch, on by default. On: while your trade on a pair and timeframe is still running, you get no new buy or sell there, and no flip to the other
+          side right after a stop loss (see Reading a result). It applies to every market, timeframe, analysis mode, RDM, the Strategy Builder and your
+          watchlist. Off: every analysis can give a new trade, even while your last one on that pair is still running. It only changes your own analyses.
         </Note>
         <Note title="Trade calculator">
           In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
@@ -566,7 +585,7 @@ const SECTIONS: Section[] = [
     shots: [{ src: '/guide/credits-balance.webp', alt: "Your credits and today\u2019s analyses, with the time they refill.", w: 786, h: 1460 }, { src: '/guide/credits-pro.webp', alt: "Plans: Pro gives you more analyses every day.", w: 786, h: 1604 }],
     title: 'Credits, daily analyses and plans',
     icon: CreditCard,
-    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. Campaign credits work differently: they are used first, and while you have any left your daily analyses are paused and kept (no 3:00 AM refill), then they pick up again once the campaign credits run out. If an analysis fails, it is refunded automatically.",
+    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. Campaign credits work differently: they are used first, and while you have any left your daily analyses are paused and kept (no 3:00 AM refill), then they pick up again once the campaign credits run out. If an analysis fails, it is refunded automatically, and a trade held back by One trade at a time uses no credit.",
     body: (
       <>
         <Table
@@ -609,7 +628,10 @@ const SECTIONS: Section[] = [
             <B>Download a setup.</B> On a result card press Image to save a high resolution PNG of the trade plan.
           </>,
           <>
-            <B>Share to X.</B> Press Share on the card to open a ready made post with the setup.
+            <B>Share to X.</B> Press Share on any result card, from MarketX or from your own strategy in the Strategy Builder, and X opens with your post
+            already written: buy or sell, the pair and timeframe, the entry, stop, targets and reward to risk, the link to the trade's Solana proof, and where
+            it came from (Personal strategy, Confirmed or RDM). A no signal result shares the reason instead. The post always fits X's length limit, and it is
+            copied for you too in case your browser blocks the new window.
           </>,
           <>
             <B>Earn credits on X.</B> Open the Campaign banner (in Profile, or from a notification) and press Start earning. Complete the steps in order and post;
@@ -641,7 +663,8 @@ const SECTIONS: Section[] = [
               photo, then Save Changes. You can also share your profile.
             </>,
             <>
-              <B>Theme.</B> In Settings choose Light, Dark or System (follows your device).
+              <B>Theme.</B> In Settings choose Light, Dark or System (follows your device). The Settings button stays at the bottom of the side menu when it
+              is open; the settings scroll above it, so it is always in reach.
             </>,
             <>
               <B>Connectors / Plugins.</B> In Settings, the commands you have turned on (watchlist, price alerts, trade journal, track record). Two are shown;
@@ -649,7 +672,8 @@ const SECTIONS: Section[] = [
             </>,
             <>
               <B>Notifications.</B> The bell shows analyses, sign ins, payments, rewards and support replies. Filter them, mark them read or clear them. Turn Email
-              me about activity on or off; security alerts are always emailed.
+              me about activity on or off; security alerts are always emailed. If you leave or close MarketX while an analysis is running, you still get a
+              notification when it is ready, and tapping it opens that exact result.
             </>,
             <>
               <B>History.</B> The sidebar lists your saved trade setups and chats. Open one to pick up where you left off, delete a single setup or chat, or use
