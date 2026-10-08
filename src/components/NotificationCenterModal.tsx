@@ -414,10 +414,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="flex items-start gap-2">
-                              <span className={`text-[13px] leading-snug ${n.read ? 'text-slate-300' : 'text-white font-medium'}`}>{n.title}</span>
+                              <span className={`min-w-0 text-[13px] leading-snug break-words [overflow-wrap:anywhere] ${n.read ? 'text-slate-300' : 'text-white font-medium'}`}>{n.title}</span>
                               <span className="ml-auto text-[11px] text-slate-500 shrink-0 tabular-nums pt-px">{timeAgo(n.timestamp)}</span>
                             </span>
-                            {n.message && <span className="mt-0.5 block text-xs text-slate-500 leading-relaxed line-clamp-2">{n.message}</span>}
+                            {n.message && <span className="mt-0.5 block text-xs text-slate-500 leading-relaxed line-clamp-2 break-words [overflow-wrap:anywhere]">{n.message}</span>}
                             {action && (
                               <span className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-medium text-indigo-300">
                                 {action} <ChevronRight className="w-3 h-3" />
