@@ -295,9 +295,9 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                   // Auto trades are closed by their price alert; only a handed-over one is closed by hand
                   const canClose = t.status === 'OPEN' && (!auto || auto.state === 'HANDED_OVER');
                   return (
-                    <div key={t.id} className="p-3 rounded-2xl bg-white/[0.035] border border-white/[0.08]">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-white font-mono truncate">{t.symbol}</span>
+                    <div key={t.id} className="p-3 rounded-2xl bg-white/[0.035] border border-white/[0.08] min-w-0 overflow-hidden">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0">
+                        <span className="text-sm font-semibold text-white font-mono truncate min-w-0 max-w-full">{t.symbol}</span>
                         <span className={`h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center ${long ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>{long ? 'BUY' : 'SELL'}</span>
                         {t.timeframe && <span className="h-5 px-1.5 rounded-md bg-white/[0.06] text-[10px] font-mono text-slate-300 inline-flex items-center">{t.timeframe}</span>}
                         {t.status === 'OPEN' ? (
@@ -320,7 +320,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                             Personal strategy
                           </span>
                         )}
-                        <span className="ml-auto text-xs font-mono tabular-nums text-right">
+                        <span className="ml-auto text-xs font-mono tabular-nums text-right whitespace-nowrap">
                           {t.r !== null && <span className={t.r >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{fmtR(t.r)}</span>}
                           {t.pnl !== null && <span className={`ml-1.5 ${t.pnl >= 0 ? 'text-emerald-300/80' : 'text-rose-300/80'}`}>{fmtMoney(t.pnl)}</span>}
                         </span>
@@ -332,7 +332,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                         {t.exit !== null && <span>Exit <span className="text-slate-300">{formatMarketPrice(t.exit)}</span></span>}
                       </div>
                       {auto?.summary && (
-                        <p className={`mt-1.5 text-xs leading-relaxed ${auto.state === 'DONE' ? 'text-slate-300' : 'text-slate-400'}`}>
+                        <p className={`mt-1.5 text-xs leading-relaxed break-words [overflow-wrap:anywhere] ${auto.state === 'DONE' ? 'text-slate-300' : 'text-slate-400'}`}>
                           {auto.state === 'DONE' && auto.tpsHit > 0 && (
                             <span className="inline-flex gap-0.5 mr-1.5 align-middle" aria-label={`${auto.tpsHit} of ${auto.targets.length} targets`}>
                               {auto.targets.map((_, i) => (
@@ -343,7 +343,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                           {auto.summary}
                         </p>
                       )}
-                      {t.notes && <p className="mt-1.5 text-xs text-slate-400 leading-relaxed line-clamp-2">{t.notes}</p>}
+                      {t.notes && <JournalNote text={t.notes} />}
                       {closing?.id === t.id ? (
                         <form onSubmit={closeTrade} className="mt-2.5 flex items-end gap-2 mx-fade-in">
                           <Field label="Exit price" value={closing.exit} onChange={v => setClosing(c => (c ? { ...c, exit: v } : c))} placeholder="0.00" className="flex-1" />
@@ -385,6 +385,22 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
         </div>
       )}
     </PluginSheet>
+  );
+};
+
+/** A trade's notes: wrapped inside the card (long words and links break), shown in full with Show more / Show less when long */
+const JournalNote: React.FC<{ text: string }> = ({ text }) => {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 160 || text.split('\n').length > 3;
+  return (
+    <div className="mt-1.5 min-w-0">
+      <p className={`text-xs text-slate-400 leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere] ${long && !open ? 'line-clamp-3' : ''}`}>{text}</p>
+      {long && (
+        <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} className="mt-0.5 text-[11px] font-medium text-sky-300 hover:text-sky-200 cursor-pointer">
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
   );
 };
 

@@ -16,12 +16,16 @@ const MD_COMPONENTS = {
     ) : (
       <span>{children}</span>
     ),
+  // Code blocks scroll sideways inside the bubble instead of pushing the page wider
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{children}</pre>
+  ),
   img: ({ alt }: { alt?: string }) => (alt ? <span>{alt}</span> : null),
 };
 
 /** Renders Markdown; shows the plain text until the parser has loaded (no layout jump for short text). */
 export const LazyMarkdown: React.FC<{ children: string }> = React.memo(({ children }) => (
-  <Suspense fallback={<div className="whitespace-pre-wrap">{children}</div>}>
+  <Suspense fallback={<div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{children}</div>}>
     <ReactMarkdown components={MD_COMPONENTS as any}>{children}</ReactMarkdown>
   </Suspense>
 ));

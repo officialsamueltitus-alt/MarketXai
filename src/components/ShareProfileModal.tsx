@@ -209,7 +209,7 @@ export const ShareProfileModal: React.FC<ShareProfileModalProps> = ({
                 <div className="text-sm font-medium text-white">Post on X</div>
                 <p className="text-xs text-slate-500 mt-0.5">Opens X with this post ready. Attach your card and publish.</p>
               </div>
-              <div className="relative rounded-xl bg-black/30 ring-1 ring-white/[0.06] p-3 pr-10 text-[13px] text-slate-300 whitespace-pre-line leading-relaxed">
+              <div className="relative rounded-xl bg-black/30 ring-1 ring-white/[0.06] p-3 pr-10 text-[13px] text-slate-300 whitespace-pre-line break-words [overflow-wrap:anywhere] leading-relaxed">
                 {xWriteup}
                 <button
                   type="button"
