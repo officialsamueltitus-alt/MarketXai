@@ -347,6 +347,13 @@ const SECTIONS: Section[] = [
           (market) trades alike. If price has already travelled a large part of the way toward TP1, or is sitting near the stop loss, the move is under way and
           you get <B>No signal, already moved, close to TP</B> (or close to the stop loss) with the prices named, instead of a late entry.
         </Note>
+        <Note title="One trade at a time" tone="amber">
+          While your own trade on a pair and timeframe is still running (waiting for its entry, or in the trade), MarketX gives you no new buy or sell on that
+          same pair and timeframe. You get <B>No new trade, your trade is still running</B> with its entry, stop, targets and the live price, and your credit is
+          given back. It ends as soon as TP1 or the stop loss is hit, price reaches TP1 before the entry, or the entry is not filled in time. After a stop loss,
+          MarketX also waits a few candles before giving the opposite side, so it never flips straight after a stop. Other timeframes and other traders are not
+          affected, and every new analysis is read fresh from the live price.
+        </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
           golden pocket is measured on the swing. 3. Demand is only bought in discount and supply only sold in premium, next to their fair value gaps and the

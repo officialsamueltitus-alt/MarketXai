@@ -42,6 +42,7 @@ import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
+import { configureSignalLock, signalLockMiddleware } from './server/signalLock';
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
@@ -189,6 +190,10 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
+// One running trade per trader, pair and timeframe (installed last, so it runs first: a held-back trade never becomes an
+// alert offer or a seal). Every analysis is still fresh from live candles; this only decides if a new trade may go out.
+configureSignalLock({ getBars: async (symbol, tf) => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf) });
+app.use('/api/market/analyze', signalLockMiddleware);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });

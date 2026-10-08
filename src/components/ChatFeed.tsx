@@ -746,7 +746,11 @@ Rationale: ${strategy.entryZone.rationale}
                           </div>
                           <div className="space-y-0.5 min-w-0">
                             <span className="text-xs font-bold font-mono tracking-wide block">
-                              {strategy.userStrategy
+                              {strategy.signalLock
+                                ? strategy.signalLock.reason === 'RUNNING'
+                                  ? `ONE TRADE AT A TIME • YOUR ${strategy.signalLock.side === 'LONG' ? 'BUY' : 'SELL'} IS STILL RUNNING`
+                                  : `NO FLIP AFTER A STOP LOSS • ${strategy.signalLock.side === 'LONG' ? 'SELL' : 'BUY'} ON HOLD`
+                                : strategy.userStrategy
                                 ? `PERSONAL STRATEGY • ${strategy.tradeType === 'LONG' ? 'BUY SETUP' : strategy.tradeType === 'SHORT' ? 'SELL SETUP' : 'NO SETUP YET'}`
                                 : strategy.tradeType === 'LONG'
                                 ? 'HIGH-CONFLUENCE LONG SETUP • STRUCTURAL SUPPORT ALIGNMENT'
@@ -755,7 +759,9 @@ Rationale: ${strategy.entryZone.rationale}
                                 : 'EQUILIBRIUM CONSOLIDATION • NEUTRAL BIAS'}
                             </span>
                             <p className="text-[11px] opacity-90 leading-relaxed">
-                              {strategy.userStrategy
+                              {strategy.signalLock
+                                ? strategy.signalStatus?.details || 'Your trade on this pair and timeframe has not ended yet.'
+                                : strategy.userStrategy
                                 ? strategy.tradeType === 'NO_SIGNAL'
                                   ? `Your rules (${strategy.userStrategy.name}) found no valid setup right now. Wait for the next one.`
                                   : `Your rules (${strategy.userStrategy.name}) found a ${strategy.tradeType === 'LONG' ? 'buy' : 'sell'} setup${strategy.userStrategy.setup ? ` · ${strategy.userStrategy.setup}` : ''}. Entry around $${formatMarketPrice(strategy.entryZone?.optimal, strategy.currentPrice)}.`
@@ -867,7 +873,7 @@ Rationale: ${strategy.entryZone.rationale}
                             {strategy.tradeType === 'NO_SIGNAL' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs">
                                 <AlertCircle className="w-3.5 h-3.5" />
-                                <span>{strategy.alreadyMoved ? (strategy.alreadyMoved === 'NEAR_SL' ? 'NO SIGNAL · CLOSE TO SL' : 'NO SIGNAL · ALREADY MOVED') : strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
+                                <span>{strategy.signalLock ? (strategy.signalLock.reason === 'RUNNING' ? 'NO NEW TRADE · STILL RUNNING' : 'NO NEW TRADE · COOLING DOWN') : strategy.alreadyMoved ? (strategy.alreadyMoved === 'NEAR_SL' ? 'NO SIGNAL · CLOSE TO SL' : 'NO SIGNAL · ALREADY MOVED') : strategy.alreadyMitigated ? 'NO SIGNAL · ALREADY MITIGATED' : 'NO SIGNAL'}</span>
                               </span>
                             ) : strategy.tradeType === 'LONG' ? (
                               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs">

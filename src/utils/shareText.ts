@@ -38,6 +38,8 @@ function originLine(s: StrategyResult): string {
 }
 
 function noSignalReason(s: StrategyResult): string {
+  if (s.signalLock?.reason === 'RUNNING') return 'My trade here is still running, so no new trade until it ends.';
+  if (s.signalLock?.reason === 'COOLDOWN') return 'Just stopped out, so no flip to the other side yet.';
   if (s.userStrategy?.name) return 'My rules found no valid setup right now, so no trade.';
   if (s.alreadyMoved === 'NEAR_SL') return 'Price is already close to the stop loss, so no trade.';
   if (s.alreadyMoved) return 'Price already moved close to the target, so no trade.';
