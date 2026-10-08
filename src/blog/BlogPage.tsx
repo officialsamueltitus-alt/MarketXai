@@ -352,7 +352,8 @@ const SECTIONS: Section[] = [
           same pair and timeframe. You get <B>No new trade, your trade is still running</B> with its entry, stop, targets and the live price, and your credit is
           given back. It ends as soon as TP1 or the stop loss is hit, price reaches TP1 before the entry, or the entry is not filled in time. After a stop loss,
           MarketX also waits a few candles before giving the opposite side, so it never flips straight after a stop. Other timeframes and other traders are not
-          affected, and every new analysis is read fresh from the live price.
+          affected, and every new analysis is read fresh from the live price. It is on by default, and you can switch it off or on again in
+          Preference Mode under <B>One trade at a time</B>.
         </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705

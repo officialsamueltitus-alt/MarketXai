@@ -17,6 +17,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { db, isFirebaseConfigured } from './firebase';
 import { evaluateBars, levelsFromStrategy, tfMinutes, type AlertHit, type AlertOffer, type Bar, type PriceAlert } from './priceAlerts';
 import { exactPrice } from '../src/utils/formatPrice';
+import { withDefaults } from '../src/utils/preferences';
 
 // A pending entry gets 6 candles to fill: zones that react do so within a few candles, and a zone that stays untouched for
 // longer has usually gone stale, so the next valid setup on the pair is never held back for long
@@ -105,6 +106,12 @@ const toTrade = (o: AlertOffer, st: { state: 'WAITING_ENTRY' | 'IN_TRADE'; fillB
   endsAt: o.expiresAt,
   ...(o.userStrategy ? { userStrategy: o.userStrategy } : {}),
 });
+
+/** The trader's own choice in Preference Mode (on by default): when on, the lock applies everywhere for them, no exemption */
+export async function tradeLockOn(uid: string): Promise<boolean> {
+  const doc = (await db().collection('users').doc(uid).get()).data() as { preferences?: unknown } | undefined;
+  return withDefaults(doc?.preferences as any).tradeLock;
+}
 
 /** This trader's running trade (or stop-loss cool-down) on a pair and timeframe; null = free to trade */
 export async function tradeLockFor(uid: string, symbol: string, timeframe: string, now = Date.now()): Promise<LockVerdict> {
@@ -228,7 +235,8 @@ export function signalLockMiddleware(req: Request, res: Response, next: NextFunc
     const s = body?.strategy;
     if (!uid || res.statusCode >= 400 || !s || (s.tradeType !== 'LONG' && s.tradeType !== 'SHORT') || !levelsFromStrategy(s)) return json(body);
     let sent = false;
-    const check = tradeLockFor(uid, String(s.symbol).slice(0, 32), String(s.timeframe).slice(0, 8))
+    const check = tradeLockOn(uid)
+      .then(on => (on ? tradeLockFor(uid, String(s.symbol).slice(0, 32), String(s.timeframe).slice(0, 8)) : null))
       .then(v => {
         if (sent || !lockBlocks(v, s.tradeType)) return;
         applyLock(s, v!);

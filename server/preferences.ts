@@ -77,6 +77,10 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (body.analysisMode !== 'NORMAL' && body.analysisMode !== 'CONFIRMATION') return { error: 'Choose Normal or Confirmation analysis.' };
     next.analysisMode = body.analysisMode;
   }
+  if (has('tradeLock')) {
+    if (typeof body.tradeLock !== 'boolean') return { error: 'Turn One trade at a time on or off.' };
+    next.tradeLock = body.tradeLock;
+  }
   if (has('rdmTimeframes')) {
     const list = normalizeRdmTimeframes(body.rdmTimeframes);
     if (!list) return { error: 'Choose RDM timeframes from the list.' };

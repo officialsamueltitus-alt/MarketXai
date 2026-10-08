@@ -7,7 +7,7 @@ import { requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
-import { inWords, lockBlocks, tradeLockFor } from './signalLock';
+import { inWords, lockBlocks, tradeLockFor, tradeLockOn } from './signalLock';
 import { SUPPORTED_TIMEFRAMES, timeframeMinutes } from '../src/utils/timeframe';
 import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults, type AnalysisMode } from '../src/utils/preferences';
 
@@ -389,6 +389,7 @@ async function holdForRunningTrade(item: Pick<WatchItem, 'uid' | 'symbol'>, resu
   const setup = result.setup;
   if (!setup) return result;
   try {
+    if (!(await tradeLockOn(item.uid))) return result;
     const lock = await tradeLockFor(item.uid, item.symbol, setup.timeframe);
     if (!lockBlocks(lock, setup.direction)) return result;
     const running = lock!.kind === 'RUNNING';
