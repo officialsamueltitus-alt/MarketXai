@@ -681,6 +681,7 @@ Rationale: ${strategy.entryZone.rationale}
                         durationSeconds={message.durationSeconds}
                         seed={message.id}
                         news={strategy.newsBrief}
+                        noTokens={!!strategy.signalLock}
                       />
 
                       {/* Modern AI Conversational Writeup Container */}
@@ -694,9 +695,11 @@ Rationale: ${strategy.entryZone.rationale}
                             <span className="font-bold text-white text-xs sm:text-sm flex items-center gap-1 whitespace-nowrap">
                               <MarketXText className="text-xs sm:text-sm" /> <span className="max-[419px]:hidden">Institutional</span> Analysis Memo
                             </span>
+{!strategy.signalLock && (
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 font-semibold hidden sm:inline">
                               Verified setup
                             </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">
