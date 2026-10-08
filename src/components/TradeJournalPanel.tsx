@@ -232,7 +232,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
           {s && s.total > 0 && (
             <>
               <div className="rounded-2xl p-4 bg-gradient-to-br from-amber-500/[0.10] via-white/[0.02] to-rose-500/[0.08] border border-white/[0.08]">
-                <div className="flex items-end gap-4">
+                <div className="flex flex-wrap items-end gap-x-4 gap-y-2 min-w-0">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-slate-400">Win rate</div>
                     <div className="text-3xl font-semibold text-white tabular-nums">{s.winRate === null ? '–' : `${s.winRate}%`}</div>
@@ -258,8 +258,8 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                     { k: 'Avg R', v: s.avgR === null ? '–' : fmtR(s.avgR), tone: (s.avgR || 0) >= 0 ? 'text-emerald-300' : 'text-rose-300' },
                     { k: 'P/L', v: s.pnl === null ? '–' : fmtMoney(s.pnl), tone: (s.pnl || 0) >= 0 ? 'text-emerald-300' : 'text-rose-300' },
                   ].map(x => (
-                    <div key={x.k} className="rounded-xl bg-black/20 py-2">
-                      <div className={`text-sm font-semibold font-mono tabular-nums ${x.tone}`}>{x.v}</div>
+                    <div key={x.k} className="min-w-0 rounded-xl bg-black/20 py-2 px-1">
+                      <div className={`text-sm font-semibold font-mono tabular-nums break-words [overflow-wrap:anywhere] ${x.tone}`}>{x.v}</div>
                       <div className="text-[10px] uppercase tracking-wider text-slate-500">{x.k}</div>
                     </div>
                   ))}
@@ -307,7 +307,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                           </span>
                         ) : (
                           <span className={`h-5 px-2 rounded-full text-[10px] font-semibold inline-flex items-center ${res === 'WIN' ? 'bg-emerald-500/15 text-emerald-300' : res === 'LOSS' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/[0.06] text-slate-300'}`}>
-                            {res === 'WIN' ? 'Win' : res === 'LOSS' ? 'Loss' : res === 'NO_FILL' ? 'No fill' : 'Break-even'}
+                            {res === 'WIN' ? 'Win' : res === 'LOSS' ? 'Loss' : res === 'NO_FILL' ? 'No fill' : 'BE'}
                           </span>
                         )}
                         {auto && (
@@ -316,16 +316,16 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                           </span>
                         )}
                         {t.userStrategy && (
-                          <span title={`Found with your personal strategy: ${t.userStrategy}`} className="h-5 px-1.5 rounded-md bg-fuchsia-500/10 border border-fuchsia-400/25 text-[10px] font-semibold text-fuchsia-200 inline-flex items-center max-w-[9rem] truncate">
-                            Personal strategy
+                          <span title={`Found with your personal strategy: ${t.userStrategy}`} className="h-5 px-1.5 rounded-md bg-fuchsia-500/10 border border-fuchsia-400/25 text-[10px] font-semibold text-fuchsia-200 inline-flex items-center">
+                            Psnl
                           </span>
                         )}
-                        <span className="ml-auto text-xs font-mono tabular-nums text-right whitespace-nowrap">
+                        <span className="ml-auto max-w-full text-xs font-mono tabular-nums text-right [overflow-wrap:anywhere]">
                           {t.r !== null && <span className={t.r >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{fmtR(t.r)}</span>}
                           {t.pnl !== null && <span className={`ml-1.5 ${t.pnl >= 0 ? 'text-emerald-300/80' : 'text-rose-300/80'}`}>{fmtMoney(t.pnl)}</span>}
                         </span>
                       </div>
-                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500 font-mono">
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500 font-mono min-w-0 [overflow-wrap:anywhere]">
                         <span>Entry <span className="text-slate-300">{formatMarketPrice(t.entry)}</span></span>
                         {t.stop !== null && <span>SL <span className="text-slate-300">{formatMarketPrice(t.stop)}</span></span>}
                         {t.target !== null && <span>TP <span className="text-slate-300">{formatMarketPrice(t.target)}</span></span>}
