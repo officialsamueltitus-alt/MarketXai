@@ -16,9 +16,11 @@ export interface Preferences {
   /** NORMAL: the engine's normal analysis. CONFIRMATION: waits for price to reach the zone and confirm on a lower
    *  timeframe (sweep, engulfing, pin bar, star, structure break) before calling a trade, stop beyond the reaction wick */
   analysisMode: AnalysisMode;
-  /** One trade at a time (on by default): while the trader's own trade on a pair and timeframe is still running, no new
-   *  buy or sell there, and no flip to the other side right after a stop loss. Off = no lock and no wait for this trader */
+  /** One trade at a time (off by default, owner-specified; on only once the trader turns it on): while the trader's own trade
+   *  on a pair and timeframe is still running, no new buy or sell there, and no flip to the other side right after a stop loss */
   tradeLock: boolean;
+  /** When the trader last switched One trade at a time themselves (the switch only counts as on after a real choice) */
+  tradeLockChosenAt?: number;
   updatedAt?: number;
 }
 
@@ -32,7 +34,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homeMarket: 'all',
   rdmTimeframes: [],
   analysisMode: 'NORMAL',
-  tradeLock: true,
+  tradeLock: false,
 };
 
 
@@ -41,7 +43,8 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   const out = { ...DEFAULT_PREFERENCES, ...(p && typeof p === 'object' ? p : {}) };
   out.rdmTimeframes = normalizeRdmTimeframes(out.rdmTimeframes) || [];
   if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
-  out.tradeLock = out.tradeLock !== false;
+  // On only when the trader turned it on themselves (older saves that carried the earlier default are off)
+  out.tradeLock = out.tradeLock === true && Number(out.tradeLockChosenAt) > 0;
   return out;
 }
 

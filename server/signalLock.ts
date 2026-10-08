@@ -116,7 +116,7 @@ const toTrade = (o: AlertOffer, st: { state: 'WAITING_ENTRY' | 'IN_TRADE'; fillB
   ...(o.userStrategy ? { userStrategy: o.userStrategy } : {}),
 });
 
-/** The trader's own choice in Preference Mode (on by default): when on, the lock applies everywhere for them, no exemption */
+/** The trader's own choice in Preference Mode (off by default; on only once they turn it on): when on, it applies everywhere for them */
 export async function tradeLockOn(uid: string): Promise<boolean> {
   const doc = (await db().collection('users').doc(uid).get()).data() as { preferences?: unknown } | undefined;
   return withDefaults(doc?.preferences as any).tradeLock;

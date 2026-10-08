@@ -201,6 +201,8 @@ export type ReviewResult = { ok: true; submission: CampaignSubmission } | { ok: 
 
 /** Approves a pending submission: 50 credits (campaign pool), one reward per person, notification + email. */
 export async function approveSubmission(id: string): Promise<ReviewResult> {
+  // Only a well-formed submission id ever reaches the database (never a path)
+  if (!/^[\w-]{1,128}$/.test(String(id))) return { ok: false, status: 404, error: 'NOT_FOUND', message: 'Submission not found.' };
   const ref = submissionsCol().doc(String(id));
   const result = await db().runTransaction(async (tx): Promise<ReviewResult> => {
     const snap = await tx.get(ref);
@@ -247,6 +249,8 @@ export async function approveSubmission(id: string): Promise<ReviewResult> {
 
 /** Declines a pending submission with a reason; the user is told and can submit a new post before the deadline. */
 export async function rejectSubmission(id: string, reason: string): Promise<ReviewResult> {
+  // Only a well-formed submission id ever reaches the database (never a path)
+  if (!/^[\w-]{1,128}$/.test(String(id))) return { ok: false, status: 404, error: 'NOT_FOUND', message: 'Submission not found.' };
   const note = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 300) || 'The post did not meet the campaign requirements.';
   const ref = submissionsCol().doc(String(id));
   const result = await db().runTransaction(async (tx): Promise<ReviewResult> => {

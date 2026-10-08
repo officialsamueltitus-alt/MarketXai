@@ -80,6 +80,7 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
   if (has('tradeLock')) {
     if (typeof body.tradeLock !== 'boolean') return { error: 'Turn One trade at a time on or off.' };
     next.tradeLock = body.tradeLock;
+    next.tradeLockChosenAt = Date.now();
   }
   if (has('rdmTimeframes')) {
     const list = normalizeRdmTimeframes(body.rdmTimeframes);

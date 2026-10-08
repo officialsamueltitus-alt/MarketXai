@@ -356,8 +356,9 @@ const SECTIONS: Section[] = [
           few candles of that timeframe. After a stop loss, MarketX also waits a few candles before giving the opposite side, so it never flips straight after a
           stop (the same side can come again straight away). <B>Tighten Stop Loss</B> on your running trade still works, as it is the same trade with a closer
           stop. The watchlist also holds a new setup on that pair and timeframe until your trade ends. Other timeframes and other traders are not affected, and
-          every new analysis is read fresh from the live price. It is on by default, and you can switch it off or on again in Preference Mode under{' '}
-          <B>One trade at a time</B>.
+          every new analysis is read fresh from the live price. It only ever applies to a pair and timeframe after you have run an analysis on
+          it and got a trade, so setups found on your watchlist keep coming as usual until then. It is off by default, and you turn it on (or off
+          again) in Preference Mode under <B>One trade at a time</B>.
         </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
@@ -510,9 +511,9 @@ const SECTIONS: Section[] = [
           confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
         </Note>
         <Note title="One trade at a time" tone="emerald">
-          A switch, on by default. On: while your trade on a pair and timeframe is still running, you get no new buy or sell there, and no flip to the other
+          A switch, off by default; it is only on once you turn it on. On: while your trade on a pair and timeframe is still running, you get no new buy or sell there, and no flip to the other
           side right after a stop loss (see Reading a result). It applies to every market, timeframe, analysis mode, RDM, the Strategy Builder and your
-          watchlist. Off: every analysis can give a new trade, even while your last one on that pair is still running. It only changes your own analyses.
+          watchlist, but only for a pair and timeframe where you ran an analysis and got a trade. Off: every analysis can give a new trade, even while your last one on that pair is still running. It only changes your own analyses.
         </Note>
         <Note title="Trade calculator">
           In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts

@@ -2658,6 +2658,23 @@ async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] 
   return (agg > 1 ? aggregateCandles(raw, timeframeMinutes(tf)) : raw).slice(-300);
 }
 
+/** The latest real price from candles (last close, 24h change, high and low), or null without usable candles */
+function priceFromCandles(cs: Candle[] | null | undefined): { price: number; change24h: number; high24h: number; low24h: number } | null {
+  if (!cs || !cs.length) return null;
+  const last = cs[cs.length - 1];
+  if (!(last && last.c > 0)) return null;
+  const dayAgo = last.t - 24 * 3600e3;
+  const day = cs.filter(c => c.t >= dayAgo && c.h > 0 && c.l > 0);
+  const base = cs.find(c => c.t >= dayAgo) || cs[0];
+  const open = base.o > 0 ? base.o : base.c;
+  return {
+    price: last.c,
+    change24h: open > 0 ? Number((((last.c - open) / open) * 100).toFixed(2)) : 0,
+    high24h: day.length ? Math.max(...day.map(c => c.h)) : last.h,
+    low24h: day.length ? Math.min(...day.map(c => c.l)) : last.l,
+  };
+}
+
 const candleInflight: Record<string, Promise<Candle[] | null>> = {};
 
 /** Real OHLC candles for an asset on a timeframe; null when no feed answers (callers fall back gracefully). */
@@ -3061,6 +3078,10 @@ app.get('/api/market/quote/:symbol', generalApiRateLimiter, async (req: Request,
     const asset = await resolveAssetInfo(rawParam, rawParam);
     if (asset.unresolved) return res.status(404).json({ error: 'UNKNOWN_ASSET', message: `No exchange or liquid on-chain pool lists ${asset.unresolved} right now.` });
     const quote = await resolveAccurateAssetQuote(asset);
+    // Never a placeholder price: when no feed answers, say so instead of a made-up number
+    if (!quote || !(quote.price > 0) || quote.live === false) {
+      return res.status(503).json({ error: 'PRICE_UNAVAILABLE', message: `The live ${asset.symbol} price can't be read right now.` });
+    }
     res.json({ success: true, quote });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch quote' });
@@ -3378,7 +3399,7 @@ async function signalLockGate(req: Request, res: Response, next: NextFunction) {
     if (!v) return next();
     const q = await resolveAccurateAssetQuote(asset).catch(() => null);
     // The held result always shows the live price; without one, the request carries on and is judged after the engine
-    if (!q || !(q.price > 0)) return next();
+    if (!q || !(q.price > 0) || q.live === false) return next();
     const s: any = {
       symbol: asset.symbol,
       name: asset.name,
@@ -3796,8 +3817,17 @@ Do NOT output structured trade card JSON.`;
     // Candles for the requested timeframe load in parallel with the live quote
     const candleWarmup = chartMode || randomTimeframe ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
-    const currentTicker = await resolveAccurateAssetQuote(asset);
+    let currentTicker = await resolveAccurateAssetQuote(asset);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
+    // Never a placeholder price: when every live feed is down, the latest real candle is the price; with no candles
+    // either, the analysis stops here (credit refunded) instead of running on a made-up number
+    if (!chartMode && (!(currentTicker.price > 0) || currentTicker.live === false)) {
+      const fromCandles = priceFromCandles(await Promise.race([candleWarmup, new Promise<null>(r => setTimeout(() => r(null), 100))]) || (await fetchCandlesForAsset(asset, '1H').catch(() => null)));
+      if (!fromCandles) {
+        return res.status(503).json({ error: 'PRICE_UNAVAILABLE', message: `The live ${asset.symbol} price can't be read right now. Your credit was refunded, please try again in a moment.` });
+      }
+      currentTicker = { ...currentTicker, ...fromCandles, volume24h: '', live: true };
+    }
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
