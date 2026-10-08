@@ -522,7 +522,7 @@ Generated via MarketX SI (@_MarketX) • https://marketx.world`;
                 if (onTightenStopLoss) {
                   onTightenStopLoss(strategy);
                 } else if (onFollowUpPrompt) {
-                  onFollowUpPrompt(
+                  onFollowUpPrompt?.(
                     `Tighten the stop loss for ${symbol} on this setup. Keep the existing entry, take-profit targets, and analysis structure, but recalculate a tighter invalidation stop loss and updated risk-reward ratio.`,
                     { isTightSl: true, baseStrategy: strategy }
                   );
@@ -536,7 +536,7 @@ Generated via MarketX SI (@_MarketX) • https://marketx.world`;
             <button
               type="button"
               onClick={() =>
-                onFollowUpPrompt(
+                onFollowUpPrompt?.(
                   `Analyze ${symbol} on the higher 1D Daily timeframe to confirm macro liquidity confluence.`
                 )
               }
@@ -547,7 +547,7 @@ Generated via MarketX SI (@_MarketX) • https://marketx.world`;
             <button
               type="button"
               onClick={() =>
-                onFollowUpPrompt(
+                onFollowUpPrompt?.(
                   `What are the specific invalidation warning signs or candle closes for ${symbol} before entering?`
                 )
               }
