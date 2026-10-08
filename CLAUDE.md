@@ -134,6 +134,10 @@
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
+- Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
+  Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,
+  the Solana proof link, the origin (Personal strategy name, Confirmed on the LTF, RDM pick) and @_MarketX, always within X's 280 limit
+  (least important lines dropped first). It never @mentions the trader (MarketX usernames are not X handles).
 - Data sources are listed in `server/dataSources.ts` (given to the AI for data questions; never name the AI provider).
 - Questions about trading/markets (`src/utils/promptIntent.ts`, shared by client and server) get a written answer, with the live
   price, market details (`assetDetailLines` in `server.ts`: type, venue, and for on-chain tokens chain, DEX, contract, liquidity,

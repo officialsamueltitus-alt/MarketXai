@@ -250,7 +250,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <History className="w-3.5 h-3.5 text-indigo-300" />
             <span>History</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 pt-1.5 space-y-2.5 overscroll-contain">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 pt-1.5 space-y-2.5 overscroll-contain">
               {/* Master Clear All Bar if there is any history */}
               {(savedAnalyses.length > 0 || sessions.length > 0) && (
                 <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs">
@@ -513,9 +513,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* SETTINGS: bottom of the side menu, reveals Credits & Profile */}
-          <div className="border-t border-white/[0.08] bg-black/40 pb-safe">
+          {/* The Settings button stays pinned at the bottom: the opened panel scrolls above it instead of pushing it off screen */}
+          <div className="min-h-0 flex flex-col border-t border-white/[0.08] bg-black/40 pb-safe">
             {isSignedIn && isSettingsOpen && (
-              <div className="p-2 space-y-1.5 border-b border-white/[0.06]">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1.5 border-b border-white/[0.06]">
                 {/* Appearance */}
                 <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
                   <div className="flex items-center gap-2 text-xs font-semibold text-white">
@@ -727,7 +728,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             )}
 
-            <div className="p-2.5 flex items-center justify-between gap-2">
+            <div className="shrink-0 p-2.5 flex items-center justify-between gap-2">
               {!isSignedIn && onSignIn ? (
               <button
                 type="button"

@@ -1,41 +1,10 @@
 import { StrategyResult } from '../types';
 import { exactPrice } from './formatPrice';
-import { formatMarketPrice } from './formatPrice';
+import { buildShareText, openXPost } from './shareText';
 
-export function shareToX(strategy: StrategyResult, username?: string) {
-  const isNoSignal = strategy.tradeType === 'NO_SIGNAL';
-  const isLong = strategy.tradeType === 'LONG';
-  const actionEmoji = isNoSignal ? '⚪ NO SIGNAL OPPORTUNITY' : isLong ? '🟢 BUY / LONG' : '🔴 SELL / SHORT';
-  const formatPrice = (p: number) => formatMarketPrice(p, strategy.currentPrice);
-
-  const cleanHandle = username ? username.replace(/^@/, '') : 'marketx_trader';
-
-  const text = `📊 $${strategy.symbol.replace('/', '')} (${strategy.timeframe} TF)
-${actionEmoji} Setup via MarketX (@_MarketX)
-👤 Trader: @${cleanHandle}
-
-🎯 Entry Zone: $${formatPrice(strategy.entryZone.optimal)} ($${formatPrice(strategy.entryZone.min)} - $${formatPrice(strategy.entryZone.max)})
-🛑 Invalidation Stop: $${formatPrice(strategy.stopLoss.price)} (-${strategy.stopLoss.riskPercent}%)
-💰 Primary Target (TP1): $${formatPrice(strategy.takeProfits[0]?.price || 0)} (${strategy.takeProfits[0]?.rewardRatio || ''})
-⚖️ Risk / Reward: ${strategy.riskRewardRatio}
-
-🔗 Trade with MarketX SI (@_MarketX): https://marketx.world
-
-#MarketX #Trading #${strategy.symbol.split('/')[0]} #Crypto #Alpha`;
-
-  const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
-  
-  // Open tweet intent safely without window.alert
-  try {
-    const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!newWindow && typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-  } catch {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-  }
+// Share to X: opens the post box filled with this result (general engine and Strategy Builder alike)
+export function shareToX(strategy: StrategyResult, _username?: string) {
+  openXPost(buildShareText(strategy, typeof window !== 'undefined' ? window.location.origin : undefined));
 }
 
 // Helper to draw a rounded rectangle on HTML5 canvas
