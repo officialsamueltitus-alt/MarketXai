@@ -3812,14 +3812,14 @@ Do NOT output structured trade card JSON.`;
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
     let currentTicker = await resolveAccurateAssetQuote(asset);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
-    // Never a placeholder price: when every live feed is down, the latest real candle is the price; with no candles
-    // either, the analysis stops here (credit refunded) instead of running on a made-up number
+    // Never a placeholder or an old price: the same rule as everywhere (livePriceFor: the fresh quote, else the latest real
+    // hourly candle fetched now, which also gives the true 24h range); with neither, the analysis stops (credit refunded)
     if (!chartMode && (!(currentTicker.price > 0) || currentTicker.live === false)) {
-      const fromCandles = priceFromCandles(await Promise.race([candleWarmup, new Promise<null>(r => setTimeout(() => r(null), 100))]) || (await fetchCandlesForAsset(asset, '1H').catch(() => null)));
-      if (!fromCandles) {
+      const fresh = await livePriceFor(asset).catch(() => null);
+      if (!fresh) {
         return res.status(503).json({ error: 'PRICE_UNAVAILABLE', message: `The live ${asset.symbol} price can't be read right now. Your credit was refunded, please try again in a moment.` });
       }
-      currentTicker = { ...currentTicker, ...fromCandles, volume24h: '', live: true };
+      currentTicker = fresh;
     }
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
