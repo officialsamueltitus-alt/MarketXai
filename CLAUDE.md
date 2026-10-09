@@ -37,6 +37,8 @@
   Stop loss modes (owner-specified, `planForZone`): Normal SL = breathing space past the invalidation (0.3 ATR beyond the zone's distal line,
   at least 1 ATR risk); Tight SL = just past each zone on its own timeframe (0.08 ATR beyond the distal line, 0.5 ATR floor = the Tighten SL floor), so it follows
   the zone. The stop is always beyond the far edge of the entry band.
+  The result's `currentPrice` is always the live feed price (the chart's own price only in chart mode), never the write-up's number, and
+  any error after the map is built serves that verified map (`res.locals.verifiedFallback`), never a blind NO_SIGNAL.
   The model can't veto a verified plan either: if the map has a plan and the write-up says NO_SIGNAL (or the other side), the
   verified plan is served with the map thesis, so the watchlist (same `buildStructureMap`) and the analysis always agree. A
   high-impact release within 2 hours (`imminentHighImpact` in `server/news.ts`) adds a "News heads-up" line, never a veto.
