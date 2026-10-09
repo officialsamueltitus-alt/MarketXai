@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Lock } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
@@ -182,34 +182,6 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
                 <ChevronRight className="w-3 h-3" /> Fewer trades, each one confirmed. Analyses say "waiting for confirmation" until price confirms.
               </p>
             </div>
-          )}
-        </Section>
-
-        <Section icon={Lock} title="One trade at a time" text="Stops buy and sell switches on the same pair. Used by every analysis and by your watchlist.">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={p.tradeLock}
-            onClick={() => save({ tradeLock: !p.tradeLock })}
-            className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left border transition cursor-pointer ${p.tradeLock ? 'bg-violet-500/[0.07] border-violet-400/50' : 'bg-black/20 border-white/[0.06] hover:bg-white/[0.05]'}`}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-white">{p.tradeLock ? 'On: one trade at a time' : 'Off: every analysis can give a trade'}</span>
-              <span className="block text-[11px] text-slate-500 leading-snug">
-                {p.tradeLock
-                  ? 'While your trade on a pair and timeframe is still running, you get no new buy or sell there, and no flip to the other side right after a stop loss. Your credit is given back when a trade is held.'
-                  : 'No lock and no wait: each analysis can give a new trade, even while your last one on that pair is still running.'}
-              </span>
-            </span>
-            <span className={`relative w-10 h-6 rounded-full shrink-0 transition-colors ${p.tradeLock ? 'bg-violet-500' : 'bg-white/15'}`} aria-hidden="true">
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${p.tradeLock ? 'left-[18px]' : 'left-0.5'}`} />
-            </span>
-          </button>
-          {p.tradeLock && (
-            <ul className="mt-2.5 space-y-1 text-[11px] text-slate-400 leading-snug">
-              <li className="flex gap-1.5"><ChevronRight className="w-3 h-3 mt-0.5 shrink-0 text-violet-300" /> The lock ends when TP1 or the stop loss is hit, price reaches TP1 before your entry, or the entry is not filled in time.</li>
-              <li className="flex gap-1.5"><ChevronRight className="w-3 h-3 mt-0.5 shrink-0 text-violet-300" /> Applies to every market, timeframe, analysis mode, RDM and the Strategy Builder. Other timeframes are free.</li>
-            </ul>
           )}
         </Section>
 

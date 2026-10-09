@@ -10,7 +10,7 @@ import { readGrounding, sourcesFooter, type ResearchInfo } from './server/webRes
 import { readSessionCookie, verifySessionToken } from './server/session';
 import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
 import { WORKERS, perWorker } from './server/workers';
-import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
+import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, QUOTE_MAX_AGE_MS, liveFetcher, withFreshness } from './server/liveQuote';
 import { classifyPrompt, isMajorCoin, isSafetyRequest, safetySubject, solanaAddressIn, wantsSafetyCheck } from './src/utils/promptIntent';
 import { DATA_SOURCES_FACTS, asksAboutDataSources } from './server/dataSources';
 import {
@@ -42,7 +42,6 @@ import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
-import { applyLock, configureSignalLock, runningTradeFor, signalLockMiddleware, tradeLockOn } from './server/signalLock';
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
@@ -190,10 +189,6 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
-// One running trade per trader, pair and timeframe (installed last, so it runs first: a held-back trade never becomes an
-// alert offer or a seal). Every analysis is still fresh from live candles; this only decides if a new trade may go out.
-configureSignalLock({ getBars: async (symbol, tf) => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf) });
-app.use('/api/market/analyze', signalLockMiddleware);
 const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
@@ -258,8 +253,9 @@ let lastForexFetch = 0;
 // Last successfully fetched live quote per ticker symbol, so a transient upstream failure
 // keeps serving the most recent real price instead of reverting to hardcoded baselines.
 const lastLiveQuotes: Record<string, { data: Partial<MarketTicker>; at: number }> = {};
-// A live quote older than this is no longer treated as "live" by the quote resolver
-const LIVE_QUOTE_MAX_AGE_MS = LAST_GOOD_MAX_MS;
+// A streamed quote older than this is no longer "live" (the stream refreshes every 1 to 3 seconds; a quote used for an
+// analysis must also pass QUOTE_MAX_AGE_MS in freshQuote)
+const LIVE_QUOTE_MAX_AGE_MS = 10_000;
 
 // Throttled upstream failure logging (visible in Render logs) without flooding output
 const lastFeedWarning: Record<string, number> = {};
@@ -2086,8 +2082,8 @@ registerPriceAlertRoutes(
   {
     getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M'),
     getQuote: async symbol => {
-      const q = await resolveAccurateAssetQuote(await resolveAssetInfo(symbol, symbol));
-      return q && q.price > 0 && q.live !== false ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
+      const q = await livePriceFor(await resolveAssetInfo(symbol, symbol));
+      return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
   },
   generalApiRateLimiter
@@ -2108,10 +2104,7 @@ const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
         })),
       }
     : null;
-const liveQuoteFor = async (asset: AssetInfo) => {
-  const q = await resolveAccurateAssetQuote(asset);
-  return q && q.price > 0 && q.live !== false ? q : null;
-};
+const liveQuoteFor = (asset: AssetInfo) => livePriceFor(asset);
 registerWatchlistRoutes(
   app,
   {
@@ -2380,7 +2373,18 @@ const quoteCache = new SharedCache<MarketTicker>(LIVE_FRESH_MS, 2_000);
 async function resolveAccurateAssetQuote(query: string | AssetInfo): Promise<MarketTicker> {
   const asset = typeof query === 'string' ? await resolveAssetInfo(query) : query;
   const key = asset.venue === 'dex' && asset.dex ? `DEX:${asset.dex.chainId}:${asset.dex.pairAddress}` : asset.unresolved ? `?:${asset.unresolved}` : asset.symbol.toUpperCase();
-  return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(asset), q => !!q && q.price > 0);
+  return quoteCache.getOrCreate(key, () => freshQuote(asset), q => !!q && q.price > 0);
+}
+/**
+ * Owner-specified: only a fresh price counts as live. Every quote says when its oldest input was fetched (`asOf`); one
+ * older than QUOTE_MAX_AGE_MS (a feed hiccup serving its last good value, a streamed quote from earlier, a daily reference
+ * rate) is marked live: false, so analyses take the latest real candle instead and scans skip it.
+ */
+async function freshQuote(asset: AssetInfo): Promise<MarketTicker> {
+  const { value: q, fetchedAt } = await withFreshness(() => resolveAccurateAssetQuoteUncached(asset));
+  const asOf = Math.min(fetchedAt, q.asOf && q.asOf > 0 ? q.asOf : Infinity);
+  const fresh = q.live !== false && Date.now() - asOf <= QUOTE_MAX_AGE_MS;
+  return { ...q, asOf, live: fresh && q.price > 0 };
 }
 
 /** The latest streamed ticker for this asset, only when it holds a real quote from the last minute. */
@@ -2462,6 +2466,8 @@ async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<Mark
         volume24h: '168.40 B Live Interbank Liquidity',
         currency: quote,
         type: 'forex',
+        // The daily reference rate is not a live price
+        ...(fx.intraday ? {} : { live: false }),
       };
     }
   }
@@ -2680,6 +2686,21 @@ async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] 
 }
 
 /** The latest real price from candles (last close, 24h change, high and low), or null without usable candles */
+/**
+ * The one way the site reads "the price now" (analyses, quotes, the watchlist): the live quote when it was fetched within the
+ * last few seconds, else the close of the latest real candle fetched right now, else null. Never an
+ * older price, never a placeholder.
+ */
+async function livePriceFor(asset: AssetInfo): Promise<MarketTicker | null> {
+  const q = await resolveAccurateAssetQuote(asset);
+  if (q && q.price > 0 && q.live !== false) return q;
+  // The hourly series fetched now: its forming candle closes at the latest trade, and it covers the last 24 hours
+  const cs = await fetchCandlesForAsset(asset, '1H').catch(() => null);
+  const fromCandles = priceFromCandles(cs);
+  if (!fromCandles) return null;
+  return { ...(q || ({ symbol: asset.symbol, name: asset.name, currency: 'USD', type: asset.type } as MarketTicker)), ...fromCandles, volume24h: q?.volume24h || '', asOf: Date.now(), live: true };
+}
+
 function priceFromCandles(cs: Candle[] | null | undefined): { price: number; change24h: number; high24h: number; low24h: number } | null {
   if (!cs || !cs.length) return null;
   const last = cs[cs.length - 1];
@@ -3098,9 +3119,9 @@ app.get('/api/market/quote/:symbol', generalApiRateLimiter, async (req: Request,
     }
     const asset = await resolveAssetInfo(rawParam, rawParam);
     if (asset.unresolved) return res.status(404).json({ error: 'UNKNOWN_ASSET', message: `No exchange or liquid on-chain pool lists ${asset.unresolved} right now.` });
-    const quote = await resolveAccurateAssetQuote(asset);
-    // Never a placeholder price: when no feed answers, say so instead of a made-up number
-    if (!quote || !(quote.price > 0) || quote.live === false) {
+    const quote = await livePriceFor(asset);
+    // Never a placeholder or an old price: when no feed answers, say so instead
+    if (!quote || !(quote.price > 0)) {
       return res.status(503).json({ error: 'PRICE_UNAVAILABLE', message: `The live ${asset.symbol} price can't be read right now.` });
     }
     res.json({ success: true, quote });
@@ -3396,55 +3417,6 @@ async function strategyProGate(req: Request, res: Response, next: NextFunction) 
   } catch {}
   next();
 }
-/**
- * Trade lock, checked BEFORE any credit is charged or the engine runs: when the trader's own trade on this pair and
- * timeframe is still running (and One trade at a time is on), the result is the running trade at the live price, free.
- * RDM (timeframe only known after the scan) and the after-stop-loss pause (side only known after the analysis) are
- * judged after the engine by signalLockMiddleware, with the credit given back.
- */
-async function signalLockGate(req: Request, res: Response, next: NextFunction) {
-  const b = req.body || {};
-  if (typeof b.prompt !== 'string' || b.baseStrategy || b.chartImage) return next();
-  const prompt = b.prompt.trim().slice(0, 2000);
-  if (!prompt) return next();
-  const tfInPrompt = timeframeFromPrompt(prompt);
-  if (typeof b.timeframe === 'string' && b.timeframe.trim().toUpperCase() === 'RDM' && !tfInPrompt) return next();
-  if (classifyPrompt(prompt, { hasChartImage: false, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
-  try {
-    const uid = (res.locals.user as any)?.uid as string;
-    if (!uid || !(await tradeLockOn(uid))) return next();
-    const picked = typeof b.timeframe === 'string' && /^[0-9]+[mhdwyMHDWY]$/.test(b.timeframe.trim()) ? b.timeframe.trim().toUpperCase() : '4H';
-    const tf = normalizeTimeframe(tfInPrompt || picked);
-    const asset = await resolveAssetInfo(prompt, typeof b.symbol === 'string' ? b.symbol.slice(0, 32).trim() : undefined);
-    if (asset.unresolved) return next();
-    const v = await runningTradeFor(uid, asset.symbol.slice(0, 32), tf);
-    if (!v) return next();
-    const q = await resolveAccurateAssetQuote(asset).catch(() => null);
-    // The held result always shows the live price; without one, the request carries on and is judged after the engine
-    if (!q || !(q.price > 0) || q.live === false) return next();
-    const s: any = {
-      symbol: asset.symbol,
-      name: asset.name,
-      assetType: asset.type,
-      timeframe: tf,
-      currentPrice: q?.price || 0,
-      change24h: q?.change24h ?? 0,
-      high24h: q?.high24h ?? 0,
-      low24h: q?.low24h ?? 0,
-      tradeType: 'NO_SIGNAL',
-      bias: 'NEUTRAL',
-      confidenceScore: 50,
-      takeProfits: [],
-      riskRewardRatio: '1 : 0',
-    };
-    applyLock(s, v, Date.now(), false);
-    console.log(`[MarketX Lock] ${asset.symbol} ${tf}: held before the engine (trade still running)`);
-    return res.json({ success: true, isAnalysis: true, message: s.detailedThesis, strategy: s });
-  } catch (err: any) {
-    console.warn('[MarketX Lock] early check failed:', err?.message || err);
-    return next();
-  }
-}
 const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
@@ -3552,7 +3524,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, signalLockGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3615,7 +3587,6 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
         tightened.newsBrief = tBrief || undefined;
         tightened.highImpactNews = newsBriefToAlert(tBrief, tAsset.symbol) || undefined;
         console.log(`[MarketX] Tightened stop loss for existing ${tightened.symbol} ${tightened.tradeType} setup (${tightened.timeframe})`);
-        res.locals.tightenedSetup = true;
         return res.json({
           success: true,
           isAnalysis: true,
@@ -3650,7 +3621,7 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       const research: ResearchInfo = { web: false, queries: [], sources: [], data: [] };
       if (chatAsset) {
         const newsReady = refreshNewsFeedsWithin(2000).catch(() => {});
-        const quote = await resolveAccurateAssetQuote(chatAsset).catch(() => null);
+        const quote = await livePriceFor(chatAsset).catch(() => null);
         liveQuoteForReplay = quote && quote.price > 0 && quote.live !== false ? quote : null;
         await newsReady;
         const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);
@@ -3841,14 +3812,14 @@ Do NOT output structured trade card JSON.`;
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
     let currentTicker = await resolveAccurateAssetQuote(asset);
     await Promise.race([candleWarmup, new Promise(resolve => setTimeout(resolve, 7000))]);
-    // Never a placeholder price: when every live feed is down, the latest real candle is the price; with no candles
-    // either, the analysis stops here (credit refunded) instead of running on a made-up number
+    // Never a placeholder or an old price: the same rule as everywhere (livePriceFor: the fresh quote, else the latest real
+    // hourly candle fetched now, which also gives the true 24h range); with neither, the analysis stops (credit refunded)
     if (!chartMode && (!(currentTicker.price > 0) || currentTicker.live === false)) {
-      const fromCandles = priceFromCandles(await Promise.race([candleWarmup, new Promise<null>(r => setTimeout(() => r(null), 100))]) || (await fetchCandlesForAsset(asset, '1H').catch(() => null)));
-      if (!fromCandles) {
+      const fresh = await livePriceFor(asset).catch(() => null);
+      if (!fresh) {
         return res.status(503).json({ error: 'PRICE_UNAVAILABLE', message: `The live ${asset.symbol} price can't be read right now. Your credit was refunded, please try again in a moment.` });
       }
-      currentTicker = { ...currentTicker, ...fromCandles, volume24h: '', live: true };
+      currentTicker = fresh;
     }
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)

@@ -348,18 +348,6 @@ const SECTIONS: Section[] = [
           (market) trades alike. If price has already travelled a large part of the way toward TP1, or is sitting near the stop loss, the move is under way and
           you get <B>No signal, already moved, close to TP</B> (or close to the stop loss) with the prices named, instead of a late entry.
         </Note>
-        <Note title="One trade at a time" tone="amber">
-          While your own trade on a pair and timeframe is still running (waiting for its entry, or in the trade), MarketX gives you no new buy or sell on that
-          same pair and timeframe. You get <B>One trade at a time, your trade is still running</B> with its entry, stop, targets and the live price. When you
-          name the pair and timeframe, this is checked before the analysis starts, so no credit is used; with RDM it is checked once the timeframe is picked, and
-          the credit is given back. It ends as soon as TP1 or the stop loss is hit, price reaches TP1 before the entry, or a pending entry is not filled within a
-          few candles of that timeframe. After a stop loss, MarketX also waits a few candles before giving the opposite side, so it never flips straight after a
-          stop (the same side can come again straight away). <B>Tighten Stop Loss</B> on your running trade still works, as it is the same trade with a closer
-          stop. The watchlist also holds a new setup on that pair and timeframe until your trade ends. Other timeframes and other traders are not affected, and
-          every new analysis is read fresh from the live price. It only ever applies to a pair and timeframe after you have run an analysis on
-          it and got a trade, so setups found on your watchlist keep coming as usual until then. It is off by default, and you turn it on (or off
-          again) in Preference Mode under <B>One trade at a time</B>.
-        </Note>
         <Note title="How the points of interest are found">
           1. The recent swing high and low set the dealing range. 2. Its 0.50 equilibrium splits premium (above) from discount (below), and the 0.618 to 0.705
           golden pocket is measured on the swing. 3. Demand is only bought in discount and supply only sold in premium, next to their fair value gaps and the
@@ -418,8 +406,7 @@ const SECTIONS: Section[] = [
             </>,
             <>
               Each pair shows <B>Setup ready</B>, <B>Building</B> (a fresh zone price is getting close to) or <B>Watching</B>. When a setup is found you get a
-              notification and an email, once per setup. Tap <B>Get the plan</B> for the full analysis with entry, stop and targets. While your own trade on
-              that pair and timeframe is still running, a new setup there waits (the pair says why) until it ends, if One trade at a time is on.
+              notification and an email, once per setup. Tap <B>Get the plan</B> for the full analysis with entry, stop and targets.
             </>,
           ]}
         />
@@ -503,7 +490,7 @@ const SECTIONS: Section[] = [
           items={[
             <>
               <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose your <B>analysis mode</B> (Normal or Confirmation, see below), the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
-              show the full write-up or lead with the levels, which list the Markets tab opens on, and whether <B>One trade at a time</B> is on. Every change
+              show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change
               saves on its own.
             </>,
           ]}
@@ -514,11 +501,6 @@ const SECTIONS: Section[] = [
           false breakout, an engulfing candle, a pin bar, a morning or evening star, or a structure break. Then you get the entry at market with the
           stop beyond the reaction wick, and the watchlist only says ready at that moment. Until then the result says <B>waiting for
           confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
-        </Note>
-        <Note title="One trade at a time" tone="emerald">
-          A switch, off by default; it is only on once you turn it on. On: while your trade on a pair and timeframe is still running, you get no new buy or sell there, and no flip to the other
-          side right after a stop loss (see Reading a result). It applies to every market, timeframe, analysis mode, RDM, the Strategy Builder and your
-          watchlist, but only for a pair and timeframe where you ran an analysis and got a trade. Off: every analysis can give a new trade, even while your last one on that pair is still running. It only changes your own analyses.
         </Note>
         <Note title="Trade calculator">
           In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
@@ -591,7 +573,7 @@ const SECTIONS: Section[] = [
     shots: [{ src: '/guide/credits-balance.webp', alt: "Your credits and today\u2019s analyses, with the time they refill.", w: 786, h: 1460 }, { src: '/guide/credits-pro.webp', alt: "Plans: Pro gives you more analyses every day.", w: 786, h: 1604 }],
     title: 'Credits, daily analyses and plans',
     icon: CreditCard,
-    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. Campaign credits work differently: they are used first, and while you have any left your daily analyses are paused and kept (no 3:00 AM refill), then they pick up again once the campaign credits run out. If an analysis fails, it is refunded automatically, and a trade held back by One trade at a time uses no credit.",
+    lead: "Each analysis uses one of today's analyses. When they are used up, new prompts pause until your analyses refill automatically at 3:00 AM every day. Campaign credits work differently: they are used first, and while you have any left your daily analyses are paused and kept (no 3:00 AM refill), then they pick up again once the campaign credits run out. If an analysis fails, it is refunded automatically.",
     body: (
       <>
         <Table

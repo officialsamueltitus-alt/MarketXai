@@ -77,11 +77,6 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (body.analysisMode !== 'NORMAL' && body.analysisMode !== 'CONFIRMATION') return { error: 'Choose Normal or Confirmation analysis.' };
     next.analysisMode = body.analysisMode;
   }
-  if (has('tradeLock')) {
-    if (typeof body.tradeLock !== 'boolean') return { error: 'Turn One trade at a time on or off.' };
-    next.tradeLock = body.tradeLock;
-    next.tradeLockChosenAt = Date.now();
-  }
   if (has('rdmTimeframes')) {
     const list = normalizeRdmTimeframes(body.rdmTimeframes);
     if (!list) return { error: 'Choose RDM timeframes from the list.' };
@@ -101,7 +96,13 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
   app.get('/api/preferences', limiter, requireAuth, wrap(async (_req, res) => {
     const { uid } = getUser(res);
     const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
-    res.json({ preferences: readPreferences(doc), defaults: DEFAULT_PREFERENCES });
+    const prefs = readPreferences(doc);
+    // Settings of removed features are deleted from storage the first time the trader's preferences are read
+    const stored = (doc as any)?.preferences;
+    if (stored && typeof stored === 'object' && ('tradeLock' in stored || 'tradeLockChosenAt' in stored)) {
+      await userRef(uid).update({ preferences: prefs }).catch(() => {});
+    }
+    res.json({ preferences: prefs, defaults: DEFAULT_PREFERENCES });
   }));
 
   app.put('/api/preferences', limiter, requireAuth, wrap(async (req, res) => {
