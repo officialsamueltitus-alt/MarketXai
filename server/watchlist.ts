@@ -7,7 +7,6 @@ import { requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
-import { inWords, lockBlocks, tradeLockFor, tradeLockOn } from './signalLock';
 import { SUPPORTED_TIMEFRAMES, timeframeMinutes } from '../src/utils/timeframe';
 import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults, type AnalysisMode } from '../src/utils/preferences';
 
@@ -381,32 +380,6 @@ export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; 
 }
 
 /** Saves a scan result; notifies when it found a setup the trader has not heard about (decided in a transaction) */
-/**
- * Trade lock: while the trader's own trade on this pair and the setup's timeframe is still running (or the other side is
- * cooling down after its stop loss), the new setup is not announced; the pair says why and is scanned fresh again later.
- */
-async function holdForRunningTrade(item: Pick<WatchItem, 'uid' | 'symbol'>, result: ReturnType<typeof summarizeScan>): Promise<ReturnType<typeof summarizeScan>> {
-  const setup = result.setup;
-  if (!setup) return result;
-  try {
-    if (!(await tradeLockOn(item.uid))) return result;
-    const lock = await tradeLockFor(item.uid, item.symbol, setup.timeframe);
-    if (!lockBlocks(lock, setup.direction)) return result;
-    const running = lock!.kind === 'RUNNING';
-    const side = sideWord(running ? lock!.trade.direction : lock!.stopped.direction);
-    return {
-      ...result,
-      status: 'WAITING',
-      setup: null,
-      heldText: running
-        ? `Your ${side} on the ${setup.timeframe} is still running · no new setup until it ends`
-        : `Your ${side} on the ${setup.timeframe} hit its stop · no flip for about ${inWords(lock!.until - Date.now())}`,
-    } as ReturnType<typeof summarizeScan>;
-  } catch {
-    return result;
-  }
-}
-
 async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan>, deps: WatchlistDeps): Promise<WatchItem | null> {
   const ref = db().collection(ITEMS).doc(itemId);
   const t = now();
@@ -422,7 +395,7 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
     const notified = fresh ? [...cur.notified, setup!.key].slice(-30) : cur.notified;
     const next: Partial<WatchItem> = {
       status: result.status,
-      statusText: (result as { heldText?: string }).heldText || statusText(result.status, result.setup, cur.timeframe, cur.rdmFrames),
+      statusText: statusText(result.status, result.setup, cur.timeframe, cur.rdmFrames),
       price: result.price ?? cur.price,
       priceAt: result.price ? t : cur.priceAt,
       scannedAt: t,
@@ -458,7 +431,7 @@ export async function scanItemNow(itemId: string, deps: WatchlistDeps): Promise<
   if (!snap.exists) return null;
   const item = snap.data() as WatchItem;
   const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames, modeOf(item), item.strategyId);
-  const saved = await applyScan(itemId, await holdForRunningTrade(item, result), deps);
+  const saved = await applyScan(itemId, result, deps);
   if (saved && IS_LEAD_WORKER && saved.active) watched.set(saved.id, saved);
   return saved;
 }
@@ -495,7 +468,7 @@ async function tick(deps: WatchlistDeps) {
           const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames, modeOf(items[0]), items[0].strategyId);
           for (const w of items) {
             try {
-              const saved = await applyScan(w.id, await holdForRunningTrade(w, result), deps);
+              const saved = await applyScan(w.id, result, deps);
               if (saved?.active) watched.set(saved.id, saved);
               else watched.delete(w.id);
             } catch (err: any) {
