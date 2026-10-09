@@ -3957,6 +3957,8 @@ Do NOT output structured trade card JSON.`;
       }
       return enforcePreSignalCrosscheck(s);
     };
+    // If anything later in this request fails, the error path serves this same verified map (never a blind NO_SIGNAL)
+    res.locals.verifiedFallback = computedFallback;
 
     // A chart can only be read by the vision engine; a computed analysis would ignore the image
     const chartUnreadable = () =>
@@ -4432,7 +4434,10 @@ INSTRUCTIONS:
         name: asset.name,
         assetType: asset.type,
         timeframe: levelTimeframe,
-        currentPrice: parsedJson.currentPrice || parsedJson.current_price || refTicker.price,
+        // Always the live feed price (the chart's own last price in chart mode), never a number from the write-up: the
+        // verified plan and the final crosscheck are measured against it, so a rounded or stale model price could turn a
+        // valid setup into "already moved" / "traded through the entry"
+        currentPrice: refTicker.price,
         change24h: refTicker.change24h,
         high24h: refTicker.high24h,
         low24h: refTicker.low24h,
@@ -4620,6 +4625,15 @@ INSTRUCTIONS:
         error: 'CHART_READ_FAILED',
         message: "Couldn't read your chart right now. Your credit was refunded, please try again in a moment.",
       });
+    }
+    // The candle map was already verified for this request: serve it rather than a fallback without candles
+    if (typeof res.locals.verifiedFallback === 'function' && !res.headersSent) {
+      try {
+        const verified = res.locals.verifiedFallback();
+        return res.json({ success: true, isAnalysis: true, message: verified.detailedThesis, content: verified.detailedThesis, strategy: verified });
+      } catch (mapErr: any) {
+        console.warn('[Market Engine] verified map fallback failed:', mapErr?.message || mapErr);
+      }
     }
     try {
       const { prompt = '', timeframe = '4H', symbol, slMode = 'normal' } = req.body || {};
