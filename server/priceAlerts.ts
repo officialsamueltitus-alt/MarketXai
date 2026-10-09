@@ -7,7 +7,7 @@ import { claimMarketMail, getUser, nextMarketMail, notifyActivity, requireAuth, 
 import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
-import { archiveAlertOutcome, openAutoJournal, signalKey } from './journal';
+import { archiveAlertOutcome, openAutoJournal, progressAutoJournal, signalKey } from './journal';
 import { exactPrice } from '../src/utils/formatPrice';
 
 // ===========================================================================
@@ -413,6 +413,10 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
       const last = a.hits[a.hits.length - 1]?.kind;
       const endedReason = last === 'SL' ? 'SL' : last === 'MISSED' ? 'MISSED' : 'TP3';
       archiveAlertOutcome({ ...a, active: false, endedReason }).catch(err => console.warn('[MarketX Alerts] track record write failed:', err?.message || err));
+    }
+    // A target reached while later ones are still watched: the journal trade is a win from now on (updated at each TP)
+    else if (fresh.some(h => /^TP\d$/.test(h.kind))) {
+      progressAutoJournal(a).catch(err => console.warn('[MarketX Journal] live score failed:', err?.message || err));
     }
     // Every hit gets its own site notification; the email is one short message per alert per cycle, and only
     // while the trader's daily market email allowance lasts (shared with the watchlist)

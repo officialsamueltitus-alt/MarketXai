@@ -34,6 +34,9 @@
   Fibonacci retracement tool, on whatever timeframe is prompted. `server/strategy.ts` computes zones, freshness, the
   swing-leg Fibonacci, entry/stop/targets from real candles (`fetchCandlesForAsset` in `server.ts`: Binance, Yahoo,
   Deriv); those levels are authoritative over the model's numbers, and the model writes the thesis around them.
+  Stop loss modes (owner-specified, `planForZone`): Normal SL = breathing space past the invalidation (0.3 ATR beyond the zone's distal line,
+  at least 1 ATR risk); Tight SL = just past each zone on its own timeframe (0.08 ATR beyond the distal line, 0.5 ATR floor = the Tighten SL floor), so it follows
+  the zone. The stop is always beyond the far edge of the entry band.
   The model can't veto a verified plan either: if the map has a plan and the write-up says NO_SIGNAL (or the other side), the
   verified plan is served with the map thesis, so the watchlist (same `buildStructureMap`) and the analysis always agree. A
   high-impact release within 2 hours (`imminentHighImpact` in `server/news.ts`) adds a "News heads-up" line, never a veto.
@@ -314,6 +317,10 @@
   ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
   alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
   writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
+  Win rule (owner-specified, everywhere: journal, track record, checker, Solana records): TP1 hit first = WIN, even if price later returns to the
+  stop; scored at the furthest TP reached (`outcomeR`, R from the signal's own levels, stored as `trackRecord.r`, `totalR`/`avgR` in stats).
+  Only a stop hit before any TP is a LOSS (-1R). The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:
+  status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
 - Pro gate (owner-specified, `server/proAccess.ts`): the four commands, Strategy mode and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
   (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
   and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not

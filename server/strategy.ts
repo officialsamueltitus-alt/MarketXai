@@ -689,13 +689,17 @@ export function planForZone(
     eMax = Math.max(eMax, optimal);
   }
 
-  // Stop beyond the zone's distal line with an ATR buffer (tight = just beyond the line)
-  // Normal: 0.3 ATR beyond the distal line, >= 1 ATR risk. Tight (input-box toggle): a smaller but still
-  // valid stop for the timeframe — 0.15 ATR beyond the distal line, >= 0.7 ATR risk.
-  const buffer = atr * (slMode === 'tight' ? 0.15 : 0.3);
-  let stop = long ? z.distal - buffer : z.distal + buffer;
-  // Give the trade room to breathe: never risk less than a fraction of the ATR
-  const minRisk = atr * (slMode === 'tight' ? 0.7 : 1.0);
+  // Stop beyond the zone's distal line (the invalidation: price trading through it means the zone failed), owner-specified:
+  // Normal SL: breathing space past the invalidation, 0.3 ATR beyond the distal line and >= 1 ATR risk, so a wick
+  //   through the zone edge doesn't stop the trade out.
+  // Tight SL: works with each zone found on its own timeframe, just past the distal line (0.08 ATR, the timeframe's
+  //   own ATR) with only the smallest valid floor (>= 0.5 ATR risk, the same floor as Tighten SL), so the stop follows the zone.
+  // Either way the stop also sits beyond the far edge of the entry band.
+  const tight = slMode === 'tight';
+  const buffer = atr * (tight ? 0.08 : 0.3);
+  let stop = long ? Math.min(z.distal, eMin) - buffer : Math.max(z.distal, eMax) + buffer;
+  // Never risk less than a fraction of the ATR (normal keeps a full ATR of room to breathe)
+  const minRisk = atr * (tight ? 0.5 : 1.0);
   if (Math.abs(optimal - stop) < minRisk) stop = long ? optimal - minRisk : optimal + minRisk;
   const risk = Math.abs(optimal - stop);
   if (risk <= 0) return null;

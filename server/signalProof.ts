@@ -361,17 +361,30 @@ export interface SignalProofDeps {
 const utc = (t: number) => `${new Date(t).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
 /** The trade's result in plain words, from its level hits. final = the trade is over (all targets, stop, or missed). */
-export function revealResult(hits: AlertHit[], entered: boolean, targets: number, final: boolean, now: number): NonNullable<Reveal['result']> {
+/** R of a trade at a price, from its own levels (null when the levels can't give one) */
+function rAt(l: Pick<SignalPayload, 'direction' | 'entry' | 'stop'> | undefined, price: number | undefined): number | null {
+  if (!l || !(price! > 0) || !(l.entry?.optimal > 0) || !(l.stop > 0) || l.entry.optimal === l.stop) return null;
+  return Number((((price! - l.entry.optimal) * (l.direction === 'LONG' ? 1 : -1)) / Math.abs(l.entry.optimal - l.stop)).toFixed(2));
+}
+const rText = (r: number | null) => (r === null ? '' : `, ${r > 0 ? '+' : ''}${r.toFixed(2)}R`);
+
+/**
+ * The trade's result in plain words, from its level hits. final = the trade is over (all targets, stop, or missed).
+ * Owner rule: a target reached first is a WIN scored at the furthest target, even when price comes back to the stop
+ * after it; only a stop hit before any target is a LOSS.
+ */
+export function revealResult(hits: AlertHit[], entered: boolean, targets: number, final: boolean, now: number, levels?: Pick<SignalPayload, 'direction' | 'entry' | 'stop' | 'targets'>): NonNullable<Reveal['result']> {
   const at = (k: string) => hits.find(h => h.kind === k)?.at;
   const missed = at('MISSED');
   if (missed) return { code: 'MISSED', text: `Missed, TP1 was reached before the entry (${utc(missed)})`, final: true, at: missed };
   const tps = hits.filter(h => /^TP\d$/.test(h.kind)).sort((a, b) => Number(a.kind.slice(2)) - Number(b.kind.slice(2)));
   const best = tps[tps.length - 1];
   const sl = at('SL');
-  if (sl && best) return { code: 'WIN', text: `Win, TP${best.kind.slice(2)} hit (${utc(best.at)}), then the stop loss`, final: true, at: sl };
-  if (sl) return { code: 'LOSS', text: `Loss, stop loss hit (${utc(sl)})`, final: true, at: sl };
-  if (best && Number(best.kind.slice(2)) >= targets) return { code: 'WIN', text: `Win, every target hit, TP${targets} at ${utc(best.at)}`, final: true, at: best.at };
-  if (best) return { code: 'WIN', text: `Win so far, TP${best.kind.slice(2)} hit (${utc(best.at)}), still running at ${utc(now)}`, final, at: now };
+  const bestR = best ? rText(rAt(levels, levels?.targets[Number(best.kind.slice(2)) - 1])) : '';
+  if (sl && best) return { code: 'WIN', text: `Win, TP${best.kind.slice(2)} hit (${utc(best.at)})${bestR}, then the stop loss`, final: true, at: sl };
+  if (sl) return { code: 'LOSS', text: `Loss, stop loss hit (${utc(sl)})${levels ? ', -1.00R' : ''}`, final: true, at: sl };
+  if (best && Number(best.kind.slice(2)) >= targets) return { code: 'WIN', text: `Win, every target hit, TP${targets} at ${utc(best.at)}${bestR}`, final: true, at: best.at };
+  if (best) return { code: 'WIN', text: `Win so far, TP${best.kind.slice(2)} hit (${utc(best.at)})${bestR}, still running at ${utc(now)}`, final, at: now };
   if (entered) return { code: 'OPEN', text: `Open, entry filled (${utc(at('ENTRY') || now)}), no target or stop by ${utc(now)}`, final, at: now };
   return { code: 'NOT_TRIGGERED', text: `Not triggered, the entry was not reached by ${utc(now)}`, final, at: now };
 }
@@ -478,10 +491,10 @@ export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Pro
             // "Still running at <time>": the end of the last candle checked, never past now
             const seenUntil = Math.min(now, lastT + 60_000);
             if (closed || (now >= revealAt && lastT >= revealAt - FRESH_MS && seenUntil > s.issuedAt)) {
-              Object.assign(update, { state: 'DUE', result: revealResult(hits, entered, s.targets.length, closed, seenUntil) });
+              Object.assign(update, { state: 'DUE', result: revealResult(hits, entered, s.targets.length, closed, seenUntil, s) });
               due++;
             } else if (now >= revealAt + NO_DATA_AFTER_MS) {
-              Object.assign(update, { state: 'DUE', result: hits.length ? revealResult(hits, entered, s.targets.length, false, now) : { code: 'NO_DATA', text: 'Result unknown, no complete price data was available', final: false, at: now } });
+              Object.assign(update, { state: 'DUE', result: hits.length ? revealResult(hits, entered, s.targets.length, false, now, s) : { code: 'NO_DATA', text: 'Result unknown, no complete price data was available', final: false, at: now } });
               due++;
             }
             if (Object.keys(update).length) await db().collection(PROOFS).doc(p.id).update(Object.fromEntries(Object.entries(update).map(([k, v]) => [`reveal.${k}`, v])));
