@@ -314,7 +314,9 @@ export function runUserStrategy(
     // Stop
     const buffer = atr * (opts.slMode === 'tight' ? 0.05 : 0.1);
     let stop = rules.stop.type === 'ATR' ? entry.optimal - atr * rules.stop.atrMult : got.invalidation - buffer;
-    if (entry.optimal - stop < atr * 0.3) stop = entry.optimal - atr * 0.3;
+    // Small floor against noise: tight SL keeps less room than normal (owner-specified)
+    const floor = atr * (opts.slMode === 'tight' ? 0.2 : 0.3);
+    if (entry.optimal - stop < floor) stop = entry.optimal - floor;
     const risk = entry.optimal - stop;
     if (!(risk > 0) || price <= stop) { reasons.push(`${side}: price is already at or beyond the stop`); continue; }
     // Targets

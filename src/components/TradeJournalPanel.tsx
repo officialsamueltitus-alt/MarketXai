@@ -307,6 +307,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
                           </span>
                         ) : (
                           <span className={`h-5 px-2 rounded-full text-[10px] font-semibold inline-flex items-center ${res === 'WIN' ? 'bg-emerald-500/15 text-emerald-300' : res === 'LOSS' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/[0.06] text-slate-300'}`}>
+                            {auto?.state === 'TRACKING' && res === 'WIN' && <span className="mr-1 w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" title="Still tracking the next target" aria-hidden="true" />}
                             {res === 'WIN' ? 'Win' : res === 'LOSS' ? 'Loss' : res === 'NO_FILL' ? 'No fill' : 'BE'}
                           </span>
                         )}

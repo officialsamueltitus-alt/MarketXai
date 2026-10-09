@@ -15,8 +15,8 @@ interface PublicProfile {
   joinedAt: number;
   onSolana: boolean;
   solscan: string;
-  record: { results: number; wins: number; losses: number; missed: number; winRate: number | null };
-  recent: Array<{ symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; outcome: 'WIN' | 'LOSS' | 'MISSED'; tpsHit: number; closedAt: number }>;
+  record: { results: number; wins: number; losses: number; missed: number; winRate: number | null; totalR?: number | null };
+  recent: Array<{ symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; outcome: 'WIN' | 'LOSS' | 'MISSED'; tpsHit: number; closedAt: number; r?: number }>;
 }
 const ID_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const day = (t: number) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -164,14 +164,15 @@ export default function CheckerPage() {
 
             <section className="mt-4 rounded-[28px] border border-white/[0.08] bg-[var(--mx-surface)] p-5 sm:p-7">
               <h3 className="text-sm font-semibold text-white">Record on Solana</h3>
-              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 tabular-nums">
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-2 tabular-nums">
                 {[
                   ['Results', String(profile.record.results), 'text-white'],
                   ['Wins', String(profile.record.wins), 'text-emerald-300'],
                   ['Losses', String(profile.record.losses), 'text-rose-300'],
                   ['Win rate', profile.record.winRate == null ? '—' : `${profile.record.winRate}%`, 'text-white'],
+                  ['Total R', typeof profile.record.totalR === 'number' ? `${profile.record.totalR > 0 ? '+' : ''}${profile.record.totalR.toFixed(2)}R` : '—', (profile.record.totalR ?? 0) >= 0 ? 'text-emerald-300' : 'text-rose-300'],
                 ].map(([k, v, c]) => (
-                  <div key={k} className="p-3 rounded-2xl bg-black/20 border border-white/[0.05]">
+                  <div key={k} className="min-w-0 p-3 rounded-2xl bg-black/20 border border-white/[0.05] last:col-span-2 sm:last:col-span-1">
                     <div className={`text-lg font-semibold ${c}`}>{v}</div>
                     <div className="text-[11px] text-slate-500">{k}</div>
                   </div>
@@ -187,6 +188,7 @@ export default function CheckerPage() {
                       <span className={`ml-auto shrink-0 h-6 px-2.5 rounded-full inline-flex items-center text-[11px] font-semibold ${(OUTCOME[r.outcome] || OUTCOME.MISSED)[1]}`}>
                         {(OUTCOME[r.outcome] || OUTCOME.MISSED)[0]}
                         {r.outcome === 'WIN' && r.tpsHit ? ` · TP${r.tpsHit}` : ''}
+                        {typeof r.r === 'number' ? ` · ${r.r > 0 ? '+' : ''}${r.r.toFixed(2)}R` : ''}
                       </span>
                       <span className="hidden sm:inline text-xs text-slate-500 w-24 text-right shrink-0">{day(r.closedAt)}</span>
                     </li>

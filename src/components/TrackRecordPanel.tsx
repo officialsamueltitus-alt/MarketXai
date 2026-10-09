@@ -38,6 +38,8 @@ const Ring: React.FC<{ pct: number | null; size?: number }> = ({ pct, size = 104
   );
 };
 
+const fmtR = (r: number) => `${r > 0 ? '+' : ''}${r.toFixed(2)}R`;
+
 const TpBars: React.FC<{ s: TrackRecordStats }> = ({ s }) => (
   <div className="flex-1 min-w-0 space-y-2">
     {[
@@ -59,6 +61,12 @@ const TpBars: React.FC<{ s: TrackRecordStats }> = ({ s }) => (
       <span className="text-emerald-300 font-semibold">{s.wins} wins</span> · <span className="text-rose-300 font-semibold">{s.losses} losses</span>
       {s.missed > 0 && <> · {s.missed} moved before entry</>}
     </div>
+    {typeof s.totalR === 'number' && (
+      <div className="text-[11px] text-slate-500">
+        Total <span className={`font-mono font-semibold ${s.totalR >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmtR(s.totalR)}</span>
+        {typeof s.avgR === 'number' && <> · avg <span className="font-mono text-slate-300">{fmtR(s.avgR)}</span> per trade</>}
+      </div>
+    )}
   </div>
 );
 
@@ -219,7 +227,7 @@ export const TrackRecordPanel: React.FC<TrackRecordPanelProps> = ({ isOpen, onCl
               <div className="rounded-2xl border border-white/[0.07] divide-y divide-white/[0.05] overflow-hidden">
                 {data.entries.map(e => (
                   <div key={e.id} className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.02]">
-                    <span className="text-sm font-semibold text-white font-mono truncate">{e.symbol}</span>
+                    <span className="text-sm font-semibold text-white font-mono truncate min-w-0">{e.symbol}</span>
                     <span className={`text-[10px] font-bold ${e.direction === 'LONG' ? 'text-emerald-300' : 'text-rose-300'}`}>{e.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
                     <span className="text-[10px] font-mono text-slate-500">{e.timeframe}</span>
                     {e.userStrategy && <span title={`Personal strategy: ${e.userStrategy}`} className="text-[9px] font-semibold text-fuchsia-200 px-1 rounded bg-fuchsia-500/10 border border-fuchsia-400/20">Personal</span>}
@@ -237,6 +245,7 @@ export const TrackRecordPanel: React.FC<TrackRecordPanelProps> = ({ isOpen, onCl
                     >
                       {e.outcome === 'WIN' ? `TP${e.tpsHit}` : e.outcome === 'LOSS' ? 'Stop' : 'Missed'}
                     </span>
+                    {typeof e.r === 'number' && <span className={`text-[10px] font-mono tabular-nums shrink-0 ${e.r >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmtR(e.r)}</span>}
                     <span className="w-14 text-right text-[10px] text-slate-500 shrink-0">{ago(e.closedAt)}</span>
                   </div>
                 ))}

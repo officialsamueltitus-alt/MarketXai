@@ -207,6 +207,8 @@ export interface TrackRecordEntry {
   signalKey?: string;
   /** Strategy mode: the trader's own strategy (counted in their own record, not in MarketX's) */
   userStrategy?: string;
+  /** R made: at the furthest target reached for a win (even when the stop came after it), -1 for a loss */
+  r?: number;
 }
 export interface AlertLike {
   id: string; uid: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; tps: number[]; entered: boolean;
@@ -223,9 +225,25 @@ export function signalKey(a: { symbol: string; timeframe: string; direction: str
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);
 }
 
-/** Outcome of an alert: a win once a target is hit, a loss when the stop goes first, otherwise no result */
+/**
+ * R of a finished (or running) signal, from its own levels: a win is scored at the furthest target reached, even when
+ * price came back to the stop after it (owner rule: TP1 first is a win, never a loss); a loss is the stop hit first.
+ */
+export function outcomeR(a: Pick<AlertLike, 'direction' | 'entry' | 'stop' | 'tps'>, outcome: SignalOutcome, tpsHit: number): number | undefined {
+  const entry = a.entry?.optimal;
+  if (!(Number(entry) > 0) || !(Number(a.stop) > 0) || entry === a.stop) return undefined;
+  const risk = Math.abs((entry as number) - (a.stop as number));
+  if (outcome === 'LOSS') return -1;
+  if (outcome !== 'WIN' || tpsHit < 1) return undefined;
+  const tp = a.tps[Math.min(tpsHit, a.tps.length) - 1];
+  if (!(Number(tp) > 0)) return undefined;
+  return Number((((tp - (entry as number)) * (a.direction === 'LONG' ? 1 : -1)) / risk).toFixed(2));
+}
+
+/** Outcome of an alert: a win once a target is hit (also when the stop comes after it), a loss only when the stop
+ *  goes first, otherwise no result */
 export function outcomeOf(a: AlertLike): { outcome: SignalOutcome; tpsHit: number } {
-  const tpsHit = a.hits.filter(h => /^TP\d$/.test(h.kind)).length;
+  const tpsHit = a.hits.reduce((m, h) => { const x = /^TP(\d)$/.exec(h.kind); return x ? Math.max(m, Number(x[1])) : m; }, 0);
   if (tpsHit > 0) return { outcome: 'WIN', tpsHit };
   if (a.hits.some(h => h.kind === 'SL')) return { outcome: 'LOSS', tpsHit: 0 };
   if (a.hits.some(h => h.kind === 'MISSED')) return { outcome: 'MISSED', tpsHit: 0 };
@@ -245,6 +263,8 @@ export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
     tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a),
     ...(a.userStrategy ? { userStrategy: a.userStrategy } : {}),
   };
+  const rMade = outcomeR(a, outcome, tpsHit);
+  if (rMade !== undefined) entry.r = rMade;
   // One result per signal per trader: a twin record of the same signal is never added
   const twins = (await db().collection(RECORDS).where('uid', '==', a.uid).get()).docs.map(d => d.data() as TrackRecordEntry);
   if (twins.some(t => t.id !== a.id && t.signalKey === entry.signalKey)) return;
@@ -328,7 +348,7 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
       const summary = win
         ? `Entry ${p(t.entry)} filled, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}${held}${slAt && slAt > (at(`TP${tpIdx}`) ?? 0) ? ', then the stop was hit (scored at the furthest target reached)' : ''}. ${fmtR(scored.r)}.`
         : `Entry ${p(t.entry)} filled, the stop loss at ${p(exit)} was hit${held} before any target. ${fmtR(scored.r)}.`;
-      update = { status: 'CLOSED', exit, result: scored.result, r: scored.r, closedAt: exitAt, openedAt: entryAt ?? t.openedAt, auto: { ...base, state: 'DONE', summary } };
+      update = { status: 'CLOSED', exit, result: win ? 'WIN' : 'LOSS', r: scored.r, closedAt: exitAt, openedAt: entryAt ?? t.openedAt, auto: { ...base, state: 'DONE', summary } };
     } else if (!entryAt) {
       const why = reason === 'MISSED' ? 'Price moved toward the targets without reaching the entry zone' : reason === 'TURNED_OFF' ? 'The alert was turned off before price reached the entry zone' : 'The setup expired before price reached the entry zone';
       update = { status: 'CLOSED', result: 'NO_FILL', closedAt: now, auto: { ...base, state: 'DONE', summary: `${why}, so there was no trade. Not counted in your stats.` } };
@@ -340,9 +360,37 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
     tx.update(ref, { ...update, updatedAt: now });
   });
 }
+/**
+ * A target was just reached while the alert keeps watching the next ones: the trade is already a win (owner rule:
+ * TP1 first is never a loss, even if price comes back to the stop), so it is scored now at the furthest target and
+ * updated again at TP2 / TP3. closeAutoJournal writes the final summary when the alert ends.
+ */
+export async function progressAutoJournal(a: AlertLike): Promise<void> {
+  const tpIdx = a.hits.reduce((m, h) => { const x = /^TP(\d)$/.exec(h.kind); return x ? Math.max(m, Number(x[1])) : m; }, 0);
+  if (tpIdx < 1) return;
+  const ref = db().collection(TRADES).doc(autoJournalId(a.id));
+  await db().runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const t = snap.data() as JournalTrade;
+    if (t.uid !== a.uid || t.source !== 'AUTO' || t.auto?.state !== 'TRACKING' || (t.auto.tpsHit || 0) >= tpIdx) return;
+    const now = Date.now();
+    const exit = a.tps[tpIdx - 1];
+    const tpAt = a.hits.find(h => h.kind === `TP${tpIdx}`)?.at ?? now;
+    const entryAt = a.hits.find(h => h.kind === 'ENTRY')?.at ?? t.auto.enteredAt ?? (a.execution === 'MARKET' ? a.createdAt : null);
+    const scored = scoreTrade({ direction: t.direction, entry: t.entry, stop: t.stop, exit, pnl: null });
+    const p = (n: number) => formatMarketPrice(n, t.entry);
+    const next = tpIdx < a.tps.length ? `, still tracking TP${tpIdx + 1}` : '';
+    const summary = `Entry ${p(t.entry)} filled, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}. ${fmtR(scored.r)} so far${next}. Scored as a win even if price comes back to the stop.`;
+    tx.update(ref, {
+      status: 'CLOSED', exit, result: 'WIN', r: scored.r, closedAt: tpAt, openedAt: entryAt ?? t.openedAt, updatedAt: now,
+      auto: { ...t.auto, tpsHit: tpIdx, enteredAt: entryAt, summary },
+    });
+  });
+}
 const fmtR = (r: number | null) => (r === null ? 'R not available' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`);
 
-export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 'tpsHit' | 'symbol' | 'timeframe'>>) {
+export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 'tpsHit' | 'symbol' | 'timeframe' | 'r'>>) {
   const wins = entries.filter(e => e.outcome === 'WIN').length;
   const losses = entries.filter(e => e.outcome === 'LOSS').length;
   const missed = entries.filter(e => e.outcome === 'MISSED').length;
@@ -356,9 +404,14 @@ export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 't
     else s.losses++;
     byTf.set(e.timeframe, s);
   }
+  // R of every scored result (wins at their furthest target, losses -1); results recorded before R was stored are skipped
+  const scored = entries.filter(e => (e.outcome === 'WIN' || e.outcome === 'LOSS') && typeof e.r === 'number' && Number.isFinite(e.r));
+  const totalR = scored.length ? Number(scored.reduce((t, e) => t + (e.r as number), 0).toFixed(2)) : null;
   return {
     signals: entries.length,
     wins, losses, missed,
+    totalR,
+    avgR: totalR !== null ? Number((totalR / scored.length).toFixed(2)) : null,
     winRate: decided ? Math.round((wins / decided) * 100) : null,
     tp1Rate: decided ? Math.round((tpCounts[0] / decided) * 100) : null,
     tp2Rate: decided ? Math.round((tpCounts[1] / decided) * 100) : null,
@@ -398,7 +451,8 @@ async function personalRecord(uid: string) {
     }
     if (outcome === 'WIN' || outcome === 'LOSS' || outcome === 'MISSED') {
       const last = a.hits.length ? Math.max(...a.hits.map(h => h.at)) : a.updatedAt || a.createdAt;
-      byId.set(a.id, { id: a.id, uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit, tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a) });
+      const rMade = outcomeR(a, outcome, tpsHit);
+      byId.set(a.id, { id: a.id, uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit, tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a), ...(rMade !== undefined ? { r: rMade } : {}) });
     }
   }
   const entries = uniqueSignals([...byId.values()]).sort((a, b) => b.closedAt - a.closedAt);

@@ -126,6 +126,12 @@ async function indexExistingTraders() {
   console.log(`[MarketX ID] indexed ${n} trader ID(s)`);
 }
 
+/** Sum of R over scored results (a win at its furthest target, even when the stop came after it; a loss -1) */
+const totalROf = (rs: any[]) => {
+  const xs = rs.filter(r => (r.outcome === 'WIN' || r.outcome === 'LOSS') && typeof r.r === 'number' && Number.isFinite(r.r));
+  return xs.length ? Number(xs.reduce((t, r) => t + r.r, 0).toFixed(2)) : null;
+};
+
 /** Public profile behind a MarketX ID (never email, credits, plan details or the account id) */
 export async function publicProfile(id: string) {
   const found = (await db().collection(INDEX).doc(id).get()).data() as TraderIdDoc | undefined;
@@ -152,8 +158,8 @@ export async function publicProfile(id: string) {
     joinedAt: u.joinedAt,
     onSolana: idx.state === 'ACTIVE',
     solscan: `https://solscan.io/account/${id}`,
-    record: { results: uniq.length, wins, losses, missed: uniq.filter(r => r.outcome === 'MISSED').length, winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : null },
-    recent: uniq.slice(0, 10).map(r => ({ symbol: r.symbol, timeframe: r.timeframe, direction: r.direction, outcome: r.outcome, tpsHit: r.tpsHit, closedAt: r.closedAt })),
+    record: { results: uniq.length, wins, losses, missed: uniq.filter(r => r.outcome === 'MISSED').length, winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : null, totalR: totalROf(uniq) },
+    recent: uniq.slice(0, 10).map(r => ({ symbol: r.symbol, timeframe: r.timeframe, direction: r.direction, outcome: r.outcome, tpsHit: r.tpsHit, closedAt: r.closedAt, ...(typeof r.r === 'number' ? { r: r.r } : {}) })),
   };
 }
 

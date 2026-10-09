@@ -530,6 +530,9 @@ export interface TrackRecordStats {
   wins: number;
   losses: number;
   missed: number;
+  /** R of every scored result (wins at their furthest target, even when the stop came after it; losses -1) */
+  totalR?: number | null;
+  avgR?: number | null;
   winRate: number | null;
   tp1Rate: number | null;
   tp2Rate: number | null;
@@ -543,6 +546,7 @@ export interface TrackRecordEntry {
   direction: 'LONG' | 'SHORT';
   outcome: 'WIN' | 'LOSS' | 'MISSED';
   tpsHit: number;
+  r?: number;
   tpsTotal: number;
   createdAt: number;
   closedAt: number;

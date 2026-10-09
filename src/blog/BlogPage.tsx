@@ -378,12 +378,14 @@ const SECTIONS: Section[] = [
     shots: [{ src: '/guide/sl-tighten.webp', alt: "Tighten SL on a result recalculates a closer stop for the same setup.", w: 786, h: 880 }],
     title: 'Stop loss options',
     icon: SlidersHorizontal,
-    lead: "You can ask for a tighter stop before an analysis or after one; either way the stop stays wide enough for the timeframe's normal price swings.",
+    lead: "Normal SL gives the trade breathing room past the zone; Tight SL sits just past each zone. You can also tighten the stop after a result.",
     body: (
       <>
         <Note title="Tight SL on the input box (before you send)">
-          Switch the toggle from Normal SL to Tight SL. The next analysis places a smaller stop, which improves reward to risk but is easier to hit. Switch back to
-          Normal SL for the standard stop.
+          <B>Normal SL</B> (the default) places the stop a little past the point where the zone is proven wrong, with room for the usual wicks of that
+          timeframe, so a quick spike through the zone edge does not stop you out. <B>Tight SL</B> works with each zone found on the timeframe you ask for and
+          places the stop just past that zone, so the stop follows the zone itself. It improves reward to risk but is easier to hit. Switch the toggle on the
+          input box, or set your default in Preference Mode.
         </Note>
         <Note title="Tighten Stop Loss on a result (after you get a plan)">
           Press Tighten Stop Loss on the card. You keep the exact same setup: the same entry, zone and targets. Only the stop moves closer, to the nearest valid
@@ -423,10 +425,13 @@ const SECTIONS: Section[] = [
         />
         <Note title="Price alerts, journal and track record">
           <B>/price-alerts</B> follows a trade plan's entry, targets and stop for you. <B>/trade-journal</B> works by itself and by hand. Turn on a price alert
-          on a signal and the trade is written into your journal straight away, marked <B>Auto</B>. When the alert ends, the journal scores it once: the
-          target or stop reached, the R and how long it took. If the entry was never reached it shows <B>No fill</B> and stays out of your stats. Trades you
+          on a signal and the trade is written into your journal straight away, marked <B>Auto</B>. When the alert ends, the journal scores it: the
+          target or stop reached, the R and how long it took. A trade that reaches TP1 is a win straight away and is updated if it goes on to TP2 or TP3.
+          If price comes back to the stop after TP1, it stays a win, scored at the furthest target reached. Only a trade that goes from the entry straight
+          to the stop is a loss. If the entry was never reached it shows <B>No fill</B> and stays out of your stats. Trades you
           take elsewhere you log yourself; close them with the exit price or profit and loss. Either way you get your win rate, R, streak and best markets. <B>/track-record</B> shows how
-          your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry), and the same results across MarketX.
+          your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry) with the R of each result and your total R, and the same
+          results across MarketX. The same rule applies everywhere, including the public ID checker and the result records on Solana: TP1 first is a win.
         </Note>
         <Note title="Sound and phone notifications">
           While MarketX is open, a new watchlist setup plays a short chime (turn it off with <B>Sound when a setup is found</B> in the watchlist). Open
