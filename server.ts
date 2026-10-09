@@ -10,7 +10,7 @@ import { readGrounding, sourcesFooter, type ResearchInfo } from './server/webRes
 import { readSessionCookie, verifySessionToken } from './server/session';
 import { createGate, SharedCache, withTimeout, BusyError } from './server/aiGate';
 import { WORKERS, perWorker } from './server/workers';
-import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, liveFetcher } from './server/liveQuote';
+import { LAST_GOOD_MAX_MS, LIVE_FRESH_MS, QUOTE_MAX_AGE_MS, liveFetcher, withFreshness } from './server/liveQuote';
 import { classifyPrompt, isMajorCoin, isSafetyRequest, safetySubject, solanaAddressIn, wantsSafetyCheck } from './src/utils/promptIntent';
 import { DATA_SOURCES_FACTS, asksAboutDataSources } from './server/dataSources';
 import {
@@ -258,8 +258,9 @@ let lastForexFetch = 0;
 // Last successfully fetched live quote per ticker symbol, so a transient upstream failure
 // keeps serving the most recent real price instead of reverting to hardcoded baselines.
 const lastLiveQuotes: Record<string, { data: Partial<MarketTicker>; at: number }> = {};
-// A live quote older than this is no longer treated as "live" by the quote resolver
-const LIVE_QUOTE_MAX_AGE_MS = LAST_GOOD_MAX_MS;
+// A streamed quote older than this is no longer "live" (the stream refreshes every 1 to 3 seconds; a quote used for an
+// analysis must also pass QUOTE_MAX_AGE_MS in freshQuote)
+const LIVE_QUOTE_MAX_AGE_MS = 10_000;
 
 // Throttled upstream failure logging (visible in Render logs) without flooding output
 const lastFeedWarning: Record<string, number> = {};
@@ -2086,8 +2087,8 @@ registerPriceAlertRoutes(
   {
     getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M'),
     getQuote: async symbol => {
-      const q = await resolveAccurateAssetQuote(await resolveAssetInfo(symbol, symbol));
-      return q && q.price > 0 && q.live !== false ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
+      const q = await livePriceFor(await resolveAssetInfo(symbol, symbol));
+      return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
   },
   generalApiRateLimiter
@@ -2108,10 +2109,7 @@ const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
         })),
       }
     : null;
-const liveQuoteFor = async (asset: AssetInfo) => {
-  const q = await resolveAccurateAssetQuote(asset);
-  return q && q.price > 0 && q.live !== false ? q : null;
-};
+const liveQuoteFor = (asset: AssetInfo) => livePriceFor(asset);
 registerWatchlistRoutes(
   app,
   {
@@ -2380,7 +2378,18 @@ const quoteCache = new SharedCache<MarketTicker>(LIVE_FRESH_MS, 2_000);
 async function resolveAccurateAssetQuote(query: string | AssetInfo): Promise<MarketTicker> {
   const asset = typeof query === 'string' ? await resolveAssetInfo(query) : query;
   const key = asset.venue === 'dex' && asset.dex ? `DEX:${asset.dex.chainId}:${asset.dex.pairAddress}` : asset.unresolved ? `?:${asset.unresolved}` : asset.symbol.toUpperCase();
-  return quoteCache.getOrCreate(key, () => resolveAccurateAssetQuoteUncached(asset), q => !!q && q.price > 0);
+  return quoteCache.getOrCreate(key, () => freshQuote(asset), q => !!q && q.price > 0);
+}
+/**
+ * Owner-specified: only a fresh price counts as live. Every quote says when its oldest input was fetched (`asOf`); one
+ * older than QUOTE_MAX_AGE_MS (a feed hiccup serving its last good value, a streamed quote from earlier, a daily reference
+ * rate) is marked live: false, so analyses take the latest real candle instead and scans skip it.
+ */
+async function freshQuote(asset: AssetInfo): Promise<MarketTicker> {
+  const { value: q, fetchedAt } = await withFreshness(() => resolveAccurateAssetQuoteUncached(asset));
+  const asOf = Math.min(fetchedAt, q.asOf && q.asOf > 0 ? q.asOf : Infinity);
+  const fresh = q.live !== false && Date.now() - asOf <= QUOTE_MAX_AGE_MS;
+  return { ...q, asOf, live: fresh && q.price > 0 };
 }
 
 /** The latest streamed ticker for this asset, only when it holds a real quote from the last minute. */
@@ -2462,6 +2471,8 @@ async function resolveAccurateAssetQuoteUncached(asset: AssetInfo): Promise<Mark
         volume24h: '168.40 B Live Interbank Liquidity',
         currency: quote,
         type: 'forex',
+        // The daily reference rate is not a live price
+        ...(fx.intraday ? {} : { live: false }),
       };
     }
   }
@@ -2680,6 +2691,21 @@ async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] 
 }
 
 /** The latest real price from candles (last close, 24h change, high and low), or null without usable candles */
+/**
+ * The one way the site reads "the price now" (analyses, quotes, the watchlist): the live quote when it was fetched within the
+ * last few seconds, else the close of the latest real candle fetched right now, else null. Never an
+ * older price, never a placeholder.
+ */
+async function livePriceFor(asset: AssetInfo): Promise<MarketTicker | null> {
+  const q = await resolveAccurateAssetQuote(asset);
+  if (q && q.price > 0 && q.live !== false) return q;
+  // The hourly series fetched now: its forming candle closes at the latest trade, and it covers the last 24 hours
+  const cs = await fetchCandlesForAsset(asset, '1H').catch(() => null);
+  const fromCandles = priceFromCandles(cs);
+  if (!fromCandles) return null;
+  return { ...(q || ({ symbol: asset.symbol, name: asset.name, currency: 'USD', type: asset.type } as MarketTicker)), ...fromCandles, volume24h: q?.volume24h || '', asOf: Date.now(), live: true };
+}
+
 function priceFromCandles(cs: Candle[] | null | undefined): { price: number; change24h: number; high24h: number; low24h: number } | null {
   if (!cs || !cs.length) return null;
   const last = cs[cs.length - 1];
@@ -3098,9 +3124,9 @@ app.get('/api/market/quote/:symbol', generalApiRateLimiter, async (req: Request,
     }
     const asset = await resolveAssetInfo(rawParam, rawParam);
     if (asset.unresolved) return res.status(404).json({ error: 'UNKNOWN_ASSET', message: `No exchange or liquid on-chain pool lists ${asset.unresolved} right now.` });
-    const quote = await resolveAccurateAssetQuote(asset);
-    // Never a placeholder price: when no feed answers, say so instead of a made-up number
-    if (!quote || !(quote.price > 0) || quote.live === false) {
+    const quote = await livePriceFor(asset);
+    // Never a placeholder or an old price: when no feed answers, say so instead
+    if (!quote || !(quote.price > 0)) {
       return res.status(503).json({ error: 'PRICE_UNAVAILABLE', message: `The live ${asset.symbol} price can't be read right now.` });
     }
     res.json({ success: true, quote });
@@ -3419,9 +3445,9 @@ async function signalLockGate(req: Request, res: Response, next: NextFunction) {
     if (asset.unresolved) return next();
     const v = await runningTradeFor(uid, asset.symbol.slice(0, 32), tf);
     if (!v) return next();
-    const q = await resolveAccurateAssetQuote(asset).catch(() => null);
+    const q = await livePriceFor(asset).catch(() => null);
     // The held result always shows the live price; without one, the request carries on and is judged after the engine
-    if (!q || !(q.price > 0) || q.live === false) return next();
+    if (!q || !(q.price > 0)) return next();
     const s: any = {
       symbol: asset.symbol,
       name: asset.name,
@@ -3650,7 +3676,7 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
       const research: ResearchInfo = { web: false, queries: [], sources: [], data: [] };
       if (chatAsset) {
         const newsReady = refreshNewsFeedsWithin(2000).catch(() => {});
-        const quote = await resolveAccurateAssetQuote(chatAsset).catch(() => null);
+        const quote = await livePriceFor(chatAsset).catch(() => null);
         liveQuoteForReplay = quote && quote.price > 0 && quote.live !== false ? quote : null;
         await newsReady;
         const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);

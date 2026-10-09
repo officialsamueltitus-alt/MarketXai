@@ -141,6 +141,13 @@
   `src/utils/cryptoTicker.ts` (shared) finds cashtags, pairs, addresses, meme names (`CRYPTO_ALIASES`, incl. Ansem) and tickers;
   `extractAssetInfo` runs it after majors/forex/stocks, `resolveAssetInfo` (async) finishes on-chain lookups. A coin listed nowhere
   returns 404 `UNKNOWN_ASSET` (credit refunded), never a placeholder price.
+- Fresh prices only (owner-specified): every price the site uses is fetched from its source at the moment it is needed
+  (`server/liveQuote.ts`: shared only within the same second). Every quote carries `asOf` (when its oldest input was fetched,
+  tracked by `withFreshness` in `freshQuote`); one older than `QUOTE_MAX_AGE_MS` (5s: a feed hiccup's last good value, an
+  earlier streamed quote, the daily forex reference rate) is `live: false` and never used as the current price. `livePriceFor`
+  in `server.ts` is the one way to read "the price now" (quote endpoint, watchlist, alert refresh, trade lock, question
+  answers): the fresh quote, else the close of the latest real candle fetched right now, else nothing (503 `PRICE_UNAVAILABLE`,
+  credit refunded). Analyses follow the same rule. Nothing is reused from an earlier request, trader or analysis.
 - Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
   through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
   `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan
