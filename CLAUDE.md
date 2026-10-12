@@ -81,6 +81,17 @@
   untouched; card tag "Confirmed · 5m" / "Waiting for confirmation"). Watchlist items carry `analysisMode` (scan key includes it): READY
   only when confirmed (`setup.confirmation`, "confirmed" notices), BUILDING = waiting for confirmation; `syncWatchPrefs` moves a trader's
   pairs when the mode or RDM timeframes change.
+  Trade type (owner-specified, Preference Mode `users.preferences.tradeStyle` ANY default / SCALP / DAY / SWING, shared `src/utils/tradeStyle.ts`,
+  cards in `PreferencePanel.tsx`, composer chip, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
+  the type (SCALP 1m to 15m, DAY 15m to 2H, SWING 4H to 1W; another timeframe moves to the nearest, `fitTimeframe`; RDM scans only the type's,
+  `styleRdmFrames`), whatever strategy is on (Strategy Builder: its own timeframes inside the type first, else the type's, `styleStrategyFrames`);
+  the watchlist scans the same way (items carry `tradeStyle`, `syncWatchPrefs` moves them). `tagTradeStyle` in `server.ts` tags each result
+  `strategy.tradeStyle` {style, label, closeBy, closeByText, askedTimeframe} and prepends a note (prompt text untouched). DAY trades close at 9:00 PM
+  WAT the same day (issued under 30 min before = next day), SWING at Friday 9:00 PM WAT (under 24h before = next Friday), `closeDeadline`; SCALP has
+  no forced close. The close time rides on the offer, the price alert (heads-up 30 min before, `warnClose`; at the close an END hit at the last
+  candle's price, `endedReason` ENDED, "close your trade now"), the auto journal (closed at that price, scored by P/L), the track record (outcome
+  ENDED with its R, counted in totalR, not a win or loss, `stats.ended`), the checker and the Solana record (proof `style`/`closeBy` outside the
+  seal; result ENDED / NOT_TRIGGERED decided at the close; memo "(day trade)").
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.

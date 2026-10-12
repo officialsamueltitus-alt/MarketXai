@@ -828,6 +828,21 @@ Rationale: ${strategy.entryZone.rationale}
                                 Personal strategy · {strategy.userStrategy.name}
                               </span>
                             )}
+                            {strategy.tradeStyle && (
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                  strategy.tradeStyle.style === 'SCALP'
+                                    ? 'bg-cyan-500/15 text-cyan-200 border-cyan-400/30'
+                                    : strategy.tradeStyle.style === 'DAY'
+                                      ? 'bg-amber-500/15 text-amber-200 border-amber-400/30'
+                                      : 'bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30'
+                                }`}
+                                title={strategy.tradeStyle.closeByText ? `${strategy.tradeStyle.label}: close it by ${strategy.tradeStyle.closeByText}, in profit or in loss` : strategy.tradeStyle.label}
+                              >
+                                {strategy.tradeStyle.label}
+                                {strategy.tradeStyle.closeByText ? ` · close by ${strategy.tradeStyle.closeByText.split(',')[0]}` : ''}
+                              </span>
+                            )}
                             {strategy.analysisMode === 'CONFIRMATION' && strategy.confirmationRead && (
                               <span
                                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${

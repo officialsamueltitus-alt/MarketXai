@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
 import type { AlertMode } from '../types';
 import { PluginSheet } from './PluginSheet';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
+import { STYLE_INFO, type TradeStyle } from '../utils/tradeStyle';
 
 // /preference: the trader's own defaults (server/preferences.ts). Every change saves on its own.
 interface PreferencePanelProps {
@@ -182,6 +183,53 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
                 <ChevronRight className="w-3 h-3" /> Fewer trades, each one confirmed. Analyses say "waiting for confirmation" until price confirms.
               </p>
             </div>
+          )}
+        </Section>
+
+        <Section icon={Timer} title="Trade type" text="The kind of trades you take. Every analysis, your personal strategy and your watchlist only give trades of this type.">
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Trade type">
+            {(
+              [
+                ['ANY', InfinityIcon, 'text-slate-300', 'border-white/30 bg-white/[0.06]'],
+                ['SCALP', Zap, 'text-cyan-300', 'border-cyan-400/50 bg-cyan-500/[0.07]'],
+                ['DAY', Sun, 'text-amber-300', 'border-amber-400/50 bg-amber-500/[0.07]'],
+                ['SWING', CalendarRange, 'text-fuchsia-300', 'border-fuchsia-400/50 bg-fuchsia-500/[0.07]'],
+              ] as const
+            ).map(([id, Icon, tone, onTone]) => {
+              const on = (p.tradeStyle || 'ANY') === id;
+              const info = STYLE_INFO[id as TradeStyle];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => !on && save({ tradeStyle: id })}
+                  className={`p-3 rounded-2xl text-left border transition cursor-pointer ${on ? onTone : 'bg-black/20 border-white/[0.06] hover:bg-white/[0.05]'}`}
+                >
+                  <span className="flex items-center justify-between">
+                    <Icon className={`w-4 h-4 ${tone}`} />
+                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${on ? 'border-white bg-white' : 'border-white/20'}`} aria-hidden="true">
+                      {on && <Check className="w-2.5 h-2.5 text-slate-950" strokeWidth={3} />}
+                    </span>
+                  </span>
+                  <span className="mt-1.5 block text-sm font-semibold text-white">{id === 'ANY' ? 'All types' : info.label}</span>
+                  <span className="block text-[11px] text-slate-500 leading-snug">{info.hold}</span>
+                  <span className="mt-1 block text-[10px] font-mono text-slate-400">{info.frames}</span>
+                </button>
+              );
+            })}
+          </div>
+          {(p.tradeStyle === 'DAY' || p.tradeStyle === 'SWING') && (
+            <p className="mt-2.5 p-3 rounded-2xl bg-amber-500/[0.05] border border-amber-400/15 text-[11px] leading-snug text-slate-400 mx-fade-in">
+              <span className="font-semibold text-amber-200">Close by 9:00 PM WAT{p.tradeStyle === 'SWING' ? ' on Friday' : ''}.</span> With a price alert on, MarketX reminds you 30 minutes before. A trade
+              still open then, in profit or in loss, is recorded as <span className="text-slate-200">ended</span> at that price in your alerts, journal, track record and its Solana record.
+            </p>
+          )}
+          {p.tradeStyle === 'SCALP' && (
+            <p className="mt-2.5 p-3 rounded-2xl bg-cyan-500/[0.05] border border-cyan-400/15 text-[11px] leading-snug text-slate-400 mx-fade-in">
+              <span className="font-semibold text-cyan-200">Scalps only.</span> Analyses run on 1m to 15m charts (a higher timeframe you pick moves to the nearest of them), so entries, stops and targets are close together.
+            </p>
           )}
         </Section>
 

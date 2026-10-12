@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles, RefreshCw, Zap, Hand } from 'lucide-react';
 import type { PriceAlertItem, AlertLiveQuote, AlertMode } from '../types';
 import { formatMarketPrice } from '../utils/formatPrice';
+import { closeByText } from '../utils/tradeStyle';
 
 interface PriceAlertsPanelProps {
   isOpen: boolean;
@@ -73,13 +74,21 @@ function status(a: PriceAlertItem): { text: string; tone: string } {
   if (!a.active) {
     if (a.endedReason === 'SL' || has('SL')) return { text: 'Closed · stop loss hit', tone: 'text-rose-300' };
     if (a.endedReason === 'MISSED') return { text: 'Closed · moved before entry', tone: 'text-slate-400' };
+    if (a.endedReason === 'ENDED' || has('END')) {
+      const end = a.hits.find(h => h.kind === 'END');
+      const label = a.tradeStyle === 'SWING' ? 'Swing' : 'Day';
+      return a.entered && end
+        ? { text: `Ended · ${label.toLowerCase()} trade closed at ${fmt(end.price)} (9:00 PM WAT)`, tone: 'text-amber-300' }
+        : { text: `Cancelled · ${label.toLowerCase()} close came before entry`, tone: 'text-slate-400' };
+    }
     if (a.endedReason === 'TP3' || has(`TP${a.tps.length}`)) return { text: 'Closed · every target hit', tone: 'text-emerald-300' };
     if (a.endedReason === 'EXPIRED') return { text: 'Expired', tone: 'text-slate-500' };
     return { text: 'Turned off', tone: 'text-slate-500' };
   }
-  if (!a.entered) return { text: `Waiting for entry ${fmt(a.entry.min)} to ${fmt(a.entry.max)}`, tone: 'text-sky-300' };
+  const closeNote = a.closeBy ? ` · close by ${closeByText(a.closeBy).split(',')[0]}` : '';
+  if (!a.entered) return { text: `Waiting for entry ${fmt(a.entry.min)} to ${fmt(a.entry.max)}${closeNote}`, tone: 'text-sky-300' };
   const next = a.tps.findIndex((_, i) => !has(`TP${i + 1}`));
-  return { text: next >= 0 ? `In play · next TP${next + 1} at ${fmt(a.tps[next])}` : 'In play', tone: 'text-emerald-300' };
+  return { text: `${next >= 0 ? `In play · next TP${next + 1} at ${fmt(a.tps[next])}` : 'In play'}${closeNote}`, tone: 'text-emerald-300' };
 }
 
 /** Entry → TP1 → TP2 → TP3 rail, with the stop loss at the start; reached levels light up */

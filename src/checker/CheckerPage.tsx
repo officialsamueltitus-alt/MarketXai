@@ -16,7 +16,7 @@ interface PublicProfile {
   onSolana: boolean;
   solscan: string;
   record: { results: number; wins: number; losses: number; missed: number; winRate: number | null; totalR?: number | null };
-  recent: Array<{ symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; outcome: 'WIN' | 'LOSS' | 'MISSED'; tpsHit: number; closedAt: number; r?: number }>;
+  recent: Array<{ symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; outcome: 'WIN' | 'LOSS' | 'MISSED' | 'ENDED'; tpsHit: number; closedAt: number; r?: number }>;
 }
 const ID_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const day = (t: number) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -24,6 +24,7 @@ const OUTCOME: Record<string, [string, string]> = {
   WIN: ['Win', 'text-emerald-300 bg-emerald-500/10'],
   LOSS: ['Loss', 'text-rose-300 bg-rose-500/10'],
   MISSED: ['Missed', 'text-slate-300 bg-white/[0.06]'],
+  ENDED: ['Ended', 'text-amber-300 bg-amber-500/10'],
 };
 
 export default function CheckerPage() {

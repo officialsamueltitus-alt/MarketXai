@@ -34,6 +34,7 @@ import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAl
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
 import { rdmFrames, withDefaults, type AnalysisMode } from './src/utils/preferences';
+import { STYLE_INFO, closeByText, closeDeadline, fitTimeframe, styleRdmFrames, styleStrategyFrames, type TradeStyle, type TradeStyleTag } from './src/utils/tradeStyle';
 import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
 import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
@@ -2119,7 +2120,7 @@ registerWatchlistRoutes(
       return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
     candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
-    scan: async (symbol, timeframes, mode, strategyId) => {
+    scan: async (symbol, timeframes, mode, strategyId, style) => {
       const asset = await resolveAssetInfo(symbol, symbol);
       const q = await liveQuoteFor(asset);
       if (!q) return [];
@@ -2128,9 +2129,11 @@ registerWatchlistRoutes(
         const st = await strategyById(strategyId).catch(() => null);
         if (!st) return [];
         const dec = priceDecimals(q.price, asset.symbol.includes('JPY'), asset.type === 'forex');
+        // A trade type wins over the strategy's own timeframes (the same timeframes the analysis would run it on)
+        const tfs = style && style !== 'ANY' ? styleStrategyFrames(st.rules.timeframes, timeframes, style) : timeframes;
         const frames = await Promise.all(
-          timeframes.map(async tf => {
-            if (st.rules.timeframes.length && !st.rules.timeframes.includes(tf)) return { timeframe: tf, price: q.price, equilibrium: 0, plan: null, zones: [] } as ScanFrame;
+          tfs.map(async tf => {
+            if (st.rules.timeframes.length && !st.rules.timeframes.includes(tf) && !(style && style !== 'ANY')) return { timeframe: tf, price: q.price, equilibrium: 0, plan: null, zones: [] } as ScanFrame;
             const cs = await fetchCandlesForAsset(asset, tf).catch(() => null);
             if (!cs) return null;
             const r = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec });
@@ -2768,16 +2771,50 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
   return candles;
 }
 
-/** How this trader's analyses run (Preference Mode): RDM timeframes (all by default) and Normal / Confirmation analysis */
-async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode }> {
+/** How this trader's analyses run (Preference Mode): RDM timeframes (all by default), Normal / Confirmation analysis
+ *  and the trade type (Scalp, Day, Swing or any) */
+async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle }> {
   const uid = (res.locals.user as any)?.uid;
-  if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL' };
+  if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY' };
   try {
     const prefs = withDefaults(((await userRef(uid).get()).data() as any)?.preferences);
-    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode };
+    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle };
   } catch {
-    return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL' };
+    return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY' };
   }
+}
+
+/**
+ * Trade type (Preference Mode): every result says which type it is; a trade of a day or swing type carries the time it
+ * must be closed by (9:00 PM WAT the same day / on Friday), which the price alert, journal, track record and Solana
+ * record use to end it. Wraps res.json, so the offer and proof middlewares see the tag.
+ */
+function tagTradeStyle(res: Response, style: TradeStyle, askedTimeframe: string, rdm: boolean) {
+  if (style === 'ANY') return;
+  const send = res.json.bind(res);
+  res.json = ((body: any) => {
+    const s = body?.strategy;
+    if (res.statusCode < 400 && s && typeof s === 'object' && !s.tradeStyle) {
+      const info = STYLE_INFO[style];
+      const traded = s.tradeType === 'LONG' || s.tradeType === 'SHORT';
+      const closeBy = traded ? closeDeadline(style, Date.now()) : null;
+      const tf = String(s.timeframe || askedTimeframe).toUpperCase();
+      const label = (x: string) => x.replace(/^(\d+)M$/, '$1m');
+      const moved = !rdm && askedTimeframe && tf !== askedTimeframe ? askedTimeframe : undefined;
+      const tag: TradeStyleTag = { style: style as TradeStyleTag['style'], label: info.label, closeBy, closeByText: closeBy ? closeByText(closeBy) : null, ...(moved ? { askedTimeframe: moved } : {}) };
+      s.tradeStyle = tag;
+      const movedText = moved ? ` You asked for the ${label(moved)}; ${info.short.toLowerCase()} trades use ${info.frames}, so this analysis ran on the ${label(tf)}.` : '';
+      const note = traded
+        ? closeBy
+          ? `> **${info.label}:** close this trade by **${tag.closeByText}**, in profit or in loss. If it is still open then, MarketX records it as ended at that price (price alert, journal, track record and the Solana record).${movedText}\n\n`
+          : `> **${info.label}** on the ${label(tf)}: a quick trade, take profits as they come and don't let it turn into a longer hold.${movedText}\n\n`
+        : `> **${info.label}:** only ${info.short.toLowerCase()} setups (${info.frames}) are looked for.${movedText}\n\n`;
+      for (const [obj, key] of [[s, 'detailedThesis'], [body, 'message'], [body, 'content']] as const) {
+        if (typeof obj[key] === 'string' && !obj[key].includes(`**${info.label}`)) obj[key] = note + obj[key];
+      }
+    }
+    return send(body);
+  }) as typeof res.json;
 }
 
 /** A setup the RDM scan may serve must clear this plan score (the normal signal floor is 70) */
@@ -3293,6 +3330,8 @@ async function serveUserStrategyAnalysis(
     prompt: string;
     slMode: 'normal' | 'tight';
     newsBrief: NewsBrief | null;
+    /** Trade type (Preference Mode): its timeframes win over the strategy's own */
+    style?: TradeStyle;
   }
 ) {
   const { strategy: st, asset, ticker } = o;
@@ -3304,9 +3343,12 @@ async function serveUserStrategyAnalysis(
   let stop: string | null = null;
   if (rules.markets.length && (!marketKind || !rules.markets.includes(marketKind as any)))
     stop = `No signal. Your strategy "${st.name}" only trades ${rules.markets.join(', ')}; ${asset.symbol} is ${asset.type || 'another market'}.`;
+  const style: TradeStyle = o.style || 'ANY';
   let frames = o.frames ? o.frames.filter(tf => !rules.timeframes.length || rules.timeframes.includes(tf)) : [o.timeframe];
   if (o.frames && !frames.length) frames = rules.timeframes.length ? [...rules.timeframes] : [o.timeframe];
-  if (!stop && !o.frames && rules.timeframes.length && !rules.timeframes.includes(o.timeframe))
+  // A trade type is set: its timeframes win (the strategy's own inside the type first, else the type's as asked)
+  if (style !== 'ANY') frames = styleStrategyFrames(rules.timeframes, o.frames || [o.timeframe], style);
+  if (!stop && style === 'ANY' && !o.frames && rules.timeframes.length && !rules.timeframes.includes(o.timeframe))
     stop = `No signal. Your strategy "${st.name}" trades on ${rules.timeframes.map(label).join(', ')}; this analysis asked for the ${label(o.timeframe)}. Pick one of those timeframes (or RDM).`;
 
   let best: { r: UserStrategyResult; tf: string; candles: number } | null = null;
@@ -3368,7 +3410,8 @@ async function serveUserStrategyAnalysis(
       const msg = err instanceof StrategyEngineUnavailable ? 'Your strategy engine is unavailable right now.' : 'Your strategy analysis could not be finished.';
       return res.status(503).json({ error: 'STRATEGY_ENGINE_UNAVAILABLE', message: `${msg} Your credit was refunded, please try again in a moment.` });
     }
-    s.detailedThesis = `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
+    const styleRan = style !== 'ANY' && rules.timeframes.length && !rules.timeframes.includes(tf) ? ` · ${STYLE_INFO[style].label}: your strategy lists ${rules.timeframes.map(label).join(', ')}, so it ran on the ${label(tf)}` : '';
+    s.detailedThesis = `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}${styleRan}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
   } else {
     const reason = stop || used?.r.reason || 'No signal from your strategy right now.';
     s.tradeType = 'NO_SIGNAL';
@@ -3807,6 +3850,17 @@ Do NOT output structured trade card JSON.`;
         message: `I couldn't find a live market for ${what}. It isn't listed on Binance, Bybit or MEXC, and no on-chain pool has at least $${MIN_DEX_LIQUIDITY_USD.toLocaleString('en-US')} of liquidity. Check the ticker, or paste the token's contract address. No credit was used.`,
       });
     }
+    // Trade type (Preference Mode): the analysis runs on a timeframe of that type (the nearest one; RDM scans only the
+    // type's timeframes), whatever was asked for and whatever strategy is on
+    const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
+    const tradeStyle: TradeStyle = chartMode ? (await analysisPrefsFor(res)).style : tradePrefs!.style;
+    const askedTimeframe = analysisTimeframe;
+    if (tradePrefs && tradeStyle !== 'ANY') {
+      if (randomTimeframe) tradePrefs.rdm = styleRdmFrames(tradePrefs.rdm, tradeStyle);
+      else analysisTimeframe = fitTimeframe(analysisTimeframe, tradeStyle);
+    }
+    // (a chart's own timeframe can't be moved, so a chart analysis never says it was)
+    tagTradeStyle(res, tradeStyle, chartMode ? '' : askedTimeframe, randomTimeframe);
     // Candles for the requested timeframe load in parallel with the live quote
     const candleWarmup = chartMode || randomTimeframe ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
@@ -3826,7 +3880,6 @@ Do NOT output structured trade card JSON.`;
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
     // In chart mode the levels come from the uploaded image, never from live candles
     let rdmScan: Awaited<ReturnType<typeof scanAllTimeframes>> | null = null;
-    const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
     // Strategy mode: the trader's own strategy runs this analysis instead of the general engine (same result format)
     if (!chartMode) {
       const sm = await strategyModeFor((res.locals.user as any).uid).catch(() => ({ strategy: null, locked: false }));
@@ -3840,6 +3893,7 @@ Do NOT output structured trade card JSON.`;
           prompt: cleanPrompt,
           slMode: safeSlMode,
           newsBrief,
+          style: tradeStyle,
         });
       }
     }

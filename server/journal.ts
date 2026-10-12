@@ -190,7 +190,8 @@ async function journalPayload(uid: string) {
 // ---------------------------------------------------------------------------
 // Track record: outcomes of watched MarketX signals
 // ---------------------------------------------------------------------------
-export type SignalOutcome = 'WIN' | 'LOSS' | 'MISSED' | 'NO_FILL' | 'OPEN';
+/** ENDED: a day / swing trade still open at its close time (9:00 PM WAT), recorded at the price then with its R */
+export type SignalOutcome = 'WIN' | 'LOSS' | 'MISSED' | 'NO_FILL' | 'OPEN' | 'ENDED';
 export interface TrackRecordEntry {
   id: string;
   uid: string;
@@ -207,13 +208,17 @@ export interface TrackRecordEntry {
   signalKey?: string;
   /** Strategy mode: the trader's own strategy (counted in their own record, not in MarketX's) */
   userStrategy?: string;
-  /** R made: at the furthest target reached for a win (even when the stop came after it), -1 for a loss */
+  /** R made: at the furthest target reached for a win (even when the stop came after it), -1 for a loss, at the close
+   *  price for an ENDED trade */
   r?: number;
+  /** Trade type of the signal (SCALP, DAY, SWING) */
+  tradeStyle?: string;
 }
 export interface AlertLike {
   id: string; uid: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; tps: number[]; entered: boolean;
   hits: Array<{ kind: string; at: number; price?: number }>; createdAt: number; updatedAt?: number; active: boolean; endedReason?: string;
   entry?: { min: number; max: number; optimal: number }; stop?: number; execution?: 'LIMIT' | 'MARKET'; userStrategy?: string;
+  tradeStyle?: string; closeBy?: number;
 }
 
 /**
@@ -229,11 +234,16 @@ export function signalKey(a: { symbol: string; timeframe: string; direction: str
  * R of a finished (or running) signal, from its own levels: a win is scored at the furthest target reached, even when
  * price came back to the stop after it (owner rule: TP1 first is a win, never a loss); a loss is the stop hit first.
  */
-export function outcomeR(a: Pick<AlertLike, 'direction' | 'entry' | 'stop' | 'tps'>, outcome: SignalOutcome, tpsHit: number): number | undefined {
+export function outcomeR(a: Pick<AlertLike, 'direction' | 'entry' | 'stop' | 'tps'> & { hits?: AlertLike['hits'] }, outcome: SignalOutcome, tpsHit: number): number | undefined {
   const entry = a.entry?.optimal;
   if (!(Number(entry) > 0) || !(Number(a.stop) > 0) || entry === a.stop) return undefined;
   const risk = Math.abs((entry as number) - (a.stop as number));
   if (outcome === 'LOSS') return -1;
+  if (outcome === 'ENDED') {
+    const end = a.hits?.find(h => h.kind === 'END')?.price;
+    if (!(Number(end) > 0)) return undefined;
+    return Number(((((end as number) - (entry as number)) * (a.direction === 'LONG' ? 1 : -1)) / risk).toFixed(2));
+  }
   if (outcome !== 'WIN' || tpsHit < 1) return undefined;
   const tp = a.tps[Math.min(tpsHit, a.tps.length) - 1];
   if (!(Number(tp) > 0)) return undefined;
@@ -247,6 +257,8 @@ export function outcomeOf(a: AlertLike): { outcome: SignalOutcome; tpsHit: numbe
   if (tpsHit > 0) return { outcome: 'WIN', tpsHit };
   if (a.hits.some(h => h.kind === 'SL')) return { outcome: 'LOSS', tpsHit: 0 };
   if (a.hits.some(h => h.kind === 'MISSED')) return { outcome: 'MISSED', tpsHit: 0 };
+  // The trade type's close time came first: an open trade ended there; one never entered had no trade
+  if (a.hits.some(h => h.kind === 'END')) return { outcome: a.entered ? 'ENDED' : 'NO_FILL', tpsHit: 0 };
   if (a.active) return { outcome: 'OPEN', tpsHit: 0 };
   return { outcome: a.entered ? 'OPEN' : 'NO_FILL', tpsHit: 0 };
 }
@@ -256,12 +268,13 @@ export function outcomeOf(a: AlertLike): { outcome: SignalOutcome; tpsHit: numbe
 export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
   await closeAutoJournal(a).catch(err => console.warn('[MarketX Journal] auto close failed:', err?.message || err));
   const { outcome, tpsHit } = outcomeOf({ ...a, active: false });
-  if (outcome !== 'WIN' && outcome !== 'LOSS' && outcome !== 'MISSED') return;
+  if (outcome !== 'WIN' && outcome !== 'LOSS' && outcome !== 'MISSED' && outcome !== 'ENDED') return;
   const last = a.hits.length ? Math.max(...a.hits.map(h => h.at)) : Date.now();
   const entry: TrackRecordEntry = {
     id: a.id, uid: a.uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit,
     tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a),
     ...(a.userStrategy ? { userStrategy: a.userStrategy } : {}),
+    ...(a.tradeStyle ? { tradeStyle: a.tradeStyle } : {}),
   };
   const rMade = outcomeR(a, outcome, tpsHit);
   if (rMade !== undefined) entry.r = rMade;
@@ -332,7 +345,9 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
     const at = (k: string) => a.hits.find(h => h.kind === k)?.at ?? null;
     const tpIdx = a.hits.reduce((m, h) => { const x = /^TP(\d)$/.exec(h.kind); return x ? Math.max(m, Number(x[1])) : m; }, 0);
     const slAt = at('SL');
+    const endHit = a.hits.find(h => h.kind === 'END');
     const entryAt = at('ENTRY') ?? (a.execution === 'MARKET' || a.entered ? t.auto.enteredAt ?? a.createdAt : null);
+    const styleName = a.tradeStyle === 'SWING' ? 'swing trade' : 'day trade';
     const reason = a.endedReason || (a.active ? null : 'EXPIRED');
     const base = { ...t.auto, tpsHit: tpIdx, endedReason: reason, enteredAt: entryAt };
     // Prices written the way the site shows them (same decimals as the entry, 4 significant digits under a cent)
@@ -349,8 +364,14 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
         ? `Entry ${p(t.entry)} filled, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}${held}${slAt && slAt > (at(`TP${tpIdx}`) ?? 0) ? ', then the stop was hit (scored at the furthest target reached)' : ''}. ${fmtR(scored.r)}.`
         : `Entry ${p(t.entry)} filled, the stop loss at ${p(exit)} was hit${held} before any target. ${fmtR(scored.r)}.`;
       update = { status: 'CLOSED', exit, result: win ? 'WIN' : 'LOSS', r: scored.r, closedAt: exitAt, openedAt: entryAt ?? t.openedAt, auto: { ...base, state: 'DONE', summary } };
+    } else if (endHit && entryAt && Number(endHit.price) > 0) {
+      // Day / swing trade still open at its close time (9:00 PM WAT): closed there, in profit or in loss
+      const exit = Number(endHit.price);
+      const scored = scoreTrade({ direction: t.direction, entry: t.entry, stop: t.stop, exit, pnl: null });
+      const summary = `Entry ${p(t.entry)} filled, no target or stop before the ${styleName} close (9:00 PM WAT), so it ended there at ${p(exit)} after ${durationText(endHit.at - entryAt)}. ${fmtR(scored.r)}.`;
+      update = { status: 'CLOSED', exit, result: scored.result, r: scored.r, closedAt: endHit.at, openedAt: entryAt, auto: { ...base, state: 'DONE', summary } };
     } else if (!entryAt) {
-      const why = reason === 'MISSED' ? 'Price moved toward the targets without reaching the entry zone' : reason === 'TURNED_OFF' ? 'The alert was turned off before price reached the entry zone' : 'The setup expired before price reached the entry zone';
+      const why = endHit ? `The ${styleName} close (9:00 PM WAT) came before price reached the entry zone` : reason === 'MISSED' ? 'Price moved toward the targets without reaching the entry zone' : reason === 'TURNED_OFF' ? 'The alert was turned off before price reached the entry zone' : 'The setup expired before price reached the entry zone';
       update = { status: 'CLOSED', result: 'NO_FILL', closedAt: now, auto: { ...base, state: 'DONE', summary: `${why}, so there was no trade. Not counted in your stats.` } };
     } else {
       // In the trade, but the alert stopped before a target or the stop: the trader closes it with their own exit
@@ -394,6 +415,7 @@ export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 't
   const wins = entries.filter(e => e.outcome === 'WIN').length;
   const losses = entries.filter(e => e.outcome === 'LOSS').length;
   const missed = entries.filter(e => e.outcome === 'MISSED').length;
+  const ended = entries.filter(e => e.outcome === 'ENDED').length;
   const decided = wins + losses;
   const tpCounts = [1, 2, 3].map(n => entries.filter(e => e.outcome === 'WIN' && e.tpsHit >= n).length);
   const byTf = new Map<string, { wins: number; losses: number }>();
@@ -405,11 +427,12 @@ export function recordStats(entries: Array<Pick<TrackRecordEntry, 'outcome' | 't
     byTf.set(e.timeframe, s);
   }
   // R of every scored result (wins at their furthest target, losses -1); results recorded before R was stored are skipped
-  const scored = entries.filter(e => (e.outcome === 'WIN' || e.outcome === 'LOSS') && typeof e.r === 'number' && Number.isFinite(e.r));
+  // Trades ended at their trade type's close time add the R they made or lost there (they are not wins or losses)
+  const scored = entries.filter(e => (e.outcome === 'WIN' || e.outcome === 'LOSS' || e.outcome === 'ENDED') && typeof e.r === 'number' && Number.isFinite(e.r));
   const totalR = scored.length ? Number(scored.reduce((t, e) => t + (e.r as number), 0).toFixed(2)) : null;
   return {
     signals: entries.length,
-    wins, losses, missed,
+    wins, losses, missed, ended,
     totalR,
     avgR: totalR !== null ? Number((totalR / scored.length).toFixed(2)) : null,
     winRate: decided ? Math.round((wins / decided) * 100) : null,
@@ -449,7 +472,7 @@ async function personalRecord(uid: string) {
       // A target already reached counts as a win even while later targets are still watched
       if (outcome !== 'WIN') continue;
     }
-    if (outcome === 'WIN' || outcome === 'LOSS' || outcome === 'MISSED') {
+    if (outcome === 'WIN' || outcome === 'LOSS' || outcome === 'MISSED' || outcome === 'ENDED') {
       const last = a.hits.length ? Math.max(...a.hits.map(h => h.at)) : a.updatedAt || a.createdAt;
       const rMade = outcomeR(a, outcome, tpsHit);
       byId.set(a.id, { id: a.id, uid, symbol: a.symbol, timeframe: a.timeframe, direction: a.direction, outcome, tpsHit, tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a), ...(rMade !== undefined ? { r: rMade } : {}) });

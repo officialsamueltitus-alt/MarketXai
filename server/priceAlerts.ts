@@ -9,6 +9,7 @@ import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { archiveAlertOutcome, openAutoJournal, progressAutoJournal, signalKey } from './journal';
 import { exactPrice } from '../src/utils/formatPrice';
+import { CLOSE_WARNING_MS, STYLE_INFO, closeByText } from '../src/utils/tradeStyle';
 
 // ===========================================================================
 // Price alerts (/price-alerts): after a trader approves live alerts, MarketX watches the market for the setups they
@@ -25,7 +26,8 @@ import { exactPrice } from '../src/utils/formatPrice';
 // inside a transaction (no duplicate notifications even with several workers or restarts).
 // ===========================================================================
 
-export type AlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED';
+/** END: the trade type's close time (day: 9:00 PM WAT, swing: Friday 9:00 PM WAT) came first; price = the price then */
+export type AlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED' | 'END';
 export interface AlertHit { kind: AlertKind; at: number; price: number }
 export interface AlertLevels {
   symbol: string;
@@ -38,6 +40,10 @@ export interface AlertLevels {
   tps: number[];
   /** Strategy mode: the trader's own strategy that produced the signal (its results stay out of MarketX's own record) */
   userStrategy?: string;
+  /** Trade type of the signal (Preference Mode) */
+  tradeStyle?: 'SCALP' | 'DAY' | 'SWING';
+  /** Day / swing trade: when it must be closed (epoch ms); still open then = ENDED at that price */
+  closeBy?: number;
 }
 export interface AlertOffer extends AlertLevels {
   id: string;
@@ -58,7 +64,9 @@ export interface PriceAlert extends AlertLevels {
   active: boolean;
   entered: boolean;
   hits: AlertHit[];
-  endedReason?: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF';
+  endedReason?: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | 'ENDED';
+  /** The "close it by 9:00 PM WAT" heads-up was sent */
+  closeWarned?: boolean;
   /** Every served copy of this same signal (each result card): they all show this one alert */
   offerIds?: string[];
 }
@@ -120,8 +128,21 @@ export function levelsFromStrategy(s: any): AlertLevels | null {
     stop,
     tps,
     ...(s.userStrategy?.name ? { userStrategy: String(s.userStrategy.name).slice(0, 48) } : {}),
+    ...(['SCALP', 'DAY', 'SWING'].includes(s.tradeStyle?.style) ? { tradeStyle: s.tradeStyle.style } : {}),
+    ...(finite(s.tradeStyle?.closeBy) ? { closeBy: s.tradeStyle.closeBy } : {}),
   };
 }
+
+/** How long an alert keeps watching: its timeframe's horizon, and never past its close time (+1h to record the end) */
+const alertExpiry = (l: AlertLevels, from: number) => Math.min(from + alertHorizonMs(l.timeframe), l.closeBy ? l.closeBy + 3600e3 : Infinity);
+const styleLabel = (a: AlertLevels) => (a.tradeStyle ? STYLE_INFO[a.tradeStyle].label : 'Trade');
+/** R of a trade closed at a price, from its own levels */
+export function rAtPrice(a: Pick<AlertLevels, 'direction' | 'entry' | 'stop'>, price: number): number | null {
+  const e = a.entry.optimal;
+  if (!finite(e) || !finite(a.stop) || e === a.stop || !finite(price)) return null;
+  return Number((((price - e) * (a.direction === 'LONG' ? 1 : -1)) / Math.abs(e - a.stop)).toFixed(2));
+}
+const rWords = (r: number | null) => (r === null ? '' : ` (${r > 0 ? '+' : ''}${r.toFixed(2)}R)`);
 
 /** Prices in alert notices and emails, exactly as the levels and feeds give them (never rounded) */
 export function fmtPrice(p: number): string {
@@ -144,7 +165,7 @@ export function evaluateBars(
   const done = new Set(a.hits.map(h => h.kind));
   const hits: AlertHit[] = [];
   let entered = a.entered;
-  let closed = done.has('SL') || done.has('MISSED') || done.has(`TP${a.tps.length}` as AlertKind);
+  let closed = done.has('SL') || done.has('MISSED') || done.has('END') || done.has(`TP${a.tps.length}` as AlertKind);
   // Only candles from the alert's creation on, and (in the monitor) only the ones not scanned yet
   const fromT = Math.max(Math.floor(a.createdAt / 60e3) * 60e3, a.scanFrom || 0);
   let lo = 0, hi = bars.length;
@@ -186,7 +207,7 @@ export function evaluateBars(
   return { hits, entered, closed };
 }
 
-function hitMessage(a: AlertLevels, h: AlertHit): { title: string; message: string; subject: string; lines: string[] } {
+function hitMessage(a: AlertLevels, h: AlertHit & { entered?: boolean }): { title: string; message: string; subject: string; lines: string[] } {
   const sym = a.symbol;
   const tf = a.timeframe ? ` (${a.timeframe})` : '';
   switch (h.kind) {
@@ -204,6 +225,25 @@ function hitMessage(a: AlertLevels, h: AlertHit): { title: string; message: stri
         subject: `🛑 ${sym} hit your stop loss`,
         lines: [`Price reached the stop loss of your ${side(a)} setup on ${sym}${tf}.`, 'This alert is now closed. Losses are part of trading: stick to your risk plan.'],
       };
+    case 'END': {
+      const label = styleLabel(a);
+      const when = a.closeBy ? closeByText(a.closeBy) : 'the close';
+      if (!h.entered) {
+        return {
+          title: `⏰ ${sym}: ${label.toLowerCase()} closed before your entry`,
+          message: `${side(a)}${tf}: ${when} came before price reached the entry zone, so this setup is cancelled. Alert closed.`,
+          subject: `${sym}: ${label.toLowerCase()} closed before your entry`,
+          lines: [`The ${label.toLowerCase()} close (${when}) came before price reached the entry of your ${side(a)} setup on ${sym}${tf}.`, 'The setup is cancelled and the alert is closed.'],
+        };
+      }
+      const r = rAtPrice(a, h.price);
+      return {
+        title: `⏰ Close your ${sym} trade now`,
+        message: `${label} close (${when}): close your ${side(a)}${tf} trade now, in profit or in loss. Price ${fmtPrice(h.price)}${rWords(r)}. MarketX recorded it as ended.`,
+        subject: `⏰ ${label} close: close your ${sym} trade now`,
+        lines: [`It's the ${label.toLowerCase()} close (${when}). Close your ${side(a)} trade on ${sym}${tf} now, in profit or in loss.`, `Price was ${fmtPrice(h.price)}${rWords(r)}. MarketX recorded the trade as ended at that price.`],
+      };
+    }
     case 'MISSED':
       return {
         title: `⏭️ ${sym} moved without your entry`,
@@ -230,6 +270,7 @@ function mailRows(a: AlertLevels, h: AlertHit): [string, string][] {
   if (h.kind === 'ENTRY') return [setup, ['Stop loss', fmtPrice(a.stop)], ['TP1', fmtPrice(a.tps[0])]];
   if (h.kind === 'SL') return [setup, ['Stop loss', fmtPrice(a.stop)]];
   if (h.kind === 'MISSED') return [setup, ['TP1', fmtPrice(a.tps[0])]];
+  if (h.kind === 'END') return [setup, ['Closed at', fmtPrice(h.price)]];
   const n = Number(h.kind.slice(2));
   return [setup, [`TP${n}`, fmtPrice(h.price)], ...(a.tps[n] ? [[`TP${n + 1}`, fmtPrice(a.tps[n])] as [string, string]] : [])];
 }
@@ -263,7 +304,7 @@ export function alertOfferMiddleware(req: Request, res: Response, next: NextFunc
 /** Saves the offer; in Auto mode (Pro or free period) the alert starts at once, exactly as if the trader had tapped it */
 async function recordOffer(uid: string, id: string, levels: AlertLevels, view: { id: string; auto?: boolean; autoSkipped?: string }) {
   const now = Date.now();
-  const offer: AlertOffer = { ...levels, id, uid, createdAt: now, expiresAt: now + alertHorizonMs(levels.timeframe), emailPending: true, emailAt: now + OFFER_EMAIL_DELAY_MS };
+  const offer: AlertOffer = { ...levels, id, uid, createdAt: now, expiresAt: alertExpiry(levels, now), emailPending: true, emailAt: now + OFFER_EMAIL_DELAY_MS };
   await db().collection(OFFERS).doc(id).set(offer);
   const user = (await userRef(uid).get()).data() as UserDoc | undefined;
   if (!user?.alerts?.enabled || user.alerts.mode !== 'AUTO' || !hasProFeatures(user)) return;
@@ -291,8 +332,11 @@ async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> 
     await db().collection(OFFERS).doc(offer.id).update({ emailPending: false, alertId: id }).catch(() => {});
     return { alert: { ...existing, offerIds } };
   }
-  if (existing && existing.hits.some(h => ['SL', 'MISSED', `TP${existing.tps.length}`].includes(h.kind))) {
+  if (existing && existing.hits.some(h => ['SL', 'MISSED', 'END', `TP${existing.tps.length}`].includes(h.kind))) {
     return { error: 'ENDED', message: 'This setup has already played out.' };
+  }
+  if (offer.closeBy && offer.closeBy <= Date.now()) {
+    return { error: 'ENDED', message: `This ${styleLabel(offer).toLowerCase()} has passed its close time (${closeByText(offer.closeBy)}).` };
   }
   if (mine.filter(a => a.active && a.expiresAt > Date.now()).length >= MAX_ACTIVE_PER_USER) {
     return { error: 'TOO_MANY_ALERTS', message: `You can have up to ${MAX_ACTIVE_PER_USER} active alerts. Turn one off first.` };
@@ -321,7 +365,7 @@ function toClient(a: PriceAlert) {
   return {
     id: a.id, offerId: a.offerId, offerIds: a.offerIds || [a.offerId], symbol: a.symbol, name: a.name, timeframe: a.timeframe, direction: a.direction, execution: a.execution,
     entry: a.entry, stop: a.stop, tps: a.tps, createdAt: a.createdAt, expiresAt: a.expiresAt, active: a.active, entered: a.entered,
-    hits: a.hits, endedReason: a.endedReason || null,
+    hits: a.hits, endedReason: a.endedReason || null, tradeStyle: a.tradeStyle || null, closeBy: a.closeBy || null,
   };
 }
 
@@ -357,6 +401,41 @@ async function syncAlerts(full = false) {
   lastSync = started;
 }
 
+const endReasonOf = (k: AlertKind): NonNullable<PriceAlert['endedReason']> => (k === 'SL' ? 'SL' : k === 'MISSED' ? 'MISSED' : k === 'END' ? 'ENDED' : 'TP3');
+
+/**
+ * Day / swing trades: candles up to the close time are checked as usual; once the close time has passed (and a candle
+ * covers it), a trade still open ends there at the price then (END). 30 minutes before, the trader is told to close it.
+ */
+function closeHit(a: PriceAlert, bars: Bar[], now: number): AlertHit | null {
+  if (!a.closeBy || now < a.closeBy) return null;
+  const before = bars.filter(b => b.t < a.closeBy!);
+  const last = before[before.length - 1];
+  // Only once the feed has reached the close (the minute just before it is in)
+  if (!last || last.t < a.closeBy - 120_000) return null;
+  return { kind: 'END', at: a.closeBy, price: last.c };
+}
+
+async function warnClose(a: PriceAlert) {
+  const ref = db().collection(ALERTS).doc(a.id);
+  const first = await db().runTransaction(async tx => {
+    const cur = (await tx.get(ref)).data() as PriceAlert | undefined;
+    if (!cur?.active || cur.closeWarned) return false;
+    tx.update(ref, { closeWarned: true, updatedAt: Date.now() });
+    return true;
+  });
+  a.closeWarned = true;
+  if (!first) return;
+  const label = styleLabel(a);
+  const when = closeByText(a.closeBy!);
+  const title = `⏰ ${a.symbol}: close by ${when.split(',')[0]}`;
+  const message = a.entered
+    ? `${label}: your ${side(a)} ${a.symbol} trade must be closed by ${when}, in profit or in loss. Still open then = recorded as ended at that price.`
+    : `${label}: if your ${side(a)} ${a.symbol} entry hasn't filled by ${when}, the setup is cancelled.`;
+  await notifyActivity(a.uid, { type: 'market', title, message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any);
+  sendPush(a.uid, { title, body: message, url: `/?alerts=1&focus=${encodeURIComponent(a.id)}`, tag: `al-${a.id}`, kind: 'alert' }).catch(() => {});
+}
+
 async function recordHits(alert: PriceAlert, hits: AlertHit[], entered: boolean, closed: boolean): Promise<AlertHit[]> {
   const ref = db().collection(ALERTS).doc(alert.id);
   return db().runTransaction(async tx => {
@@ -372,7 +451,7 @@ async function recordHits(alert: PriceAlert, hits: AlertHit[], entered: boolean,
       hits: [...cur.hits, ...fresh],
       entered: cur.entered || entered,
       active: !closed,
-      ...(closed ? { endedReason: last === 'SL' ? 'SL' : last === 'MISSED' ? 'MISSED' : 'TP3' } : {}),
+      ...(closed ? { endedReason: endReasonOf(last) } : {}),
       updatedAt: Date.now(),
     });
     return fresh;
@@ -389,8 +468,21 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
   if (!bars?.length) return;
   // The newest candle is still forming, so the next cycle starts from it again
   const scanFrom = bars[bars.length - 1].t;
+  const nowT = Date.now();
   for (const a of alerts) {
-    const { hits, entered, closed } = evaluateBars(a, bars);
+    // A day / swing trade is only judged on candles before its close time
+    const ev = evaluateBars(a, a.closeBy ? bars.filter(b => b.t < a.closeBy!) : bars);
+    let { hits, closed } = ev;
+    const { entered } = ev;
+    if (!closed) {
+      const end = closeHit(a, bars, nowT);
+      if (end) {
+        hits = [...hits, end];
+        closed = true;
+      } else if (a.closeBy && !a.closeWarned && nowT >= a.closeBy - CLOSE_WARNING_MS && nowT < a.closeBy) {
+        await warnClose(a).catch(err => console.warn('[MarketX Alerts] close warning failed:', err?.message || err));
+      }
+    }
     if (!hits.length) {
       (a as PriceAlert & { scanFrom?: number }).scanFrom = scanFrom;
       continue;
@@ -411,7 +503,7 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
       watched.delete(a.id);
       // The finished signal joins the track record (once: the record id is the alert id)
       const last = a.hits[a.hits.length - 1]?.kind;
-      const endedReason = last === 'SL' ? 'SL' : last === 'MISSED' ? 'MISSED' : 'TP3';
+      const endedReason = endReasonOf(last as AlertKind);
       archiveAlertOutcome({ ...a, active: false, endedReason }).catch(err => console.warn('[MarketX Alerts] track record write failed:', err?.message || err));
     }
     // A target reached while later ones are still watched: the journal trade is a win from now on (updated at each TP)
@@ -421,16 +513,16 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
     // Every hit gets its own site notification; the email is one short message per alert per cycle, and only
     // while the trader's daily market email allowance lasts (shared with the watchlist)
     for (const h of fresh) {
-      const m = hitMessage(a, h);
+      const m = hitMessage(a, { ...h, entered: a.entered });
       await notifyActivity(a.uid, { type: 'market', title: m.title, message: m.message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any);
     }
     if (fresh.length) {
       // One phone / desktop notification per alert per cycle (the newest hit; the tag replaces older ones)
-      const last = hitMessage(a, fresh[fresh.length - 1]);
+      const last = hitMessage(a, { ...fresh[fresh.length - 1], entered: a.entered });
       sendPush(a.uid, { title: last.title, body: last.message, url: `/?alerts=1&focus=${encodeURIComponent(a.id)}`, tag: `al-${a.id}`, kind: 'alert' }).catch(() => {});
     }
     if (fresh.length && (await claimMarketMail(a.uid).catch(() => false))) {
-      const msgs = fresh.map(h => hitMessage(a, h));
+      const msgs = fresh.map(h => hitMessage(a, { ...h, entered: a.entered }));
       const lead = msgs[msgs.length - 1];
       await notifyActivity(a.uid, null, {
         subject: lead.subject,
@@ -494,7 +586,8 @@ export async function sweepAlertOfferEmails(): Promise<number> {
       const o = os.data() as AlertOffer;
       if (!o.emailPending || o.alertId) return null;
       tx.update(d.ref, { emailPending: false });
-      if (!us.exists || o.expiresAt <= now) return null;
+      // A day / swing trade past (or near) its close time is not worth an invitation
+      if (!us.exists || o.expiresAt <= now || (o.closeBy && o.closeBy - now < CLOSE_WARNING_MS)) return null;
       const u = us.data() as UserDoc;
       if (u.emailPrefs?.activity === false || u.status === 'banned' || u.status === 'suspended') return null;
       // Price alerts are Pro only once the free period ends: no invitation to a feature the trader can't use

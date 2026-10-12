@@ -1,5 +1,6 @@
 // Preference Mode: the shape and defaults shared by the server (validation, storage) and the client (panel, cards).
 import { SUPPORTED_TIMEFRAMES } from './timeframe';
+import { readTradeStyle, type TradeStyle } from './tradeStyle';
 
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
 export type AnalysisMode = 'NORMAL' | 'CONFIRMATION';
@@ -16,6 +17,9 @@ export interface Preferences {
   /** NORMAL: the engine's normal analysis. CONFIRMATION: waits for price to reach the zone and confirm on a lower
    *  timeframe (sweep, engulfing, pin bar, star, structure break) before calling a trade, stop beyond the reaction wick */
   analysisMode: AnalysisMode;
+  /** Trade type: ANY (default), SCALP, DAY or SWING (src/utils/tradeStyle.ts): the timeframes analyses and the watchlist
+   *  use, and the 9:00 PM WAT close for day and swing trades */
+  tradeStyle: TradeStyle;
   updatedAt?: number;
 }
 
@@ -29,6 +33,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homeMarket: 'all',
   rdmTimeframes: [],
   analysisMode: 'NORMAL',
+  tradeStyle: 'ANY',
 };
 
 
@@ -37,6 +42,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   const out = { ...DEFAULT_PREFERENCES, ...(p && typeof p === 'object' ? p : {}) };
   out.rdmTimeframes = normalizeRdmTimeframes(out.rdmTimeframes) || [];
   if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
+  out.tradeStyle = readTradeStyle(out.tradeStyle);
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;
   delete (out as any).tradeLockChosenAt;

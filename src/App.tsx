@@ -2283,6 +2283,7 @@ export default function App() {
           rdmTimeframes={preferences.rdmTimeframes}
           onRdmTimeframesChange={next => savePreferences({ rdmTimeframes: next })}
           confirmationMode={preferences.analysisMode === 'CONFIRMATION'}
+          tradeStyle={preferences.tradeStyle}
         />
       </Deferred>
       <Deferred when={openPlugin === 'journal'}>
@@ -2593,6 +2594,7 @@ export default function App() {
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
                     onRdmTimeframesChange={authUser ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
+                    tradeStyle={authUser ? preferences.tradeStyle : undefined}
                     strategyName={authUser ? activeStrategy?.name || null : null}
                     onOpenStrategy={() => openToolPanel('strategy')}
                     onOpenPreference={() => setOpenTool('preference')}

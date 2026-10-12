@@ -62,6 +62,7 @@ export function buildShareText(s: StrategyResult, origin = 'https://marketx.worl
     lines.push({ text: `${long ? '🟢 BUY' : '🔴 SELL'} ${market}${tf}` });
     const from = originLine(s);
     if (from) lines.push({ text: from, drop: 4 });
+    if (s.tradeStyle) lines.push({ text: `⏱️ ${s.tradeStyle.label}${s.tradeStyle.closeByText ? `, close by ${s.tradeStyle.closeByText.split(',')[0]}` : ''}`, drop: 3 });
     lines.push({ text: '' });
     const ez = s.entryZone;
     const kind = s.execution === 'MARKET' ? ' (market)' : s.execution === 'LIMIT' ? ' (limit)' : '';
