@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ShieldCheck, CheckCircle2, XCircle, Loader2, Clock, ExternalLink, Copy, Fingerprint, Layers, Link2, FileText } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 import { apiFetch } from '../utils/apiClient';
+import { STYLE_INFO, closeByText } from '../utils/tradeStyle';
 import { formatMarketPrice } from '../utils/formatPrice';
 
 // Public proof page at /proof/<id>: everything is recomputed in this browser from the sealed signal, so nobody has to
 // take MarketX's word for it. 1) the fingerprint matches the signal, 2) the fingerprint is in the batch's Merkle root,
 // 3) the root was written to Solana in a transaction anyone can open.
 interface ProofResponse {
-  proof: { id: string; hash: string; canonical: string; prefix: string; issuedAt: number; status: 'SEALED' | 'BATCHED' | 'ANCHORED'; tag?: 'PERSONAL_STRATEGY' };
+  proof: { id: string; hash: string; canonical: string; prefix: string; issuedAt: number; status: 'SEALED' | 'BATCHED' | 'ANCHORED'; tag?: 'PERSONAL_STRATEGY'; style?: 'SCALP' | 'DAY' | 'SWING'; closeBy?: number | null };
   batch: null | {
     id: string;
     count: number;
@@ -23,7 +24,7 @@ interface ProofResponse {
   reveal?: null | {
     state: 'TRACKING' | 'POSTING' | 'POSTED';
     revealAt: number;
-    result: null | { code: 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA'; text: string; final: boolean };
+    result: null | { code: 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA' | 'ENDED'; text: string; final: boolean };
     memo: string | null;
     tx: string | null;
     at: number | null;
@@ -37,6 +38,7 @@ const RESULT_TONE: Record<string, string> = {
   MISSED: 'bg-slate-500/15 border-slate-400/30 text-slate-200',
   NOT_TRIGGERED: 'bg-slate-500/15 border-slate-400/30 text-slate-200',
   OPEN: 'bg-sky-500/15 border-sky-400/30 text-sky-200',
+  ENDED: 'bg-amber-500/15 border-amber-400/30 text-amber-200',
   NO_DATA: 'bg-slate-500/15 border-slate-400/30 text-slate-300',
 };
 const solscan = (tx: string) => `https://solscan.io/tx/${encodeURIComponent(tx)}`;
@@ -191,6 +193,15 @@ export default function ProofPage() {
                 {data.proof.tag === 'PERSONAL_STRATEGY' && (
                   <span title="Found with the trader's own strategy (Strategy Builder), not the MarketX engine" className="ml-2 inline-flex items-center h-7 px-3 rounded-full border border-violet-400/30 bg-violet-500/15 text-xs font-semibold text-violet-100">
                     Personal strategy
+                  </span>
+                )}
+                {data.proof.style && (
+                  <span
+                    title={data.proof.closeBy ? `Closes by ${closeByText(data.proof.closeBy)}; still open then = ended at the price then` : undefined}
+                    className="ml-2 inline-flex items-center h-7 px-3 rounded-full border border-amber-400/30 bg-amber-500/10 text-xs font-semibold text-amber-100"
+                  >
+                    {STYLE_INFO[data.proof.style].label}
+                    {data.proof.closeBy ? ` · closes ${closeByText(data.proof.closeBy).split(',')[0]}` : ''}
                   </span>
                 )}
                 {signal && (

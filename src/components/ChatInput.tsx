@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
 import { rdmLabel } from '../utils/preferences';
+import { STYLE_INFO } from '../utils/tradeStyle';
 import { MarketXText } from './MarketXText';
 import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
@@ -19,6 +20,7 @@ import {
   Clipboard,
   CheckCircle2,
   Target,
+  Timer,
   SlidersHorizontal,
   Bot,
   Plug,
@@ -130,6 +132,8 @@ interface ChatInputProps {
   onRdmTimeframesChange?: (next: string[]) => Promise<void>;
   /** Confirmation analysis is on (Preference Mode): a chip says so and opens Preference Mode */
   confirmationMode?: boolean;
+  /** Trade type from Preference Mode (Scalp, Day, Swing; ANY shows nothing) */
+  tradeStyle?: 'ANY' | 'SCALP' | 'DAY' | 'SWING';
   /** Strategy mode is on: the strategy's name (a chip says so and opens the Strategy Builder) */
   strategyName?: string | null;
   onOpenStrategy?: () => void;
@@ -162,6 +166,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   rdmTimeframes,
   onRdmTimeframesChange,
   confirmationMode,
+  tradeStyle,
   onOpenPreference,
   strategyName,
   onOpenStrategy,
@@ -855,6 +860,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               >
                 <CandlestickChart className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Confirmation</span>
+              </button>
+            )}
+
+            {tradeStyle && tradeStyle !== 'ANY' && (
+              <button
+                type="button"
+                onClick={onOpenPreference}
+                className={`h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 ${
+                  tradeStyle === 'SCALP'
+                    ? 'text-cyan-200 bg-cyan-500/10 border-cyan-400/30 hover:bg-cyan-500/15'
+                    : tradeStyle === 'DAY'
+                      ? 'text-amber-200 bg-amber-500/10 border-amber-400/30 hover:bg-amber-500/15'
+                      : 'text-fuchsia-200 bg-fuchsia-500/10 border-fuchsia-400/30 hover:bg-fuchsia-500/15'
+                }`}
+                title={`${STYLE_INFO[tradeStyle].label}s only: ${STYLE_INFO[tradeStyle].frames} (change it in Preference Mode)`}
+                aria-label={`Trade type: ${STYLE_INFO[tradeStyle].label} (open Preference Mode)`}
+              >
+                <Timer className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{STYLE_INFO[tradeStyle].short}</span>
               </button>
             )}
 

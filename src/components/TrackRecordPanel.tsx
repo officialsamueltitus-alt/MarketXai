@@ -60,6 +60,7 @@ const TpBars: React.FC<{ s: TrackRecordStats }> = ({ s }) => (
     <div className="pt-0.5 text-[11px] text-slate-500">
       <span className="text-emerald-300 font-semibold">{s.wins} wins</span> · <span className="text-rose-300 font-semibold">{s.losses} losses</span>
       {s.missed > 0 && <> · {s.missed} moved before entry</>}
+      {!!s.ended && <> · {s.ended} ended at the close</>}
     </div>
     {typeof s.totalR === 'number' && (
       <div className="text-[11px] text-slate-500">
@@ -240,10 +241,11 @@ export const TrackRecordPanel: React.FC<TrackRecordPanelProps> = ({ isOpen, onCl
                     )}
                     <span
                       className={`${e.outcome === 'WIN' ? '' : 'ml-auto'} h-5 px-2 rounded-full text-[10px] font-semibold inline-flex items-center ${
-                        e.outcome === 'WIN' ? 'bg-emerald-500/15 text-emerald-300' : e.outcome === 'LOSS' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/[0.06] text-slate-400'
+                        e.outcome === 'WIN' ? 'bg-emerald-500/15 text-emerald-300' : e.outcome === 'LOSS' ? 'bg-rose-500/15 text-rose-300' : e.outcome === 'ENDED' ? 'bg-amber-500/15 text-amber-300' : 'bg-white/[0.06] text-slate-400'
                       }`}
+                      title={e.outcome === 'ENDED' ? 'Still open at its 9:00 PM WAT close, so it ended there at the price then' : undefined}
                     >
-                      {e.outcome === 'WIN' ? `TP${e.tpsHit}` : e.outcome === 'LOSS' ? 'Stop' : 'Missed'}
+                      {e.outcome === 'WIN' ? `TP${e.tpsHit}` : e.outcome === 'LOSS' ? 'Stop' : e.outcome === 'ENDED' ? 'Ended' : 'Missed'}
                     </span>
                     {typeof e.r === 'number' && <span className={`text-[10px] font-mono tabular-nums shrink-0 ${e.r >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmtR(e.r)}</span>}
                     <span className="w-14 text-right text-[10px] text-slate-500 shrink-0">{ago(e.closedAt)}</span>

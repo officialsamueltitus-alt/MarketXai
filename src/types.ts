@@ -96,6 +96,8 @@ export interface StrategyResult {
   /** RDM: every timeframe was scanned; `chosen` is the one this result uses (null = no valid setup anywhere) */
   /** Strategy mode: the trader's own strategy produced this result (not the general engine) */
   userStrategy?: { id: string; name: string; setup: string };
+  /** Trade type (Preference Mode): Scalp, Day or Swing; day and swing trades carry the time they must be closed by */
+  tradeStyle?: { style: 'SCALP' | 'DAY' | 'SWING'; label: string; closeBy: number | null; closeByText: string | null; askedTimeframe?: string };
   /** Confirmation analysis (Preference Mode): set on every result analysed in that mode */
   analysisMode?: 'NORMAL' | 'CONFIRMATION';
   confirmationRead?: {
@@ -335,7 +337,7 @@ export interface UserProfile {
 export type PluginId = 'alerts' | 'watchlist' | 'journal' | 'trackRecord';
 export type PluginStates = Record<PluginId, boolean>;
 
-export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED';
+export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED' | 'END';
 /** A price alert the server watches for the trader (see server/priceAlerts.ts) */
 export interface PriceAlertItem {
   id: string;
@@ -355,7 +357,10 @@ export interface PriceAlertItem {
   active: boolean;
   entered: boolean;
   hits: { kind: PriceAlertKind; at: number; price: number }[];
-  endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | null;
+  endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | 'ENDED' | null;
+  /** Trade type of the signal, and (day / swing) when it must be closed */
+  tradeStyle?: 'SCALP' | 'DAY' | 'SWING' | null;
+  closeBy?: number | null;
 }
 
 /** Live price of a market with an active alert, fetched when the trader refreshes the panel */
@@ -456,6 +461,8 @@ export interface WatchItem {
   rdmFrames?: string[];
   /** Analysis mode it scans in (Preference Mode) */
   analysisMode?: 'NORMAL' | 'CONFIRMATION';
+  /** Trade type it scans for (Preference Mode) */
+  tradeStyle?: 'ANY' | 'SCALP' | 'DAY' | 'SWING';
   addedAt: number;
   active: boolean;
   status: WatchStatus;
@@ -525,6 +532,8 @@ export interface TrackRecordStats {
   wins: number;
   losses: number;
   missed: number;
+  /** Day / swing trades still open at their 9:00 PM WAT close, recorded at the price then */
+  ended?: number;
   /** R of every scored result (wins at their furthest target, even when the stop came after it; losses -1) */
   totalR?: number | null;
   avgR?: number | null;
@@ -539,7 +548,7 @@ export interface TrackRecordEntry {
   symbol: string;
   timeframe: string;
   direction: 'LONG' | 'SHORT';
-  outcome: 'WIN' | 'LOSS' | 'MISSED';
+  outcome: 'WIN' | 'LOSS' | 'MISSED' | 'ENDED';
   tpsHit: number;
   r?: number;
   tpsTotal: number;

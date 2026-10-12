@@ -502,6 +502,14 @@ const SECTIONS: Section[] = [
           stop beyond the reaction wick, and the watchlist only says ready at that moment. Until then the result says <B>waiting for
           confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
         </Note>
+        <Note title="Trade type: Scalp, Day or Swing" tone="amber">
+          Pick the kind of trades you take and every analysis, your personal strategy and your watchlist only give trades of that type. <B>Scalp</B>{' '}
+          uses 1m to 15m charts, <B>Day</B> uses 15m to 2H and <B>Swing</B> uses 4H to 1W; if you ask for another timeframe, MarketX uses the nearest
+          one of your type and says so. A day trade must be closed by <B>9:00 PM WAT</B> the same day, a swing trade by <B>9:00 PM WAT on Friday</B>.
+          With a price alert on, you get a reminder 30 minutes before, then a message to close it. A trade still open at that time, in profit or in
+          loss, is recorded as <B>ended</B> at the price then, in your alerts, journal, track record and its Solana record. <B>All types</B> (the
+          default) works as before. A chip next to the input box shows your trade type.
+        </Note>
         <Note title="Trade calculator">
           In Preference Mode, the trade calculator works out the lot size for the risk you choose, or shows what a lot size you already have in mind puts
           at risk. Enter your account size, then your entry and stop prices (or the stop in pips or points). It handles forex, gold, silver, oil, indices,

@@ -24,7 +24,7 @@ import { db, isFirebaseConfigured } from './firebase';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle, clientIp } from './security';
 import { loadProofWallet, memoStatus, rpcHost, submitMemo, walletBalance, type ProofWallet } from './solana';
-import { evaluateBars, type AlertHit, type Bar } from './priceAlerts';
+import { evaluateBars, tfMinutes, type AlertHit, type Bar } from './priceAlerts';
 import { exactPrice } from '../src/utils/formatPrice';
 import { ensureTraderId, traderKey } from './traderId';
 
@@ -65,7 +65,8 @@ export interface SignalPayload {
   targets: number[];
   issuedAt: number;
 }
-export type ResultCode = 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA';
+/** ENDED: a day / swing trade still open at its close time (9:00 PM WAT), closed there at the price then */
+export type ResultCode = 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA' | 'ENDED';
 export interface Reveal {
   /** TRACKING: following the trade; DUE: result known, waiting to be written; SENT: memo sent, confirming; POSTED: on chain */
   state: 'TRACKING' | 'DUE' | 'SENT' | 'POSTED';
@@ -94,6 +95,10 @@ export interface SignalProof {
   /** PERSONAL_STRATEGY: found by the trader's own strategy (Strategy Builder), not the MarketX engine; shown on the
    *  proof page and written into the readable result record on Solana */
   tag?: 'PERSONAL_STRATEGY';
+  /** Trade type of the signal (Preference Mode), outside the sealed fields */
+  style?: 'SCALP' | 'DAY' | 'SWING';
+  /** Day / swing trade: its close time (epoch ms); the result is decided there (ENDED if still open) */
+  closeBy?: number;
 }
 export interface ProofBatch {
   id: string;
@@ -169,7 +174,9 @@ export function signalProofMiddleware(_req: Request, res: Response, next: NextFu
           const personal = !!s.userStrategy;
           s.proof = { id, hash: sealed.hash, issuedAt: sealed.payload.issuedAt, ...(personal ? { tag: 'PERSONAL_STRATEGY' } : {}) };
           const uid = ((res.locals.user as any)?.uid as string | undefined) || null;
-          const doc: SignalProof = { id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false, reveal: { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 }, uid, ...(personal ? { tag: 'PERSONAL_STRATEGY' as const } : {}) };
+          const style = ['SCALP', 'DAY', 'SWING'].includes(s.tradeStyle?.style) ? (s.tradeStyle.style as SignalProof['style']) : undefined;
+          const closeBy = Number(s.tradeStyle?.closeBy) > sealed.payload.issuedAt ? Number(s.tradeStyle.closeBy) : undefined;
+          const doc: SignalProof = { id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false, reveal: { state: 'TRACKING', entered: false, hits: [], scanFrom: 0 }, uid, ...(personal ? { tag: 'PERSONAL_STRATEGY' as const } : {}), ...(style ? { style } : {}), ...(closeBy ? { closeBy } : {}) };
           db().collection(PROOFS).doc(id).set(doc).catch(err => console.warn('[MarketX Proofs] seal save failed:', err?.message || err));
         }
       }
@@ -383,6 +390,12 @@ export function revealResult(hits: AlertHit[], entered: boolean, targets: number
   const bestR = best ? rText(rAt(levels, levels?.targets[Number(best.kind.slice(2)) - 1])) : '';
   if (sl && best) return { code: 'WIN', text: `Win, TP${best.kind.slice(2)} hit (${utc(best.at)})${bestR}, then the stop loss`, final: true, at: sl };
   if (sl) return { code: 'LOSS', text: `Loss, stop loss hit (${utc(sl)})${levels ? ', -1.00R' : ''}`, final: true, at: sl };
+  // The trade type's close time (9:00 PM WAT) came before any target or the stop
+  const end = hits.find(h => h.kind === 'END');
+  if (end && !best) {
+    if (!entered) return { code: 'NOT_TRIGGERED', text: `Not triggered, the entry was not reached before its 9:00 PM WAT close (${utc(end.at)})`, final: true, at: end.at };
+    return { code: 'ENDED', text: `Ended at its 9:00 PM WAT close (${utc(end.at)}), closed at ${exactPrice(end.price)}${rText(rAt(levels, end.price))}`, final: true, at: end.at };
+  }
   if (best && Number(best.kind.slice(2)) >= targets) return { code: 'WIN', text: `Win, every target hit, TP${targets} at ${utc(best.at)}${bestR}`, final: true, at: best.at };
   if (best) return { code: 'WIN', text: `Win so far, TP${best.kind.slice(2)} hit (${utc(best.at)})${bestR}, still running at ${utc(now)}`, final, at: now };
   if (entered) return { code: 'OPEN', text: `Open, entry filled (${utc(at('ENTRY') || now)}), no target or stop by ${utc(now)}`, final, at: now };
@@ -391,10 +404,11 @@ export function revealResult(hits: AlertHit[], entered: boolean, targets: number
 
 const sideText = (p: SignalPayload) => `${p.direction === 'LONG' ? 'BUY' : 'SELL'}${p.execution === 'MARKET' ? '' : ' LIMIT'}`;
 /** The readable memo: the trade itself, its result, its fingerprint and where to verify it (always under 500 bytes) */
-export function revealMemo(p: SignalPayload, hash: string, result: NonNullable<Reveal['result']>, tag?: SignalProof['tag']): string {
+export function revealMemo(p: SignalPayload, hash: string, result: NonNullable<Reveal['result']>, tag?: SignalProof['tag'], style?: SignalProof['style']): string {
   const e = p.entry;
+  const kinds = [tag === 'PERSONAL_STRATEGY' ? 'personal strategy' : '', style === 'SCALP' ? 'scalp trade' : style === 'DAY' ? 'day trade' : style === 'SWING' ? 'swing trade' : ''].filter(Boolean);
   const parts = [
-    tag === 'PERSONAL_STRATEGY' ? 'MarketX signal result (personal strategy)' : 'MarketX signal result',
+    kinds.length ? `MarketX signal result (${kinds.join(', ')})` : 'MarketX signal result',
     `${p.symbol.slice(0, 24)} ${p.timeframe}`.trim(),
     sideText(p),
     `Entry ${exactPrice(e.optimal)}${e.min !== e.max ? ` (${exactPrice(e.min)} to ${exactPrice(e.max)})` : ''}`,
@@ -471,13 +485,17 @@ export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Pro
             const startT = Math.max(Math.floor(s.issuedAt / 60e3) * 60e3, r.scanFrom || 0);
             // Only candles that cover the whole stretch since the last check: a gap could hide a hit
             let bars: Bar[] | null = null;
+            let barMs = 60_000;
             for (const tf of TRACK_TFS) {
               const got = await fetchTf(tf);
               if (got?.length && got[0].t <= startT) {
-                bars = got;
+                // A day / swing trade is only judged on candles before its close time
+                bars = p.closeBy ? got.filter(b => b.t < p.closeBy!) : got;
+                barMs = tfMinutes(tf) * 60_000;
                 break;
               }
             }
+            if (bars && !bars.length) bars = null;
             const usable = !!bars;
             if (usable) {
               const ev = evaluateBars({ direction: s.direction, entry: s.entry, stop: s.stop, tps: s.targets, entered, hits, createdAt: s.issuedAt, scanFrom: r.scanFrom }, bars!);
@@ -486,11 +504,21 @@ export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Pro
               closed = ev.closed;
               Object.assign(update, { entered, hits, scanFrom: bars![bars!.length - 1].t });
             }
-            const revealAt = s.issuedAt + REVEAL_AFTER_MS;
+            // Day / swing trade: still open at its close time (and the candles reach it) = ended there at the price then
+            if (usable && !closed && p.closeBy && now >= p.closeBy) {
+              const lastBar = bars![bars!.length - 1];
+              if (lastBar.t + barMs >= p.closeBy - 60_000) {
+                hits = [...hits, { kind: 'END', at: p.closeBy, price: lastBar.c }];
+                closed = true;
+                update.hits = hits;
+              }
+            }
+            const revealAt = p.closeBy || s.issuedAt + REVEAL_AFTER_MS;
             const lastT = usable ? bars![bars!.length - 1].t : 0;
             // "Still running at <time>": the end of the last candle checked, never past now
             const seenUntil = Math.min(now, lastT + 60_000);
-            if (closed || (now >= revealAt && lastT >= revealAt - FRESH_MS && seenUntil > s.issuedAt)) {
+            // (a trade with a close time is decided only by its close, never as "still running")
+            if (closed || (!p.closeBy && now >= revealAt && lastT >= revealAt - FRESH_MS && seenUntil > s.issuedAt)) {
               Object.assign(update, { state: 'DUE', result: revealResult(hits, entered, s.targets.length, closed, seenUntil, s) });
               due++;
             } else if (now >= revealAt + NO_DATA_AFTER_MS) {
@@ -577,7 +605,7 @@ async function postRevealsLocked(): Promise<number> {
     } catch {
       continue;
     }
-    const memo = r.memo || revealMemo(s, p.hash, r.result!, p.tag);
+    const memo = r.memo || revealMemo(s, p.hash, r.result!, p.tag, p.style);
     try {
       // The trader's MarketX ID co-signs, so the record is listed under their ID on any explorer
       const uid = p.uid === undefined ? await ownerOf(p, s) : p.uid;
@@ -625,7 +653,7 @@ function publicReveal(p: SignalProof) {
   const decided = r.state !== 'TRACKING';
   return {
     state: r.state === 'POSTED' ? 'POSTED' : decided ? 'POSTING' : 'TRACKING',
-    revealAt: p.issuedAt + REVEAL_AFTER_MS,
+    revealAt: p.closeBy || p.issuedAt + REVEAL_AFTER_MS,
     result: decided && r.result ? { code: r.result.code, text: r.result.text, final: r.result.final } : null,
     memo: r.state === 'POSTED' ? r.memo || null : null,
     tx: r.state === 'POSTED' ? r.tx || null : null,
@@ -695,7 +723,7 @@ export function registerSignalProofRoutes(app: Express, limiter: (req: Request, 
           };
         }
       }
-      res.json({ proof: { id: p.id, hash: p.hash, canonical: p.canonical, prefix: PREFIX, issuedAt: p.issuedAt, ...(p.tag ? { tag: p.tag } : {}), status: batch?.anchor.status === 'ANCHORED' ? 'ANCHORED' : batch ? 'BATCHED' : 'SEALED' }, batch, reveal: publicReveal(p), traderId: await publicTraderId(p) });
+      res.json({ proof: { id: p.id, hash: p.hash, canonical: p.canonical, prefix: PREFIX, issuedAt: p.issuedAt, ...(p.tag ? { tag: p.tag } : {}), ...(p.style ? { style: p.style, closeBy: p.closeBy || null } : {}), status: batch?.anchor.status === 'ANCHORED' ? 'ANCHORED' : batch ? 'BATCHED' : 'SEALED' }, batch, reveal: publicReveal(p), traderId: await publicTraderId(p) });
     } catch {
       res.status(503).json({ error: 'UNAVAILABLE', message: 'Proofs are unavailable right now. Try again shortly.' });
     }

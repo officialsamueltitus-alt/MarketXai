@@ -9,6 +9,8 @@
 // - view: DETAILED shows the full write-up under each trade; SIMPLE leads with the levels and folds the write-up
 // - homeMarket: which market list the Markets tab opens on
 // - rdmTimeframes: which timeframes RDM scans ([] = all), for RDM analyses and RDM watchlist pairs alike
+// - tradeStyle: ANY, SCALP, DAY or SWING (src/utils/tradeStyle.ts): which timeframes analyses and the watchlist use,
+//   and the 9:00 PM WAT close (day: same day, swing: Friday) recorded as ENDED in alerts, journal, track record, Solana
 // - analysisMode: NORMAL, or CONFIRMATION (server/confirmation.ts: a trade only once price confirms at the zone), for
 //   analyses and the watchlist alike
 // Free for everyone.
@@ -77,6 +79,10 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (body.analysisMode !== 'NORMAL' && body.analysisMode !== 'CONFIRMATION') return { error: 'Choose Normal or Confirmation analysis.' };
     next.analysisMode = body.analysisMode;
   }
+  if (has('tradeStyle')) {
+    if (!['ANY', 'SCALP', 'DAY', 'SWING'].includes(body.tradeStyle)) return { error: 'Choose a trade type from the list.' };
+    next.tradeStyle = body.tradeStyle;
+  }
   if (has('rdmTimeframes')) {
     const list = normalizeRdmTimeframes(body.rdmTimeframes);
     if (!list) return { error: 'Choose RDM timeframes from the list.' };
@@ -115,10 +121,10 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
     if ('error' in out) return res.status(400).json({ error: 'BAD_REQUEST', message: out.error });
     const prefs = { ...out.prefs, updatedAt: Date.now() };
     await userRef(uid).update({ preferences: prefs });
-    // The watchlist scans the way an analysis does: same RDM timeframes, same analysis mode
+    // The watchlist scans the way an analysis does: same RDM timeframes, analysis mode and trade type
     const old = readPreferences(doc);
-    if (old.rdmTimeframes.join(',') !== prefs.rdmTimeframes.join(',') || old.analysisMode !== prefs.analysisMode)
-      await syncWatchPrefs(uid, { rdmFrames: prefs.rdmTimeframes, mode: prefs.analysisMode }).catch(err => console.warn('[MarketX Preferences] watchlist sync failed:', err?.message || err));
+    if (old.rdmTimeframes.join(',') !== prefs.rdmTimeframes.join(',') || old.analysisMode !== prefs.analysisMode || old.tradeStyle !== prefs.tradeStyle)
+      await syncWatchPrefs(uid, { rdmFrames: prefs.rdmTimeframes, mode: prefs.analysisMode, style: prefs.tradeStyle }).catch(err => console.warn('[MarketX Preferences] watchlist sync failed:', err?.message || err));
     res.json({ preferences: prefs });
   }));
 }
