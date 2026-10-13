@@ -83,7 +83,7 @@ const ALERTS = 'priceAlerts';
 const MAX_ACTIVE_PER_USER = 25;
 const OFFER_EMAIL_DELAY_MS = Math.max(1000, Number(process.env.ALERT_OFFER_EMAIL_DELAY_MS) || 15 * 60 * 1000);
 const OFFER_EMAIL_GAP_MS = 6 * 60 * 60 * 1000;
-const TICK_MS = Math.max(2000, Number(process.env.ALERT_TICK_MS) || 15_000);
+const TICK_MS = Math.max(2000, Number(process.env.ALERT_TICK_MS) || 5_000);
 const SYNC_MS = Math.max(2000, Number(process.env.ALERT_SYNC_MS) || 20_000);
 const OFFER_SWEEP_MS = Math.max(2000, Number(process.env.ALERT_OFFER_SWEEP_MS) || 2 * 60 * 1000);
 const BOOT_DELAY_MS = Math.max(500, Number(process.env.ALERT_BOOT_MS) || 20_000);
@@ -207,21 +207,23 @@ export function evaluateBars(
   return { hits, entered, closed };
 }
 
-function hitMessage(a: AlertLevels, h: AlertHit & { entered?: boolean }): { title: string; message: string; subject: string; lines: string[] } {
+function hitMessage(a: AlertLevels, h: AlertHit & { entered?: boolean; live?: number }): { title: string; message: string; subject: string; lines: string[] } {
   const sym = a.symbol;
+  // The price at the moment MarketX saw the hit (latest 1-minute candle close), so the trader can compare with their chart
+  const now = finite(h.live) && h.kind !== 'END' ? ` Price now ${fmtPrice(h.live!)}.` : '';
   const tf = a.timeframe ? ` (${a.timeframe})` : '';
   switch (h.kind) {
     case 'ENTRY':
       return {
         title: `🎯 ${sym} reached your entry zone`,
-        message: `${side(a)}${tf}: price is in your entry zone ${fmtPrice(a.entry.min)} to ${fmtPrice(a.entry.max)}. Stop ${fmtPrice(a.stop)}, first target ${fmtPrice(a.tps[0])}.`,
+        message: `${side(a)}${tf}: price is in your entry zone ${fmtPrice(a.entry.min)} to ${fmtPrice(a.entry.max)}.${now} Stop ${fmtPrice(a.stop)}, first target ${fmtPrice(a.tps[0])}.`,
         subject: `🎯 ${sym} reached your entry zone`,
         lines: [`Price just reached the entry zone of your ${side(a)} setup on ${sym}${tf}.`, 'Check the chart and your plan before you act.'],
       };
     case 'SL':
       return {
         title: `🛑 ${sym} hit your stop loss`,
-        message: `${side(a)}${tf}: price reached the stop loss at ${fmtPrice(a.stop)}. This alert is now closed.`,
+        message: `${side(a)}${tf}: price reached the stop loss at ${fmtPrice(a.stop)}.${now} This alert is now closed.`,
         subject: `🛑 ${sym} hit your stop loss`,
         lines: [`Price reached the stop loss of your ${side(a)} setup on ${sym}${tf}.`, 'This alert is now closed. Losses are part of trading: stick to your risk plan.'],
       };
@@ -247,7 +249,7 @@ function hitMessage(a: AlertLevels, h: AlertHit & { entered?: boolean }): { titl
     case 'MISSED':
       return {
         title: `⏭️ ${sym} moved without your entry`,
-        message: `Price reached the first target (${fmtPrice(a.tps[0])}) before your entry filled, so this setup no longer applies. Alert closed.`,
+        message: `Price reached the first target (${fmtPrice(a.tps[0])}) before your entry filled, so this setup no longer applies.${now} Alert closed.`,
         subject: `${sym} moved before your entry filled`,
         lines: [`Price reached the first target of your ${side(a)} setup on ${sym}${tf} before the entry zone was touched.`, 'The setup no longer applies, so the alert is closed. Ask MarketX for a fresh analysis.'],
       };
@@ -256,7 +258,7 @@ function hitMessage(a: AlertLevels, h: AlertHit & { entered?: boolean }): { titl
       const last = n === a.tps.length;
       return {
         title: `✅ ${sym} hit TP${n}`,
-        message: `${side(a)}${tf}: target ${n} at ${fmtPrice(h.price)} reached.${last ? ' Every target is done, alert closed.' : ''}`,
+        message: `${side(a)}${tf}: target ${n} at ${fmtPrice(h.price)} reached.${now}${last ? ' Every target is done, alert closed.' : ''}`,
         subject: `✅ ${sym} hit take profit ${n}`,
         lines: [`Price reached take profit ${n} (${fmtPrice(h.price)}) of your ${side(a)} setup on ${sym}${tf}.`, last ? 'That was the final target, so this alert is now closed.' : 'MarketX keeps watching the next target for you.'],
       };
@@ -468,6 +470,7 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
   if (!bars?.length) return;
   // The newest candle is still forming, so the next cycle starts from it again
   const scanFrom = bars[bars.length - 1].t;
+  const live = bars[bars.length - 1].c;
   const nowT = Date.now();
   for (const a of alerts) {
     // A day / swing trade is only judged on candles before its close time
@@ -513,16 +516,16 @@ async function checkSymbol(symbol: string, alerts: PriceAlert[], deps: PriceAler
     // Every hit gets its own site notification; the email is one short message per alert per cycle, and only
     // while the trader's daily market email allowance lasts (shared with the watchlist)
     for (const h of fresh) {
-      const m = hitMessage(a, { ...h, entered: a.entered });
+      const m = hitMessage(a, { ...h, entered: a.entered, live });
       await notifyActivity(a.uid, { type: 'market', title: m.title, message: m.message, actionType: 'open_alerts', actionPayload: { alertId: a.id } } as any);
     }
     if (fresh.length) {
       // One phone / desktop notification per alert per cycle (the newest hit; the tag replaces older ones)
-      const last = hitMessage(a, { ...fresh[fresh.length - 1], entered: a.entered });
+      const last = hitMessage(a, { ...fresh[fresh.length - 1], entered: a.entered, live });
       sendPush(a.uid, { title: last.title, body: last.message, url: `/?alerts=1&focus=${encodeURIComponent(a.id)}`, tag: `al-${a.id}`, kind: 'alert' }).catch(() => {});
     }
     if (fresh.length && (await claimMarketMail(a.uid).catch(() => false))) {
-      const msgs = fresh.map(h => hitMessage(a, { ...h, entered: a.entered }));
+      const msgs = fresh.map(h => hitMessage(a, { ...h, entered: a.entered, live }));
       const lead = msgs[msgs.length - 1];
       await notifyActivity(a.uid, null, {
         subject: lead.subject,

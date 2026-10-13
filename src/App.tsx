@@ -1172,15 +1172,23 @@ export default function App() {
   useEffect(() => {
     if (isAlertsOpen && authUser && alertsEnabled) fetchAlerts(true);
   }, [isAlertsOpen, authUser, alertsEnabled, fetchAlerts]);
-  // While an alert is active, new alert notifications are picked up every 30s (only while the tab is visible)
+  // While an alert is active, new alert notifications are picked up every 10s while the tab is visible, and at once
+  // when the trader comes back to the tab (a hit can land any moment; the request only asks for newer items)
   const hasActiveAlerts = priceAlerts.some(a => a.active);
   useEffect(() => {
     if (!authUser || !hasActiveAlerts) return;
     const id = setInterval(() => {
       if (document.hidden) return;
       refreshNotifications(true);
-    }, 30_000);
-    return () => clearInterval(id);
+    }, 10_000);
+    const onVisible = () => {
+      if (!document.hidden) refreshNotifications(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [authUser, hasActiveAlerts, refreshNotifications]);
   // A new alert notification: a short toast, and the alert list refreshes
   const seenAlertNotifsRef = useRef<Set<string> | null>(null);
@@ -2324,7 +2332,7 @@ export default function App() {
           onToast={showToast}
           onState={st => {
             const a = st.enabled ? st.strategies.find(x => x.id === st.activeId) : null;
-            setActiveStrategy(a ? { id: a.id, name: a.name } : null);
+            setActiveStrategy(prev => (a ? (prev && prev.id === a.id && prev.name === a.name ? prev : { id: a.id, name: a.name }) : null));
           }}
           onProRequired={msg => {
             setOpenTool(null);

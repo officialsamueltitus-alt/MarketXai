@@ -212,10 +212,11 @@
   track record and notices follow it; Pro/free period only; result waits at most 2.5s; card shows "Alert on · Auto"). Manual: as before. Every signal served is recorded as an
   `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and
   alerts (`priceAlerts`, id `al_{offerId}`) only ever use those stored levels. Only the lead worker monitors: active alerts in
-  memory, one cached 1-minute candle series per symbol per 15s cycle, candle high/low checks, hits written in transactions
+  memory, one fresh 1-minute candle series per symbol per 5s cycle (`ALERT_TICK_MS`), candle high/low checks, hits written in transactions
   (entry zone, TP1-3, stop, or MISSED if a target comes before entry), then a notification + activity email. Unused signals get
-  one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 30s
-  only while they have an active alert and the tab is visible. The panel has a Refresh button: `GET /api/alerts?live=1` reloads the alerts and
+  one "Want a price alert?" email after 15 minutes, at most one per trader every 6 hours. Clients poll notifications every 10s
+  only while they have an active alert and the tab is visible (and at once when the tab comes back). Each hit message carries the
+  price at detection ("Price now", the latest 1-minute close). The panel has a Refresh button: `GET /api/alerts?live=1` reloads the alerts and
   returns the live price of each market with an active alert (`deps.getQuote`, 5s cap, 12 markets); each active card shows the live
   price, today's change and where price sits (distance to the entry zone, or P/L from entry, % to the next TP and to the SL).
 - Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);

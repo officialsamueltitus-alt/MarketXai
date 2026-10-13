@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Target, Plus, Loader2, Check, Trash2, Pencil, Sparkles, ChevronLeft, ChevronRight, AlertTriangle, BookOpen, Wand2,
   MessageSquareText, ListChecks, ShieldCheck, Power, Library,
@@ -109,10 +109,14 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The parent passes a fresh onState on every render; reading it from a ref keeps `load` stable, so opening the
+  // panel fetches once instead of re-fetching on every parent render (which ran into the API rate limit)
+  const onStateRef = useRef(onState);
+  onStateRef.current = onState;
   const apply = useCallback((s: StrategyState) => {
     setState(s);
-    onState(s);
-  }, [onState]);
+    onStateRef.current(s);
+  }, []);
   const load = useCallback(async () => {
     setLoading(true);
     try {
