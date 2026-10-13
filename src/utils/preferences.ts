@@ -1,6 +1,6 @@
 // Preference Mode: the shape and defaults shared by the server (validation, storage) and the client (panel, cards).
 import { SUPPORTED_TIMEFRAMES } from './timeframe';
-import { readTradeStyle, type TradeStyle } from './tradeStyle';
+import { readStyleTimeframes, readTradeStyle, type StyleTimeframes, type TradeStyle } from './tradeStyle';
 
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
 export type AnalysisMode = 'NORMAL' | 'CONFIRMATION';
@@ -20,6 +20,9 @@ export interface Preferences {
   /** Trade type: ANY (default), SCALP, DAY or SWING (src/utils/tradeStyle.ts): the timeframes analyses and the watchlist
    *  use, and the 9:00 PM WAT close for day and swing trades */
   tradeStyle: TradeStyle;
+  /** The timeframes the trader keeps for each trade type ([] = all of that type's). While a type is on, its choice
+   *  overrides every other timeframe (composer, RDM, watchlist, Strategy Builder) */
+  styleTimeframes: Required<StyleTimeframes>;
   updatedAt?: number;
 }
 
@@ -34,6 +37,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   rdmTimeframes: [],
   analysisMode: 'NORMAL',
   tradeStyle: 'ANY',
+  styleTimeframes: { SCALP: [], DAY: [], SWING: [] },
 };
 
 
@@ -43,6 +47,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   out.rdmTimeframes = normalizeRdmTimeframes(out.rdmTimeframes) || [];
   if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
   out.tradeStyle = readTradeStyle(out.tradeStyle);
+  out.styleTimeframes = readStyleTimeframes(out.styleTimeframes);
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;
   delete (out as any).tradeLockChosenAt;

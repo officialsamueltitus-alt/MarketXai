@@ -401,7 +401,8 @@ const SECTIONS: Section[] = [
             </>,
             <>
               <B>Add a pair</B> (EURUSD, gold, BTC, a meme coin) and pick a timeframe. Pick <B>RDM</B> to have the pair scanned on every timeframe, or only on the RDM timeframes you
-              chose (the same choice as in the input box and Preference Mode; change it there or right here and every RDM pair follows). Before a pair
+              chose (the same choice as in the input box and Preference Mode; change it there or right here and every RDM pair follows). With a trade type
+              on, pairs only scan that type's timeframes, and only the ones you kept for it if you narrowed them. Before a pair
               is added, MarketX confirms it can read its live price and chart; if it can't, the pair is not added and you are told why.
             </>,
             <>
@@ -419,6 +420,13 @@ const SECTIONS: Section[] = [
           take elsewhere you log yourself; close them with the exit price or profit and loss. Either way you get your win rate, R, streak and best markets. <B>/track-record</B> shows how
           your price alert signals played out (TP1, TP2, TP3 reached, stopped or moved before entry) with the R of each result and your total R, and the same
           results across MarketX. The same rule applies everywhere, including the public ID checker and the result records on Solana: TP1 first is a win.
+        </Note>
+        <Note title="How a hit is judged">
+          MarketX follows each alert on live one-minute prices and tells you within seconds when price reaches your entry, a target or the stop. Each
+          message also shows the price at that moment (<B>Price now</B>), so you can compare it with your own chart. Your broker's price can differ a
+          little from MarketX's, so a stop or target only counts once price has clearly traded through it, not when a wick just touches it. The same rule
+          applies to stops and targets, so it never favours wins, and it is the rule your journal, track record and Solana records use too. If your
+          broker's price is often far from the price MarketX shows, keep that difference in mind when you place your orders.
         </Note>
         <Note title="Sound and phone notifications">
           While MarketX is open, a new watchlist setup plays a short chime (turn it off with <B>Sound when a setup is found</B> in the watchlist). Open
@@ -505,7 +513,11 @@ const SECTIONS: Section[] = [
         <Note title="Trade type: Scalp, Day or Swing" tone="amber">
           Pick the kind of trades you take and every analysis, your personal strategy and your watchlist only give trades of that type. <B>Scalp</B>{' '}
           uses 1m to 15m charts, <B>Day</B> uses 15m to 2H and <B>Swing</B> uses 4H to 1W; if you ask for another timeframe, MarketX uses the nearest
-          one of your type and says so. A day trade must be closed by <B>9:00 PM WAT</B> the same day, a swing trade by <B>9:00 PM WAT on Friday</B>.
+          one of your type and says so. Under the trade type cards you can also keep <B>only the timeframes you trade</B>: tap a timeframe to switch it
+          off (for example scalps on the 5m and 15m only). While your trade type is on, those timeframes win over every other timeframe on MarketX,
+          including the timeframe you pick in the input box, your RDM choice, your watchlist pairs and your personal strategy, until you change them,
+          tap <B>Use all</B>, or switch the trade type back to All types. MarketX remembers your choice for each type.
+          A day trade must be closed by <B>9:00 PM WAT</B> the same day, a swing trade by <B>9:00 PM WAT on Friday</B>.
           With a price alert on, you get a reminder 30 minutes before, then a message to close it. A trade still open at that time, in profit or in
           loss, is recorded as <B>ended</B> at the price then, in your alerts, journal, track record and its Solana record. <B>All types</B> (the
           default) works as before. A chip next to the input box shows your trade type.
@@ -706,6 +718,12 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Email">You can also write to help.marketx@gmail.com.</Note>
+        <Note title="Quick fixes">
+          <B>"Please slow down" or "Too many requests":</B> wait a minute and try again; it clears on its own. <B>A page looks broken after an update:</B>{' '}
+          refresh it once. <B>No alerts on your phone:</B> check that Phone notifications is on in Settings and that your phone allows notifications for
+          MarketX. <B>An alert doesn't match your broker:</B> see How a hit is judged in the watchlist section. <B>Still stuck?</B> Open Support chat
+          and tell us what you tapped and what you saw.
+        </Note>
         <Note title="Terms and Privacy">
           The last row in Settings opens the Terms of Service, Privacy Policy and Risk Disclosure. Each has a short summary at the top; switch between them with the
           tabs.

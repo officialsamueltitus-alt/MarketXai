@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
 import { rdmLabel } from '../utils/preferences';
-import { STYLE_INFO } from '../utils/tradeStyle';
+import { STYLE_INFO, styleFramesLabel } from '../utils/tradeStyle';
 import { MarketXText } from './MarketXText';
 import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
@@ -134,6 +134,8 @@ interface ChatInputProps {
   confirmationMode?: boolean;
   /** Trade type from Preference Mode (Scalp, Day, Swing; ANY shows nothing) */
   tradeStyle?: 'ANY' | 'SCALP' | 'DAY' | 'SWING';
+  /** The timeframes kept for that trade type (Preference Mode; [] = all of the type's) */
+  styleFrames?: string[];
   /** Strategy mode is on: the strategy's name (a chip says so and opens the Strategy Builder) */
   strategyName?: string | null;
   onOpenStrategy?: () => void;
@@ -167,6 +169,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onRdmTimeframesChange,
   confirmationMode,
   tradeStyle,
+  styleFrames,
   onOpenPreference,
   strategyName,
   onOpenStrategy,
@@ -874,7 +877,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       ? 'text-amber-200 bg-amber-500/10 border-amber-400/30 hover:bg-amber-500/15'
                       : 'text-fuchsia-200 bg-fuchsia-500/10 border-fuchsia-400/30 hover:bg-fuchsia-500/15'
                 }`}
-                title={`${STYLE_INFO[tradeStyle].label}s only: ${STYLE_INFO[tradeStyle].frames} (change it in Preference Mode)`}
+                title={`${STYLE_INFO[tradeStyle].label}s only: ${styleFramesLabel(tradeStyle, styleFrames)} (change it in Preference Mode)`}
                 aria-label={`Trade type: ${STYLE_INFO[tradeStyle].label} (open Preference Mode)`}
               >
                 <Timer className="w-3.5 h-3.5" />

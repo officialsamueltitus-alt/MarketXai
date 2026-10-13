@@ -85,7 +85,13 @@
   cards in `PreferencePanel.tsx`, composer chip, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
   the type (SCALP 1m to 15m, DAY 15m to 2H, SWING 4H to 1W; another timeframe moves to the nearest, `fitTimeframe`; RDM scans only the type's,
   `styleRdmFrames`), whatever strategy is on (Strategy Builder: its own timeframes inside the type first, else the type's, `styleStrategyFrames`);
-  the watchlist scans the same way (items carry `tradeStyle`, `syncWatchPrefs` moves them). `tagTradeStyle` in `server.ts` tags each result
+  the watchlist scans the same way (items carry `tradeStyle`, `syncWatchPrefs` moves them).
+  Trade type timeframes (owner-specified, `users.preferences.styleTimeframes` {SCALP, DAY, SWING}, each [] = all of the type's,
+  `normalizeStyleFrames` / `styleFrames(style, custom)`; chips under the trade type cards in `PreferencePanel.tsx`, at least one on, "Use
+  all"): while that type is on, the kept timeframes override every other timeframe on the site: the composer pick moves to the nearest
+  kept one (`fitTimeframe`), RDM scans exactly them instead of the RDM choice (`styleRdmFrames`), the Strategy Builder runs inside them
+  (`styleStrategyFrames`) and watchlist items carry `styleFrames` (`syncWatchPrefs` moves them on change); All types switches it off and
+  each type's choice is remembered. `tagTradeStyle` in `server.ts` tags each result
   `strategy.tradeStyle` {style, label, closeBy, closeByText, askedTimeframe} and prepends a note (prompt text untouched). DAY trades close at 9:00 PM
   WAT the same day (issued under 30 min before = next day), SWING at Friday 9:00 PM WAT (under 24h before = next Friday), `closeDeadline`; SCALP has
   no forced close. The close time rides on the offer, the price alert (heads-up 30 min before, `warnClose`; at the close an END hit at the last
