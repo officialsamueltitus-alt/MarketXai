@@ -6,7 +6,7 @@ import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } fro
 import type { AlertMode } from '../types';
 import { PluginSheet } from './PluginSheet';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
-import { STYLE_INFO, type TradeStyle } from '../utils/tradeStyle';
+import { STYLE_FRAMES, STYLE_INFO, hasStyleChoice, styleFrames, styleFramesLabel, type TradeStyle } from '../utils/tradeStyle';
 
 // /preference: the trader's own defaults (server/preferences.ts). Every change saves on its own.
 interface PreferencePanelProps {
@@ -215,11 +215,63 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
                   </span>
                   <span className="mt-1.5 block text-sm font-semibold text-white">{id === 'ANY' ? 'All types' : info.label}</span>
                   <span className="block text-[11px] text-slate-500 leading-snug">{info.hold}</span>
-                  <span className="mt-1 block text-[10px] font-mono text-slate-400">{info.frames}</span>
+                  <span className="mt-1 block text-[10px] font-mono text-slate-400">{id === 'ANY' ? info.frames : styleFramesLabel(id as TradeStyle, p.styleTimeframes?.[id as Exclude<TradeStyle, 'ANY'>])}</span>
                 </button>
               );
             })}
           </div>
+          {p.tradeStyle && p.tradeStyle !== 'ANY' && (() => {
+            const style = p.tradeStyle as Exclude<TradeStyle, 'ANY'>;
+            const chosen = p.styleTimeframes?.[style] || [];
+            const active = styleFrames(style, chosen);
+            const custom = hasStyleChoice(style, chosen);
+            const tone = style === 'SCALP' ? 'bg-cyan-400 text-slate-950 border-cyan-300' : style === 'DAY' ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-fuchsia-400 text-slate-950 border-fuchsia-300';
+            // At least one timeframe stays on; ticking every one is stored as "all of the type's"
+            const toggle = (tf: string) => {
+              const next = active.includes(tf) ? active.filter(x => x !== tf) : STYLE_FRAMES[style].filter(x => x === tf || active.includes(x));
+              if (!next.length) return;
+              save({ styleTimeframes: { ...p.styleTimeframes, [style]: next.length === STYLE_FRAMES[style].length ? [] : next } } as Partial<Preferences>);
+            };
+            return (
+              <div className="mt-2.5 p-3 rounded-2xl bg-black/20 border border-white/[0.06] mx-fade-in">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">{STYLE_INFO[style].short} timeframes</span>
+                  {custom && (
+                    <button type="button" onClick={() => save({ styleTimeframes: { ...p.styleTimeframes, [style]: [] } } as Partial<Preferences>)} className="text-[11px] text-slate-400 hover:text-white cursor-pointer">
+                      Use all
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={`${STYLE_INFO[style].label} timeframes`}>
+                  {STYLE_FRAMES[style].map(tf => {
+                    const on = active.includes(tf);
+                    return (
+                      <button
+                        key={tf}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggle(tf)}
+                        title={on && active.length === 1 ? 'Keep at least one timeframe' : undefined}
+                        className={`min-w-[44px] px-3 py-1.5 rounded-full text-xs font-mono font-semibold border transition cursor-pointer ${on ? tone : 'bg-white/[0.03] text-slate-400 border-white/10 hover:text-white hover:bg-white/[0.07]'}`}
+                      >
+                        {tf.replace(/^(\d+)M$/, '$1m')}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                  {custom ? (
+                    <>
+                      <span className="text-slate-200">Only {styleFramesLabel(style, chosen)}.</span> These override every other timeframe on MarketX (the composer, RDM, your watchlist and your
+                      strategy) until you change them or switch the trade type off.
+                    </>
+                  ) : (
+                    <>Every {STYLE_INFO[style].short.toLowerCase()} timeframe is on. Tap one to switch it off and keep only the ones you trade.</>
+                  )}
+                </p>
+              </div>
+            );
+          })()}
           {(p.tradeStyle === 'DAY' || p.tradeStyle === 'SWING') && (
             <p className="mt-2.5 p-3 rounded-2xl bg-amber-500/[0.05] border border-amber-400/15 text-[11px] leading-snug text-slate-400 mx-fade-in">
               <span className="font-semibold text-amber-200">Close by 9:00 PM WAT{p.tradeStyle === 'SWING' ? ' on Friday' : ''}.</span> With a price alert on, MarketX reminds you 30 minutes before. A trade
@@ -228,7 +280,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
           )}
           {p.tradeStyle === 'SCALP' && (
             <p className="mt-2.5 p-3 rounded-2xl bg-cyan-500/[0.05] border border-cyan-400/15 text-[11px] leading-snug text-slate-400 mx-fade-in">
-              <span className="font-semibold text-cyan-200">Scalps only.</span> Analyses run on 1m to 15m charts (a higher timeframe you pick moves to the nearest of them), so entries, stops and targets are close together.
+              <span className="font-semibold text-cyan-200">Scalps only.</span> Analyses run on {styleFramesLabel('SCALP', p.styleTimeframes?.SCALP)} charts (another timeframe you pick moves to the nearest of them), so entries, stops and targets are close together.
             </p>
           )}
         </Section>
@@ -261,6 +313,11 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
             </div>
             <p className="text-[11px] text-slate-500 leading-snug mb-2">Choose the timeframes RDM searches, or All. Used wherever you pick RDM: the composer and the watchlist.</p>
             <RdmTimeframePicker value={p.rdmTimeframes} onChange={next => onSave({ rdmTimeframes: next })} disabled={rdmLocked} />
+            {p.tradeStyle && p.tradeStyle !== 'ANY' && hasStyleChoice(p.tradeStyle, p.styleTimeframes?.[p.tradeStyle]) && (
+              <p className="mt-2 text-[11px] leading-snug text-amber-200/80">
+                Your {STYLE_INFO[p.tradeStyle].short.toLowerCase()} timeframes are on, so RDM scans {styleFramesLabel(p.tradeStyle, p.styleTimeframes[p.tradeStyle])} for now.
+              </p>
+            )}
           </div>
           <div className="mt-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Stop loss</div>
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Default stop loss">

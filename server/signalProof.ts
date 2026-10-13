@@ -498,7 +498,7 @@ export async function trackReveals(deps: SignalProofDeps, now = Date.now()): Pro
             if (bars && !bars.length) bars = null;
             const usable = !!bars;
             if (usable) {
-              const ev = evaluateBars({ direction: s.direction, entry: s.entry, stop: s.stop, tps: s.targets, entered, hits, createdAt: s.issuedAt, scanFrom: r.scanFrom }, bars!);
+              const ev = evaluateBars({ symbol: s.symbol, direction: s.direction, entry: s.entry, stop: s.stop, tps: s.targets, entered, hits, createdAt: s.issuedAt, scanFrom: r.scanFrom }, bars!);
               entered = ev.entered;
               hits = [...hits, ...ev.hits];
               closed = ev.closed;

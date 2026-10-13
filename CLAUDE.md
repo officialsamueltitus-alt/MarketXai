@@ -85,7 +85,13 @@
   cards in `PreferencePanel.tsx`, composer chip, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
   the type (SCALP 1m to 15m, DAY 15m to 2H, SWING 4H to 1W; another timeframe moves to the nearest, `fitTimeframe`; RDM scans only the type's,
   `styleRdmFrames`), whatever strategy is on (Strategy Builder: its own timeframes inside the type first, else the type's, `styleStrategyFrames`);
-  the watchlist scans the same way (items carry `tradeStyle`, `syncWatchPrefs` moves them). `tagTradeStyle` in `server.ts` tags each result
+  the watchlist scans the same way (items carry `tradeStyle`, `syncWatchPrefs` moves them).
+  Trade type timeframes (owner-specified, `users.preferences.styleTimeframes` {SCALP, DAY, SWING}, each [] = all of the type's,
+  `normalizeStyleFrames` / `styleFrames(style, custom)`; chips under the trade type cards in `PreferencePanel.tsx`, at least one on, "Use
+  all"): while that type is on, the kept timeframes override every other timeframe on the site: the composer pick moves to the nearest
+  kept one (`fitTimeframe`), RDM scans exactly them instead of the RDM choice (`styleRdmFrames`), the Strategy Builder runs inside them
+  (`styleStrategyFrames`) and watchlist items carry `styleFrames` (`syncWatchPrefs` moves them on change); All types switches it off and
+  each type's choice is remembered. `tagTradeStyle` in `server.ts` tags each result
   `strategy.tradeStyle` {style, label, closeBy, closeByText, askedTimeframe} and prepends a note (prompt text untouched). DAY trades close at 9:00 PM
   WAT the same day (issued under 30 min before = next day), SWING at Friday 9:00 PM WAT (under 24h before = next Friday), `closeDeadline`; SCALP has
   no forced close. The close time rides on the offer, the price alert (heads-up 30 min before, `warnClose`; at the close an END hit at the last
@@ -323,6 +329,11 @@
   ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
   alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
   writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
+  Level margin (owner-specified, `levelTolerance` in `server/priceAlerts.ts`, used by `evaluateBars` for alerts, journal, track record and
+  the Solana result): a stop or target counts only once price trades THROUGH it by a margin sized to the market (crypto 0.06%,
+  metals 0.1%, forex 0.008% (under 1 pip), stocks/indices/energy 0.03%, Deriv synthetics 0 = touch), capped at 15% of the
+  trade's risk; the same margin for stops and targets (no bias toward wins), so a wick that only touches a level on our feed
+  (e.g. Binance BTC/USDT) but not at the trader's broker (MT5 BTCUSD) is not recorded. Entry still fills on touching the zone.
   Win rule (owner-specified, everywhere: journal, track record, checker, Solana records): TP1 hit first = WIN, even if price later returns to the
   stop; scored at the furthest TP reached (`outcomeR`, R from the signal's own levels, stored as `trackRecord.r`, `totalR`/`avgR` in stats).
   Only a stop hit before any TP is a LOSS (-1R). The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:

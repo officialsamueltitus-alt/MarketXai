@@ -2,7 +2,8 @@
 // watchlist, alerts, journal, track record, Solana records) and the client (Preference Mode, composer chip, cards).
 //
 // - Every analysis runs on a timeframe of the chosen type, whatever timeframe was asked for or whatever strategy is on
-//   (the nearest one of the type; RDM scans only the type's timeframes).
+//   (the nearest one of the type; RDM scans only the type's timeframes). The trader can narrow each type to some of its
+//   timeframes (`styleTimeframes`); that choice then overrides every other timeframe setting (RDM included) until changed.
 // - Day trades end at 9:00 PM WAT the same day; swing trades end at 9:00 PM WAT on Friday (before the weekend). A trade
 //   still open then is recorded as ENDED (closed at that time, in profit or loss) in the alert, journal, track record and
 //   the Solana result record, and the trader is told to close it (heads-up 30 minutes before, then at the close).
@@ -27,23 +28,61 @@ export const STYLE_INFO: Record<TradeStyle, { label: string; short: string; hold
 
 export const readTradeStyle = (v: unknown): TradeStyle => (v === 'SCALP' || v === 'DAY' || v === 'SWING' ? v : 'ANY');
 
-/** The timeframes a trade type allows (every timeframe for ANY) */
-export function styleFrames(style: TradeStyle): string[] {
-  return style === 'ANY' ? [...SUPPORTED_TIMEFRAMES] : [...STYLE_FRAMES[style]];
+/** The trader's own timeframe choice per trade type (Preference Mode); [] or missing = every timeframe of that type */
+export type StyleTimeframes = Partial<Record<Exclude<TradeStyle, 'ANY'>, string[]>>;
+
+/**
+ * A valid timeframe choice for a trade type: only that type's timeframes, no repeats, in engine order. Every timeframe
+ * of the type is stored as [] ("all"). null = not a valid list.
+ */
+export function normalizeStyleFrames(style: Exclude<TradeStyle, 'ANY'>, list: unknown): string[] | null {
+  if (!Array.isArray(list)) return null;
+  const want = new Set(list.map(x => String(x || '').trim().toUpperCase()));
+  for (const tf of want) if (!STYLE_FRAMES[style].includes(tf)) return null;
+  const out = STYLE_FRAMES[style].filter(tf => want.has(tf));
+  return out.length === STYLE_FRAMES[style].length ? [] : out;
 }
 
+/** Stored choices with anything invalid dropped (a bad entry falls back to every timeframe of that type) */
+export function readStyleTimeframes(v: unknown): Required<StyleTimeframes> {
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  return {
+    SCALP: normalizeStyleFrames('SCALP', o.SCALP) || [],
+    DAY: normalizeStyleFrames('DAY', o.DAY) || [],
+    SWING: normalizeStyleFrames('SWING', o.SWING) || [],
+  };
+}
+
+/** The timeframes a trade type works with: the trader's choice for it, else every timeframe of the type (ANY: all) */
+export function styleFrames(style: TradeStyle, custom?: string[] | null): string[] {
+  if (style === 'ANY') return [...SUPPORTED_TIMEFRAMES];
+  const chosen = custom?.length ? STYLE_FRAMES[style].filter(tf => custom.includes(tf)) : [];
+  return chosen.length ? chosen : [...STYLE_FRAMES[style]];
+}
+
+/** True when the trader narrowed this trade type to some of its timeframes */
+export const hasStyleChoice = (style: TradeStyle, custom?: string[] | null) => style !== 'ANY' && styleFrames(style, custom).length < STYLE_FRAMES[style].length;
+
+/** "1m, 5m" (the chosen ones) or "1m, 3m, 5m, 15m" (all of the type) */
+export const styleFramesLabel = (style: TradeStyle, custom?: string[] | null) =>
+  style === 'ANY' ? STYLE_INFO.ANY.frames : styleFrames(style, custom).map(tf => tf.replace(/^(\d+)M$/, '$1m')).join(', ');
+
 /** The timeframe of this type nearest to the one asked for (unchanged when it already fits) */
-export function fitTimeframe(tf: string, style: TradeStyle): string {
+export function fitTimeframe(tf: string, style: TradeStyle, custom?: string[] | null): string {
   if (style === 'ANY') return tf;
-  const allowed = STYLE_FRAMES[style];
+  const allowed = styleFrames(style, custom);
   if (allowed.includes(tf)) return tf;
   const target = Math.log(timeframeMinutes(tf));
   return allowed.reduce((best, x) => (Math.abs(Math.log(timeframeMinutes(x)) - target) < Math.abs(Math.log(timeframeMinutes(best)) - target) ? x : best), allowed[0]);
 }
 
-/** RDM under a trade type: the trader's RDM timeframes inside the type (all of the type's when none overlap) */
-export function styleRdmFrames(rdm: string[], style: TradeStyle): string[] {
+/**
+ * RDM under a trade type. The trader picked timeframes for the type: exactly those (they override the RDM choice).
+ * Otherwise the trader's RDM timeframes inside the type (all of the type's when none overlap).
+ */
+export function styleRdmFrames(rdm: string[], style: TradeStyle, custom?: string[] | null): string[] {
   if (style === 'ANY') return rdm;
+  if (hasStyleChoice(style, custom)) return styleFrames(style, custom);
   const inside = rdm.filter(tf => STYLE_FRAMES[style].includes(tf));
   return inside.length ? inside : [...STYLE_FRAMES[style]];
 }
@@ -53,11 +92,12 @@ export function styleRdmFrames(rdm: string[], style: TradeStyle): string[] {
  * trades among those asked; else its own timeframes inside the type (the nearest one for a single timeframe); else the
  * type's frames as asked, so a trade of the chosen type is still looked for.
  */
-export function styleStrategyFrames(ruleTfs: string[], frames: string[], style: TradeStyle): string[] {
+export function styleStrategyFrames(ruleTfs: string[], frames: string[], style: TradeStyle, custom?: string[] | null): string[] {
   if (!ruleTfs.length) return frames;
   const hit = frames.filter(tf => ruleTfs.includes(tf));
   if (hit.length || style === 'ANY') return hit;
-  const inside = ruleTfs.filter(tf => STYLE_FRAMES[style].includes(tf));
+  const allowed = styleFrames(style, custom);
+  const inside = ruleTfs.filter(tf => allowed.includes(tf));
   if (!inside.length) return frames;
   if (frames.length !== 1) return inside;
   const target = Math.log(timeframeMinutes(frames[0]));

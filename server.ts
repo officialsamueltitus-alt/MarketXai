@@ -2120,7 +2120,7 @@ registerWatchlistRoutes(
       return q ? { price: q.price, change24h: Number(q.change24h) || 0 } : null;
     },
     candles: async (symbol, tf) => (await fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf))?.length || 0,
-    scan: async (symbol, timeframes, mode, strategyId, style) => {
+    scan: async (symbol, timeframes, mode, strategyId, style, styleTfs) => {
       const asset = await resolveAssetInfo(symbol, symbol);
       const q = await liveQuoteFor(asset);
       if (!q) return [];
@@ -2130,7 +2130,7 @@ registerWatchlistRoutes(
         if (!st) return [];
         const dec = priceDecimals(q.price, asset.symbol.includes('JPY'), asset.type === 'forex');
         // A trade type wins over the strategy's own timeframes (the same timeframes the analysis would run it on)
-        const tfs = style && style !== 'ANY' ? styleStrategyFrames(st.rules.timeframes, timeframes, style) : timeframes;
+        const tfs = style && style !== 'ANY' ? styleStrategyFrames(st.rules.timeframes, timeframes, style, styleTfs) : timeframes;
         const frames = await Promise.all(
           tfs.map(async tf => {
             if (st.rules.timeframes.length && !st.rules.timeframes.includes(tf) && !(style && style !== 'ANY')) return { timeframe: tf, price: q.price, equilibrium: 0, plan: null, zones: [] } as ScanFrame;
@@ -2773,14 +2773,15 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
 
 /** How this trader's analyses run (Preference Mode): RDM timeframes (all by default), Normal / Confirmation analysis
  *  and the trade type (Scalp, Day, Swing or any) */
-async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle }> {
+async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle; styleTfs: string[] }> {
   const uid = (res.locals.user as any)?.uid;
-  if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY' };
+  if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   try {
     const prefs = withDefaults(((await userRef(uid).get()).data() as any)?.preferences);
-    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle };
+    // styleTfs: the timeframes the trader kept for the active trade type ([] = all of the type's)
+    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle, styleTfs: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle] };
   } catch {
-    return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY' };
+    return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   }
 }
 
@@ -3332,6 +3333,8 @@ async function serveUserStrategyAnalysis(
     newsBrief: NewsBrief | null;
     /** Trade type (Preference Mode): its timeframes win over the strategy's own */
     style?: TradeStyle;
+    /** The timeframes the trader kept for that type ([] = all of the type's) */
+    styleTfs?: string[];
   }
 ) {
   const { strategy: st, asset, ticker } = o;
@@ -3347,7 +3350,7 @@ async function serveUserStrategyAnalysis(
   let frames = o.frames ? o.frames.filter(tf => !rules.timeframes.length || rules.timeframes.includes(tf)) : [o.timeframe];
   if (o.frames && !frames.length) frames = rules.timeframes.length ? [...rules.timeframes] : [o.timeframe];
   // A trade type is set: its timeframes win (the strategy's own inside the type first, else the type's as asked)
-  if (style !== 'ANY') frames = styleStrategyFrames(rules.timeframes, o.frames || [o.timeframe], style);
+  if (style !== 'ANY') frames = styleStrategyFrames(rules.timeframes, o.frames || [o.timeframe], style, o.styleTfs);
   if (!stop && style === 'ANY' && !o.frames && rules.timeframes.length && !rules.timeframes.includes(o.timeframe))
     stop = `No signal. Your strategy "${st.name}" trades on ${rules.timeframes.map(label).join(', ')}; this analysis asked for the ${label(o.timeframe)}. Pick one of those timeframes (or RDM).`;
 
@@ -3855,9 +3858,10 @@ Do NOT output structured trade card JSON.`;
     const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
     const tradeStyle: TradeStyle = chartMode ? (await analysisPrefsFor(res)).style : tradePrefs!.style;
     const askedTimeframe = analysisTimeframe;
+    // (timeframes the trader kept for the type override everything else: the composer pick, RDM and the strategy's own)
     if (tradePrefs && tradeStyle !== 'ANY') {
-      if (randomTimeframe) tradePrefs.rdm = styleRdmFrames(tradePrefs.rdm, tradeStyle);
-      else analysisTimeframe = fitTimeframe(analysisTimeframe, tradeStyle);
+      if (randomTimeframe) tradePrefs.rdm = styleRdmFrames(tradePrefs.rdm, tradeStyle, tradePrefs.styleTfs);
+      else analysisTimeframe = fitTimeframe(analysisTimeframe, tradeStyle, tradePrefs.styleTfs);
     }
     // (a chart's own timeframe can't be moved, so a chart analysis never says it was)
     tagTradeStyle(res, tradeStyle, chartMode ? '' : askedTimeframe, randomTimeframe);
@@ -3894,6 +3898,7 @@ Do NOT output structured trade card JSON.`;
           slMode: safeSlMode,
           newsBrief,
           style: tradeStyle,
+          styleTfs: tradePrefs!.styleTfs,
         });
       }
     }

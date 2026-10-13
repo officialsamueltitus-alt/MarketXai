@@ -9,7 +9,7 @@ import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
 import { SUPPORTED_TIMEFRAMES, timeframeMinutes } from '../src/utils/timeframe';
 import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults, type AnalysisMode } from '../src/utils/preferences';
-import { fitTimeframe, readTradeStyle, styleRdmFrames, type TradeStyle } from '../src/utils/tradeStyle';
+import { fitTimeframe, hasStyleChoice, readTradeStyle, styleFrames, styleRdmFrames, type TradeStyle } from '../src/utils/tradeStyle';
 
 // ===========================================================================
 // Watchlist (/watchlist): the trader approves monitoring once, then adds pairs. Each pair is checked first (MarketX
@@ -56,6 +56,8 @@ export interface WatchItem {
   strategyId?: string | null;
   /** Trade type from Preference Mode (missing = ANY): only that type's timeframes are scanned */
   tradeStyle?: TradeStyle;
+  /** The timeframes the trader kept for that trade type ([] / missing = all of the type's); they override RDM */
+  styleFrames?: string[];
   addedAt: number;
   updatedAt: number;
   active: boolean;
@@ -100,7 +102,7 @@ export interface WatchlistDeps {
   /** Number of candles readable on a timeframe (0 = no chart data) */
   candles: (symbol: string, timeframe: string) => Promise<number>;
   /** Engine read for each timeframe asked (null entries = no data on that timeframe) */
-  scan: (symbol: string, timeframes: string[], mode?: AnalysisMode, strategyId?: string | null, style?: TradeStyle) => Promise<Array<ScanFrame | null> & { strategyName?: string }>;
+  scan: (symbol: string, timeframes: string[], mode?: AnalysisMode, strategyId?: string | null, style?: TradeStyle, styleTfs?: string[]) => Promise<Array<ScanFrame | null> & { strategyName?: string }>;
   /** Minimum plan score for an RDM pick (same bar as the RDM analysis) */
   rdmMinScore: number;
 }
@@ -262,7 +264,8 @@ function toClient(w: WatchItem) {
     id: w.id, symbol: w.symbol, name: w.name, type: w.type, timeframe: w.timeframe, addedAt: w.addedAt, active: w.active,
     status: w.status, statusText: w.statusText, price: w.price, priceAt: w.priceAt, scannedAt: w.scannedAt,
     nextScanAt: w.nextScanAt, setup: w.setup, analysisMode: modeOf(w), strategy: !!w.strategyId, tradeStyle: styleOf(w),
-    ...(w.timeframe === 'RDM' ? { rdmFrames: normalizeRdmTimeframes(w.rdmFrames || []) || [] } : {}),
+    ...(w.timeframe === 'RDM' ? { rdmFrames: normalizeRdmTimeframes(rdmShown(w) || []) || [] } : {}),
+    ...(w.styleFrames?.length ? { styleFrames: w.styleFrames } : {}),
   };
 }
 
@@ -324,22 +327,27 @@ let lastSync = 0;
 let ticking = false;
 
 /** The timeframes a pair scans: its own (RDM: the trader's RDM choice), inside the trade type when one is set */
-function framesFor(tf: string, rdm?: string[], style: TradeStyle = 'ANY'): string[] {
-  return tf === 'RDM' ? styleRdmFrames(rdmFrames(rdm), style) : [fitTimeframe(tf, style)];
+function framesFor(tf: string, rdm?: string[], style: TradeStyle = 'ANY', custom?: string[]): string[] {
+  return tf === 'RDM' ? styleRdmFrames(rdmFrames(rdm), style, custom) : [fitTimeframe(tf, style, custom)];
 }
 const styleOf = (w: WatchItem): TradeStyle => readTradeStyle(w.tradeStyle);
 /** The timeframe a pair is shown as scanning (a fixed timeframe moved into the trade type, or RDM) */
-const shownTf = (w: Pick<WatchItem, 'timeframe' | 'tradeStyle'>) => (w.timeframe === 'RDM' ? 'RDM' : fitTimeframe(w.timeframe, readTradeStyle(w.tradeStyle)));
+const shownTf = (w: Pick<WatchItem, 'timeframe' | 'tradeStyle' | 'styleFrames'>) => (w.timeframe === 'RDM' ? 'RDM' : fitTimeframe(w.timeframe, readTradeStyle(w.tradeStyle), w.styleFrames));
+/** The timeframes an RDM pair really scans (for its label): the trade type's chosen timeframes override the RDM choice */
+const rdmShown = (w: Pick<WatchItem, 'rdmFrames' | 'tradeStyle' | 'styleFrames'>) => {
+  const style = readTradeStyle(w.tradeStyle);
+  return hasStyleChoice(style, w.styleFrames) ? styleFrames(style, w.styleFrames) : w.rdmFrames;
+};
 /** Same-scan key: pairs on RDM with a different timeframe choice are scanned separately */
 const modeOf = (w: WatchItem): AnalysisMode => (w.analysisMode === 'CONFIRMATION' ? 'CONFIRMATION' : 'NORMAL');
-const scanKey = (w: WatchItem) => `${w.symbol}|${framesFor(w.timeframe, w.rdmFrames, styleOf(w)).join(',')}|${w.timeframe === 'RDM' ? 'RDM' : 'TF'}|${w.strategyId ? `S:${w.strategyId}` : modeOf(w)}|${styleOf(w)}`;
+const scanKey = (w: WatchItem) => `${w.symbol}|${framesFor(w.timeframe, w.rdmFrames, styleOf(w), w.styleFrames).join(',')}|${w.timeframe === 'RDM' ? 'RDM' : 'TF'}|${w.strategyId ? `S:${w.strategyId}` : modeOf(w)}|${styleOf(w)}`;
 
 /** The trader's scan settings from Preference Mode: RDM timeframes ([] = all) and analysis mode */
-async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: AnalysisMode; strategyId: string | null; style: TradeStyle }> {
+async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: AnalysisMode; strategyId: string | null; style: TradeStyle; styleTfs: string[] }> {
   const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
   const p = withDefaults((doc as any)?.preferences);
   const sm = (doc as any)?.strategyMode;
-  return { rdm: p.rdmTimeframes, mode: p.analysisMode, strategyId: sm?.enabled && typeof sm.strategyId === 'string' ? sm.strategyId : null, style: p.tradeStyle };
+  return { rdm: p.rdmTimeframes, mode: p.analysisMode, strategyId: sm?.enabled && typeof sm.strategyId === 'string' ? sm.strategyId : null, style: p.tradeStyle, styleTfs: p.tradeStyle === 'ANY' ? [] : p.styleTimeframes[p.tradeStyle] };
 }
 
 /** Strategy mode changed (on, off, another strategy, or its rules edited): the trader's pairs scan with it from now on */
@@ -352,7 +360,7 @@ export async function syncWatchStrategy(uid: string, strategyId: string | null) 
       const w = d.data() as WatchItem;
       const next: Partial<WatchItem> = {
         strategyId, setup: null, nextScanAt: t, updatedAt: t,
-        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, shownTf(w), w.rdmFrames) } : {}),
+        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, shownTf(w), rdmShown(w)) } : {}),
       };
       if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, ...next } as WatchItem);
       return d.ref.update(next);
@@ -364,7 +372,7 @@ export async function syncWatchStrategy(uid: string, strategyId: string | null) 
  * Preference Mode changed the RDM timeframes or the analysis mode: the trader's pairs scan the new way from now on
  * (RDM pairs take the new timeframes; every pair takes the mode) and are rescanned.
  */
-export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; mode: AnalysisMode; style?: TradeStyle }) {
+export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; mode: AnalysisMode; style?: TradeStyle; styleFrames?: string[] }) {
   if (!isFirebaseConfigured()) return;
   const frames = normalizeRdmTimeframes(prefs.rdmFrames) || [];
   const snap = await db().collection(ITEMS).where('uid', '==', uid).get();
@@ -374,13 +382,15 @@ export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; 
       const w = d.data() as WatchItem;
       const rdm = w.timeframe === 'RDM';
       const style = readTradeStyle(prefs.style ?? w.tradeStyle);
-      const changed = modeOf(w) !== prefs.mode || styleOf(w) !== style || (rdm && (normalizeRdmTimeframes(w.rdmFrames || []) || []).join(',') !== frames.join(','));
+      const custom = style === 'ANY' ? [] : prefs.styleFrames ?? w.styleFrames ?? [];
+      const changed = modeOf(w) !== prefs.mode || styleOf(w) !== style || (w.styleFrames || []).join(',') !== custom.join(',') || (rdm && (normalizeRdmTimeframes(w.rdmFrames || []) || []).join(',') !== frames.join(','));
       if (!changed) return null;
-      const shown = shownTf({ timeframe: w.timeframe, tradeStyle: style });
+      const shown = shownTf({ timeframe: w.timeframe, tradeStyle: style, styleFrames: custom });
+      const label = rdmShown({ rdmFrames: frames, tradeStyle: style, styleFrames: custom });
       const next: Partial<WatchItem> = {
         ...(rdm ? { rdmFrames: frames } : {}),
-        analysisMode: prefs.mode, tradeStyle: style, setup: null, nextScanAt: t, updatedAt: t,
-        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, shown, rdm ? frames : undefined) } : { statusText: `Paused · ${tfLabel(shown, frames)}` }),
+        analysisMode: prefs.mode, tradeStyle: style, styleFrames: custom, setup: null, nextScanAt: t, updatedAt: t,
+        ...(w.active ? { status: 'SCANNING' as WatchStatus, statusText: statusText('SCANNING', null, shown, rdm ? label : undefined) } : { statusText: `Paused · ${tfLabel(shown, label)}` }),
       };
       if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, ...next } as WatchItem);
       return d.ref.update(next);
@@ -404,7 +414,7 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
     const notified = fresh ? [...cur.notified, setup!.key].slice(-30) : cur.notified;
     const next: Partial<WatchItem> = {
       status: result.status,
-      statusText: statusText(result.status, result.setup, shownTf(cur), cur.rdmFrames),
+      statusText: statusText(result.status, result.setup, shownTf(cur), rdmShown(cur)),
       price: result.price ?? cur.price,
       priceAt: result.price ? t : cur.priceAt,
       scannedAt: t,
@@ -421,11 +431,11 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
   return outcome.item;
 }
 
-async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL', strategyId?: string | null, style: TradeStyle = 'ANY') {
+async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL', strategyId?: string | null, style: TradeStyle = 'ANY', custom?: string[]) {
   const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: !strategyId && mode === 'CONFIRMATION' };
   try {
     const frames = await Promise.race([
-      deps.scan(symbol, framesFor(tf, rdm, style), mode, strategyId || null, style),
+      deps.scan(symbol, framesFor(tf, rdm, style, custom), mode, strategyId || null, style, custom),
       new Promise<Array<ScanFrame | null>>(r => setTimeout(() => r([]), 25_000)),
     ]);
     return summarizeScan(frames, { ...opts, ...(strategyId ? { strategyName: (frames as any).strategyName || 'your strategy' } : {}) });
@@ -439,7 +449,7 @@ export async function scanItemNow(itemId: string, deps: WatchlistDeps): Promise<
   const snap = await db().collection(ITEMS).doc(itemId).get();
   if (!snap.exists) return null;
   const item = snap.data() as WatchItem;
-  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames, modeOf(item), item.strategyId, styleOf(item));
+  const result = await scanFrames(item.symbol, item.timeframe, deps, item.rdmFrames, modeOf(item), item.strategyId, styleOf(item), item.styleFrames);
   const saved = await applyScan(itemId, result, deps);
   if (saved && IS_LEAD_WORKER && saved.active) watched.set(saved.id, saved);
   return saved;
@@ -474,7 +484,7 @@ async function tick(deps: WatchlistDeps) {
       await Promise.all(
         keys.slice(i, i + FETCH_CONCURRENCY).map(async k => {
           const items = groups.get(k)!;
-          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames, modeOf(items[0]), items[0].strategyId, styleOf(items[0]));
+          const result = await scanFrames(items[0].symbol, items[0].timeframe, deps, items[0].rdmFrames, modeOf(items[0]), items[0].strategyId, styleOf(items[0]), items[0].styleFrames);
           for (const w of items) {
             try {
               const saved = await applyScan(w.id, result, deps);
@@ -502,7 +512,7 @@ export async function setWatchlistEnabled(uid: string, enabled: boolean) {
   await Promise.all(
     snap.docs.map(d => {
       const w = d.data() as WatchItem;
-      if (enabled && !w.active) return d.ref.update({ active: true, status: 'SCANNING', statusText: statusText('SCANNING', null, shownTf(w), w.rdmFrames), nextScanAt: t, updatedAt: t });
+      if (enabled && !w.active) return d.ref.update({ active: true, status: 'SCANNING', statusText: statusText('SCANNING', null, shownTf(w), rdmShown(w)), nextScanAt: t, updatedAt: t });
       if (!enabled && w.active) return d.ref.update({ active: false, updatedAt: t });
       return null;
     })
@@ -593,8 +603,9 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     // Real-time check: a live quote and a readable chart on the timeframe it will be scanned on (RDM: 1H, or the
     // first chosen timeframe of an hour or more)
     // (a trade type moves a fixed timeframe into the type, and RDM scans only the type's timeframes)
-    const rdmList = framesFor('RDM', rdm, sp.style);
-    const shown = shownTf({ timeframe, tradeStyle: sp.style });
+    const rdmList = framesFor('RDM', rdm, sp.style, sp.styleTfs);
+    const shown = shownTf({ timeframe, tradeStyle: sp.style, styleFrames: sp.styleTfs });
+    const rdmLbl = rdm ? rdmShown({ rdmFrames: rdm, tradeStyle: sp.style, styleFrames: sp.styleTfs }) : undefined;
     const verifyTf = timeframe === 'RDM' ? (rdmList.includes('1H') ? '1H' : rdmList.find(f => timeframeMinutes(f) >= 60) || rdmList[rdmList.length - 1]) : shown;
     const timeout = <T,>(p: Promise<T>, fallback: T) => Promise.race([p.catch(() => fallback), new Promise<T>(r => setTimeout(() => r(fallback), VERIFY_TIMEOUT_MS))]);
     const [quote, bars] = await Promise.all([timeout(deps.quote(asset.symbol), null), timeout(deps.candles(asset.symbol, verifyTf), 0)]);
@@ -617,12 +628,13 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
       ...(rdm ? { rdmFrames: rdm } : {}),
       analysisMode: sp.mode,
       tradeStyle: sp.style,
+      ...(sp.styleTfs.length ? { styleFrames: sp.styleTfs } : {}),
       ...(sp.strategyId ? { strategyId: sp.strategyId } : {}),
       addedAt: t,
       updatedAt: t,
       active: true,
       status: 'SCANNING',
-      statusText: statusText('SCANNING', null, shown, rdm),
+      statusText: statusText('SCANNING', null, shown, rdmLbl),
       price: quote.price,
       priceAt: t,
       scannedAt: null,
@@ -652,11 +664,12 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
     const t = now();
     const rdm = timeframe === 'RDM' ? (await scanPrefs(uid)).rdm : [];
-    const shown = shownTf({ timeframe, tradeStyle: w.tradeStyle });
+    const shown = shownTf({ timeframe, tradeStyle: w.tradeStyle, styleFrames: w.styleFrames });
+    const lbl = rdmShown({ rdmFrames: rdm, tradeStyle: w.tradeStyle, styleFrames: w.styleFrames });
     // A paused pair keeps its new timeframe and is scanned when the watchlist is turned back on
     await db().collection(ITEMS).doc(w.id).update({
       timeframe, rdmFrames: rdm, setup: null, nextScanAt: t + scanGapMs(shown), updatedAt: t,
-      ...(w.active ? { status: 'SCANNING', statusText: statusText('SCANNING', null, shown, rdm) } : { status: 'WAITING', statusText: `Paused · ${tfLabel(shown, rdm)}` }),
+      ...(w.active ? { status: 'SCANNING', statusText: statusText('SCANNING', null, shown, lbl) } : { status: 'WAITING', statusText: `Paused · ${tfLabel(shown, lbl)}` }),
     });
     if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, timeframe, rdmFrames: rdm, nextScanAt: t + scanGapMs(shown) });
     if (w.active) scanItemNow(w.id, deps).catch(() => {});

@@ -8,7 +8,7 @@ import { playChime, setWatchSound, watchSoundOn } from '../utils/notifySound';
 import { PluginIntro, PluginSheet, ago } from './PluginSheet';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
 import { rdmLabel } from '../utils/preferences';
-import { STYLE_INFO } from '../utils/tradeStyle';
+import { STYLE_INFO, styleFramesLabel } from '../utils/tradeStyle';
 
 interface WatchlistPanelProps {
   isOpen: boolean;
@@ -29,6 +29,7 @@ interface WatchlistPanelProps {
   confirmationMode?: boolean;
   /** Trade type from Preference Mode: pairs scan only its timeframes */
   tradeStyle?: 'ANY' | 'SCALP' | 'DAY' | 'SWING';
+  styleFrames?: string[];
 }
 
 // Every timeframe the engine supports, plus RDM (scan them all)
@@ -47,7 +48,7 @@ const STATUS: Record<WatchItem['status'], { label: string; pill: string; dot: st
   NO_DATA: { label: 'No data', pill: 'bg-rose-500/10 text-rose-300 border-rose-500/25', dot: 'bg-rose-400' },
 };
 
-export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode, tradeStyle }) => {
+export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode, tradeStyle, styleFrames }) => {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [max, setMax] = useState(12);
   const [loading, setLoading] = useState(false);
@@ -220,7 +221,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
       </form>
       {tradeStyle && tradeStyle !== 'ANY' && (
         <p className="mt-2 px-3 py-2 rounded-xl bg-amber-500/[0.05] border border-amber-400/20 text-[11px] leading-snug text-amber-100/90">
-          <span className="font-semibold">{STYLE_INFO[tradeStyle].label}s only.</span> Pairs scan {STYLE_INFO[tradeStyle].frames} (another timeframe moves to the
+          <span className="font-semibold">{STYLE_INFO[tradeStyle].label}s only.</span> Pairs scan {styleFramesLabel(tradeStyle, styleFrames)}, RDM included (another timeframe moves to the
           nearest of them).{tradeStyle !== 'SCALP' ? ` Trades close by 9:00 PM WAT${tradeStyle === 'SWING' ? ' on Friday' : ''}.` : ''} Change it in Preference Mode.
         </p>
       )}

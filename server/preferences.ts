@@ -11,6 +11,8 @@
 // - rdmTimeframes: which timeframes RDM scans ([] = all), for RDM analyses and RDM watchlist pairs alike
 // - tradeStyle: ANY, SCALP, DAY or SWING (src/utils/tradeStyle.ts): which timeframes analyses and the watchlist use,
 //   and the 9:00 PM WAT close (day: same day, swing: Friday) recorded as ENDED in alerts, journal, track record, Solana
+// - styleTimeframes: per trade type, the timeframes the trader keeps ([] = all of the type's); while that type is on,
+//   the choice overrides every other timeframe (composer pick, RDM, watchlist, Strategy Builder)
 // - analysisMode: NORMAL, or CONFIRMATION (server/confirmation.ts: a trade only once price confirms at the zone), for
 //   analyses and the watchlist alike
 // Free for everyone.
@@ -20,6 +22,7 @@ import { getUser, requireAuth, userRef, type UserDoc } from './account';
 import { createKeyedThrottle } from './security';
 import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
+import { normalizeStyleFrames } from '../src/utils/tradeStyle';
 import { DEFAULT_PREFERENCES, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
 import { syncWatchPrefs } from './watchlist';
 export { DEFAULT_PREFERENCES };
@@ -83,6 +86,19 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (!['ANY', 'SCALP', 'DAY', 'SWING'].includes(body.tradeStyle)) return { error: 'Choose a trade type from the list.' };
     next.tradeStyle = body.tradeStyle;
   }
+  if (has('styleTimeframes')) {
+    // A partial update: only the trade types sent change; each must be some of that type's own timeframes
+    const v = body.styleTimeframes;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return { error: 'Choose timeframes for the trade type from the list.' };
+    const merged = { ...current.styleTimeframes };
+    for (const k of Object.keys(v)) {
+      if (k !== 'SCALP' && k !== 'DAY' && k !== 'SWING') return { error: 'Choose a trade type from the list.' };
+      const list = normalizeStyleFrames(k, v[k]);
+      if (!list) return { error: 'Choose timeframes of that trade type from the list.' };
+      merged[k] = list;
+    }
+    next.styleTimeframes = merged;
+  }
   if (has('rdmTimeframes')) {
     const list = normalizeRdmTimeframes(body.rdmTimeframes);
     if (!list) return { error: 'Choose RDM timeframes from the list.' };
@@ -123,8 +139,9 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
     await userRef(uid).update({ preferences: prefs });
     // The watchlist scans the way an analysis does: same RDM timeframes, analysis mode and trade type
     const old = readPreferences(doc);
-    if (old.rdmTimeframes.join(',') !== prefs.rdmTimeframes.join(',') || old.analysisMode !== prefs.analysisMode || old.tradeStyle !== prefs.tradeStyle)
-      await syncWatchPrefs(uid, { rdmFrames: prefs.rdmTimeframes, mode: prefs.analysisMode, style: prefs.tradeStyle }).catch(err => console.warn('[MarketX Preferences] watchlist sync failed:', err?.message || err));
+    const styleTfs = (p: Preferences) => (p.tradeStyle === 'ANY' ? '' : p.styleTimeframes[p.tradeStyle].join(','));
+    if (old.rdmTimeframes.join(',') !== prefs.rdmTimeframes.join(',') || old.analysisMode !== prefs.analysisMode || old.tradeStyle !== prefs.tradeStyle || styleTfs(old) !== styleTfs(prefs))
+      await syncWatchPrefs(uid, { rdmFrames: prefs.rdmTimeframes, mode: prefs.analysisMode, style: prefs.tradeStyle, styleFrames: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle] }).catch(err => console.warn('[MarketX Preferences] watchlist sync failed:', err?.message || err));
     res.json({ preferences: prefs });
   }));
 }
