@@ -323,6 +323,11 @@
   ONCE (WIN at the furthest TP reached, LOSS at the stop, NO_FILL if never entered, not in stats) and it is DONE (notes only after that). If the
   alert ends while in the trade with no TP/SL it is HANDED_OVER and the trader closes it by hand. Manual trades work as before. The track record is built only from price alerts: `archiveAlertOutcome`
   writes `trackRecord/{alertId}` when an alert ends (WIN once any TP is hit, LOSS if the stop came first, MISSED); MarketX-wide stats cached 10 min.
+  Level margin (owner-specified, `levelTolerance` in `server/priceAlerts.ts`, used by `evaluateBars` for alerts, journal, track record and
+  the Solana result): a stop or target counts only once price trades THROUGH it by a margin sized to the market (crypto 0.06%,
+  metals 0.1%, forex 0.008% (under 1 pip), stocks/indices/energy 0.03%, Deriv synthetics 0 = touch), capped at 15% of the
+  trade's risk; the same margin for stops and targets (no bias toward wins), so a wick that only touches a level on our feed
+  (e.g. Binance BTC/USDT) but not at the trader's broker (MT5 BTCUSD) is not recorded. Entry still fills on touching the zone.
   Win rule (owner-specified, everywhere: journal, track record, checker, Solana records): TP1 hit first = WIN, even if price later returns to the
   stop; scored at the furthest TP reached (`outcomeR`, R from the signal's own levels, stored as `trackRecord.r`, `totalR`/`avgR` in stats).
   Only a stop hit before any TP is a LOSS (-1R). The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:

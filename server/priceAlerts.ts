@@ -152,16 +152,40 @@ export function fmtPrice(p: number): string {
 
 const side = (a: AlertLevels) => (a.direction === 'LONG' ? (a.execution === 'MARKET' ? 'BUY' : 'BUY LIMIT') : a.execution === 'MARKET' ? 'SELL' : 'SELL LIMIT');
 
+const FIAT = new Set('USD EUR GBP JPY CHF CAD AUD NZD SEK NOK DKK PLN CZK HUF TRY ZAR MXN BRL CNH CNY HKD SGD INR KRW THB IDR MYR PHP ILS SAR AED NGN KES GHS EGP RUB CLP COP ARS TWD'.split(' '));
+/**
+ * How far price must trade THROUGH a stop or target before MarketX counts it (owner-specified, fair to both sides).
+ * MarketX reads one feed (e.g. Binance BTC/USDT); a trader's broker (e.g. MT5 BTCUSD) quotes its own price, often a
+ * little away from it, so a wick that only just touches a level on our feed may never reach it at the broker. A level
+ * counts once price passes it by a small margin sized to the market, capped at 15% of the trade's risk so it never
+ * swamps a tight stop. Stops and targets use the same margin (no bias towards wins); Deriv synthetics are the broker's
+ * own feed, so they count on touch.
+ */
+export function levelTolerance(symbol: string | undefined, level: number, risk: number): number {
+  const sym = String(symbol || '').toUpperCase().trim();
+  let pct: number;
+  if (/^(BOOM|CRASH|VOLATILITY|JUMP|STEP|RANGE BREAK|DEX)\b/.test(sym)) pct = 0;
+  else if (/^(XAU|XAG|XPT|XPD)\//.test(sym)) pct = 0.001;
+  else if (/^[A-Z]{3}\/[A-Z]{3}$/.test(sym) && FIAT.has(sym.slice(0, 3)) && FIAT.has(sym.slice(4))) pct = 0.00008;
+  else if (/\//.test(sym) && !/^(WTI|BRENT|NGAS|COPPER)\b/.test(sym)) pct = 0.0006;
+  else pct = 0.0003;
+  if (!pct || !finite(level) || !finite(risk) || risk <= 0) return 0;
+  return Math.min(Math.abs(level) * pct, risk * 0.15);
+}
+
 /**
  * Walks candles (oldest first) and returns the new level hits for an alert, in the order they happened.
  * Before the entry fills, reaching the first target means the move happened without the trader (MISSED).
  * After entry: the stop loss closes the alert; the targets fire in turn and the last one closes it.
  */
 export function evaluateBars(
-  a: Pick<PriceAlert, 'direction' | 'entry' | 'stop' | 'tps' | 'entered' | 'hits' | 'createdAt'> & { scanFrom?: number },
+  a: Pick<PriceAlert, 'direction' | 'entry' | 'stop' | 'tps' | 'entered' | 'hits' | 'createdAt'> & { scanFrom?: number; symbol?: string },
   bars: Bar[]
 ): { hits: AlertHit[]; entered: boolean; closed: boolean } {
   const long = a.direction === 'LONG';
+  // Stops and targets count once price trades through them by the market's margin (see levelTolerance)
+  const risk = Math.abs((a.entry?.optimal ?? (a.entry.min + a.entry.max) / 2) - a.stop);
+  const tol = (p: number) => levelTolerance(a.symbol, p, risk);
   const done = new Set(a.hits.map(h => h.kind));
   const hits: AlertHit[] = [];
   let entered = a.entered;
@@ -178,7 +202,7 @@ export function evaluateBars(
     const b = bars[i];
     if (closed) break;
     if (!(b.t >= fromT) || !finite(b.h) || !finite(b.l)) continue;
-    const reached = (p: number) => (long ? b.h >= p : b.l <= p);
+    const reached = (p: number) => (long ? b.h >= p + tol(p) : b.l <= p - tol(p));
     if (!entered) {
       if (long ? b.l <= a.entry.max : b.h >= a.entry.min) {
         entered = true;
@@ -191,7 +215,7 @@ export function evaluateBars(
         continue;
       }
     }
-    if (long ? b.l <= a.stop : b.h >= a.stop) {
+    if (long ? b.l <= a.stop - tol(a.stop) : b.h >= a.stop + tol(a.stop)) {
       hits.push({ kind: 'SL', at: b.t, price: a.stop });
       closed = true;
       break;
