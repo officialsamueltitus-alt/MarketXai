@@ -77,6 +77,7 @@ import { timeframeFromPrompt } from './utils/timeframe';
 import { playChime, primeSound } from './utils/notifySound';
 import { onPushMessages, syncPush, unlinkPush } from './utils/push';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
+import { STYLE_INFO } from './utils/tradeStyle';
 import { FUNDAMENTAL_EXAMPLES, fundamentalPrompt, fundamentalTopic, type FundamentalReport } from './utils/fundamental';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
@@ -1223,7 +1224,7 @@ export default function App() {
     setIsConnectorsOpen(false);
     setIsSidebarOpen(false);
     if (!proAccess) {
-      showProUpsell(`${PLUGINS.find(p => p.id === id)?.label || 'This command'} is a Pro feature. Upgrade to Pro to use it.`);
+      showProUpsell(`${PLUGINS.find(p => p.id === id)?.label || 'This tool'} is a Pro feature. Upgrade to Pro to use it.`);
       return;
     }
     if (id === 'alerts') setIsAlertsOpen(true);
@@ -1242,12 +1243,12 @@ export default function App() {
         return;
       }
       if (enabled) {
-        const label = PLUGINS.find(p => p.id === id)?.label || 'Command';
-        setToastNotification({ message: `${label} is on. Find it in Settings, Connectors / Plugins.`, type: 'success' });
+        const label = PLUGINS.find(p => p.id === id)?.label || 'Tool';
+        setToastNotification({ message: `${label} is on. Find it in Tools.`, type: 'success' });
       }
     } catch (err: any) {
       if (err instanceof ApiError && err.code === 'PRO_REQUIRED') showProUpsell(err.message);
-      else setToastNotification({ message: err?.message || 'Could not update that command. Please try again.', type: 'info' });
+      else setToastNotification({ message: err?.message || 'Could not update that tool. Please try again.', type: 'info' });
       throw err;
     }
   }, [fetchAlerts, showProUpsell, userProfile.alertsMode]);
@@ -2495,6 +2496,14 @@ export default function App() {
           onOpen={openPluginPanel}
           onToggle={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
           onOpenTool={openToolPanel}
+          active={[
+            ...(fundamentalOn ? [{ id: 'fundamental', label: 'Fundamental Analysis', detail: 'Type /fundamental-analysis then a topic, e.g. CPI', dot: 'bg-sky-400', onOpen: () => openToolPanel('fundamental') }] : []),
+            ...(activeStrategy ? [{ id: 'strategy', label: 'Strategy Builder', detail: `Your strategy "${activeStrategy.name}" finds your trades`, dot: 'bg-violet-400', onOpen: () => openToolPanel('strategy') }] : []),
+            ...(preferences.analysisMode === 'CONFIRMATION' && !activeStrategy ? [{ id: 'confirmation', label: 'Confirmation analysis', detail: 'A trade is called once price confirms at the zone', dot: 'bg-emerald-400', onOpen: () => openToolPanel('preference') }] : []),
+            ...(preferences.tradeStyle && preferences.tradeStyle !== 'ANY'
+              ? [{ id: 'style', label: `${STYLE_INFO[preferences.tradeStyle].label}s only`, detail: 'Trade type, set in Preference Mode', dot: preferences.tradeStyle === 'SCALP' ? 'bg-cyan-400' : preferences.tradeStyle === 'DAY' ? 'bg-amber-400' : 'bg-fuchsia-400', onOpen: () => openToolPanel('preference') }]
+              : []),
+          ]}
         />
       </Deferred>
       {/* Strategy Builder (/strategy) */}

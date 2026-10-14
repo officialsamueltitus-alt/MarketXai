@@ -311,7 +311,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           busy={busy === 'on'}
           onApprove={() => run('on', () => onSetEnabled(true))}
           onLater={onClose}
-          footnote="You choose the pairs. Switch it off any time in Settings, Connectors."
+          footnote="You choose the pairs. Switch it off any time in Tools."
         />
       ) : loading && !items.length ? (
         <div className="py-16 flex justify-center text-slate-500">

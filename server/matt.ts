@@ -167,7 +167,7 @@ async function accountSummary(res: Response): Promise<string> {
     unlimited
       ? ''
       : `Credits: ${c.availableCredits} available${c.campaignCredits ? ` (${c.campaignCredits} campaign credits, used first)` : ''}; today's analyses left: ${c.dailyUsageRemaining} of ${c.dailyUsageLimit}; next refill ${c.nextDailyResetAt ? new Date(c.nextDailyResetAt).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' }) + ' (Lagos time)' : 'at 3:00 AM Lagos time'}.`,
-    `Commands switched on: ${Object.entries(p.plugins || {}).filter(([, on]) => on).map(([k]) => ({ alerts: 'price alerts', watchlist: 'watchlist', journal: 'trade journal', trackRecord: 'track record' } as any)[k]).join(', ') || 'none'}${p.alertsEnabled ? `; price alerts mode ${p.alertsMode === 'AUTO' ? 'Auto' : 'Manual'}` : ''}.`,
+    `Tools switched on: ${Object.entries(p.plugins || {}).filter(([, on]) => on).map(([k]) => ({ alerts: 'price alerts', watchlist: 'watchlist', journal: 'trade journal', trackRecord: 'track record' } as any)[k]).join(', ') || 'none'}${p.alertsEnabled ? `; price alerts mode ${p.alertsMode === 'AUTO' ? 'Auto' : 'Manual'}` : ''}.`,
     `Pro features: ${p.proAccess ? 'available to you' : 'need Pro'}${Date.now() < p.proFreeUntil ? ' (free for everyone until 1 November 2026)' : ''}.`,
     `Preferences: trade type ${STYLE_INFO[prefs.tradeStyle].label}${prefs.tradeStyle !== 'ANY' ? ` on ${styleFramesLabel(prefs.tradeStyle, prefs.styleTimeframes[prefs.tradeStyle])}` : ''}; analysis mode ${prefs.analysisMode === 'CONFIRMATION' ? 'Confirmation' : 'Normal'}; RDM scans ${rdmLabel(prefs.rdmTimeframes)}; default timeframe ${prefs.timeframe}; stop loss ${prefs.slMode === 'tight' ? 'Tight' : 'Normal'}${prefs.accountSize ? `; account ${prefs.currency} ${prefs.accountSize}, risk ${prefs.riskPct}% per trade` : ''}.`,
   ];
@@ -192,7 +192,7 @@ const PRIVATE_TOKEN = '[[PRIVATE]]';
 const MATT_SYSTEM = `You are Matt, the friendly help assistant inside MarketX, a trading platform that gives traders trade plans for any market.
 
 You answer ONLY:
-1. How MarketX works: its features, commands (like /watchlist, /price-alerts, /trade-journal, /track-record, /strategy-builder, /fundamental-analysis, /preference, /token-safety), tools, settings, the site guide, and how to use them.
+1. How MarketX works: its features and tools (opened from the Tools button or by typing a slash command, like /watchlist, /price-alerts, /trade-journal, /track-record, /strategy-builder, /fundamental-analysis, /preference, /token-safety), tools, settings, the site guide, and how to use them.
 2. Events, bonuses, rewards and promos.
 3. The trader's OWN account, using only the ACCOUNT section you are given.
 4. Markets: what a pair or asset is, what moves it, its sessions, fundamentals, economic events, and trading concepts, using the MARKET section when given.
@@ -259,7 +259,7 @@ function fallbackAnswer(q: string, account: string | null, pair: { fallback: str
     const text = best.text.split('\n').slice(0, 14).join('\n');
     return `### ${best.title}\n\n${text}\n\nWant more detail? Ask me about any part of it.`;
   }
-  return "I can help with anything about MarketX (features, commands, settings, credits and plans, events and promos), your own account, and the markets: pairs, what moves them, and trading concepts. What would you like to know?";
+  return "I can help with anything about MarketX (features, tools, settings, credits and plans, events and promos), your own account, and the markets: pairs, what moves them, and trading concepts. What would you like to know?";
 }
 
 // ---------------------------------------------------------------------------

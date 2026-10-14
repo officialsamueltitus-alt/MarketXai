@@ -156,7 +156,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
       promo.push({ id: 'campaign', tone: 'amber', icon: Gift, label: 'Campaign', text: 'Share MarketX on X and earn 10 free credits', cta: 'Start', onAction: p.onOpenCampaign });
     }
     promo.push({ id: 'tip-chart', tone: 'cyan', icon: ImagePlus, label: 'Tip', text: 'Attach a chart screenshot, name the pair, and MarketX reads the chart for you' });
-    promo.push({ id: 'tip-slash', tone: 'slate', icon: Lightbulb, label: 'Tip', text: 'Type / in the message box for quick commands' });
+    promo.push({ id: 'tip-slash', tone: 'slate', icon: Lightbulb, label: 'Tip', text: 'Type / in the message box to open any tool' });
 
     const fresh = (l: UpdateItem[]) => l.filter(i => !seenRef.current.has(i.id));
     return { market: fresh(market), promo: fresh(promo) };
