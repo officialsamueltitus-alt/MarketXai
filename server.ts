@@ -40,6 +40,7 @@ import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type Acti
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
 import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
 import { registerMattRoutes, useMattEngine } from './server/matt';
+import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
@@ -186,6 +187,23 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat', '/api/admin/broadcast']);
 // AI-written content never names the underlying model
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
+// Live prices only, never an invented level: "price is now X" claims are checked against the live price, and sentences in
+// trade write-ups naming a level outside the verified plan are removed (server/priceGuard.ts; levels are never changed)
+app.use('/api/market/analyze', (req, res, next) => {
+  const send = res.json.bind(res);
+  res.json = ((body: any) => {
+    try {
+      if (res.statusCode < 400 && body && typeof body === 'object') {
+        const { removed } = guardResultText(body, typeof res.locals.liveQuotePrice === 'number' ? res.locals.liveQuotePrice : null);
+        if (removed.length) console.warn(`[MarketX Price guard] removed ${removed.length} sentence(s) naming levels outside the verified plan: ${removed.slice(0, 2).map(x => JSON.stringify(x.slice(0, 160))).join(' ')}`);
+      }
+    } catch (err: any) {
+      console.warn('[MarketX Price guard] skipped:', err?.message || err);
+    }
+    return send(body);
+  }) as any;
+  next();
+});
 // Every LONG / SHORT signal served is recorded as a price-alert offer (levels kept server-side; the analysis is untouched)
 app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
@@ -2183,6 +2201,7 @@ registerMattRoutes(app, generalApiRateLimiter, {
         ...pairKnowledge(asset).map(l => `- ${l}`),
       ].join('\n'),
       fallback: pairBriefing(asset, question, details, news),
+      live: live ? quote!.price : null,
     };
   },
 });
@@ -3699,6 +3718,8 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
         await newsReady;
         const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);
         const live = !!quote && quote.price > 0 && quote.live !== false;
+        // The price guard checks the answer's "price is now X" claims against this live price
+        if (live) res.locals.liveQuotePrice = quote!.price;
         if (!chatAsset.unresolved) {
           research.data.push(live ? `Live ${chatAsset.symbol} price` : 'Live price unavailable');
           if (chatAsset.type === 'crypto') {
@@ -3906,6 +3927,8 @@ Do NOT output structured trade card JSON.`;
       }
       currentTicker = fresh;
     }
+    // The price guard checks write-ups against this live price (in chart mode too, next to the chart's own price)
+    if (currentTicker.price > 0 && currentTicker.live !== false) res.locals.liveQuotePrice = currentTicker.price;
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
@@ -4591,7 +4614,7 @@ INSTRUCTIONS:
 
       if (chartMode) {
         // Honest header: these levels were read from the uploaded chart, not from live data
-        const liveNow = currentTicker.price > 0 ? ` · live price now ${currentTicker.price}` : '';
+        const liveNow = currentTicker.price > 0 && currentTicker.live !== false ? ` · live price now ${currentTicker.price}` : '';
         fullStrategy.detailedThesis = `### 📊 Read from your ${asset.symbol} chart (${levelTimeframe})
 > Every level below was read from the chart you uploaded (last price on the chart ${chartPrice}${liveNow}). If price has moved since the screenshot, check the levels before you trade.
 

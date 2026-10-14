@@ -112,7 +112,8 @@
   BREAKOUT_RETEST, RSI_DIVERGENCE, MA_CROSS, SR_BOUNCE, BOLLINGER_REVERSION, SESSION_BREAKOUT, RANGE_SWEEP; 11 `STRATEGY_TEMPLATES`, none is the
   general engine's S&D + Fibonacci; `normalizeRules` clamps everything; `describeRules`, `shortSummary`). Rules engine `server/userStrategy.ts`
   (`runUserStrategy`: setup on the latest candles, sells on the mirrored chart; filters; STRUCTURE/ATR stop; R + structure targets in price
-  order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price).
+  order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price;
+  "already mitigated" (owner-specified): no candle since the setup formed may have reached the stop or any TP, or traded into a limit entry band).
   Words engine `server/strategyAi.ts` (owner-specified: API 2 removed, ONE key): uses the general engine's connection (`useMainEngine(getGeminiClient)`
   in `server.ts`, same `GEMINI_API_KEY` and the same three models; `getGeminiClient`/`modelsToTry` are only called, never changed), but every request
   carries only the Strategy Builder's own instructions, never the general engine's prompts (and vice versa); with the builder off it never runs;
@@ -162,6 +163,10 @@
   in `server.ts` is the one way to read "the price now" (quote endpoint, watchlist, alert refresh, question
   answers): the fresh quote, else the close of the latest real candle fetched right now, else nothing (503 `PRICE_UNAVAILABLE`,
   credit refunded). Analyses follow the same rule. Nothing is reused from an earlier request, trader or analysis.
+  Price guard (owner-specified, `server/priceGuard.ts`, a `res.json` wrapper on `/api/market/analyze`, plus Matt's replies): "trading at X"
+  claims more than 0.6% off the live price (`res.locals.liveQuotePrice`) are corrected to it, and in trade write-ups any sentence naming a
+  price level that is not in the verified result (`numbersIn(strategy)` + live price, 0.15%) is removed (R, %, ATR, ratios and
+  ~~crossed-out~~ numbers are ignored). Levels are never changed; the prompt text is untouched. Chart notes only say "live price now" for a live quote.
 - Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
   through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
   `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan

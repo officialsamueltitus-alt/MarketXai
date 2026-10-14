@@ -339,6 +339,26 @@ export function runUserStrategy(
     const rrFinal = rrOf(tps[tps.length - 1].price);
     if (rrOf(tps[0].price) < 1) { reasons.push(`${side}: TP1 pays less than 1R`); continue; }
     if (rrFinal < rules.minRR) { reasons.push(`${side}: pays ${rrFinal.toFixed(1)}R, under your ${rules.minRR}R minimum`); continue; }
+    // Already mitigated (owner-specified, every setup): since the setup formed, no candle may have reached the stop or any
+    // target, and a limit entry's band must still be untouched. A setup whose levels were already traded is never shown.
+    {
+      const fi = Math.max(0, cs.findIndex(c => c.t >= got.at));
+      const after = cs.slice(fi + 1);
+      const when = (c: Candle) => `${new Date(c.t).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+      const lvl = (p: number) => r(Math.abs(p));
+      const stopHit = after.find(c => c.l <= stop);
+      if (stopHit) { reasons.push(`${side}: already mitigated, the stop loss ${lvl(stop)} was already reached (${when(stopHit)})`); continue; }
+      const tpHit = after.find(c => tps.some(t => c.h >= t.price));
+      if (tpHit) {
+        const k = tps.findIndex(t => tpHit.h >= t.price);
+        reasons.push(`${side}: already mitigated, TP${k + 1} ${lvl(tps[k].price)} was already reached (${when(tpHit)})`);
+        continue;
+      }
+      if (got.execution === 'LIMIT') {
+        const tapped = after.find(c => c.l <= entry.max);
+        if (tapped) { reasons.push(`${side}: already mitigated, the entry zone ${Math.min(lvl(entry.min), lvl(entry.max))} to ${Math.max(lvl(entry.min), lvl(entry.max))} was already traded into (${when(tapped)})`); continue; }
+      }
+    }
     // Already moved: price half-way from the trigger to TP1 (market entries), or a target already reached since the setup
     // (a limit entry has not filled yet: its targets are the highs price is expected to revisit, so only market entries
     // are checked against what happened since the trigger)

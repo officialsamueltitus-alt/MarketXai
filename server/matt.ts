@@ -19,6 +19,7 @@ import { getUser, readAccountState, requireAuth, toClientState, userRef } from '
 import { db } from './firebase';
 import { createKeyedThrottle } from './security';
 import { MATT_KNOWLEDGE, type MattSection } from './mattKnowledge';
+import { fixPriceClaims } from './priceGuard';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
 import { rdmLabel, withDefaults } from '../src/utils/preferences';
 
@@ -180,7 +181,7 @@ async function accountSummary(res: Response): Promise<string> {
 
 export interface MattDeps {
   /** Live price, market details and background facts for a market named in the question (public facts only), or null */
-  pairContext: (question: string) => Promise<{ context: string; fallback: string } | null>;
+  pairContext: (question: string) => Promise<{ context: string; fallback: string; live?: number | null } | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +318,8 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
       .join('\n');
     const raw = await askEngine(MATT_SYSTEM, prompt);
     if (raw && raw.includes(PRIVATE_TOKEN)) return refuse();
-    let reply = scrubReply(raw ? raw : fallbackAnswer(question, account, pair, context)).slice(0, 6000);
+    // Live prices only: a wrong "price is now X" claim is corrected to the live price
+    let reply = fixPriceClaims(scrubReply(raw ? raw : fallbackAnswer(question, account, pair, context)), pair?.live ?? null).slice(0, 6000);
     if (LEAK.test(reply)) reply = `${NOT_AVAILABLE} Ask me about MarketX features, your account or the markets.`;
     res.json({ reply, engine: !!raw });
   }));
