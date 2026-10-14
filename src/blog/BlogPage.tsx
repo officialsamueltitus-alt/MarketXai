@@ -492,18 +492,19 @@ const SECTIONS: Section[] = [
     id: 'fundamental-analysis',
     title: 'Fundamental Analysis',
     icon: Landmark,
-    lead: 'Turn it on and every prompt gets a fundamental read: what CPI, NFP, PPI, a rate decision or any release is most likely to show, and which pairs it favours or works against.',
+    lead: 'Ask /fundamental-analysis about CPI, NFP, PPI, a rate decision or any release: what it is most likely to show, and which pairs it favours or works against. Your normal analyses keep working as usual.',
     body: (
       <>
         <Steps
           items={[
             <>
-              <B>/fundamental-analysis.</B> Type it in the input and switch it on. A blue <B>Fundamentals</B> chip next to the input box shows it is on; tap it
-              any time to open it again or switch it off.
+              <B>Switch it on.</B> Type /fundamental-analysis in the input, press Enter and turn it on. A blue <B>Fundamentals</B> chip next to the input box
+              shows it is on; tap it any time to open it again or switch it off.
             </>,
             <>
-              <B>Ask about any release or market.</B> "Analyze the next US CPI release", "What will the ECB decide?", "How will NFP move gold?", or what is driving
-              a pair this week. You can also tap a topic, or one of this week's high-impact releases, right inside the command.
+              <B>Ask with the command.</B> Type /fundamental-analysis followed by what you want read: "/fundamental-analysis CPI", "/fundamental-analysis next
+              ECB decision", "/fundamental-analysis how will NFP move gold?". You can also tap a topic, or one of this week's high-impact releases, inside the
+              command. On an analysis card that has today's news, tap <B>Check fundamental</B> for a read of that news for the pair.
             </>,
             <>
               <B>MarketX does the homework.</B> It reads this week's economic calendar, the last releases against their forecasts, the latest news from the BBC,
@@ -517,9 +518,9 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Good to know">
-          While it is on, MarketX gives fundamental reads only: no entries, stops or targets. Turn it off to get trade plans again. Each read uses one analysis
-          credit, and a message that isn't about fundamentals is not charged. A fundamental read is a view of what is most likely, never a promise: markets can
-          react in unexpected ways, so manage your risk around big releases.
+          Only messages that start with /fundamental-analysis get a fundamental read. Everything else you ask, with the command on or off, is a normal analysis
+          or answer, exactly as before. Each read uses one analysis credit, and a message that isn't about fundamentals is not charged. A fundamental read gives
+          the odds of each outcome, never a certainty: releases surprise and markets can react in unexpected ways, so manage your risk around big releases.
         </Note>
       </>
     ),

@@ -5,7 +5,8 @@ import { apiFetch } from '../utils/apiClient';
 import { FUNDAMENTAL_EXAMPLES } from '../utils/fundamental';
 
 // /fundamental-analysis: switch the command on or off, see how it works, pick a topic or one of this week's
-// high-impact releases. While it is on, every prompt gets a fundamental read only.
+// high-impact releases. While it is on, "/fundamental-analysis <topic>" gets a fundamental read; every other prompt
+// stays a normal analysis.
 
 interface Upcoming {
   title: string;
@@ -85,9 +86,14 @@ export const FundamentalPanel: React.FC<Props> = ({ isOpen, onClose, enabled, on
             <div className="min-w-0">
               <div className="text-[14px] font-semibold text-white">{enabled ? 'Fundamental Analysis is on' : 'Turn on Fundamental Analysis'}</div>
               <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
-                {enabled
-                  ? 'Every prompt now gets a fundamental read only. Turn it off to go back to trade plans.'
-                  : 'While it is on, every prompt you send gets a fundamental read: no charts, no entries, just what the data and the news point to.'}
+                {enabled ? (
+                  <>
+                    Type <b className="text-sky-200 font-mono text-[11.5px]">/fundamental-analysis</b> then what you want read, e.g.{' '}
+                    <b className="text-sky-200 font-mono text-[11.5px]">/fundamental-analysis CPI</b>. Everything else you ask stays a normal analysis.
+                  </>
+                ) : (
+                  'Turn it on, then type /fundamental-analysis followed by a release or market (CPI, NFP, PPI, a rate decision) for the likely outcome and the pairs it moves. Your normal analyses work as usual.'
+                )}
               </p>
             </div>
             <button
@@ -142,7 +148,7 @@ export const FundamentalPanel: React.FC<Props> = ({ isOpen, onClose, enabled, on
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">Or type your own: "How will the BoE decision affect GBP/USD?", "What is driving gold this week?"</p>
+          <p className="text-[11px] text-slate-500 mt-2">Or type your own: "/fundamental-analysis How will the BoE decision affect GBP/USD?", "/fundamental-analysis gold this week". Analysis cards with today's news also have a <b className="text-sky-300">Check fundamental</b> button.</p>
         </section>
 
         {/* This week */}
@@ -162,7 +168,7 @@ export const FundamentalPanel: React.FC<Props> = ({ isOpen, onClose, enabled, on
                 <button
                   key={e.title + e.at}
                   type="button"
-                  onClick={() => ask(`Analyze the ${e.currency} ${e.title} release`)}
+                  onClick={() => ask(`${e.currency} ${e.title} release`)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.04] cursor-pointer transition-colors"
                 >
                   <span className="w-11 h-7 rounded-md bg-white/[0.06] text-[11px] font-bold text-slate-200 flex items-center justify-center shrink-0">{e.currency}</span>

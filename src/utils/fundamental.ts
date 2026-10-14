@@ -61,17 +61,31 @@ export interface FundamentalReport {
   generatedAt: number;
 }
 
-/** Quick prompts shown in the panel and the empty state */
+/** Quick topics shown in the panel; each is sent as "/fundamental-analysis <prompt>" */
 export const FUNDAMENTAL_EXAMPLES: Array<{ label: string; prompt: string }> = [
-  { label: 'US CPI', prompt: 'Analyze the next US CPI release' },
-  { label: 'NFP', prompt: 'Analyze the next US Non-Farm Payrolls (NFP) report' },
-  { label: 'US PPI', prompt: 'Analyze the next US PPI release' },
-  { label: 'Fed decision', prompt: 'Analyze the next Federal Reserve (FOMC) rate decision' },
-  { label: 'UK CPI', prompt: 'Analyze the next UK CPI release' },
-  { label: 'ECB decision', prompt: 'Analyze the next ECB rate decision' },
-  { label: 'US GDP', prompt: 'Analyze the next US GDP release' },
-  { label: 'Retail sales', prompt: 'Analyze the next US retail sales release' },
+  { label: 'US CPI', prompt: 'next US CPI release' },
+  { label: 'NFP', prompt: 'next US Non-Farm Payrolls (NFP)' },
+  { label: 'US PPI', prompt: 'next US PPI release' },
+  { label: 'Fed decision', prompt: 'next Federal Reserve (FOMC) rate decision' },
+  { label: 'UK CPI', prompt: 'next UK CPI release' },
+  { label: 'ECB decision', prompt: 'next ECB rate decision' },
+  { label: 'US GDP', prompt: 'next US GDP release' },
+  { label: 'Retail sales', prompt: 'next US retail sales release' },
 ];
+
+/** The command that asks for a fundamental read: "/fundamental-analysis CPI" (or the short "/ch-fd CPI") */
+export const FUNDAMENTAL_COMMAND = '/fundamental-analysis';
+const COMMAND_RE = /^\s*\/(fundamental-analysis|fundamental|fundamentals|ch-fd)(?=\s|$)\s*/i;
+/**
+ * The topic after the command ("CPI" for "/fundamental-analysis CPI"; '' for the bare command), or null when the
+ * prompt doesn't start with it. Only prompts that start with the command get a fundamental read; everything else is a
+ * normal analysis or question, whether Fundamental Analysis is on or not.
+ */
+export function fundamentalTopic(prompt: string): string | null {
+  const m = COMMAND_RE.exec(String(prompt || ''));
+  return m ? String(prompt).slice(m[0].length).trim() : null;
+}
+export const fundamentalPrompt = (topic: string) => `${FUNDAMENTAL_COMMAND} ${topic.trim()}`;
 
 export const BIAS_LABEL: Record<FundamentalBias, string> = { FOR: 'For', AGAINST: 'Against', NEUTRAL: 'Neutral' };
 export const IMPACT_LABEL: Record<CurrencyImpact, string> = { BULLISH: 'Bullish', BEARISH: 'Bearish', NEUTRAL: 'Neutral' };

@@ -77,7 +77,7 @@ import { timeframeFromPrompt } from './utils/timeframe';
 import { playChime, primeSound } from './utils/notifySound';
 import { onPushMessages, syncPush, unlinkPush } from './utils/push';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
-import { FUNDAMENTAL_EXAMPLES, type FundamentalReport } from './utils/fundamental';
+import { FUNDAMENTAL_EXAMPLES, fundamentalPrompt, fundamentalTopic, type FundamentalReport } from './utils/fundamental';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
 
@@ -1481,10 +1481,13 @@ export default function App() {
     }
   };
 
-  // Fundamental Analysis (/fundamental-analysis is on): the same intro steps as every prompt, then the fundamental read
-  // of the event or market asked about. One credit, refunded by the server on any failure.
+  // Fundamental Analysis: "/fundamental-analysis CPI" (with the command on) gets the same intro steps as every prompt, then
+  // the fundamental read of the event or market asked about. One credit, refunded by the server on any failure.
   const runFundamental = async (promptText: string) => {
     if (!promptText.trim() || isLoading) return;
+    // What is asked: the text after the command ("CPI" for "/fundamental-analysis CPI")
+    const topic = fundamentalTopic(promptText) ?? promptText.trim();
+    if (!topic) return;
     if (!authUser) {
       setIsAuthModalOpen(true);
       return;
@@ -1531,7 +1534,7 @@ export default function App() {
         const t = setTimeout(resolve, ms);
         controller.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
       });
-    const preview = promptText.length > 60 ? `${promptText.slice(0, 57).trim()}…` : promptText;
+    const preview = topic.length > 60 ? `${topic.slice(0, 57).trim()}…` : topic;
     try {
       // The intro, as on every prompt; nothing is sent (and no credit used) before it ends
       start('boot', 'Starting…');
@@ -1556,7 +1559,7 @@ export default function App() {
       }, 110_000);
       const data = await apiFetch<{ message: string; fundamental: FundamentalReport }>('/api/fundamental/analyze', {
         method: 'POST',
-        body: JSON.stringify({ prompt: promptText, ref: { sessionId, messageId: askId } }),
+        body: JSON.stringify({ prompt: topic, ref: { sessionId, messageId: askId } }),
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
@@ -1585,7 +1588,7 @@ export default function App() {
         status: 'completed',
         searchStep: undefined,
         activity,
-        ...(notFundamental ? { choices: FUNDAMENTAL_EXAMPLES.slice(0, 3).map(e => ({ kind: 'analysis' as const, label: e.label, prompt: e.prompt })) } : {}),
+        ...(notFundamental ? { choices: FUNDAMENTAL_EXAMPLES.slice(0, 3).map(e => ({ kind: 'analysis' as const, label: e.label, prompt: fundamentalPrompt(e.prompt) })) } : {}),
       });
       refreshAccount();
     } finally {
@@ -1594,6 +1597,19 @@ export default function App() {
       setIsLoading(false);
       setTimeout(refreshNotifications, 1500);
     }
+  };
+
+  // "Check fundamental" on an analysis card with today's news: switches the command on if needed, then reads it
+  const checkFundamental = async (topic: string) => {
+    if (!authUser) return setIsAuthModalOpen(true);
+    if (!fundamentalOn) {
+      try {
+        await setFundamentalMode(true);
+      } catch {
+        return;
+      }
+    }
+    runFundamental(fundamentalPrompt(topic));
   };
 
   // Send a message and generate institutional strategy
@@ -1632,10 +1648,16 @@ export default function App() {
     );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
 
-    // Fundamental Analysis is on: every typed prompt gets a fundamental read only (a card's own actions, like
-    // Tighten SL, and chart screenshots still go to the analysis they belong to)
-    if (fundamentalOn && !resolvedBaseStrategy && !chartImage) {
-      runFundamental(promptText);
+    // Fundamental Analysis (owner-specified): only a prompt that starts with the command ("/fundamental-analysis CPI")
+    // gets a fundamental read. Every other prompt is a normal analysis or question, whether the command is on or not.
+    const fTopic = !resolvedBaseStrategy && !chartImage ? fundamentalTopic(promptText) : null;
+    if (fTopic !== null) {
+      if (!fundamentalOn) {
+        setToastNotification({ message: 'Turn on Fundamental Analysis first, then ask again.', type: 'info' });
+        openToolPanel('fundamental');
+      } else if (!fTopic) {
+        openToolPanel('fundamental');
+      } else runFundamental(promptText);
       return;
     }
 
@@ -2506,7 +2528,7 @@ export default function App() {
                 return;
               }
             }
-            runFundamental(prompt);
+            runFundamental(fundamentalPrompt(prompt));
           }}
         />
       </Deferred>
@@ -2714,6 +2736,7 @@ export default function App() {
               <div className="flex-1 min-h-0 relative flex flex-col">
                 <ChatFeed
                   messages={currentMessages}
+                  onCheckFundamental={checkFundamental}
                   isLoading={isLoading}
                   tickers={tickers}
                   onCalculate={strategy => {

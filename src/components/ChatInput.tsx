@@ -144,7 +144,7 @@ interface ChatInputProps {
   /** Strategy mode is on: the strategy's name (a chip says so and opens the Strategy Builder) */
   strategyName?: string | null;
   onOpenStrategy?: () => void;
-  /** Fundamental Analysis is on: every prompt gets a fundamental read (a chip says so and opens the command) */
+  /** Fundamental Analysis is on: "/fundamental-analysis <topic>" gets a fundamental read (a chip says so and opens the command) */
   fundamentalOn?: boolean;
   onOpenFundamental?: () => void;
   onOpenPreference?: () => void;
@@ -306,6 +306,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (cmd.id === 'matt') {
       setInput('');
       openMatt();
+      return;
+    }
+    // Fundamental Analysis on: the command goes in the input, followed by what to read ("/fundamental-analysis CPI");
+    // off: its panel opens to switch it on
+    if (cmd.id === 'fundamental' && fundamentalOn) {
+      setInput('/fundamental-analysis ');
+      setTimeout(() => textareaRef.current?.focus(), 0);
       return;
     }
     if (cmd.id === 'safety') {
@@ -805,7 +812,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : fundamentalOn ? 'Ask about CPI, NFP, a rate decision…' : 'Ask about any market, or type /'}
+          placeholder={credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
           rows={1}
           className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:order-2 max-sm:w-auto max-sm:flex-1 max-sm:min-w-0 max-sm:px-1.5 max-sm:py-1.5 max-sm:min-h-9 max-sm:max-h-[132px]"
         />
@@ -860,7 +867,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={onOpenFundamental}
                 className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-sky-100 bg-sky-500/15 border-sky-400/30 hover:bg-sky-500/20"
-                title="Fundamental Analysis is on: every prompt gets a fundamental read (tap to open /fundamental-analysis)"
+                title="Fundamental Analysis is on: type /fundamental-analysis then the topic, e.g. CPI (tap to open it)"
                 aria-label="Fundamental Analysis on (open it)"
               >
                 <Landmark className="w-3.5 h-3.5 shrink-0" />
@@ -868,7 +875,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             )}
 
-            {strategyName && !fundamentalOn && (
+            {strategyName && (
               <button
                 type="button"
                 onClick={onOpenStrategy}
@@ -881,7 +888,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             )}
 
-            {confirmationMode && !strategyName && !fundamentalOn && (
+            {confirmationMode && !strategyName && (
               <button
                 type="button"
                 onClick={onOpenPreference}
@@ -894,7 +901,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             )}
 
-            {!fundamentalOn && tradeStyle && tradeStyle !== 'ANY' && (
+            {tradeStyle && tradeStyle !== 'ANY' && (
               <button
                 type="button"
                 onClick={onOpenPreference}

@@ -149,8 +149,12 @@
 - Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
   `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, sky "Fundamentals" composer chip, Tools in
   `ConnectorsModal`): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
-  While on, every typed prompt goes to `POST /api/fundamental/analyze` instead of the analysis route (`runFundamental` in `App.tsx`, same 10s intro;
-  a card's own actions and chart screenshots still go to the analysis); the analysis engine and `/api/market/analyze` are untouched. One credit
+  Owner-specified: it NEVER changes normal analyses. Only a prompt that starts with the command (`fundamentalTopic` in `src/utils/fundamental.ts`:
+  "/fundamental-analysis CPI", alias "/ch-fd CPI") goes to `POST /api/fundamental/analyze` (`runFundamental` in `App.tsx`, same 10s intro; the
+  command is stripped, the topic is asked); with the command off it opens the panel. Every other prompt, on or off, is a normal analysis or question.
+  Picking the command in the slash menu while on puts "/fundamental-analysis " in the input. "Check fundamental" (ch-fd) button on every analysis
+  card whose news indicator shows (`isNewsCurrent(strategy.newsBrief)`, `onCheckFundamental` in `ChatFeed.tsx`): reads today's high-impact
+  releases for that pair (switches the command on if needed). The analysis engine and `/api/market/analyze` are untouched. One credit
   (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and

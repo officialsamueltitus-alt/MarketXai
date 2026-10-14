@@ -1,6 +1,7 @@
 // ===========================================================================
 // Fundamental Analysis (/fundamental-analysis, owner-specified). A command the trader switches on; while it is on,
-// every prompt is answered with a fundamental read only: the event or market asked about (CPI, NFP, PPI, rate
+// a prompt that starts with the command ("/fundamental-analysis CPI", or "Check fundamental" on an analysis card with
+// today's news) is answered with a fundamental read (every other prompt stays a normal analysis): the event or market asked about (CPI, NFP, PPI, rate
 // decisions, GDP...), its past releases, this week's economic calendar, the news (BBC, CNBC, MarketWatch and a web
 // search of reputable sources), the scenarios with their odds, the most likely outcome, and the pairs it favours
 // (FOR) or works against (AGAINST), each with its live price.
@@ -17,6 +18,7 @@ import { getCalendar, getHeadlines, parseRssItems, refreshNewsFeedsWithin, type 
 import { cleanDomain, readGrounding } from './webResearch';
 import { scrubReply } from './matt';
 import { createKeyedThrottle } from './security';
+import { fundamentalTopic } from '../src/utils/fundamental';
 import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalReport, FundamentalScenario, FundamentalStrength } from '../src/utils/fundamental';
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
@@ -394,7 +396,9 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
   // Checked before any credit is charged: the command is on and the question is usable
   const ready = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const prompt = clean(req.body?.prompt, 1500);
+      // (the command itself is not part of the question: "/fundamental-analysis CPI" asks about "CPI")
+      const raw = clean(req.body?.prompt, 1600);
+      const prompt = (fundamentalTopic(raw) ?? raw).slice(0, 1500);
       if (prompt.length < 2) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Ask about an economic release, a central bank or a market.' });
       const doc = (await userRef(getUser(res).uid).get()).data();
       if (!readFundamentalMode(doc)) return res.status(409).json({ error: 'FUNDAMENTAL_OFF', message: 'Fundamental Analysis is off. Turn it on in /fundamental-analysis. No credit was used.' });
@@ -435,7 +439,7 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
       if (reply.text.trim().toUpperCase().startsWith(NOT_FUNDAMENTAL)) {
         return res.status(422).json({
           error: 'NOT_FUNDAMENTAL',
-          message: 'Fundamental Analysis is on, so I only read fundamentals. Ask about an economic release (CPI, NFP, PPI, GDP...), a central bank decision, or what is driving a market. No credit was used.',
+          message: "That isn't something Fundamental Analysis can read. After /fundamental-analysis, name an economic release (CPI, NFP, PPI, GDP...), a central bank decision, or a market and what is driving it. For a trade plan, just ask without the command. No credit was used.",
         });
       }
       const sources = [...reply.sources, ...headlines.slice(0, 4).map(h => (h.source === 'BBC' ? 'bbc.co.uk' : h.source === 'CNBC' ? 'cnbc.com' : 'marketwatch.com'))];

@@ -11,7 +11,7 @@ import { MarketXIcon } from './MarketXIcon';
 import { VerifiedBadge } from './VerifiedBadge';
 import { downloadStrategyImage, shareToX } from '../utils/exportImage';
 import { UserProfile } from '../types';
-import { AiActivityTrace } from './AiActivityTrace';
+import { AiActivityTrace, isNewsCurrent } from './AiActivityTrace';
 import { RecheckPanel } from './RecheckPanel';
 import { AskMattButton } from './AskMattButton';
 import { tradeAsk } from '../utils/matt';
@@ -42,7 +42,8 @@ import {
   Cpu,
   LineChart,
   Info,
-  ShieldCheck
+  ShieldCheck,
+  Landmark
 } from 'lucide-react';
 import { formatMarketPrice } from '../utils/formatPrice';
 
@@ -67,7 +68,15 @@ interface ChatFeedProps {
   onToggleAlert?: (strategy: StrategyResult) => void;
   /** Opens the trade calculator (Preference Mode) filled with this trade */
   onCalculate?: (strategy: StrategyResult) => void;
+  /** "Check fundamental" (ch-fd) on a result with today's news: a fundamental read of that news for the pair */
+  onCheckFundamental?: (topic: string) => void;
 }
+
+/** What "Check fundamental" asks about: today's high-impact releases for the pair, else today's news */
+const fundamentalAskFor = (s: StrategyResult) => {
+  const events = (s.newsBrief?.events || []).filter(e => e.impact === 'HIGH').map(e => `${e.currency} ${e.title}`).slice(0, 3);
+  return events.length ? `How will today's ${events.join(', ')} affect ${s.symbol}?` : `What do today's fundamentals and news mean for ${s.symbol}?`;
+};
 
 /** Preference Mode: what this trade risks and pays in the trader's own money (risk % of the account size) */
 const PositionStrip: React.FC<{ strategy: StrategyResult; prefs: Preferences; onCalculate?: (s: StrategyResult) => void }> = React.memo(({ strategy, prefs, onCalculate }) => {
@@ -153,6 +162,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   alertByOffer,
   onToggleAlert,
   onCalculate,
+  onCheckFundamental,
 }) => {
   const prefs = React.useMemo(() => withDefaults(userProfile?.preferences), [userProfile?.preferences]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -685,6 +695,21 @@ Rationale: ${strategy.entryZone.rationale}
                         seed={message.id}
                         news={strategy.newsBrief}
                       />
+
+                      {/* Today's news on this pair: one tap for its fundamental read */}
+                      {onCheckFundamental && isNewsCurrent(strategy.newsBrief) && (
+                        <button
+                          type="button"
+                          disabled={isLoading}
+                          onClick={() => onCheckFundamental(fundamentalAskFor(strategy))}
+                          title={`Check the fundamentals behind today's news for ${strategy.symbol}`}
+                          className="inline-flex items-center gap-1.5 h-8 pl-2 pr-2.5 rounded-full border border-sky-400/30 bg-sky-500/10 hover:bg-sky-500/20 text-[12px] font-semibold text-sky-100 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Landmark className="w-3.5 h-3.5 text-sky-300" />
+                          Check fundamental
+                          <span className="ml-0.5 px-1.5 rounded bg-sky-400/15 text-[10px] font-mono text-sky-300">ch-fd</span>
+                        </button>
+                      )}
 
                       {/* Modern AI Conversational Writeup Container */}
                       <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl ai-writeup-container border border-white/[0.12] text-xs sm:text-sm text-slate-100 leading-relaxed font-sans shadow-2xl space-y-3 min-w-0 break-words">
