@@ -146,6 +146,20 @@
   `POST /api/matt/chat` (12/min, 200/day per trader), `GET /api/matt/status`. "Ask Matt" (`AskMattButton`, `openMatt`/`tradeAsk` in
   `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every command panel header
   (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, sidebar, slash command `/matt`.
+- Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
+  `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, sky "Fundamentals" composer chip, Tools in
+  `ConnectorsModal`): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
+  While on, every typed prompt goes to `POST /api/fundamental/analyze` instead of the analysis route (`runFundamental` in `App.tsx`, same 10s intro;
+  a card's own actions and chart screenshots still go to the analysis); the analysis engine and `/api/market/analyze` are untouched. One credit
+  (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
+  `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
+  `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and
+  labelled untrusted. Context: this week's matching calendar lines (`calendarMatches`, exact titles, figures given to the engine, release time kept),
+  headlines from the last 4 days (`relevantHeadlines`: BBC Business + CNBC Economy RSS fetched here only, plus the MarketWatch wires). Reply = one JSON
+  object, validated (`parseReport`): 2-4 scenarios normalised to 100, most likely = the top scenario, confidence ≤ 90, pairs folded to MarketX symbols
+  (`normalizePairSymbol`), bias FOR (the most likely outcome favours the pair rising) / AGAINST / NEUTRAL, provider names scrubbed. The engine never
+  writes prices: each pair's live price is fetched at serve time (`deps.quote` → `livePriceFor`, none = none shown). Same question reused 10 min (prices
+  still fetched fresh, credit still used). Response {message (Markdown for notifications), fundamental, research}; chat history keeps `fundamental`.
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the

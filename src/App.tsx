@@ -49,9 +49,10 @@ const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPa
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 const StrategyBuilderPanel = lazyWithReload(() => import('./components/StrategyBuilderPanel').then(m => ({ default: m.StrategyBuilderPanel })));
+const FundamentalPanel = lazyWithReload(() => import('./components/FundamentalPanel').then(m => ({ default: m.FundamentalPanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel, FundamentalPanel];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
@@ -76,6 +77,7 @@ import { timeframeFromPrompt } from './utils/timeframe';
 import { playChime, primeSound } from './utils/notifySound';
 import { onPushMessages, syncPush, unlinkPush } from './utils/push';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
+import { FUNDAMENTAL_EXAMPLES, type FundamentalReport } from './utils/fundamental';
 import { extractAssetInfo } from './utils/localStrategyEngine';
 import { ArrowLeft, Plus, CheckCircle2, Gift, Clock } from 'lucide-react';
 
@@ -170,7 +172,9 @@ export default function App() {
   // Command panels (/watchlist, /trade-journal, /track-record) and the Connectors / Plugins popup
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
   // Tools without an on/off switch: /preference
-  const [openTool, setOpenTool] = useState<'preference' | 'strategy' | null>(null);
+  const [openTool, setOpenTool] = useState<'preference' | 'strategy' | 'fundamental' | null>(null);
+  // Fundamental Analysis (/fundamental-analysis) is on: every prompt gets a fundamental read
+  const [fundamentalOn, setFundamentalOn] = useState(false);
   // Strategy mode: the trader's active strategy (the composer chip names it)
   const [activeStrategy, setActiveStrategy] = useState<{ id: string; name: string } | null>(null);
   const [calcSeed, setCalcSeed] = useState<CalcSeed | null>(null);
@@ -1254,7 +1258,7 @@ export default function App() {
     const data = await apiFetch<{ preferences: Preferences }>('/api/preferences', { method: 'PUT', body: JSON.stringify(change) });
     setUserProfile(p => ({ ...p, preferences: data.preferences }));
   }, []);
-  const openToolPanel = useCallback((id: 'preference' | 'strategy') => {
+  const openToolPanel = useCallback((id: 'preference' | 'strategy' | 'fundamental') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
       return;
@@ -1264,6 +1268,30 @@ export default function App() {
     setOpenPlugin(null);
     setOpenTool(id);
   }, [authUser, proAccess, showProUpsell]);
+  // Fundamental Analysis: on or off for this account
+  useEffect(() => {
+    if (!authUser) {
+      setFundamentalOn(false);
+      return;
+    }
+    let live = true;
+    apiFetch<{ enabled: boolean }>('/api/fundamental')
+      .then(d => live && setFundamentalOn(!!d.enabled))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [authUser]);
+  const setFundamentalMode = useCallback(async (enabled: boolean) => {
+    try {
+      const r = await apiFetch<{ enabled: boolean }>('/api/fundamental/mode', { method: 'POST', body: JSON.stringify({ enabled }) });
+      setFundamentalOn(!!r.enabled);
+      setToastNotification({ message: r.enabled ? 'Fundamental Analysis is on: every prompt gets a fundamental read' : 'Fundamental Analysis is off', type: 'success' });
+    } catch (err: any) {
+      setToastNotification({ message: err?.message || 'Could not change Fundamental Analysis. Please try again.', type: 'info' });
+      throw err;
+    }
+  }, []);
   // Strategy mode: which strategy is running (the composer chip names it)
   useEffect(() => {
     if (!authUser) {
@@ -1453,6 +1481,121 @@ export default function App() {
     }
   };
 
+  // Fundamental Analysis (/fundamental-analysis is on): the same intro steps as every prompt, then the fundamental read
+  // of the event or market asked about. One credit, refunded by the server on any failure.
+  const runFundamental = async (promptText: string) => {
+    if (!promptText.trim() || isLoading) return;
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    if (isDailyLimitReached(creditState, userProfile.email)) {
+      setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
+      return;
+    }
+    setCurrentView('chat');
+    setTargetSignalMessageId(null);
+    const now = Date.now();
+    const sessionId = currentSessionId || `session-${now}`;
+    if (!currentSessionId) setCurrentSessionId(sessionId);
+    const askId = `msg-assistant-${now + 1}`;
+    const userMsg: ChatMessage = { id: `msg-user-${now}`, role: 'user', content: promptText, timestamp: now };
+    const pending: ChatMessage = { id: askId, role: 'assistant', content: '', status: 'searching', activity: [], timestamp: now + 1 };
+    setSessions(prev =>
+      prev.some(x => x.id === sessionId)
+        ? prev.map(x => (x.id === sessionId ? { ...x, lastMessage: promptText, updatedAt: now, messages: [...x.messages, userMsg, pending] } : x))
+        : [{ id: sessionId, title: promptText.slice(0, 32), lastMessage: promptText, updatedAt: now, messages: [userMsg, pending] }, ...prev]
+    );
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsLoading(true);
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let activity: ActivityStep[] = [];
+    const patch = (p: Partial<ChatMessage>) =>
+      setSessions(prev => prev.map(x => (x.id !== sessionId ? x : { ...x, messages: x.messages.map(m => (m.id === askId ? { ...m, ...p } : m)) })));
+    const publish = () => {
+      if (!controller.signal.aborted) patch({ activity: activity.slice(), searchStep: activity.filter(st => st.status === 'active').pop()?.title });
+    };
+    const start = (id: string, title: string, detail?: string) => {
+      activity = [...activity, { id, title, detail, status: 'active', startedAt: Date.now() }];
+      publish();
+    };
+    const end = (id: string, p: Partial<ActivityStep> = {}) => {
+      activity = activity.map(st => (st.id === id && st.status === 'active' ? { ...st, status: 'done', endedAt: Date.now(), ...p } : st));
+      publish();
+    };
+    const wait = (ms: number) =>
+      new Promise<void>(resolve => {
+        if (controller.signal.aborted) return resolve();
+        const t = setTimeout(resolve, ms);
+        controller.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+    const preview = promptText.length > 60 ? `${promptText.slice(0, 57).trim()}…` : promptText;
+    try {
+      // The intro, as on every prompt; nothing is sent (and no credit used) before it ends
+      start('boot', 'Starting…');
+      await wait(2000);
+      end('boot');
+      start('wake', 'Waking up MarketX engine', 'Bringing the engine and the live news feeds online');
+      await wait(5000);
+      end('wake');
+      start('look', 'Looking at prompt', `“${preview}”`);
+      await wait(3000);
+      end('look');
+      if (controller.signal.aborted) return;
+      const t0 = Date.now();
+      activity = [...activity, { id: 'read', title: 'Understood your question', detail: 'Fundamental Analysis', status: 'done', startedAt: t0, endedAt: t0 }];
+      start('calendar', 'Checking the economic calendar', "This week's high-impact releases, forecasts and previous figures");
+      start('news', 'Reading the news', 'BBC, CNBC and MarketWatch');
+      start('web', 'Searching the web', 'Past releases, the consensus and reputable sources');
+      start('analyze', 'Weighing the scenarios', 'Past data, the consensus and the news, then the pairs it moves');
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 110_000);
+      const data = await apiFetch<{ message: string; fundamental: FundamentalReport }>('/api/fundamental/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ prompt: promptText, ref: { sessionId, messageId: askId } }),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      const r = data.fundamental;
+      const endAt = Date.now();
+      end('calendar', { detail: r.releaseAt ? "Found it on this week's calendar" : "Not on this week's calendar, used the latest data" });
+      end('news', { detail: 'Latest headlines checked' });
+      end('web', r.web ? { title: 'Searched the web', detail: r.sources.length ? `${r.sources.length} source${r.sources.length === 1 ? '' : 's'}: ${r.sources.slice(0, 3).join(' · ')}` : 'Checked current sources' } : { title: 'Web search not needed', detail: 'Used the calendar and the news' });
+      end('analyze', { title: `Analyzed ${r.event}`, detail: `${r.scenarios.length} scenarios · ${r.pairs.length} pairs` });
+      patch({ content: data.message, fundamental: r, status: 'completed', searchStep: undefined, activity, durationSeconds: Math.max(1, Math.round((endAt - now) / 1000)) });
+      setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, lastMessage: r.event, updatedAt: endAt } : x)));
+      refreshAccount();
+    } catch (err: any) {
+      if (controller.signal.aborted && !timedOut) return;
+      const msg = timedOut
+        ? "MarketX didn't get the answer back in time. This usually means the connection dropped. Please try again."
+        : err instanceof ApiError
+          ? err.message
+          : 'Could not reach the MarketX server. Check your connection and try again.';
+      if (err instanceof ApiError && err.status === 401) setIsAuthModalOpen(true);
+      if (err instanceof ApiError && err.code === 'FUNDAMENTAL_OFF') setFundamentalOn(false);
+      const notFundamental = err instanceof ApiError && err.code === 'NOT_FUNDAMENTAL';
+      activity = activity.map(st => (st.status === 'active' ? { ...st, status: notFundamental ? 'stopped' : 'error', endedAt: Date.now() } : st));
+      patch({
+        content: notFundamental ? msg : `⚠️ ${msg}`,
+        status: 'completed',
+        searchStep: undefined,
+        activity,
+        ...(notFundamental ? { choices: FUNDAMENTAL_EXAMPLES.slice(0, 3).map(e => ({ kind: 'analysis' as const, label: e.label, prompt: e.prompt })) } : {}),
+      });
+      refreshAccount();
+    } finally {
+      clearTimeout(timer);
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      setIsLoading(false);
+      setTimeout(refreshNotifications, 1500);
+    }
+  };
+
   // Send a message and generate institutional strategy
   const handleSendMessage = async (
     promptText: string,
@@ -1488,6 +1631,13 @@ export default function App() {
       baseStrategy && (slMode === 'tight' || hasTightenKeywords) && (baseStrategy.tradeType === 'LONG' || baseStrategy.tradeType === 'SHORT')
     );
     const resolvedBaseStrategy = isTightenPrompt ? baseStrategy : undefined;
+
+    // Fundamental Analysis is on: every typed prompt gets a fundamental read only (a card's own actions, like
+    // Tighten SL, and chart screenshots still go to the analysis they belong to)
+    if (fundamentalOn && !resolvedBaseStrategy && !chartImage) {
+      runFundamental(promptText);
+      return;
+    }
 
     // "Is $WIF safe?", "rug check <address>", "/safety BONK": the free on-chain safety check, right in the chat (no credit)
     if (!resolvedBaseStrategy && !chartImage && isSafetyRequest(promptText)) {
@@ -2341,6 +2491,25 @@ export default function App() {
           }}
         />
       </Deferred>
+      {/* Fundamental Analysis (/fundamental-analysis) */}
+      <Deferred when={openTool === 'fundamental'}>
+        <FundamentalPanel
+          isOpen={openTool === 'fundamental'}
+          onClose={() => setOpenTool(null)}
+          enabled={fundamentalOn}
+          onSetEnabled={setFundamentalMode}
+          onAsk={async prompt => {
+            if (!fundamentalOn) {
+              try {
+                await setFundamentalMode(true);
+              } catch {
+                return;
+              }
+            }
+            runFundamental(prompt);
+          }}
+        />
+      </Deferred>
       {/* Preference Mode (/preference) */}
       <Deferred when={openTool === 'preference'}>
         <PreferencePanel
@@ -2593,7 +2762,7 @@ export default function App() {
                     onCommand={id =>
                       PLUGIN_COMMAND[id]
                         ? (openPluginPanel(PLUGIN_COMMAND[id]), true)
-                        : id === 'preference' || id === 'strategy'
+                        : id === 'preference' || id === 'strategy' || id === 'fundamental'
                           ? (openToolPanel(id), true)
                           : false
                     }
@@ -2607,6 +2776,8 @@ export default function App() {
                     styleFrames={authUser && preferences.tradeStyle && preferences.tradeStyle !== 'ANY' ? preferences.styleTimeframes?.[preferences.tradeStyle] : undefined}
                     strategyName={authUser ? activeStrategy?.name || null : null}
                     onOpenStrategy={() => openToolPanel('strategy')}
+                    fundamentalOn={!!authUser && fundamentalOn}
+                    onOpenFundamental={() => openToolPanel('fundamental')}
                     onOpenPreference={() => setOpenTool('preference')}
                     onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
                     onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}

@@ -176,6 +176,7 @@ async function accountSummary(res: Response): Promise<string> {
     const s = (await db().collection('userStrategies').doc(String(sm.strategyId)).get().catch(() => null))?.data() as any;
     if (s && s.uid === user.uid) lines.push(`Strategy Builder: on, running "${String(s.name || 'your strategy').slice(0, 60)}".`);
   } else lines.push('Strategy Builder: off.');
+  lines.push(`Fundamental Analysis: ${raw.fundamentalMode?.enabled ? 'on (every prompt gets a fundamental read)' : 'off'}.`);
   return lines.filter(Boolean).join('\n');
 }
 
@@ -191,7 +192,7 @@ const PRIVATE_TOKEN = '[[PRIVATE]]';
 const MATT_SYSTEM = `You are Matt, the friendly help assistant inside MarketX, a trading platform that gives traders trade plans for any market.
 
 You answer ONLY:
-1. How MarketX works: its features, commands (like /watchlist, /price-alerts, /trade-journal, /track-record, /strategy-builder, /preference, /token-safety), tools, settings, the site guide, and how to use them.
+1. How MarketX works: its features, commands (like /watchlist, /price-alerts, /trade-journal, /track-record, /strategy-builder, /fundamental-analysis, /preference, /token-safety), tools, settings, the site guide, and how to use them.
 2. Events, bonuses, rewards and promos.
 3. The trader's OWN account, using only the ACCOUNT section you are given.
 4. Markets: what a pair or asset is, what moves it, its sessions, fundamentals, economic events, and trading concepts, using the MARKET section when given.

@@ -40,6 +40,7 @@ import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type Acti
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
 import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
 import { registerMattRoutes, useMattEngine } from './server/matt';
+import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundamental';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -2203,6 +2204,21 @@ registerMattRoutes(app, generalApiRateLimiter, {
       fallback: pairBriefing(asset, question, details, news),
       live: live ? quote!.price : null,
     };
+  },
+});
+// Fundamental Analysis (/fundamental-analysis): its own route and instructions; the engine connection is only called
+useFundamentalEngine(getGeminiClient);
+registerFundamentalRoutes(app, generalApiRateLimiter, analysisRateLimiter, {
+  gate: fn => aiGate.run(fn, AI_QUEUE_WAIT_MS),
+  quote: async symbol => {
+    const asset = extractAssetInfo(symbol);
+    // extractAssetInfo falls back to a default for anything it doesn't know: only a real match gets a price
+    const fold = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/USDT$/, 'USD');
+    const a = fold(asset.symbol);
+    const b = fold(symbol);
+    if (asset.unresolved || b.length < 3 || !(a.startsWith(b) || b.startsWith(a))) return null;
+    const q = await livePriceFor(asset).catch(() => null);
+    return q && q.price > 0 && q.live !== false ? { symbol: asset.symbol, name: asset.name, price: q.price, change24h: q.change24h } : null;
   },
 });
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);

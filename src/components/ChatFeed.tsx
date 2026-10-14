@@ -2,6 +2,7 @@ import { pickGreeting } from '../utils/greeting';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { withDefaults, formatMoney, type Preferences } from '../utils/preferences';
 import { TokenSafetyCard, ProofBadge } from './TokenSafetyCard';
+import { FundamentalCard } from './FundamentalCard';
 import { LazyMarkdown } from './LazyMarkdown';
 import { ChatMessage, MarketQuote, StrategyResult } from '../types';
 import { StrategyCard } from './StrategyCard';
@@ -1115,8 +1116,11 @@ Rationale: ${strategy.entryZone.rationale}
                     </div>
                   )}
 
+                  {/* Fundamental Analysis result */}
+                  {!strategy && message.fundamental && <FundamentalCard report={message.fundamental} markdown={message.content} />}
+
                   {/* Conversational text response if present without strategy card */}
-                  {!strategy && message.content && (
+                  {!strategy && !message.fundamental && message.content && (
                     <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl ai-writeup-container border border-white/[0.12] text-slate-100 text-xs sm:text-sm leading-relaxed shadow-2xl space-y-3 break-words">
                       <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
                         <div className="flex items-center gap-2 text-indigo-300 font-semibold text-xs">

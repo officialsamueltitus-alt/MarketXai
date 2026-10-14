@@ -35,6 +35,7 @@ import {
   Trophy,
   CandlestickChart,
   MessageCircleQuestion,
+  Landmark,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -103,6 +104,7 @@ const SLASH_COMMANDS = [
   { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
   { id: 'trackrecord', label: 'Track Record', description: 'How MarketX signals played out, scored by price', icon: Trophy },
+  { id: 'fundamental', label: 'Fundamental Analysis', description: 'CPI, NFP, PPI, rate decisions: the likely outcome and the pairs it moves', icon: Landmark },
   { id: 'strategy', label: 'Strategy Builder', description: 'Build your own strategy (or pick SMC, ICT…) and run it in every analysis', icon: Target },
   { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
   { id: 'safety', label: 'Token Safety', description: 'Check any Solana token before you buy: type its $ticker or address', icon: ShieldCheck },
@@ -112,7 +114,7 @@ const SLASH_COMMANDS = [
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['matt', 'watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy']);
+const LIVE_COMMANDS = new Set<string>(['matt', 'watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy', 'fundamental']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -142,6 +144,9 @@ interface ChatInputProps {
   /** Strategy mode is on: the strategy's name (a chip says so and opens the Strategy Builder) */
   strategyName?: string | null;
   onOpenStrategy?: () => void;
+  /** Fundamental Analysis is on: every prompt gets a fundamental read (a chip says so and opens the command) */
+  fundamentalOn?: boolean;
+  onOpenFundamental?: () => void;
   onOpenPreference?: () => void;
   /** Opens Connectors / Plugins (every command in one place) */
   onOpenConnectors?: () => void;
@@ -176,6 +181,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onOpenPreference,
   strategyName,
   onOpenStrategy,
+  fundamentalOn = false,
+  onOpenFundamental,
   onOpenConnectors,
   connectorsOn = 0,
   defaultTimeframe,
@@ -715,7 +722,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
                         {LIVE_COMMANDS.has(cmd.id) ? (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{cmd.id === 'preference' || cmd.id === 'safety' ? 'Free' : commandBadge || 'Live'}
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{cmd.id === 'preference' || cmd.id === 'safety' ? 'Free' : cmd.id === 'fundamental' ? 'Live' : commandBadge || 'Live'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
@@ -798,7 +805,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
+          placeholder={credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : fundamentalOn ? 'Ask about CPI, NFP, a rate decision…' : 'Ask about any market, or type /'}
           rows={1}
           className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:order-2 max-sm:w-auto max-sm:flex-1 max-sm:min-w-0 max-sm:px-1.5 max-sm:py-1.5 max-sm:min-h-9 max-sm:max-h-[132px]"
         />
@@ -848,7 +855,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <span className="hidden sm:inline">{slMode === 'tight' ? 'Tight SL' : 'Normal SL'}</span>
             </button>
 
-            {strategyName && (
+            {fundamentalOn && (
+              <button
+                type="button"
+                onClick={onOpenFundamental}
+                className="h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 border shrink-0 max-sm:order-4 max-sm:mb-0.5 text-sky-100 bg-sky-500/15 border-sky-400/30 hover:bg-sky-500/20"
+                title="Fundamental Analysis is on: every prompt gets a fundamental read (tap to open /fundamental-analysis)"
+                aria-label="Fundamental Analysis on (open it)"
+              >
+                <Landmark className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Fundamentals</span>
+              </button>
+            )}
+
+            {strategyName && !fundamentalOn && (
               <button
                 type="button"
                 onClick={onOpenStrategy}
@@ -861,7 +881,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             )}
 
-            {confirmationMode && !strategyName && (
+            {confirmationMode && !strategyName && !fundamentalOn && (
               <button
                 type="button"
                 onClick={onOpenPreference}
@@ -874,7 +894,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </button>
             )}
 
-            {tradeStyle && tradeStyle !== 'ANY' && (
+            {!fundamentalOn && tradeStyle && tradeStyle !== 'ANY' && (
               <button
                 type="button"
                 onClick={onOpenPreference}

@@ -16,6 +16,7 @@ import {
   UserCog,
   ImagePlus,
   Radar,
+  Landmark,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -273,7 +274,7 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Commands">
           Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
-          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below) and <B>/strategy-builder</B> (see Strategy Builder below). Still
+          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below), <B>/strategy-builder</B> (see Strategy Builder below) and <B>/fundamental-analysis</B> (see Fundamental Analysis below). Still
           in private testing and marked Soon: Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
@@ -483,6 +484,42 @@ const SECTIONS: Section[] = [
           Your strategy only trades the timeframes and markets you chose; ask for another and it says so. If your strategy finds nothing, you get a clear No
           signal with the reason and your rules. Results from your own strategy count in your own track record, not in MarketX's. The Strategy Builder is free until
           1 November 2026, then part of Pro.
+        </Note>
+      </>
+    ),
+  },
+  {
+    id: 'fundamental-analysis',
+    title: 'Fundamental Analysis',
+    icon: Landmark,
+    lead: 'Turn it on and every prompt gets a fundamental read: what CPI, NFP, PPI, a rate decision or any release is most likely to show, and which pairs it favours or works against.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/fundamental-analysis.</B> Type it in the input and switch it on. A blue <B>Fundamentals</B> chip next to the input box shows it is on; tap it
+              any time to open it again or switch it off.
+            </>,
+            <>
+              <B>Ask about any release or market.</B> "Analyze the next US CPI release", "What will the ECB decide?", "How will NFP move gold?", or what is driving
+              a pair this week. You can also tap a topic, or one of this week's high-impact releases, right inside the command.
+            </>,
+            <>
+              <B>MarketX does the homework.</B> It reads this week's economic calendar, the last releases against their forecasts, the latest news from the BBC,
+              CNBC and MarketWatch, and searches reputable sources for the consensus and what central banks are saying.
+            </>,
+            <>
+              <B>Read the result.</B> You get the most likely outcome with its odds, every scenario and what it would do to the currency, the past releases, what
+              drives the number, the risks to the view, and the pairs it moves most. Each pair shows its live price and a <B>For</B> or <B>Against</B> tag:
+              For means the most likely outcome favours the pair rising, Against means it weighs on the pair.
+            </>,
+          ]}
+        />
+        <Note title="Good to know">
+          While it is on, MarketX gives fundamental reads only: no entries, stops or targets. Turn it off to get trade plans again. Each read uses one analysis
+          credit, and a message that isn't about fundamentals is not charged. A fundamental read is a view of what is most likely, never a promise: markets can
+          react in unexpected ways, so manage your risk around big releases.
         </Note>
       </>
     ),

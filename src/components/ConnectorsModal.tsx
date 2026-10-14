@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Puzzle, X, SlidersHorizontal, ChevronRight } from 'lucide-react';
+import { Puzzle, X, SlidersHorizontal, ChevronRight, Landmark } from 'lucide-react';
 import type { PluginId, PluginStates } from '../types';
 import { PLUGINS } from '../utils/plugins';
 import { PluginRow } from './PluginRow';
@@ -13,11 +13,12 @@ interface ConnectorsModalProps {
   /** "Free till 1 Nov" while the commands are open to everyone, "Pro" once they are Pro only */
   badge?: string | null;
   /** Tools without an on/off switch (Preference Mode) */
-  onOpenTool?: (id: 'preference') => void;
+  onOpenTool?: (id: 'preference' | 'fundamental') => void;
 }
 
 const TOOLS = [
   { id: 'preference' as const, label: 'Preference Mode', slash: '/preference', text: 'Your defaults, risk and view', icon: SlidersHorizontal, tint: 'bg-amber-500/15 border-amber-500/30 text-amber-300' },
+  { id: 'fundamental' as const, label: 'Fundamental Analysis', slash: '/fundamental-analysis', text: 'CPI, NFP, PPI, rate decisions and the pairs they move', icon: Landmark, tint: 'bg-sky-500/15 border-sky-500/30 text-sky-300' },
 ];
 
 /** Connectors / Plugins, full view: every command that is on, plus the ones that can be turned on */
