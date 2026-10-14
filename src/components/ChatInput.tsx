@@ -3,6 +3,7 @@ import { RdmTimeframePicker } from './RdmTimeframePicker';
 import { rdmLabel } from '../utils/preferences';
 import { STYLE_INFO, styleFramesLabel } from '../utils/tradeStyle';
 import { MarketXText } from './MarketXText';
+import { openMatt } from '../utils/matt';
 import { extractAssetInfo } from '../utils/localStrategyEngine';
 import {
   ArrowUp,
@@ -33,6 +34,7 @@ import {
   Radar,
   Trophy,
   CandlestickChart,
+  MessageCircleQuestion,
 } from 'lucide-react';
 
 // Every timeframe the analysis engine supports (value sent to the server, label shown)
@@ -96,6 +98,7 @@ const timeframeLabel = (v: string) => TIMEFRAMES.find(t => t.value === v)?.label
 
 // Slash-command menu shown when the user types "/" in the chat input
 const SLASH_COMMANDS = [
+  { id: 'matt', label: 'Matt', description: 'Your MarketX help: features, your account, promos and the markets', icon: MessageCircleQuestion },
   { id: 'watchlist', label: 'Watchlist', description: 'Add pairs and get told when a setup builds, 24/7', icon: Radar },
   { id: 'alerts', label: 'Price Alerts', description: 'Get notified the moment price reaches your level', icon: BellRing },
   { id: 'journal', label: 'Trade Journal', description: 'Log your trades and review your win rate', icon: NotebookPen },
@@ -109,7 +112,7 @@ const SLASH_COMMANDS = [
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy']);
+const LIVE_COMMANDS = new Set<string>(['matt', 'watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy']);
 
 interface ChatInputProps {
   onSendMessage: (
@@ -293,6 +296,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const selectSlashCommand = (cmd: (typeof SLASH_COMMANDS)[number]) => {
     // Token Safety runs in the chat: "/token-safety " is kept so the trader types the $ticker or address after it
+    if (cmd.id === 'matt') {
+      setInput('');
+      openMatt();
+      return;
+    }
     if (cmd.id === 'safety') {
       setInput('/token-safety ');
       setTimeout(() => textareaRef.current?.focus(), 0);

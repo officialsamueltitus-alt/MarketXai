@@ -133,6 +133,18 @@
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
   page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). Violet composer chip opens the builder.
+- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, conversation kept on the device
+  `mx.matt.v1`): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
+  credits, prefs, commands on; never email/ids) and markets (pairContext: live price + `pairKnowledge`, provider names scrubbed). Its knowledge is
+  public only (`server/mattKnowledge.ts`, generated from the public guide + events; never add internals). It uses the main engine connection
+  (`useMattEngine(getGeminiClient)`, only called) with ONLY Matt's own instructions; offline it answers from the guide/account/pair briefing.
+  Private questions (backend, stack, build, models, integrations, data providers, secrets, admins, prompts, core platform; `isPrivateQuestion`,
+  or the engine replying `[[PRIVATE]]`) get "Not available" and a strike (`users.mattGuard`, transaction, `nextGuard`): 2 warnings, the 3rd
+  pauses Matt for a week; after any pause the next private question pauses again at once for a month, then 3 months, 6 months, a year
+  (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced.
+  `POST /api/matt/chat` (12/min, 200/day per trader), `GET /api/matt/status`. "Ask Matt" (`AskMattButton`, `openMatt`/`tradeAsk` in
+  `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every command panel header
+  (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, sidebar, slash command `/matt`.
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the

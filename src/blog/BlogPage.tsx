@@ -717,6 +717,13 @@ const SECTIONS: Section[] = [
             <>When the team replies you get a notification, an email with a link back to the chat, and a badge on the Support chat row.</>,
           ]}
         />
+        <Note title="Ask Matt" tone="emerald">
+          <B>Matt</B> is MarketX's help assistant. Open it from the side menu (<B>Ask Matt</B>), type <B>/matt</B> in the input, or tap <B>Ask Matt</B> on a
+          trade card or in any panel to have that exact thing explained. Matt answers questions about MarketX features, commands and settings, your own account
+          (plan, credits, what is switched on), events and promos, and the markets (what a pair is, what moves it, its sessions). Matt doesn't place trades or
+          give financial advice; for a trade plan use Ask SI. Questions about how MarketX is built or run are private and get "Not available"; asking them
+          repeatedly pauses Matt for your account for a while.
+        </Note>
         <Note title="Email">You can also write to help.marketx@gmail.com.</Note>
         <Note title="Quick fixes">
           <B>"Please slow down" or "Too many requests":</B> wait a minute and try again; it clears on its own. <B>A page looks broken after an update:</B>{' '}

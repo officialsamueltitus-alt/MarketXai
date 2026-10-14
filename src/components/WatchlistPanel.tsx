@@ -281,6 +281,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
     <PluginSheet
       isOpen={isOpen}
       onClose={onClose}
+      ask={{ q: "How does the watchlist work: adding pairs, RDM, setup ready vs building, and Get the plan?", label: "Watchlist" }}
       label="Watchlist"
       title="Watchlist"
       subtitle={enabled ? `${items.filter(i => i.active).length} of ${max} pairs · scanning 24/7` : 'Setups found for you, around the clock'}

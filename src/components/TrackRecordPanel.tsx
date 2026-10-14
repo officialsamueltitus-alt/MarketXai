@@ -108,6 +108,7 @@ export const TrackRecordPanel: React.FC<TrackRecordPanelProps> = ({ isOpen, onCl
     <PluginSheet
       isOpen={isOpen}
       onClose={onClose}
+      ask={{ q: "How is the track record calculated: wins, losses, R, missed and ended trades?", label: "Track Record" }}
       label="Track Record"
       title="Track Record"
       subtitle={enabled ? (data ? `${data.stats.signals} results · ${data.live.length} live` : 'How the signals played out') : 'Every signal, scored by the market'}

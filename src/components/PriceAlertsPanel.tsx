@@ -1,3 +1,4 @@
+import { AskMattButton } from './AskMattButton';
 import React, { useEffect, useRef, useState } from 'react';
 import { BellRing, X, Target, ShieldAlert, Flag, Mail, Loader2, Check, Trash2, Sparkles, RefreshCw, Zap, Hand } from 'lucide-react';
 import type { PriceAlertItem, AlertLiveQuote, AlertMode } from '../types';
@@ -207,6 +208,7 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
             <h2 className="text-lg font-semibold text-white tracking-tight leading-tight">Price alerts</h2>
             <p className="text-[11px] text-slate-500">{enabled ? `${active.length} active · watched by MarketX` : 'Live updates on your setups'}</p>
           </div>
+          <AskMattButton ask={{ q: 'How do price alerts work: entry, targets, stop loss, how a hit is judged, and Auto vs Manual?', label: 'Price alerts' }} label="Ask" className="ml-auto" />
           {enabled && (
             <button
               type="button"
@@ -215,13 +217,13 @@ export const PriceAlertsPanel: React.FC<PriceAlertsPanelProps> = ({ isOpen, onCl
               aria-label="Live price alerts on"
               disabled={!!busy}
               onClick={() => run('off', () => onConsent(false))}
-              className="ml-auto h-7 w-12 rounded-full bg-emerald-500/80 relative transition-colors cursor-pointer disabled:opacity-60"
+              className=" h-7 w-12 rounded-full bg-emerald-500/80 relative transition-colors cursor-pointer disabled:opacity-60"
               title="Turn off price alerts"
             >
               <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow" />
             </button>
           )}
-          <button type="button" onClick={onClose} aria-label="Close" className={`${enabled ? '' : 'ml-auto'} w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.06] flex items-center justify-center cursor-pointer`}>
+          <button type="button" onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.06] flex items-center justify-center cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </header>

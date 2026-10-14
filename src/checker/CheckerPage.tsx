@@ -1,3 +1,4 @@
+import { AskMattButton } from '../components/AskMattButton';
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Search, Loader2, XCircle, Copy, Check, ExternalLink, Calendar, Fingerprint, TrendingUp, TrendingDown } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -91,6 +92,7 @@ export default function CheckerPage() {
           <div className="relative">
             <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">Check a MarketX ID</h1>
             <p className="mt-1.5 text-sm text-slate-400">Paste a trader’s MarketX ID to see who they are and their record on Solana.</p>
+            <AskMattButton variant="link" className="mt-1" label="What is a MarketX ID?" ask={{ q: 'What is a MarketX ID, how do I activate mine, and how does the public checker work?', label: 'MarketX ID' }} />
             <form
               className="mt-5 flex flex-col sm:flex-row gap-2"
               onSubmit={e => {

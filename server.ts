@@ -39,6 +39,7 @@ import { applyConfirmation, confirmationOf, confirmationTimeframe } from './serv
 import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
 import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
+import { registerMattRoutes, useMattEngine } from './server/matt';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
@@ -2159,6 +2160,32 @@ registerPreferenceRoutes(app, generalApiRateLimiter);
 // Strategy Builder (/strategy): the trader's own strategies, run by Strategy mode instead of the general engine
 // The Strategy Builder uses the same engine connection, with only its own instructions per request
 useMainEngine(getGeminiClient);
+// Matt (help assistant): the same engine connection, only Matt's own instructions, public knowledge only
+useMattEngine(getGeminiClient);
+registerMattRoutes(app, generalApiRateLimiter, {
+  pairContext: async question => {
+    if (!promptNamesAsset(question)) return null;
+    const asset = await resolveAssetInfo(question);
+    if (!asset || asset.unresolved) return null;
+    await refreshNewsFeedsWithin(1500).catch(() => {});
+    const quote = await livePriceFor(asset).catch(() => null);
+    const live = !!quote && quote.price > 0 && quote.live !== false;
+    const brief = buildDailyNewsBrief(asset, 'Africa/Lagos');
+    const details = assetDetailLines(asset, live ? quote : null);
+    const news = brief ? `${brief.summary}. ${brief.guidance}` : 'Nothing on the economic calendar or the news wires that could move it today.';
+    return {
+      context: [
+        `${asset.name} (${asset.symbol}), live as of ${new Date().toISOString()}:`,
+        ...details.map(l => `- ${l}`),
+        ...(live ? [] : ['- Live price unavailable right now; do not quote a price.']),
+        `- Today: ${news}`,
+        'Background facts:',
+        ...pairKnowledge(asset).map(l => `- ${l}`),
+      ].join('\n'),
+      fallback: pairBriefing(asset, question, details, news),
+    };
+  },
+});
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);

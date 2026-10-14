@@ -1,3 +1,4 @@
+import { AskMattButton } from './AskMattButton';
 import React, { useMemo, useState } from 'react';
 import { ShieldCheck, ShieldAlert, ShieldX, ShieldQuestion, Check, AlertTriangle, X, HelpCircle, RefreshCw, ExternalLink, ChevronDown, Copy } from 'lucide-react';
 import type { TokenSafety } from '../types';
@@ -72,6 +73,7 @@ export const TokenSafetyCard: React.FC<{ safety: TokenSafety }> = ({ safety: ini
               <Icon className={`w-4 h-4 ${t.text}`} /> Token safety
             </span>
             <span className={`h-5 px-2 rounded-full border text-[10px] font-bold uppercase tracking-wide inline-flex items-center ${t.pill}`}>{t.label}</span>
+            <AskMattButton variant="link" className="ml-auto" label="Ask Matt" ask={{ q: `Explain this token safety check in simple words: what "${t.label}" and each check mean, and what I should watch out for.`, label: 'Token safety', context: [`Verdict: ${t.label}, score ${safety.score}/100.`, safety.headline, ...(safety.checks || []).map(c => `${c.status}: ${c.label}${c.detail ? `, ${c.detail}` : ''}`)].join('\n').slice(0, 2000) }} />
           </div>
           <p className="mt-1 text-xs text-slate-300 leading-relaxed">{safety.headline}</p>
           <div className="mt-1.5 flex items-center gap-2 text-[10px] text-slate-500 tabular-nums">

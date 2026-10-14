@@ -514,6 +514,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
     <PluginSheet
       isOpen={isOpen}
       onClose={onClose}
+      ask={{ q: "How does the Strategy Builder work: building my own strategy, the library, and turning it on?", label: "Strategy Builder" }}
       label="Strategy Builder"
       title="Strategy Builder"
       subtitle={state?.enabled && active ? `On · ${active.name}` : 'Your own strategy, run on real candles'}

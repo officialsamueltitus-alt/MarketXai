@@ -12,6 +12,8 @@ import { downloadStrategyImage, shareToX } from '../utils/exportImage';
 import { UserProfile } from '../types';
 import { AiActivityTrace } from './AiActivityTrace';
 import { RecheckPanel } from './RecheckPanel';
+import { AskMattButton } from './AskMattButton';
+import { tradeAsk } from '../utils/matt';
 import { Bitcoin, Gem, Activity, Coins } from 'lucide-react';
 import {
   User,
@@ -988,14 +990,16 @@ Rationale: ${strategy.entryZone.rationale}
                           <div className="flex items-center gap-2 flex-wrap">
                             <ProofBadge proof={strategy.proof} />
                             <span className="text-[10px] text-slate-500 font-sans">Sealed the moment it was served, so it can never be edited.</span>
+                            <AskMattButton variant="link" label="How does this work?" ask={{ q: 'How does the Proof on Solana badge on my trade card work, and how can anyone check it?', label: 'Proof on Solana' }} />
                           </div>
                         )}
                         {strategy.tokenSafety && <TokenSafetyCard safety={strategy.tokenSafety} />}
 
                         {/* Strategy Rationale Summary */}
                         <div className="p-3 rounded-xl bg-sky-950/25 border border-sky-400/20 text-xs text-slate-200 leading-relaxed font-sans shadow-inner break-words">
-                          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono font-bold text-sky-400 mb-1">
+                          <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider font-mono font-bold text-sky-400 mb-1">
                             <span>Market Structure & Execution Thesis</span>
+                            <AskMattButton variant="link" label="What does this mean?" className="normal-case tracking-normal font-sans" ask={tradeAsk(strategy, `Explain the notes on my ${strategy.symbol} ${strategy.timeframe} card in simple words: what the zone, the Fibonacci levels and the confirmation mean for this trade.`)} />
                           </div>
                           <p>{strategy.entryZone.rationale}</p>
                         </div>
@@ -1009,6 +1013,7 @@ Rationale: ${strategy.entryZone.rationale}
                         {/* Action Row: Share to 𝕏, Download as Image, & Copy Parameters */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
                           <div className="flex flex-wrap items-center gap-2">
+                            <AskMattButton ask={tradeAsk(strategy)} className="h-[30px] rounded-xl" />
                             {strategy.tradeType !== 'NO_SIGNAL' && (
                               <button
                                 type="button"
