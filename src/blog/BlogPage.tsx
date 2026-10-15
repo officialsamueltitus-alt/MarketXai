@@ -526,6 +526,11 @@ const SECTIONS: Section[] = [
               <B>Find it again.</B> Every read is kept under <B>Fundamentals</B> in the History section of the side menu, and you get an email with the
               outcome, its odds, the forecast and the pairs for and against, plus a button that opens that exact read.
             </>,
+            <>
+              <B>Save and share it.</B> Tap <B>Save image</B> to keep the card as a picture (on iPhone, choose Save Image to put it in Photos; on Android
+              it lands in Downloads, which your gallery shows), <B>Share</B> to send the picture with a short write-up to any app, or <B>Post on X</B> for
+              a brief post with the key points. Before the release it shares the forecast; once the figure is out, the result against the forecast.
+            </>,
           ]}
         />
         <Note title="Good to know">

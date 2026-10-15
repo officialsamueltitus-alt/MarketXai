@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { ArrowDownRight, ArrowUpRight, Check, CheckCircle2, Copy, Landmark, Loader2, Minus, CalendarClock, Newspaper, AlertTriangle, RefreshCw, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Check, CheckCircle2, Copy, Download, Share2, Landmark, Loader2, Minus, CalendarClock, Newspaper, AlertTriangle, RefreshCw, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
 import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalRecheck, FundamentalReport } from '../utils/fundamental';
 import { BIAS_LABEL } from '../utils/fundamental';
 import { exactPrice } from '../utils/formatPrice';
 import { AskMattButton } from './AskMattButton';
+import { buildFundamentalShareText, prepareFundamentalCard, saveFundamentalCard, shareFundamentalCard } from '../utils/fundamentalShare';
+import { openXPost } from '../utils/shareText';
 
 // Fundamental Analysis result (/fundamental-analysis): the event, the most likely outcome with its odds, past
 // releases, the scenarios, and the pairs it favours (For) or works against (Against), each with its live price.
@@ -174,8 +176,13 @@ export const FundamentalCard: React.FC<{
   /** Reads the same question again now and compares it with this read (one analysis credit) */
   onRecheck?: () => void;
   rechecking?: boolean;
-}> = ({ report: raw, markdown, onRecheck, rechecking = false }) => {
+  /** Shown on the saved / shared picture */
+  username?: string;
+  isVerified?: boolean;
+}> = ({ report: raw, markdown, onRecheck, rechecking = false, username, isVerified }) => {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState<'' | 'save' | 'share'>('');
+  const [note, setNote] = useState('');
   const r = React.useMemo(() => safeReport(raw), [raw]);
   if (!r) return null;
   const forCount = r.pairs.filter(p => p.bias === 'FOR').length;
@@ -191,6 +198,28 @@ export const FundamentalCard: React.FC<{
       setTimeout(() => setCopied(false), 1800);
     } catch {}
   };
+  const flash = (text: string) => {
+    setNote(text);
+    setTimeout(() => setNote(''), 2600);
+  };
+  const warm = () => void prepareFundamentalCard(r, username, isVerified);
+  const save = async () => {
+    if (busy) return;
+    setBusy('save');
+    const out = await saveFundamentalCard(r, username, isVerified).catch(() => 'failed' as const);
+    setBusy('');
+    if (out === 'saved') flash('Picture saved');
+    else if (out === 'failed') flash('Could not make the picture');
+  };
+  const share = async () => {
+    if (busy) return;
+    setBusy('share');
+    const out = await shareFundamentalCard(r, username, isVerified).catch(() => 'failed' as const);
+    setBusy('');
+    if (out === 'copied') flash('Text copied, picture saved');
+    else if (out === 'failed') flash('Could not share');
+  };
+  const postOnX = () => openXPost(buildFundamentalShareText(r, window.location.origin));
   const mattAsk = {
     q: `Explain this fundamental analysis of ${r.event} in simple terms: what the most likely outcome means and why these pairs are for or against.`,
     label: `${r.event} fundamentals`,
@@ -412,8 +441,21 @@ export const FundamentalCard: React.FC<{
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[10.5px] text-slate-500">Fundamental read, not financial advice. Markets can react in unexpected ways.</p>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5" onPointerEnter={warm} onTouchStart={warm} onFocus={warm}>
+              {note && <span role="status" className="text-[10.5px] text-emerald-300">{note}</span>}
               <AskMattButton ask={mattAsk} />
+              <button type="button" onClick={save} disabled={!!busy} title="Save the card as a picture" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                {busy === 'save' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                Save image
+              </button>
+              <button type="button" onClick={share} disabled={!!busy} title="Share the card and a short write-up" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                {busy === 'share' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+                Share
+              </button>
+              <button type="button" onClick={postOnX} title="Post the key points on X" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
+                Post on X
+              </button>
               <button type="button" onClick={copy} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer">
                 {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copied' : 'Copy'}

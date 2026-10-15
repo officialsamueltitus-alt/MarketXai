@@ -1157,6 +1157,8 @@ Rationale: ${strategy.entryZone.rationale}
                       markdown={message.content}
                       onRecheck={onRecheckFundamental ? () => onRecheckFundamental(message.id) : undefined}
                       rechecking={recheckingId === message.id}
+                      username={userProfile?.username}
+                      isVerified={userProfile?.isVerified}
                     />
                   )}
 
