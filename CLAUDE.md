@@ -230,7 +230,9 @@
   Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
   and spoken when the video has a voice-over) as its final card.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
-  is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
+  is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Parent company (owner-specified): SpiriTech Labs owns and built MarketX; credited as "Built by SpiriTech Labs" in the
+  sidebar Settings (under Terms & Privacy), the guide, Terms, proof and checker footers, the email footer, the `index.html` JSON-LD (`#spiritech`
+  parentOrganization / creator, meta author) and Matt's public knowledge. Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
 - Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
   Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,

@@ -355,6 +355,9 @@ export default function ProofPage() {
             </p>
           </>
         )}
+        <p className="mt-6 text-center text-[11px] text-slate-500">
+          MarketX · Built by <span className="text-slate-300 font-medium">SpiriTech Labs</span>
+        </p>
       </main>
     </div>
   );

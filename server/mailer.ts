@@ -142,7 +142,8 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
         </td></tr>
       </table>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%"><tr><td align="center" style="padding:22px 10px 0">
-        <p style="margin:0 0 8px;font-size:13px;color:${BODY};font-weight:600">MarketX SI &middot; Super Intelligence for traders</p>
+        <p style="margin:0 0 4px;font-size:13px;color:${BODY};font-weight:600">MarketX SI &middot; Super Intelligence for traders</p>
+        <p style="margin:0 0 10px;font-size:11px;color:#a1a1aa">Built by SpiriTech Labs</p>
         <p style="margin:0 0 12px;font-size:12px">
           <a href="${escapeHtml(siteUrl)}" style="color:${VIOLET};text-decoration:none">marketx.world</a>
           <span style="color:#c4c4cc">&nbsp;&middot;&nbsp;</span>
@@ -165,6 +166,8 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
     '',
     `${cta.label}: ${cta.url}`,
     ...(options.note ? ['', options.note] : []),
+    '',
+    'MarketX SI, built by SpiriTech Labs',
   ].join('\n');
   return mailQueue.enqueue(to, options.priority === 'low' || options.priority === 'bulk' ? options.priority : 'high', async () => {
     try {

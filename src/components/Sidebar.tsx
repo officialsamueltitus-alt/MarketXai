@@ -823,6 +823,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-70" />
                   </button>
                 )}
+                <p className="pt-2 pb-0.5 text-center text-[10.5px] text-slate-500">
+                  Built by <span className="text-slate-300 font-medium">SpiriTech Labs</span>
+                </p>
               </div>
             )}
 
