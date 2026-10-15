@@ -233,6 +233,8 @@ export interface ChatMessage {
   tokenSafety?: TokenSafety;
   /** Fundamental Analysis result (/fundamental-analysis) */
   fundamental?: import('./utils/fundamental').FundamentalReport;
+  /** A failed analysis or fundamental read that can be tried again ("Try again" re-runs it in place) */
+  retry?: { kind: 'analysis' | 'fundamental'; prompt: string; timeframe?: string; slMode?: 'normal' | 'tight' };
   timestamp: number;
 }
 

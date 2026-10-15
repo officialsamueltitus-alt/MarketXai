@@ -15,7 +15,7 @@ import { AiActivityTrace, isNewsCurrent } from './AiActivityTrace';
 import { RecheckPanel } from './RecheckPanel';
 import { AskMattButton } from './AskMattButton';
 import { tradeAsk } from '../utils/matt';
-import { Bitcoin, Gem, Activity, Coins } from 'lucide-react';
+import { Bitcoin, Gem, Activity, Coins, RotateCw } from 'lucide-react';
 import {
   User,
   Sparkles,
@@ -72,6 +72,8 @@ interface ChatFeedProps {
   onCheckFundamental?: (topic: string) => void;
   /** "Recheck" on a fundamental card: reads the same question again and compares it with this read */
   onRecheckFundamental?: (messageId: string) => void;
+  /** "Try again" on a failed analysis or fundamental read */
+  onRetry?: (messageId: string) => void;
   recheckingId?: string | null;
 }
 
@@ -167,6 +169,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onCalculate,
   onCheckFundamental,
   onRecheckFundamental,
+  onRetry,
   recheckingId,
 }) => {
   const prefs = React.useMemo(() => withDefaults(userProfile?.preferences), [userProfile?.preferences]);
@@ -1187,6 +1190,18 @@ Rationale: ${strategy.entryZone.rationale}
                         <Markdown text={message.content} />
                       </div>
                       {message.tokenSafety && <TokenSafetyCard safety={message.tokenSafety} />}
+                      {message.retry && onRetry && (
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            disabled={isLoading}
+                            onClick={() => onRetry(message.id)}
+                            className="h-10 px-4 rounded-xl text-[13px] font-semibold inline-flex items-center gap-2 bg-indigo-500 text-white hover:bg-indigo-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <RotateCw className="w-4 h-4" /> Try again
+                          </button>
+                        </div>
+                      )}
                       {message.choices && message.choices.length > 0 && (
                         <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Choose what you want">
                           {message.choices.map(c => (

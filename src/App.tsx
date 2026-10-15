@@ -1503,6 +1503,11 @@ export default function App() {
     }
   };
 
+  /** Failures a retry can fix: the engine busy or unavailable, a timeout, a dropped connection (not limits, sign-in or Pro) */
+  const canRetry = (status?: number, code?: string) =>
+    !['DAILY_LIMIT', 'PRO_REQUIRED', 'NOT_FUNDAMENTAL', 'UNKNOWN_ASSET', 'FUNDAMENTAL_OFF', 'BAD_REQUEST', 'INSUFFICIENT_CREDITS', 'NO_CREDITS'].includes(code || '') &&
+    (!status || status >= 500 || status === 408 || status === 429);
+
   // Fundamental Analysis: "/fundamental-analysis CPI" (with the command on) gets the same intro steps as every prompt, then
   // the fundamental read of the event or market asked about. One credit, refunded by the server on any failure.
   const runFundamental = async (promptText: string) => {
@@ -1605,11 +1610,13 @@ export default function App() {
       if (err instanceof ApiError && err.code === 'FUNDAMENTAL_OFF') setFundamentalOn(false);
       const notFundamental = err instanceof ApiError && err.code === 'NOT_FUNDAMENTAL';
       activity = activity.map(st => (st.status === 'active' ? { ...st, status: notFundamental ? 'stopped' : 'error', endedAt: Date.now() } : st));
+      const retryable = timedOut || !(err instanceof ApiError) || canRetry(err.status, err.code);
       patch({
         content: notFundamental ? msg : `⚠️ ${msg}`,
         status: 'completed',
         searchStep: undefined,
         activity,
+        ...(retryable && !notFundamental ? { retry: { kind: 'fundamental' as const, prompt: fundamentalPrompt(topic) } } : {}),
         ...(notFundamental ? { choices: FUNDAMENTAL_EXAMPLES.slice(0, 3).map(e => ({ kind: 'analysis' as const, label: e.label, prompt: fundamentalPrompt(e.prompt) })) } : {}),
       });
       refreshAccount();
@@ -1619,6 +1626,27 @@ export default function App() {
       setIsLoading(false);
       setTimeout(refreshNotifications, 1500);
     }
+  };
+
+  // "Try again" on a failed analysis or fundamental read: the failed attempt (and its prompt) leave the chat, and the same
+  // prompt runs again with the same timeframe, stop mode and chart, in the same chat
+  const retryMessage = (messageId: string) => {
+    if (isLoading) return;
+    const session = sessions.find(x => x.messages.some(m => m.id === messageId));
+    const idx = session ? session.messages.findIndex(m => m.id === messageId) : -1;
+    const msg = session && idx >= 0 ? session.messages[idx] : null;
+    if (!session || !msg?.retry) return;
+    const userIdx = session.messages.slice(0, idx).map(m => m.role).lastIndexOf('user');
+    const userMsg = userIdx >= 0 ? session.messages[userIdx] : null;
+    const drop = new Set([messageId, ...(userMsg ? [userMsg.id] : [])]);
+    setSessions(list => list.map(x => (x.id === session.id ? { ...x, messages: x.messages.filter(m => !drop.has(m.id)) } : x)));
+    setCurrentSessionId(session.id);
+    const r = msg.retry;
+    // (on the next tick, so the chat no longer holds the failed attempt when the new one starts)
+    setTimeout(() => {
+      if (r.kind === 'fundamental') runFundamental(r.prompt);
+      else handleSendMessage(r.prompt, r.timeframe || getSavedTimeframe(), r.slMode || 'normal', undefined, userMsg?.chartImage, userMsg?.chartFileName);
+    }, 0);
   };
 
   // A news alert link, once signed in: Fundamental Analysis is switched on and "/fundamental-analysis <release>" waits in
@@ -2210,6 +2238,7 @@ export default function App() {
           searchStep: undefined,
           durationSeconds: actualDuration,
           activity,
+          ...(canRetry(result.status, result.code) ? { retry: { kind: 'analysis' as const, prompt: promptText, timeframe, slMode } } : {}),
         });
         refreshAccount();
         return;
@@ -2325,7 +2354,7 @@ export default function App() {
       }
       console.error('Market analysis computation notice:', err);
       activity = activity.map(st => (st.status === 'active' ? { ...st, status: 'error', endedAt: Date.now() } : st));
-      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity });
+      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity, retry: { kind: 'analysis', prompt: promptText, timeframe, slMode } });
     } finally {
       clearTimeout(requestTimer);
       toolsSettled = true;
@@ -2841,6 +2870,7 @@ export default function App() {
                   messages={currentMessages}
                   onCheckFundamental={checkFundamental}
                   onRecheckFundamental={recheckFundamental}
+                  onRetry={retryMessage}
                   recheckingId={recheckingId}
                   isLoading={isLoading}
                   tickers={tickers}
