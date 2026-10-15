@@ -1,7 +1,7 @@
 import { formatMarketPrice } from '../utils/formatPrice';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppNotification, CreditState, MarketQuote, UserProfile } from '../types';
-import { Sparkles, Gift, Bell, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown, Megaphone } from 'lucide-react';
+import { CreditState, MarketQuote, UserProfile } from '../types';
+import { Sparkles, Gift, X, ChevronRight, Lightbulb, ImagePlus, TrendingUp, TrendingDown, LogIn, AlertTriangle, Crown } from 'lucide-react';
 import { campaignCreditsLeft, formatDailyResetTime, getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 
@@ -9,7 +9,6 @@ interface ChatUpdatesBarProps {
   isSignedIn: boolean;
   userProfile: UserProfile;
   creditState: CreditState;
-  notifications: AppNotification[];
   /** Live tickers; only used once they have been synced from the server */
   tickers: MarketQuote[];
   tickersLive: boolean;
@@ -18,8 +17,6 @@ interface ChatUpdatesBarProps {
   onOpenCampaign: () => void;
   onSignIn: () => void;
   onAnalyze: (prompt: string) => void;
-  onNotificationSeen: (id: string) => void;
-  onNotificationAction: (n: AppNotification) => void;
 }
 
 type Tone = 'violet' | 'amber' | 'emerald' | 'cyan' | 'rose' | 'slate';
@@ -32,7 +29,6 @@ interface UpdateItem {
   text: string;
   cta?: string;
   onAction?: () => void;
-  notificationId?: string;
 }
 
 const TONES: Record<Tone, string> = {
@@ -44,7 +40,7 @@ const TONES: Record<Tone, string> = {
   slate: 'bg-white/[0.06] text-slate-300',
 };
 
-const VISIBLE_MS = 15_000; // each update clears itself after 15 seconds
+const VISIBLE_MS = 5_000; // owner-specified: each update clears itself after 5 seconds
 const FIRST_DELAY: [number, number] = [15_000, 35_000];
 const GAP_DELAY: [number, number] = [120_000, 300_000];
 const SEEN_KEY = 'mx_seen_updates';
@@ -66,25 +62,10 @@ function formatPrice(q: MarketQuote): string {
   return q.type === 'forex' ? n : `$${n}`;
 }
 
-function notificationItem(n: AppNotification, onAction: () => void): UpdateItem {
-  const reward = n.type === 'credit' || n.type === 'reward';
-  const announcement = n.type === 'announcement';
-  return {
-    id: `n-${n.id}`,
-    notificationId: n.id,
-    tone: reward ? 'emerald' : n.type === 'market' ? 'cyan' : 'violet',
-    icon: reward ? Gift : announcement ? Megaphone : Bell,
-    label: announcement ? 'Announcement' : 'Notification',
-    text: n.title,
-    cta: n.actionPrompt ? 'Analyze' : announcement ? 'Read' : 'View',
-    onAction,
-  };
-}
-
-// Occasional pop-up above the chat composer: live market moves, promos and new notifications.
-// Appears at random intervals, clears itself after 15 seconds, and can be closed at any time.
+// Occasional pop-up above the chat composer: live market moves, offers and tips. Owner-specified: it never repeats
+// notifications (prompts, analysis results or anything else the notification center already shows), and each one
+// clears itself after 5 seconds; it can be closed at any time.
 export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
-  const { notifications } = props;
   const [current, setCurrent] = useState<UpdateItem | null>(null);
   const seenRef = useRef<Set<string>>(loadSeen());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,12 +85,6 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     const p = propsRef.current;
     const market: UpdateItem[] = [];
     const promo: UpdateItem[] = [];
-
-    // Older unread notifications join the random rotation
-    p.notifications
-      .filter(n => !n.read && n.type !== 'analysis')
-      .slice(0, 3)
-      .forEach(n => promo.push(notificationItem(n, () => propsRef.current.onNotificationAction(n))));
 
     if (p.tickersLive) {
       const hour = Math.floor(Date.now() / 3_600_000);
@@ -199,15 +174,6 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
     };
   }, [schedule]);
 
-  // A notification that arrives while the chat is open pops up straight away. "Setup ready" is skipped: the
-  // result is already on screen in the chat, so a pop-up over it would only cover the answer.
-  const mountedAtRef = useRef(Date.now());
-  useEffect(() => {
-    const fresh = notifications.find(n => !n.read && n.type !== 'analysis' && n.timestamp > mountedAtRef.current);
-    if (!fresh || seenRef.current.has(`n-${fresh.id}`)) return;
-    show(notificationItem(fresh, () => propsRef.current.onNotificationAction(fresh)));
-  }, [notifications, show]);
-
   // Publish the notice height so the chat's scroll button can sit above it instead of overlapping
   const noticeRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -251,7 +217,6 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
             <button
               type="button"
               onClick={() => {
-                if (current.notificationId) props.onNotificationSeen(current.notificationId);
                 current.onAction?.();
                 clear();
               }}
@@ -263,10 +228,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
           )}
           <button
             type="button"
-            onClick={() => {
-              if (current.notificationId) props.onNotificationSeen(current.notificationId);
-              clear();
-            }}
+            onClick={clear}
             className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors shrink-0 cursor-pointer"
             aria-label="Close update"
             title="Close"

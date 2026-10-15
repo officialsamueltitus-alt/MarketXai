@@ -1390,7 +1390,7 @@ export default function App() {
     return true;
   };
   /**
-   * Every notification (center, chat updates bar, toasts, email links) opens the exact thing it is about:
+   * Every notification (center, toasts, email links) opens the exact thing it is about:
    * the alert card, the watchlist pair, the reply in its chat, the support conversation, credits, plans, profile,
    * the campaign, or the announcement itself.
    */
@@ -2785,7 +2785,6 @@ export default function App() {
                     isSignedIn={!!authUser}
                     userProfile={userProfile}
                     creditState={creditState}
-                    notifications={notifications}
                     tickers={tickers}
                     tickersLive={tickersLive}
                     monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 20, paymentsConfig?.currency || 'USD', true)}
@@ -2793,8 +2792,6 @@ export default function App() {
                     onOpenCampaign={() => setIsShareModalOpen(true)}
                     onSignIn={() => setIsAuthModalOpen(true)}
                     onAnalyze={prompt => handleSendMessage(prompt)}
-                    onNotificationSeen={markNotificationRead}
-                    onNotificationAction={handleUpdateNotificationAction}
                   />
                   <ChatInput
                     onSendMessage={handleSendMessage}
