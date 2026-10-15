@@ -173,10 +173,7 @@ export default function MattPage() {
         <ModeSwitch active="matt" bare />
         <div className="flex items-center gap-2 min-w-0">
           <MattMark className="w-7 h-7" />
-          <div className="leading-tight min-w-0">
-            <div className="text-sm font-semibold text-white">Matt</div>
-            <div className="text-[11px] text-slate-500 truncate">MarketX help</div>
-          </div>
+          <span className="text-[15px] font-semibold text-white leading-none">Matt</span>
         </div>
         <button type="button" onClick={newChat} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition cursor-pointer">
           <Plus className="w-4 h-4" /> <span className="hidden sm:inline">New chat</span>
