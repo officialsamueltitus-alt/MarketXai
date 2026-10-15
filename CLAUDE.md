@@ -152,7 +152,7 @@
   `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every tool panel header
   (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, slash command `/matt`; NOT in the Tools sheet.
   Matt's mark is the MarketX logo everywhere (`MattMark`, owner-specified, no "M" disc). Ask SI / Matt switch (owner-specified, `ModeSwitch.tsx`:
-  a two-icon segmented control) sits in the sidebar's top row next to the logo and in the Matt page header (replacing the back link).
+  a two-icon segmented control) sits in the sidebar's top row next to the logo and in the Matt page header (replacing the back link); its Ask SI side on the Matt page opens `/?ask=1`, which lands in the Ask SI chat (not the Markets tab).
 - Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
   `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, a sky dot on the composer's Tools
   button, listed in the Tools sheet): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
