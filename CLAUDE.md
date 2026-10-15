@@ -171,7 +171,10 @@
   read and must search the latest information (released figure into `data.actual` + status RELEASED, else actual empty; `whatsNew` = "Update: …"
   line), the live calendar's released figure (`actual` in `getFullCalendar`) is given to it and fills a missing actual when exactly one matching
   line is out, and headlines since the earlier read ride on `recheck.news`. Card: Actual = the figure (sky tile, "just out", above/below/in line with
-  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; one credit, refunded on failure. Every read is kept (owner-specified):
+  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; one credit, refunded on failure. Save / share (owner-specified, `src/utils/fundamentalShare.ts`, buttons on the card):
+  "Save image" draws the card picture (canvas 1080x1350 @2x: forecast, or the result once `data.actual` is in, username, marketx.world; drawn ahead on
+  hover/touch, `prepareFundamentalCard`) and downloads it (iPhone: share sheet → Save Image to Photos); "Share" sends picture + brief text via the share
+  sheet (else copies the text and saves the picture); "Post on X" opens `openXPost(buildFundamentalShareText)`: key points only, ≤ 280. Every read is kept (owner-specified):
   the sidebar History has a Fundamentals tab (`fundamentalReads` in `Sidebar.tsx`, from the chats' `fundamental` messages, opens the read via
   `openChatMessage`), and each read or recheck sends its own notification + email (`fundamentalAlert` in `server/account.ts`: release, most likely
   with odds, effect, actual/forecast/previous, pairs for/against, confidence, recheck result; button = `/?chat=&msg=` of that read; `important`
