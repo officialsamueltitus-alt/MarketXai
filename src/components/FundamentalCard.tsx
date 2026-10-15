@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ArrowDownRight, ArrowUpRight, Check, Copy, Landmark, Minus, CalendarClock, Newspaper, AlertTriangle, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
-import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalReport } from '../utils/fundamental';
+import { ArrowDownRight, ArrowUpRight, Check, CheckCircle2, Copy, Landmark, Loader2, Minus, CalendarClock, Newspaper, AlertTriangle, RefreshCw, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
+import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalRecheck, FundamentalReport } from '../utils/fundamental';
 import { BIAS_LABEL } from '../utils/fundamental';
 import { exactPrice } from '../utils/formatPrice';
 import { AskMattButton } from './AskMattButton';
@@ -85,6 +85,51 @@ const PairTile: React.FC<{ p: FundamentalPair }> = ({ p }) => {
   );
 };
 
+const RECHECK_TONE: Record<FundamentalRecheck['state'], { box: string; icon: typeof CheckCircle2; title: string; text: string }> = {
+  STILL_VALID: { box: 'border-emerald-400/25 bg-emerald-500/[0.07]', icon: CheckCircle2, title: 'Still valid', text: 'text-emerald-300' },
+  CHANGED: { box: 'border-amber-400/25 bg-amber-500/[0.07]', icon: AlertTriangle, title: 'Changed since your last read', text: 'text-amber-300' },
+  RELEASED: { box: 'border-sky-400/25 bg-sky-500/[0.07]', icon: CalendarClock, title: 'Released', text: 'text-sky-300' },
+};
+const clock = (t?: number | null) => (t ? new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+const until = (t: number) => {
+  const m = Math.max(1, Math.round((t - Date.now()) / 60000));
+  return m < 60 ? `${m} min` : m < 48 * 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${Math.round(m / 1440)} days`;
+};
+
+/** What "Recheck" found: released or not, forecast and outlook the same or changed */
+const RecheckBanner: React.FC<{ rc: FundamentalRecheck }> = ({ rc }) => {
+  const tone = RECHECK_TONE[rc.state] || RECHECK_TONE.STILL_VALID;
+  const Icon = tone.icon;
+  const lines = Array.isArray(rc.lines) ? rc.lines.map(String).slice(0, 6) : [];
+  return (
+    <section className={`rounded-2xl border p-3.5 ${tone.box}`} aria-live="polite">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${tone.text}`}>
+          <Icon className="w-3.5 h-3.5" /> Recheck · {tone.title}
+        </span>
+        <span className="text-[10.5px] text-slate-500">{clock(rc.checkedAt)}</span>
+      </div>
+      <p className="text-[13px] font-semibold text-white mt-1.5 leading-snug">{String(rc.headline || '')}</p>
+      {rc.dueAt && rc.dueAt > Date.now() && (
+        <p className="text-[11.5px] text-slate-300 mt-0.5">
+          Due {clock(rc.dueAt)} (in {until(rc.dueAt)})
+        </p>
+      )}
+      {lines.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {lines.map((l, i) => (
+            <li key={i} className="flex gap-2 text-[11.5px] text-slate-300 leading-snug">
+              <span className={`w-1 h-1 rounded-full mt-[7px] shrink-0 ${rc.state === 'CHANGED' ? 'bg-amber-400' : rc.state === 'RELEASED' ? 'bg-sky-400' : 'bg-emerald-400'}`} />
+              {l}
+            </li>
+          ))}
+        </ul>
+      )}
+      {rc.previousAt ? <p className="text-[10.5px] text-slate-500 mt-2">Compared with your read from {clock(rc.previousAt)}.</p> : null}
+    </section>
+  );
+};
+
 /** A stored read may come from an older version or a damaged history entry: fill every list and field so the card never breaks */
 const safeReport = (x: any): FundamentalReport | null => {
   if (!x || typeof x !== 'object' || typeof x.event !== 'string') return null;
@@ -108,7 +153,13 @@ const safeReport = (x: any): FundamentalReport | null => {
   };
 };
 
-export const FundamentalCard: React.FC<{ report: FundamentalReport; markdown?: string }> = ({ report: raw, markdown }) => {
+export const FundamentalCard: React.FC<{
+  report: FundamentalReport;
+  markdown?: string;
+  /** Reads the same question again now and compares it with this read (one analysis credit) */
+  onRecheck?: () => void;
+  rechecking?: boolean;
+}> = ({ report: raw, markdown, onRecheck, rechecking = false }) => {
   const [copied, setCopied] = useState(false);
   const r = React.useMemo(() => safeReport(raw), [raw]);
   if (!r) return null;
@@ -164,10 +215,23 @@ export const FundamentalCard: React.FC<{ report: FundamentalReport; markdown?: s
           </div>
           <ConfidenceRing value={r.confidence} />
         </div>
+        {onRecheck && (
+          <button
+            type="button"
+            onClick={onRecheck}
+            disabled={rechecking}
+            title="Check again now: has it been released, is the forecast the same, does this read still hold? Uses 1 analysis credit."
+            className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-sky-400/30 bg-sky-500/[0.1] text-[12px] font-semibold text-sky-100 hover:bg-sky-500/[0.18] disabled:opacity-70 disabled:cursor-wait cursor-pointer transition-colors"
+          >
+            {rechecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {rechecking ? 'Rechecking… the release, forecast and news' : 'Recheck'}
+          </button>
+        )}
         {r.summary && <p className="text-[12.5px] sm:text-[13px] leading-relaxed text-slate-300 mt-3">{r.summary}</p>}
       </div>
 
       <div className="px-4 sm:px-5 py-4 space-y-4">
+        {r.recheck && typeof r.recheck === 'object' && typeof r.recheck.headline === 'string' && <RecheckBanner rc={r.recheck} />}
         {/* Most likely */}
         <section className="rounded-2xl border border-sky-400/20 bg-sky-500/[0.06] p-3.5">
           <div className="flex items-center justify-between gap-2">
