@@ -29,6 +29,17 @@ const EDGE = ['staf'];
 const EXACT = ['team', 'system', 'security', 'mod', 'help', 'owner', 'ceo', 'founder', 'bot', 'root'];
 
 /** Whether a username or display name would let its owner pose as MarketX or its staff */
+/** A display name as shown to others: text only, no hidden or direction-flipping characters, one line, at most 40 characters */
+export function cleanDisplayName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .replace(/[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40)
+    .trim();
+}
+
 export function impersonates(raw: string): boolean {
   const f = foldName(raw);
   if (!f) return false;

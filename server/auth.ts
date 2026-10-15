@@ -20,7 +20,7 @@ import {
   invalidateAuthCache,
 } from './account';
 import { bumpDaily, logActivity, touchUser } from './tracking';
-import { impersonates, RESERVED_NAME_MESSAGE } from './trust';
+import { cleanDisplayName, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import { IS_LEAD_WORKER } from './workers';
 import { readDeviceSignals, reserveSignup, releasePendingSignup, activateSignup, keysOf, signupMetaOf, canonicalEmail, type DeviceSignals } from './signupGuard';
 import { clientIp, createKeyedThrottle } from './security';
@@ -353,7 +353,7 @@ export function registerAuthRoutes(app: Express) {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
     const username = typeof req.body?.username === 'string' ? req.body.username : undefined;
-    const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName : undefined;
+    const displayName = cleanDisplayName(req.body?.displayName) || undefined;
 
     if (!acceptedTerms(req)) return res.status(400).json(TERMS_REQUIRED);
     if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'INVALID_EMAIL', message: 'Please enter a valid email address.' });

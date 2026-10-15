@@ -268,7 +268,8 @@
   (notification center, toasts and URL params all use it); the panels ring and scroll to `focusId`.
 - Anti-scam (`server/trust.ts`): usernames and display names that read as MarketX or its staff (admin, support, official, moderator,
   staff, help desk, refund, recovery…, look-alike spellings folded) are refused at sign-up and on rename (`RESERVED_NAME`), and an
-  email-derived name like that becomes a neutral `trader…` name; unlimited staff accounts are exempt. Gift notes refuse links, contacts,
+  email-derived name like that becomes a neutral `trader…` name; unlimited staff accounts are exempt. Display names go through `cleanDisplayName` (text only;
+  hidden, zero-width and direction-flipping characters removed; one line, 40 chars) at sign-up, Google sign-up and rename. Gift notes refuse links, contacts,
   socials, emails/handles, phone numbers and scam wording (`NOTE_REFUSED`), hidden control characters are stripped, and a sender can
   gift at most 10 times a day, 3 to the same trader (`GIFT_LIMIT`).
 - On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
@@ -431,7 +432,7 @@
   "Try again" button (`onRetry` in `ChatFeed.tsx`, `retryMessage`) removes the failed attempt and its prompt and runs it again in the same chat.
 - Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
-- Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
+- Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never

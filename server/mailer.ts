@@ -73,8 +73,10 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   const BODY = '#3f3f46';
   const MUTED = '#71717a';
   const VIOLET = '#7c3aed';
+  // Only MarketX's own links are turned into links (a line of engine or trader text that happens to be a URL stays plain text)
+  const ownLink = (l: string) => /^https?:\/\/[^\s"'<>]+$/i.test(l) && (l === siteUrl || l.startsWith(siteUrl + '/') || l.startsWith(siteUrl + '?'));
   const para = (l: string) =>
-    /^https?:\/\//.test(l)
+    ownLink(l)
       ? `<p style="margin:0 0 16px;word-break:break-all;font-size:14px"><a href="${escapeHtml(l)}" style="color:${VIOLET};text-decoration:underline">${escapeHtml(l)}</a></p>`
       : `<p style="margin:0 0 16px;line-height:1.65;color:${BODY};font-size:15px">${escapeHtml(l)}</p>`;
   const rows = options.rows?.length
