@@ -55,11 +55,11 @@ export async function sweepFreeAccounts(): Promise<number> {
       n++;
       await notifyActivity(
         uid,
-        { type: 'credit', title: 'Your commands are now Pro', message: 'Price alerts and your watchlist were paused. Your pairs, trades and results are saved. Upgrade to Pro to turn them back on.', actionType: 'open_pricing' } as any,
+        { type: 'credit', title: 'Your tools are now Pro', message: 'Price alerts and your watchlist were paused. Your pairs, trades and results are saved. Upgrade to Pro to turn them back on.', actionType: 'open_pricing' } as any,
         {
-          subject: 'Your MarketX commands are now part of Pro',
+          subject: 'Your MarketX tools are now part of Pro',
           lines: [
-            'The free period for MarketX commands has ended, so your price alerts and watchlist were paused.',
+            'The free period for MarketX tools has ended, so your price alerts and watchlist were paused.',
             'Your pairs, journal trades and track record are saved. Upgrade to Pro and switch them back on any time.',
           ],
           options: { cta: { label: 'See Pro plans', url: siteLink('/?pricing=1') } },
@@ -93,7 +93,7 @@ export function registerPluginRoutes(app: Express, limiter: (req: Request, res: 
   app.post('/api/plugins/:id', limiter, requireAuth, requireProToEnable, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const id = String(req.params.id || '') as PluginId;
-    if (!PLUGIN_IDS.includes(id)) return res.status(404).json({ error: 'NOT_FOUND', message: 'That command does not exist.' });
+    if (!PLUGIN_IDS.includes(id)) return res.status(404).json({ error: 'NOT_FOUND', message: 'That tool does not exist.' });
     if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'BAD_REQUEST', message: 'Say whether to turn it on or off.' });
     if (throttle.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many changes. Please wait a minute.' });
     await setPlugin(uid, id, req.body.enabled);

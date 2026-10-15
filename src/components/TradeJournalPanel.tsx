@@ -192,6 +192,7 @@ export const TradeJournalPanel: React.FC<TradeJournalPanelProps> = ({ isOpen, on
     <PluginSheet
       isOpen={isOpen}
       onClose={onClose}
+      ask={{ q: "How does the trade journal work, including auto-logged trades from price alerts and how wins and R are scored?", label: "Trade Journal" }}
       label="Trade Journal"
       title="Trade Journal"
       subtitle={enabled ? (s ? `${s.total} trade${s.total === 1 ? '' : 's'} · ${s.open} open` : 'Your trades, in one place') : 'Log trades, learn what works'}

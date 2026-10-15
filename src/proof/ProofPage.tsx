@@ -1,3 +1,4 @@
+import { AskMattButton } from '../components/AskMattButton';
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ShieldCheck, CheckCircle2, XCircle, Loader2, Clock, ExternalLink, Copy, Fingerprint, Layers, Link2, FileText } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -167,6 +168,7 @@ export default function ProofPage() {
             <MarketXIcon size="sm" />
             <span className="text-sm font-semibold text-white truncate">Signal proof</span>
           </span>
+          <AskMattButton ask={{ q: 'How does this Solana signal proof work: the seal, the batch, the result record, and how anyone can check it?', label: 'Signal proof' }} />
         </div>
       </header>
 

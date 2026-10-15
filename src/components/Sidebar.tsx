@@ -1,3 +1,5 @@
+import { MattMark } from './AskMattButton';
+import { openMatt } from '../utils/matt';
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme, ThemePref } from '../utils/theme';
 import { createPortal } from 'react-dom';
@@ -38,7 +40,7 @@ import {
   ChevronDown,
   MessageCircle,
   FileText,
-  Puzzle,
+  LayoutGrid,
   Maximize2
 } from 'lucide-react';
 import { TelegramIcon, XLogoIcon } from './SocialIcons';
@@ -609,7 +611,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                 </button>
 
-                {/* Connectors / plugins: the commands in use (2 shown here, the rest in the popup) */}
+                {/* Tools: the ones in use (2 shown here, the rest in the Tools sheet) */}
                 <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] overflow-hidden">
                   <div className="flex items-center">
                     <button
@@ -620,15 +622,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <span className="flex items-center gap-2 min-w-0">
                         <span className="relative w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
-                          <Puzzle className="w-3.5 h-3.5 text-sky-300" />
+                          <LayoutGrid className="w-3.5 h-3.5 text-sky-300" />
                           {activePlugins.length > 0 && (
                             <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-emerald-500 text-[9px] font-bold text-white flex items-center justify-center">{activePlugins.length}</span>
                           )}
                         </span>
                         <span className="min-w-0">
-                          <span className="block text-xs font-semibold text-white">Connectors / Plugins</span>
+                          <span className="block text-xs font-semibold text-white">Tools</span>
                           <span className="block text-[10px] text-slate-400 truncate">
-                            {activePlugins.length ? `${activePlugins.length} command${activePlugins.length === 1 ? '' : 's'} in use` : 'Commands you turn on show here'}
+                            {activePlugins.length ? `${activePlugins.length} in use` : 'Tools you turn on show here'}
                           </span>
                         </span>
                       </span>
@@ -638,7 +640,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         type="button"
                         onClick={onOpenConnectors}
-                        aria-label="Open all connectors and plugins"
+                        aria-label="Open all tools"
                         title="Expand"
                         className="w-8 h-8 mr-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] flex items-center justify-center shrink-0 cursor-pointer"
                       >
@@ -677,14 +679,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ) : (
                       <div className="px-3 pb-3 pt-1 text-center" role="status">
                         <div className="mx-auto w-9 h-9 rounded-xl bg-white/[0.04] border border-dashed border-white/[0.14] flex items-center justify-center">
-                          <Puzzle className="w-4 h-4 text-slate-500" />
+                          <LayoutGrid className="w-4 h-4 text-slate-500" />
                         </div>
-                        <p className="mt-2 text-xs font-medium text-slate-300">No commands on yet</p>
+                        <p className="mt-2 text-xs font-medium text-slate-300">No tools on yet</p>
                         <p className="mt-0.5 text-[10px] text-slate-500">Turn on /watchlist, /price-alerts, /trade-journal or /track-record and it shows here.</p>
                       </div>
                     ))}
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() => openMatt()}
+                  className="w-full flex items-center gap-2 p-2.5 rounded-xl bg-violet-500/[0.07] hover:bg-violet-500/[0.14] border border-violet-400/25 hover:border-violet-400/45 text-left transition-colors cursor-pointer"
+                >
+                  <MattMark className="w-7 h-7 text-xs" />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-semibold text-white">Ask Matt</span>
+                    <span className="block text-[10px] text-slate-400 truncate">Your MarketX help: features, account, markets</span>
+                  </span>
+                </button>
                 {onOpenSupport && (
                   <button
                     type="button"

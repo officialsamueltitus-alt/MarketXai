@@ -65,7 +65,7 @@
   pair's timeframe edit): owner-specified, it opens ONLY when RDM is tapped (a second tap, Save or Cancel folds it away; draft mode, Save stores); a change anywhere saves the preference and is used everywhere. Shared helpers
   `normalizeRdmTimeframes` / `rdmFrames` / `rdmLabel` in `src/utils/preferences.ts` (every timeframe ticked is stored as []).
   Analysis mode (owner-specified, Preference Mode `users.preferences.analysisMode` NORMAL default / CONFIRMATION, two cards in
-  `PreferencePanel.tsx` + "How confirmation works", a green chip in the composer when on, a note in the watchlist): NORMAL is the engine
+  `PreferencePanel.tsx` + "How confirmation works", an emerald dot on the composer's Tools button when on, a note in the watchlist): NORMAL is the engine
   above, untouched. CONFIRMATION (`server/confirmation.ts`, `applyConfirmation` inside `buildStructureMap` when the mode is passed; reads
   the lower timeframe `confirmationTimeframe` alongside, e.g. 1H→5m, 4H→30m, 1D→2H): candidate zones = right territory, displacement
   FVG, first or second touch (a tapped zone can confirm), Fib confluence (`planForZone`, exported only). No trade until price touches the
@@ -82,7 +82,7 @@
   only when confirmed (`setup.confirmation`, "confirmed" notices), BUILDING = waiting for confirmation; `syncWatchPrefs` moves a trader's
   pairs when the mode or RDM timeframes change.
   Trade type (owner-specified, Preference Mode `users.preferences.tradeStyle` ANY default / SCALP / DAY / SWING, shared `src/utils/tradeStyle.ts`,
-  cards in `PreferencePanel.tsx`, composer chip, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
+  cards in `PreferencePanel.tsx`, a dot on the composer's Tools button, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
   the type (SCALP 1m to 15m, DAY 15m to 2H, SWING 4H to 1W; another timeframe moves to the nearest, `fitTimeframe`; RDM scans only the type's,
   `styleRdmFrames`), whatever strategy is on (Strategy Builder: its own timeframes inside the type first, else the type's, `styleStrategyFrames`);
   the watchlist scans the same way (items carry `tradeStyle`, `syncWatchPrefs` moves them).
@@ -112,7 +112,8 @@
   BREAKOUT_RETEST, RSI_DIVERGENCE, MA_CROSS, SR_BOUNCE, BOLLINGER_REVERSION, SESSION_BREAKOUT, RANGE_SWEEP; 11 `STRATEGY_TEMPLATES`, none is the
   general engine's S&D + Fibonacci; `normalizeRules` clamps everything; `describeRules`, `shortSummary`). Rules engine `server/userStrategy.ts`
   (`runUserStrategy`: setup on the latest candles, sells on the mirrored chart; filters; STRUCTURE/ATR stop; R + structure targets in price
-  order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price).
+  order, TP1 ≥ 1R, final ≥ minRR; market entries rejected if TP1 hit since the trigger or price half-way to it; limit entries ahead of price;
+  "already mitigated" (owner-specified): no candle since the setup formed may have reached the stop or any TP, or traded into a limit entry band).
   Words engine `server/strategyAi.ts` (owner-specified: API 2 removed, ONE key): uses the general engine's connection (`useMainEngine(getGeminiClient)`
   in `server.ts`, same `GEMINI_API_KEY` and the same three models; `getGeminiClient`/`modelsToTry` are only called, never changed), but every request
   carries only the Strategy Builder's own instructions, never the general engine's prompts (and vice versa); with the builder off it never runs;
@@ -132,7 +133,37 @@
   record carry `userStrategy` and MarketX-wide stats exclude it. Watchlist items carry `strategyId` (`syncWatchStrategy` on mode change or rule
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
-  page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). Violet composer chip opens the builder.
+  page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). A violet dot on the composer's Tools button; the Tools sheet's Active now opens the builder.
+- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, conversation kept on the device
+  `mx.matt.v1`): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
+  credits, prefs, commands on; never email/ids) and markets (pairContext: live price + `pairKnowledge`, provider names scrubbed). Its knowledge is
+  public only (`server/mattKnowledge.ts`, generated from the public guide + events; never add internals). It uses the main engine connection
+  (`useMattEngine(getGeminiClient)`, only called) with ONLY Matt's own instructions; offline it answers from the guide/account/pair briefing.
+  Private questions (backend, stack, build, models, integrations, data providers, secrets, admins, prompts, core platform; `isPrivateQuestion`,
+  or the engine replying `[[PRIVATE]]`) get "Not available" and a strike (`users.mattGuard`, transaction, `nextGuard`): 2 warnings, the 3rd
+  pauses Matt for a week; after any pause the next private question pauses again at once for a month, then 3 months, 6 months, a year
+  (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced.
+  `POST /api/matt/chat` (12/min, 200/day per trader), `GET /api/matt/status`. "Ask Matt" (`AskMattButton`, `openMatt`/`tradeAsk` in
+  `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every command panel header
+  (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, sidebar, slash command `/matt`.
+- Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
+  `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, a sky dot on the composer's Tools
+  button, listed in the Tools sheet): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
+  Owner-specified: it NEVER changes normal analyses. Only a prompt that starts with the command (`fundamentalTopic` in `src/utils/fundamental.ts`:
+  "/fundamental-analysis CPI", alias "/ch-fd CPI") goes to `POST /api/fundamental/analyze` (`runFundamental` in `App.tsx`, same 10s intro; the
+  command is stripped, the topic is asked); with the command off it opens the panel. Every other prompt, on or off, is a normal analysis or question.
+  Picking the command in the slash menu while on puts "/fundamental-analysis " in the input. "Check fundamental" (ch-fd) button on every analysis
+  card whose news indicator shows (`isNewsCurrent(strategy.newsBrief)`, `onCheckFundamental` in `ChatFeed.tsx`): reads today's high-impact
+  releases for that pair (switches the command on if needed). The analysis engine and `/api/market/analyze` are untouched. One credit
+  (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
+  `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
+  `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and
+  labelled untrusted. Context: this week's matching calendar lines (`calendarMatches`, exact titles, figures given to the engine, release time kept),
+  headlines from the last 4 days (`relevantHeadlines`: BBC Business + CNBC Economy RSS fetched here only, plus the MarketWatch wires). Reply = one JSON
+  object, validated (`parseReport`): 2-4 scenarios normalised to 100, most likely = the top scenario, confidence ≤ 90, pairs folded to MarketX symbols
+  (`normalizePairSymbol`), bias FOR (the most likely outcome favours the pair rising) / AGAINST / NEUTRAL, provider names scrubbed. The engine never
+  writes prices: each pair's live price is fetched at serve time (`deps.quote` → `livePriceFor`, none = none shown). Same question reused 10 min (prices
+  still fetched fresh, credit still used). Response {message (Markdown for notifications), fundamental, research}; chat history keeps `fundamental`.
 - "Explain MarketX" campaign (`server/campaigns.ts`, page `/campaigns/explain-marketx`, open until 30 Oct 2026 Lagos time):
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
@@ -150,6 +181,10 @@
   in `server.ts` is the one way to read "the price now" (quote endpoint, watchlist, alert refresh, question
   answers): the fresh quote, else the close of the latest real candle fetched right now, else nothing (503 `PRICE_UNAVAILABLE`,
   credit refunded). Analyses follow the same rule. Nothing is reused from an earlier request, trader or analysis.
+  Price guard (owner-specified, `server/priceGuard.ts`, a `res.json` wrapper on `/api/market/analyze`, plus Matt's replies): "trading at X"
+  claims more than 0.6% off the live price (`res.locals.liveQuotePrice`) are corrected to it, and in trade write-ups any sentence naming a
+  price level that is not in the verified result (`numbersIn(strategy)` + live price, 0.15%) is removed (R, %, ATR, ratios and
+  ~~crossed-out~~ numbers are ignored). Levels are never changed; the prompt text is untouched. Chart notes only say "live price now" for a live quote.
 - Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
   through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
   `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan
@@ -253,7 +288,7 @@
   {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes, analysisMode}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
   only for USD-priced crypto/stock/commodity with a USD account), Simple view (write-up folded), the Markets tab and the calculator. Only
-  `analysisMode` and `rdmTimeframes` change how analyses and the watchlist run. Listed under Tools in `ConnectorsModal` and opens from the slash menu. Backtest was removed (owner-specified): no
+  `analysisMode` and `rdmTimeframes` change how analyses and the watchlist run. Listed under More tools in the Tools sheet and opens from the slash menu. Backtest was removed (owner-specified): no
   `/backtest` command, routes, panel or history fetcher.
   Trade calculator (owner-specified, in Preference Mode, `TradeCalculator.tsx`, math in `src/utils/tradeCalc.ts`): "Find my lot size" (account,
   risk %, stop) or "Check my lot" (lots → money and % at risk). Risk = lots × contract size × stop distance × FX (quote → account currency);
@@ -343,10 +378,15 @@
   and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not
   gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
   lapsed accounts and tells them once. Data is kept. Client: `profile.proAccess`/`proFreeUntil`, RDM chip locked, commands open pricing.
-- Connectors / Plugins (`server/plugins.ts`, `src/utils/plugins.ts`): alerts, watchlist, journal, trackRecord. Every command turned on is listed
-  in Settings, Connectors / Plugins (2 shown, expand icon opens `ConnectorsModal`; the composer's Connectors button opens it too, with a
-  count of commands on) with open and switch-off; `POST /api/plugins/:id` uses the
-  same helpers as inside each command (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data.
+- Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
+  stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
+  (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside
+  each tool (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data. The Tools sheet lists "Active now" (modes that change
+  answers: Fundamental Analysis, Strategy Builder, Confirmation, trade type; each opens its settings), In use, Available, and More tools
+  (Fundamental Analysis, Strategy Builder, Preference Mode, Ask Matt).
+- Composer (owner-specified, sleek, `ChatInput.tsx`): the text has its own full-width line; ONE slim row under it: attach + Tools on the left,
+  timeframe, stop mode and send on the right. No per-mode chips in the composer: the modes on show as small coloured dots on the Tools button
+  (sky = Fundamental Analysis, violet = Strategy Builder, emerald = Confirmation, cyan/amber/fuchsia = Scalp/Day/Swing). The slash menu is headed "Tools".
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.

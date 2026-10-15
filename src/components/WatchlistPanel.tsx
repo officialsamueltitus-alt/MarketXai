@@ -281,6 +281,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
     <PluginSheet
       isOpen={isOpen}
       onClose={onClose}
+      ask={{ q: "How does the watchlist work: adding pairs, RDM, setup ready vs building, and Get the plan?", label: "Watchlist" }}
       label="Watchlist"
       title="Watchlist"
       subtitle={enabled ? `${items.filter(i => i.active).length} of ${max} pairs · scanning 24/7` : 'Setups found for you, around the clock'}
@@ -310,7 +311,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           busy={busy === 'on'}
           onApprove={() => run('on', () => onSetEnabled(true))}
           onLater={onClose}
-          footnote="You choose the pairs. Switch it off any time in Settings, Connectors."
+          footnote="You choose the pairs. Switch it off any time in Tools."
         />
       ) : loading && !items.length ? (
         <div className="py-16 flex justify-center text-slate-500">

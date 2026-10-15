@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Check, Loader2, X, type LucideIcon } from 'lucide-react';
+import { AskMattButton } from './AskMattButton';
+import type { MattAsk } from '../utils/matt';
 
 // Shared shell for the command panels (/watchlist, /trade-journal, /track-record): a bottom sheet on phones and a
 // right-hand panel on larger screens, with an on/off switch in the header once the command is switched on.
@@ -21,9 +23,11 @@ interface PluginSheetProps {
   /** Pinned under the header (e.g. an add form) */
   toolbar?: React.ReactNode;
   width?: string;
+  /** "Ask Matt" about this command, in the header */
+  ask?: MattAsk;
 }
 
-export const PluginSheet: React.FC<PluginSheetProps> = ({ isOpen, onClose, label, title, subtitle, icon: Icon, gradient, iconTone, enabled, switching, onSwitchOff, children, toolbar, width = 'sm:w-[460px]' }) => {
+export const PluginSheet: React.FC<PluginSheetProps> = ({ isOpen, onClose, label, title, subtitle, icon: Icon, gradient, iconTone, enabled, switching, onSwitchOff, children, toolbar, width = 'sm:w-[460px]', ask }) => {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -48,6 +52,7 @@ export const PluginSheet: React.FC<PluginSheetProps> = ({ isOpen, onClose, label
             <h2 className="text-lg font-semibold text-white tracking-tight leading-tight">{title}</h2>
             <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>
           </div>
+          {ask && <AskMattButton ask={ask} label="Ask" className="ml-auto" />}
           {enabled && onSwitchOff && (
             <button
               type="button"
@@ -57,12 +62,12 @@ export const PluginSheet: React.FC<PluginSheetProps> = ({ isOpen, onClose, label
               title={`Turn off ${label}`}
               disabled={switching}
               onClick={onSwitchOff}
-              className="ml-auto h-7 w-12 rounded-full bg-emerald-500/80 relative transition-colors cursor-pointer disabled:opacity-60 shrink-0"
+              className={`${ask ? '' : 'ml-auto'} h-7 w-12 rounded-full bg-emerald-500/80 relative transition-colors cursor-pointer disabled:opacity-60 shrink-0`}
             >
               <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow" />
             </button>
           )}
-          <button type="button" onClick={onClose} aria-label="Close" className={`${enabled && onSwitchOff ? '' : 'ml-auto'} w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.06] flex items-center justify-center cursor-pointer shrink-0`}>
+          <button type="button" onClick={onClose} aria-label="Close" className={`${(enabled && onSwitchOff) || ask ? '' : 'ml-auto'} w-8 h-8 rounded-full text-slate-400 hover:text-white hover:bg-white/[0.06] flex items-center justify-center cursor-pointer shrink-0`}>
             <X className="w-4 h-4" />
           </button>
         </header>

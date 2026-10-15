@@ -16,6 +16,7 @@ import {
   UserCog,
   ImagePlus,
   Radar,
+  Landmark,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -184,7 +185,7 @@ const SECTIONS: Section[] = [
             ['Notifications', 'Top bar bell', 'Analyses, sign ins, payments, rewards and replies from support.'],
             ['Profile', 'Top bar avatar, or Sidebar, Settings, Profile', 'Your stats, plan, gifting, campaign and account options.'],
             ['History', 'Sidebar', 'Your saved trade setups and past chats.'],
-            ['Settings', 'Sidebar, Settings', 'Credits, Profile, Connectors / Plugins, Support chat, theme, and Terms and Privacy at the bottom.'],
+            ['Settings', 'Sidebar, Settings', 'Credits, Profile, Tools, Support chat, theme, and Terms and Privacy at the bottom.'],
             ['Support chat', 'Settings, or the Direct institutional desk on Markets', 'Message the MarketX team and read their replies.'],
             ['Site Guide', 'Direct institutional desk on Markets, or /blog', 'This guide.'],
           ]}
@@ -271,9 +272,9 @@ const SECTIONS: Section[] = [
           then reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
           live price, checking today's news and building the plan. It then folds into one line such as Worked for 14s. A yellow dot on that line means there is news for this market today; tap the line to see it.
         </Note>
-        <Note title="Commands">
-          Type / in the input to see the commands. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
-          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below) and <B>/strategy-builder</B> (see Strategy Builder below). Still
+        <Note title="Tools">
+          Tap <B>Tools</B> under the input box, or type / in the input, to see every tool. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
+          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below), <B>/strategy-builder</B> (see Strategy Builder below) and <B>/fundamental-analysis</B> (see Fundamental Analysis below). Still
           in private testing and marked Soon: Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
@@ -387,11 +388,11 @@ const SECTIONS: Section[] = [
     id: 'watchlist-and-tools',
     shots: [
       { src: '/guide/watchlist.webp', alt: 'The watchlist: each pair with its timeframe, a setup ready or building, Get the plan and Scan now.', w: 780, h: 1180 },
-      { src: '/guide/connectors.webp', alt: 'Connectors / Plugins: the commands in use, each with a switch to turn it off.', w: 780, h: 966 },
+      { src: '/guide/connectors.webp', alt: 'Tools: the ones in use, each with a switch to turn it off.', w: 780, h: 966 },
     ],
     title: 'Watchlist, journal and track record',
     icon: Radar,
-    lead: 'Four commands keep working for you after the chat: the watchlist finds setups on your pairs, price alerts follow your trades, the journal keeps your results, and the track record shows how signals played out.',
+    lead: 'Four tools keep working for you after the chat: the watchlist finds setups on your pairs, price alerts follow your trades, the journal keeps your results, and the track record shows how signals played out.',
     body: (
       <>
         <Steps
@@ -434,9 +435,10 @@ const SECTIONS: Section[] = [
           notification sound, even when MarketX is closed. Tap one to open that exact pair or alert. On iPhone and iPad, first tap Share, then Add to Home Screen, and
           open MarketX from there.
         </Note>
-        <Note title="Connectors / Plugins">
-          Every command you turn on appears in Settings, Connectors / Plugins. Two are shown there; tap the expand icon to see them all in one window. Open a
-          command from there, or use its switch to turn it off. Turning one off keeps your pairs, trades and results.
+        <Note title="Tools">
+          Every tool you turn on appears in Tools: tap <B>Tools</B> under the input box, or find it in Settings. Modes that change your answers (Fundamental
+          Analysis, Strategy Builder, Confirmation, your trade type) show as small coloured dots on the Tools button and sit at the top under Active now. Open a
+          tool from there, or use its switch to turn it off. Turning one off keeps your pairs, trades and results.
         </Note>
         <Note title="Free until 1 November">
           The watchlist, price alerts, trade journal, track record and the <B>RDM</B> timeframe are free for everyone until 1 November 2026. From then on they
@@ -488,6 +490,43 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'fundamental-analysis',
+    title: 'Fundamental Analysis',
+    icon: Landmark,
+    lead: 'Ask /fundamental-analysis about CPI, NFP, PPI, a rate decision or any release: what it is most likely to show, and which pairs it favours or works against. Your normal analyses keep working as usual.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>Switch it on.</B> Type /fundamental-analysis in the input, press Enter and turn it on. A blue <B>Fundamentals</B> chip next to the input box
+              shows it is on; tap it any time to open it again or switch it off.
+            </>,
+            <>
+              <B>Ask with the tool.</B> Type /fundamental-analysis followed by what you want read: "/fundamental-analysis CPI", "/fundamental-analysis next
+              ECB decision", "/fundamental-analysis how will NFP move gold?". You can also tap a topic, or one of this week's high-impact releases, inside the
+              tool. On an analysis card that has today's news, tap <B>Check fundamental</B> for a read of that news for the pair.
+            </>,
+            <>
+              <B>MarketX does the homework.</B> It reads this week's economic calendar, the last releases against their forecasts, the latest news from the BBC,
+              CNBC and MarketWatch, and searches reputable sources for the consensus and what central banks are saying.
+            </>,
+            <>
+              <B>Read the result.</B> You get the most likely outcome with its odds, every scenario and what it would do to the currency, the past releases, what
+              drives the number, the risks to the view, and the pairs it moves most. Each pair shows its live price and a <B>For</B> or <B>Against</B> tag:
+              For means the most likely outcome favours the pair rising, Against means it weighs on the pair.
+            </>,
+          ]}
+        />
+        <Note title="Good to know">
+          Only messages that start with /fundamental-analysis get a fundamental read. Everything else you ask, with the tool on or off, is a normal analysis
+          or answer, exactly as before. Each read uses one analysis credit, and a message that isn't about fundamentals is not charged. A fundamental read gives
+          the odds of each outcome, never a certainty: releases surprise and markets can react in unexpected ways, so manage your risk around big releases.
+        </Note>
+      </>
+    ),
+  },
+  {
     id: 'preference-mode',
     title: 'Preference Mode',
     icon: SlidersHorizontal,
@@ -497,7 +536,7 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>/preference.</B> Type it in the input, or open it from Connectors (the plug button next to the input). Choose your <B>analysis mode</B> (Normal or Confirmation, see below), the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
+              <B>/preference.</B> Type it in the input, or open it from Tools (under the input box). Choose your <B>analysis mode</B> (Normal or Confirmation, see below), the timeframe and stop loss new prompts start with, which timeframes <B>RDM</B> searches (All, or the ones you tick), your account size, currency and risk per trade, whether results
               show the full write-up or lead with the levels, and which list the Markets tab opens on. Every change
               saves on its own.
             </>,
@@ -675,8 +714,8 @@ const SECTIONS: Section[] = [
               is open; the settings scroll above it, so it is always in reach.
             </>,
             <>
-              <B>Connectors / Plugins.</B> In Settings, the commands you have turned on (watchlist, price alerts, trade journal, track record). Two are shown;
-              the expand icon opens the full list. Open a command or switch it off from there.
+              <B>Tools.</B> In Settings, the tools you have turned on (watchlist, price alerts, trade journal, track record). Two are shown;
+              the expand icon opens the full list. Open a tool or switch it off from there.
             </>,
             <>
               <B>Notifications.</B> The bell shows analyses, sign ins, payments, rewards and support replies. Filter them, mark them read or clear them. Turn Email
@@ -717,6 +756,13 @@ const SECTIONS: Section[] = [
             <>When the team replies you get a notification, an email with a link back to the chat, and a badge on the Support chat row.</>,
           ]}
         />
+        <Note title="Ask Matt" tone="emerald">
+          <B>Matt</B> is MarketX's help assistant. Open it from the side menu (<B>Ask Matt</B>), type <B>/matt</B> in the input, or tap <B>Ask Matt</B> on a
+          trade card or in any panel to have that exact thing explained. Matt answers questions about MarketX features, tools and settings, your own account
+          (plan, credits, what is switched on), events and promos, and the markets (what a pair is, what moves it, its sessions). Matt doesn't place trades or
+          give financial advice; for a trade plan use Ask SI. Questions about how MarketX is built or run are private and get "Not available"; asking them
+          repeatedly pauses Matt for your account for a while.
+        </Note>
         <Note title="Email">You can also write to help.marketx@gmail.com.</Note>
         <Note title="Quick fixes">
           <B>"Please slow down" or "Too many requests":</B> wait a minute and try again; it clears on its own. <B>A page looks broken after an update:</B>{' '}

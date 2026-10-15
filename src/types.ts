@@ -231,6 +231,8 @@ export interface ChatMessage {
   choices?: MessageChoice[];
   /** Safety check of the Solana token an answer is about */
   tokenSafety?: TokenSafety;
+  /** Fundamental Analysis result (/fundamental-analysis) */
+  fundamental?: import('./utils/fundamental').FundamentalReport;
   timestamp: number;
 }
 

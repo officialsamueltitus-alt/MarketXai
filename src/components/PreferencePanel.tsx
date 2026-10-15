@@ -6,6 +6,8 @@ import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } fro
 import type { AlertMode } from '../types';
 import { PluginSheet } from './PluginSheet';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
+import { AskMattButton } from './AskMattButton';
+import type { MattAsk } from '../utils/matt';
 import { STYLE_FRAMES, STYLE_INFO, hasStyleChoice, styleFrames, styleFramesLabel, type TradeStyle } from '../utils/tradeStyle';
 
 // /preference: the trader's own defaults (server/preferences.ts). Every change saves on its own.
@@ -35,14 +37,17 @@ const MARKETS: Array<{ id: Preferences['homeMarket']; label: string }> = [
 ];
 const tfLabel = (tf: string) => (tf === 'RDM' ? 'RDM' : tf.replace(/^(\d+)M$/, '$1m'));
 
-const Section: React.FC<{ icon: React.ElementType; title: string; text: string; children: React.ReactNode }> = ({ icon: Icon, title, text, children }) => (
+const Section: React.FC<{ icon: React.ElementType; title: string; text: string; children: React.ReactNode; ask?: MattAsk }> = ({ icon: Icon, title, text, children, ask }) => (
   <section className="p-4 rounded-3xl bg-gradient-to-br from-white/[0.045] to-white/[0.015] border border-white/[0.08]">
     <div className="flex items-start gap-3">
       <span className="w-8 h-8 rounded-xl bg-white/[0.06] border border-white/[0.06] flex items-center justify-center shrink-0">
         <Icon className="w-4 h-4 text-slate-200" />
       </span>
-      <div className="min-w-0">
-        <h3 className="text-sm font-semibold text-white">{title}</h3>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold text-white flex items-center justify-between gap-2">
+          {title}
+          {ask && <AskMattButton variant="link" ask={ask} />}
+        </h3>
         <p className="text-xs text-slate-500 leading-relaxed">{text}</p>
       </div>
     </div>
@@ -96,6 +101,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
     <PluginSheet
       isOpen={isOpen}
       onClose={onClose}
+      ask={{ q: "What can I set in Preference Mode and how does each setting change MarketX?", label: "Preference Mode" }}
       label="Preference Mode"
       title="Preference Mode"
       subtitle="Your defaults, everywhere in MarketX"
@@ -127,7 +133,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
       }
     >
       <div className="pt-4 space-y-3">
-        <Section icon={ScanSearch} title="Analysis mode" text="How MarketX decides a trade is ready. Used by every analysis and by your watchlist.">
+        <Section icon={ScanSearch} title="Analysis mode" text="How MarketX decides a trade is ready. Used by every analysis and by your watchlist." ask={{ q: "What is the difference between Normal and Confirmation analysis mode, and which should I use?", label: "Analysis mode" }}>
           <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2" role="radiogroup" aria-label="Analysis mode">
             {(
               [
@@ -186,7 +192,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
           )}
         </Section>
 
-        <Section icon={Timer} title="Trade type" text="The kind of trades you take. Every analysis, your personal strategy and your watchlist only give trades of this type.">
+        <Section icon={Timer} title="Trade type" text="The kind of trades you take. Every analysis, your personal strategy and your watchlist only give trades of this type." ask={{ q: "How do Scalp, Day and Swing trade types work, including choosing my own timeframes and the 9:00 PM WAT close?", label: "Trade type" }}>
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Trade type">
             {(
               [
@@ -285,7 +291,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
           )}
         </Section>
 
-        <Section icon={LineChart} title="Analysis defaults" text="What a new prompt starts with. You can still change it in the composer for any single prompt.">
+        <Section icon={LineChart} title="Analysis defaults" text="What a new prompt starts with. You can still change it in the composer for any single prompt." ask={{ q: "How do the analysis defaults work: the default timeframe, RDM timeframes and Normal vs Tight stop loss?", label: "Analysis defaults" }}>
           <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Timeframe</div>
           <div className="flex gap-1 overflow-x-auto no-scrollbar p-1 rounded-full bg-black/25 border border-white/[0.08]" role="radiogroup" aria-label="Default timeframe">
             {[...SUPPORTED_TIMEFRAMES, 'RDM'].map(tf => {
@@ -338,7 +344,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
           </div>
         </Section>
 
-        <Section icon={Wallet} title="Risk and money" text="Every trade card shows what you risk and what each target pays, in your money.">
+        <Section icon={Wallet} title="Risk and money" text="Every trade card shows what you risk and what each target pays, in your money." ask={{ q: "How does the risk and money strip on trade cards work with my account size and risk per trade?", label: "Risk and money" }}>
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <label className="block">
               <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Account size</span>
@@ -405,7 +411,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
         </Section>
 
         <div id="mx-trade-calculator" className="scroll-mt-2">
-          <Section icon={Calculator} title="Trade calculator" text="Work out the lot size for your risk, or check what a lot size puts at risk, for any pair on your account.">
+          <Section icon={Calculator} title="Trade calculator" text="Work out the lot size for your risk, or check what a lot size puts at risk, for any pair on your account." ask={{ q: "How do I use the trade calculator to find my lot size, and what are standard, mini and micro lots?", label: "Trade calculator" }}>
             <TradeCalculator accountSize={account ? Number(account) || null : p.accountSize} currency={p.currency} riskPct={risk} seed={calcSeed} />
           </Section>
         </div>
@@ -438,7 +444,7 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
         </Section>
 
         {alertsEnabled && (
-          <Section icon={BellRing} title="Price alerts" text="Auto watches every new trade by itself. Manual: you tap Get price alert.">
+          <Section icon={BellRing} title="Price alerts" text="Auto watches every new trade by itself. Manual: you tap Get price alert." ask={{ q: "How do price alerts work, and what is the difference between Auto and Manual?", label: "Price alerts" }}>
             <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-black/25 border border-white/[0.08]" role="radiogroup" aria-label="Price alert mode">
               {([['AUTO', 'Auto', Zap], ['MANUAL', 'Manual', Hand]] as const).map(([id, label, Icon]) => (
                 <button key={id} type="button" role="radio" aria-checked={alertsMode === id} onClick={() => alertsMode !== id && onSetAlertsMode(id)} className={`${seg(alertsMode === id)} inline-flex items-center justify-center gap-1.5`}>

@@ -39,6 +39,9 @@ import { applyConfirmation, confirmationOf, confirmationTimeframe } from './serv
 import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
 import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
+import { registerMattRoutes, useMattEngine } from './server/matt';
+import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundamental';
+import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
@@ -185,6 +188,23 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
 const LARGE_BODY_ROUTES = new Set(['/api/market/analyze', '/api/market/chat', '/api/admin/broadcast']);
 // AI-written content never names the underlying model
 app.use(['/api/market/analyze', '/api/market/chat', '/api/history'], hideEngineInResponses);
+// Live prices only, never an invented level: "price is now X" claims are checked against the live price, and sentences in
+// trade write-ups naming a level outside the verified plan are removed (server/priceGuard.ts; levels are never changed)
+app.use('/api/market/analyze', (req, res, next) => {
+  const send = res.json.bind(res);
+  res.json = ((body: any) => {
+    try {
+      if (res.statusCode < 400 && body && typeof body === 'object') {
+        const { removed } = guardResultText(body, typeof res.locals.liveQuotePrice === 'number' ? res.locals.liveQuotePrice : null);
+        if (removed.length) console.warn(`[MarketX Price guard] removed ${removed.length} sentence(s) naming levels outside the verified plan: ${removed.slice(0, 2).map(x => JSON.stringify(x.slice(0, 160))).join(' ')}`);
+      }
+    } catch (err: any) {
+      console.warn('[MarketX Price guard] skipped:', err?.message || err);
+    }
+    return send(body);
+  }) as any;
+  next();
+});
 // Every LONG / SHORT signal served is recorded as a price-alert offer (levels kept server-side; the analysis is untouched)
 app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
@@ -2159,6 +2179,48 @@ registerPreferenceRoutes(app, generalApiRateLimiter);
 // Strategy Builder (/strategy): the trader's own strategies, run by Strategy mode instead of the general engine
 // The Strategy Builder uses the same engine connection, with only its own instructions per request
 useMainEngine(getGeminiClient);
+// Matt (help assistant): the same engine connection, only Matt's own instructions, public knowledge only
+useMattEngine(getGeminiClient);
+registerMattRoutes(app, generalApiRateLimiter, {
+  pairContext: async question => {
+    if (!promptNamesAsset(question)) return null;
+    const asset = await resolveAssetInfo(question);
+    if (!asset || asset.unresolved) return null;
+    await refreshNewsFeedsWithin(1500).catch(() => {});
+    const quote = await livePriceFor(asset).catch(() => null);
+    const live = !!quote && quote.price > 0 && quote.live !== false;
+    const brief = buildDailyNewsBrief(asset, 'Africa/Lagos');
+    const details = assetDetailLines(asset, live ? quote : null);
+    const news = brief ? `${brief.summary}. ${brief.guidance}` : 'Nothing on the economic calendar or the news wires that could move it today.';
+    return {
+      context: [
+        `${asset.name} (${asset.symbol}), live as of ${new Date().toISOString()}:`,
+        ...details.map(l => `- ${l}`),
+        ...(live ? [] : ['- Live price unavailable right now; do not quote a price.']),
+        `- Today: ${news}`,
+        'Background facts:',
+        ...pairKnowledge(asset).map(l => `- ${l}`),
+      ].join('\n'),
+      fallback: pairBriefing(asset, question, details, news),
+      live: live ? quote!.price : null,
+    };
+  },
+});
+// Fundamental Analysis (/fundamental-analysis): its own route and instructions; the engine connection is only called
+useFundamentalEngine(getGeminiClient);
+registerFundamentalRoutes(app, generalApiRateLimiter, analysisRateLimiter, {
+  gate: fn => aiGate.run(fn, AI_QUEUE_WAIT_MS),
+  quote: async symbol => {
+    const asset = extractAssetInfo(symbol);
+    // extractAssetInfo falls back to a default for anything it doesn't know: only a real match gets a price
+    const fold = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/USDT$/, 'USD');
+    const a = fold(asset.symbol);
+    const b = fold(symbol);
+    if (asset.unresolved || b.length < 3 || !(a.startsWith(b) || b.startsWith(a))) return null;
+    const q = await livePriceFor(asset).catch(() => null);
+    return q && q.price > 0 && q.live !== false ? { symbol: asset.symbol, name: asset.name, price: q.price, change24h: q.change24h } : null;
+  },
+});
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);
@@ -3672,6 +3734,8 @@ app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requi
         await newsReady;
         const brief = buildDailyNewsBrief(chatAsset, newsTimeZone);
         const live = !!quote && quote.price > 0 && quote.live !== false;
+        // The price guard checks the answer's "price is now X" claims against this live price
+        if (live) res.locals.liveQuotePrice = quote!.price;
         if (!chatAsset.unresolved) {
           research.data.push(live ? `Live ${chatAsset.symbol} price` : 'Live price unavailable');
           if (chatAsset.type === 'crypto') {
@@ -3879,6 +3943,8 @@ Do NOT output structured trade card JSON.`;
       }
       currentTicker = fresh;
     }
+    // The price guard checks write-ups against this live price (in chart mode too, next to the chart's own price)
+    if (currentTicker.price > 0 && currentTicker.live !== false) res.locals.liveQuotePrice = currentTicker.price;
     await newsWarmup;
     // Live fundamentals for this asset on the reader's day (null = nothing that could move it today)
     const newsBrief = buildDailyNewsBrief(asset, newsTimeZone);
@@ -4564,7 +4630,7 @@ INSTRUCTIONS:
 
       if (chartMode) {
         // Honest header: these levels were read from the uploaded chart, not from live data
-        const liveNow = currentTicker.price > 0 ? ` · live price now ${currentTicker.price}` : '';
+        const liveNow = currentTicker.price > 0 && currentTicker.live !== false ? ` · live price now ${currentTicker.price}` : '';
         fullStrategy.detailedThesis = `### 📊 Read from your ${asset.symbol} chart (${levelTimeframe})
 > Every level below was read from the chart you uploaded (last price on the chart ${chartPrice}${liveNow}). If price has moved since the screenshot, check the levels before you trade.
 
