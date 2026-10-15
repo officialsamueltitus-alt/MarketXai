@@ -26,7 +26,8 @@ const perDay = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 60 });
 
 /** Trims, collapses runs of blank lines and strips control characters. */
 function cleanText(raw: unknown): string {
-  return String(raw ?? '')
+  // Text only: anything else (an object, an array) is treated as empty, never stored as "[object Object]"
+  return (typeof raw === 'string' ? raw : '')
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
     .replace(/\r\n?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

@@ -208,6 +208,9 @@ export default function CheckerPage() {
           The checker only shows a trader’s public profile and their trade results. Email addresses, credits and payment details are never shown.
           Past results don’t guarantee future ones.
         </p>
+        <p className="mt-4 text-center text-[11px] text-slate-500">
+          MarketX · Built by <span className="text-slate-300 font-medium">SpiriTech Labs</span>
+        </p>
       </main>
     </div>
   );

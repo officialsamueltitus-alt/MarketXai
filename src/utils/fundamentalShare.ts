@@ -44,10 +44,10 @@ export function buildFundamentalShareText(r: FundamentalReport, origin = 'https:
     lines.push([`📊 ${clip(r.event, 60)} is out: ${r.data.actual}${r.data.forecast ? ` vs ${r.data.forecast} forecast` : ''}${vs && vs !== 'IN_LINE' ? ` (${vs === 'ABOVE' ? 'beat' : 'miss'})` : ''}`, 10]);
     const before = earlierCall(r);
     if (before) lines.push([`MarketX read before the release: ${clip(before, 80)}`, 8]);
-    lines.push([`Now: ${clip(r.mostLikely.outcome, 70)} (${r.mostLikely.probability}%), ${impactWord(r)}`, 7]);
+    if (r.mostLikely.outcome) lines.push([`Now: ${clip(r.mostLikely.outcome, 70)} (${r.mostLikely.probability}%), ${impactWord(r)}`, 7]);
   } else {
     lines.push([`📊 ${clip(r.event, 60)}${when ? `, ${when}` : ''}`, 10]);
-    lines.push([`Most likely: ${clip(r.mostLikely.outcome, 80)} (${r.mostLikely.probability}%) → ${impactWord(r)}`, 9]);
+    if (r.mostLikely.outcome) lines.push([`Most likely: ${clip(r.mostLikely.outcome, 80)} (${r.mostLikely.probability}%) → ${impactWord(r)}`, 9]);
     const fig = [r.data.forecast && `Forecast ${r.data.forecast}`, r.data.previous && `Prev ${r.data.previous}`].filter(Boolean).join(' · ');
     if (fig) lines.push([fig, 5]);
   }

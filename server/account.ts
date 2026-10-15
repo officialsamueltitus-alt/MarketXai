@@ -10,7 +10,7 @@ import { logActivity, recordUsage } from './tracking';
 import { clientIp, createKeyedThrottle, stripReservedKeys } from './security';
 import { IS_LEAD_WORKER } from './workers';
 import { withDefaults } from '../src/utils/preferences';
-import { giftNoteProblem, impersonates, RESERVED_NAME_MESSAGE } from './trust';
+import { cleanDisplayName, giftNoteProblem, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import type {
   UserProfile,
   CreditState,
@@ -616,7 +616,7 @@ export async function createUserIfMissing(user: AuthedUser, requestedUsername?: 
   // A name that reads as MarketX or its staff is never handed out (staff accounts excepted)
   const safeBase = !isUnlimited(user) && impersonates(base) ? 'trader' : base;
   const padded = safeBase.length >= 3 ? safeBase : `${safeBase}trader`.slice(0, 20);
-  const fallbackName = (requestedName || user.name || '').trim();
+  const fallbackName = cleanDisplayName(requestedName || user.name || '');
   const safeName = fallbackName && (isUnlimited(user) || !impersonates(fallbackName)) ? fallbackName : '';
 
   for (let attempt = 0; attempt < 6; attempt++) {
@@ -970,9 +970,9 @@ export function registerAccountRoutes(app: Express, limiter: any) {
 
   app.put('/api/account/profile', limiter, requireAuth, wrap(async (req, res) => {
     const user = getUser(res);
-    const displayName = String(req.body?.displayName || '').trim().slice(0, 40);
-    const username = sanitizeUsername(String(req.body?.username || ''));
-    const avatarUrl = req.body?.avatarUrl ? String(req.body.avatarUrl) : null;
+    const displayName = cleanDisplayName(req.body?.displayName);
+    const username = sanitizeUsername(typeof req.body?.username === 'string' ? req.body.username : '');
+    const avatarUrl = typeof req.body?.avatarUrl === 'string' && req.body.avatarUrl ? req.body.avatarUrl : null;
 
     if (!displayName) return res.status(400).json({ error: 'INVALID', message: 'Display name is required.' });
     if (username.length < 3) return res.status(400).json({ error: 'INVALID', message: 'Username must be at least 3 characters (letters, numbers, _).' });
@@ -1182,7 +1182,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
     const user = getUser(res);
     const toUsername = sanitizeUsername(String(req.body?.toUsername || ''));
     const amount = Number(req.body?.amount);
-    const note = req.body?.note ? String(req.body.note).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || undefined : undefined;
+    const note = typeof req.body?.note === 'string' && req.body.note ? req.body.note.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || undefined : undefined;
 
     if (!toUsername) return res.status(400).json({ error: 'INVALID', message: 'Enter a recipient username.' });
     if (!Number.isInteger(amount) || amount < 1 || amount > 1000) {

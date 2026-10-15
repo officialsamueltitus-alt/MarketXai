@@ -118,7 +118,7 @@ export function registerCampaignRoutes(app: Express, limiter: any) {
       return res.status(400).json({ error: 'INVALID_LINK', message: 'Paste the link to your post on X, like https://x.com/yourname/status/1234567890.' });
     }
     const format: SubmissionFormat = req.body?.format === 'video' ? 'video' : 'writeup';
-    const note = String(req.body?.note || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+    const note = (typeof req.body?.note === 'string' ? req.body.note : '').replace(/\s+/g, ' ').trim().slice(0, 280);
 
     const result = await db().runTransaction(async tx => {
       const loaded = await loadUserInTx(tx, user.uid);

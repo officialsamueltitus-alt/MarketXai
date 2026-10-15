@@ -230,7 +230,9 @@
   Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
   and spoken when the video has a voice-over) as its final card.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
-  is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Telegram buttons link to `/go/telegram`, a
+  is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Parent company (owner-specified): SpiriTech Labs owns and built MarketX; credited as "Built by SpiriTech Labs" in the
+  sidebar Settings (under Terms & Privacy), the guide, Terms, proof and checker footers, the email footer, the `index.html` JSON-LD (`#spiritech`
+  parentOrganization / creator, meta author) and Matt's public knowledge. Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
 - Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
   Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,
@@ -266,7 +268,8 @@
   (notification center, toasts and URL params all use it); the panels ring and scroll to `focusId`.
 - Anti-scam (`server/trust.ts`): usernames and display names that read as MarketX or its staff (admin, support, official, moderator,
   staff, help desk, refund, recovery…, look-alike spellings folded) are refused at sign-up and on rename (`RESERVED_NAME`), and an
-  email-derived name like that becomes a neutral `trader…` name; unlimited staff accounts are exempt. Gift notes refuse links, contacts,
+  email-derived name like that becomes a neutral `trader…` name; unlimited staff accounts are exempt. Display names go through `cleanDisplayName` (text only;
+  hidden, zero-width and direction-flipping characters removed; one line, 40 chars) at sign-up, Google sign-up and rename. Gift notes refuse links, contacts,
   socials, emails/handles, phone numbers and scam wording (`NOTE_REFUSED`), hidden control characters are stripped, and a sender can
   gift at most 10 times a day, 3 to the same trader (`GIFT_LIMIT`).
 - On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
@@ -429,7 +432,7 @@
   "Try again" button (`onRetry` in `ChatFeed.tsx`, `retryMessage`) removes the failed attempt and its prompt and runs it again in the same chat.
 - Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
-- Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
+- Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
