@@ -1658,7 +1658,10 @@ export default function App() {
     if (link.topic) {
       setCurrentView('chat');
       setComposerSeed({ text: fundamentalPrompt(link.topic), at: Date.now() });
-      if (!fundamentalOn) setFundamentalMode(true).catch(() => {});
+      // (asked from the server: the local switch may not have loaded yet right after sign-in)
+      apiFetch<{ enabled: boolean }>('/api/fundamental')
+        .then(d => (d.enabled ? setFundamentalOn(true) : setFundamentalMode(true)))
+        .catch(() => {});
     } else if (link.open) openToolPanel('fundamental');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser]);

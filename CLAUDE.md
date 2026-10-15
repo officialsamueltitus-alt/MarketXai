@@ -180,7 +180,10 @@
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and
   labelled untrusted. Context: this week's matching calendar lines (`calendarMatches`, exact titles, figures given to the engine, release time kept),
-  headlines from the last 4 days (`relevantHeadlines`: BBC Business + CNBC Economy RSS fetched here only, plus the MarketWatch wires). Reply = one JSON
+  headlines from the last 4 days (`relevantHeadlines`: BBC Business + CNBC Economy RSS fetched here only, plus the MarketWatch wires). Engine calls (`askEngine`): every reply is checked
+  by the caller's `accept` (a report `parseReport` can read, or NOT_FUNDAMENTAL in any form, `isNotFundamental`); an unreadable one moves on to the
+  next engine; the web-search read gets a fast backup started alongside it after `FUNDAMENTAL_HEDGE_MS` (30s: no search, JSON only, still with the
+  live calendar + headlines); first usable answer wins; `extractJson` repairs small slips. 503 only when every engine failed. Reply = one JSON
   object, validated (`parseReport`): 2-4 scenarios normalised to 100, most likely = the top scenario, confidence ≤ 90, pairs folded to MarketX symbols
   (`normalizePairSymbol`), bias FOR (the most likely outcome favours the pair rising) / AGAINST / NEUTRAL, provider names scrubbed. The engine never
   writes prices: each pair's live price is fetched at serve time (`deps.quote` → `livePriceFor`, none = none shown). Same question reused 10 min (prices
@@ -418,6 +421,9 @@
 - Composer (owner-specified, sleek, `ChatInput.tsx`): the text has its own full-width line; ONE slim row under it: attach + Tools on the left,
   timeframe, stop mode and send on the right. No per-mode chips in the composer: the modes on show as small coloured dots on the Tools button
   (sky = Fundamental Analysis, violet = Strategy Builder, emerald = Confirmation, cyan/amber/fuchsia = Scalp/Day/Swing). The slash menu is headed "Tools".
+- Try again (owner-specified): a failed analysis or fundamental read that a retry can fix (`canRetry` in `App.tsx`: 5xx, 408, 429, timeout, network;
+  never DAILY_LIMIT, PRO_REQUIRED, NOT_FUNDAMENTAL, UNKNOWN_ASSET, sign-in) carries `ChatMessage.retry` {kind, prompt, timeframe, slMode}; the card's
+  "Try again" button (`onRetry` in `ChatFeed.tsx`, `retryMessage`) removes the failed attempt and its prompt and runs it again in the same chat.
 - Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
