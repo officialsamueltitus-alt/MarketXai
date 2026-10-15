@@ -18,8 +18,8 @@ import { getCalendar, getHeadlines, parseRssItems, refreshNewsFeedsWithin, type 
 import { cleanDomain, readGrounding } from './webResearch';
 import { scrubReply } from './matt';
 import { createKeyedThrottle } from './security';
-import { fundamentalTopic } from '../src/utils/fundamental';
-import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalReport, FundamentalScenario, FundamentalStrength } from '../src/utils/fundamental';
+import { compareReads, fundamentalTopic } from '../src/utils/fundamental';
+import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalPrevious, FundamentalReport, FundamentalScenario, FundamentalStrength } from '../src/utils/fundamental';
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 /** One budget for the whole read, under the client's 110s limit */
@@ -340,6 +340,7 @@ export function reportMarkdown(r: FundamentalReport): string {
   const sign = (b: FundamentalBias) => (b === 'FOR' ? '🟢 For' : b === 'AGAINST' ? '🔴 Against' : '⚪ Neutral');
   const lines = [
     `### ${r.event}`,
+    ...(r.recheck ? [`**Rechecked:** ${r.recheck.headline}`, ...r.recheck.lines.map(l => `- ${l}`), ''] : []),
     r.summary,
     '',
     `**Most likely:** ${r.mostLikely.outcome} (${r.mostLikely.probability}%). ${r.mostLikely.reasoning}`,
@@ -375,6 +376,28 @@ const clean = (s: unknown, max: number) =>
 // (decimal points like "0.3%" stay; sentence punctuation does not)
 const normKey = (q: string) => q.toLowerCase().replace(/(?<!\d)\.|\.(?!\d)/g, ' ').replace(/[^a-z0-9%.\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const cache = new Map<string, { at: number; report: FundamentalReport }>();
+
+/** The earlier read a recheck compares against (sent back by the trader's own app; only short, cleaned fields are kept) */
+export function readPrevious(raw: any): FundamentalPrevious | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const event = clean(raw.event, 100);
+  if (!event) return null;
+  const ml = raw.mostLikely && typeof raw.mostLikely === 'object' ? raw.mostLikely : null;
+  const pairs: Array<{ symbol: string; bias: FundamentalBias }> = [];
+  for (const p of Array.isArray(raw.pairs) ? raw.pairs.slice(0, 14) : []) {
+    const symbol = normalizePairSymbol(p?.symbol);
+    if (symbol) pairs.push({ symbol, bias: oneOf<FundamentalBias>(p?.bias, ['FOR', 'AGAINST', 'NEUTRAL'], 'NEUTRAL') });
+  }
+  const at = Number(raw.generatedAt);
+  return {
+    event,
+    status: oneOf(raw.status, ['UPCOMING', 'RELEASED', 'GENERAL'] as const, 'GENERAL'),
+    generatedAt: Number.isFinite(at) && at > 0 && at <= Date.now() + 60_000 ? at : undefined,
+    data: { actual: clean(raw.data?.actual, 40), forecast: clean(raw.data?.forecast, 40) },
+    mostLikely: ml ? { outcome: clean(ml.outcome, 160), probability: pct(ml.probability), impact: oneOf(ml.impact, IMPACTS, 'NEUTRAL') } : undefined,
+    pairs,
+  };
+}
 
 export function registerFundamentalRoutes(app: Express, limiter: (req: Request, res: Response, next: NextFunction) => void, analysisLimiter: (req: Request, res: Response, next: NextFunction) => void, deps: FundamentalDeps) {
   const switches = createKeyedThrottle({ windowMs: 60_000, max: 20 });
@@ -415,15 +438,17 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
     }
   };
 
-  app.post('/api/fundamental/analyze', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (req, res) => {
-    const question: string = res.locals.fundamentalPrompt;
+  /** One read of the question: cached for 10 minutes unless `fresh` (a recheck always reads again); live prices fetched now */
+  type Read = { report: FundamentalReport; cached: boolean } | { status: number; body: any };
+  const read = async (question: string, fresh: boolean): Promise<Read> => {
     const deadline = Date.now() + BUDGET_MS;
     const key = normKey(question);
     let report = (() => {
+      if (fresh) return null;
       const hit = cache.get(key);
       return hit && Date.now() - hit.at < CACHE_MS ? structuredClone(hit.report) : null;
     })();
-    let cached = !!report;
+    const cached = !!report;
     if (!report) {
       await Promise.all([refreshNewsFeedsWithin(2500).catch(() => {}), Promise.race([refreshExtraFeeds().catch(() => {}), new Promise(r => setTimeout(r, 4500))])]);
       const calendar = calendarMatches(question);
@@ -440,19 +465,22 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
         '\nReply with the JSON object only.',
       ].join('\n');
       const reply = await askEngine(deps, FUNDAMENTAL_SYSTEM, prompt, deadline);
-      if (!reply) return res.status(503).json({ error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis is unavailable right now. Your credit was refunded, please try again shortly.' });
+      if (!reply) return { status: 503, body: { error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis is unavailable right now. Your credit was refunded, please try again shortly.' } };
       if (reply.text.trim().toUpperCase().startsWith(NOT_FUNDAMENTAL)) {
-        return res.status(422).json({
-          error: 'NOT_FUNDAMENTAL',
-          message: "That isn't something Fundamental Analysis can read. After /fundamental-analysis, name an economic release (CPI, NFP, PPI, GDP...), a central bank decision, or a market and what is driving it. For a trade plan, just ask without the command. No credit was used.",
-        });
+        return {
+          status: 422,
+          body: {
+            error: 'NOT_FUNDAMENTAL',
+            message: "That isn't something Fundamental Analysis can read. After /fundamental-analysis, name an economic release (CPI, NFP, PPI, GDP...), a central bank decision, or a market and what is driving it. For a trade plan, just ask without the command. No credit was used.",
+          },
+        };
       }
       const sources = [...reply.sources, ...headlines.slice(0, 4).map(h => (h.source === 'BBC' ? 'bbc.co.uk' : h.source === 'CNBC' ? 'cnbc.com' : 'marketwatch.com'))];
       report = parseReport(extractJson(reply.text), { sources, web: reply.web, calendar });
-      if (!report) return res.status(503).json({ error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis could not be completed. Your credit was refunded, please try again.' });
+      if (!report) return { status: 503, body: { error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis could not be completed. Your credit was refunded, please try again.' } };
+      report.question = question.slice(0, 300);
       cache.set(key, { at: Date.now(), report: structuredClone(report) });
       if (cache.size > 300) cache.delete(cache.keys().next().value as string);
-      cached = false;
     }
     // Live prices for every pair, fetched now (never stored, never written by the engine); a pair with no live market is dropped
     const priced = await Promise.all(
@@ -462,10 +490,29 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
       })
     );
     report.pairs = priced;
+    report.question = report.question || question.slice(0, 300);
+    return { report, cached };
+  };
+  const send = (res: Response, r: { report: FundamentalReport; cached: boolean }) =>
     res.json({
-      message: reportMarkdown(report),
-      fundamental: report,
-      research: { web: report.web, queries: [], sources: report.sources.map(domain => ({ domain })), data: ['Economic calendar', 'BBC, CNBC and MarketWatch news', 'Live prices'], cached },
+      message: reportMarkdown(r.report),
+      fundamental: r.report,
+      research: { web: r.report.web, queries: [], sources: r.report.sources.map(domain => ({ domain })), data: ['Economic calendar', 'BBC, CNBC and MarketWatch news', 'Live prices'], cached: r.cached },
     });
+
+  app.post('/api/fundamental/analyze', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (_req, res) => {
+    const r = await read(res.locals.fundamentalPrompt, false);
+    if ('status' in r) return res.status(r.status).json(r.body);
+    send(res, r);
+  }));
+
+  // "Recheck" on a fundamental card: the same question read again now (never from the cache), compared with the earlier
+  // read: has the release come out, is the forecast the same, does the most likely outcome and each pair's bias still hold.
+  // One analysis credit, refunded on any failure, like a normal read.
+  app.post('/api/fundamental/recheck', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (req, res) => {
+    const r = await read(res.locals.fundamentalPrompt, true);
+    if ('status' in r) return res.status(r.status).json(r.body);
+    r.report.recheck = compareReads(readPrevious(req.body?.previous), r.report);
+    send(res, r);
   }));
 }

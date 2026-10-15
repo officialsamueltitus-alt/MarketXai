@@ -134,9 +134,11 @@
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
   page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). A violet dot on the composer's Tools button; the Tools sheet's Active now opens the builder.
-- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, floating header (owner-specified: no bar, border, background or boxes; switch in `bare` mode lights the active icon only; the chat fades out under it), conversation kept on the
-  device `mx.matt.v1` as {owner, msgs}: `owner` is an anonymous tag from `GET /api/matt/status`, so only that trader ever sees it back; it is
-  dropped for another account or when signed out, and removed on sign-out): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
+- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, floating header (owner-specified: no bar, border, background or boxes; switch in `bare` mode lights the active icon only; the chat fades out under it), chat history (owner-specified)
+  kept on the device `mx.matt.v2` as {owner, chats: [{id, title, msgs, updatedAt, topic, context}], current} (max 30 chats x 40 messages, oldest
+  dropped when storage runs short; the old single `mx.matt.v1` conversation moves in once): `owner` is an anonymous tag from `GET /api/matt/status`,
+  so only that trader ever sees it back; it is dropped for another account or when signed out, and removed on sign-out. The History icon next to
+  the switch opens a drawer (grouped by day, search, open, delete); New chat starts an empty one; an Ask Matt question always starts a new chat): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
   credits, prefs, commands on; never email/ids) and markets (pairContext: live price + `pairKnowledge`, provider names scrubbed). Its knowledge is
   public only (`server/mattKnowledge.ts`, generated from the public guide + events; never add internals). It uses the main engine connection
   (`useMattEngine(getGeminiClient)`, only called) with ONLY Matt's own instructions; offline it answers from the guide/account/pair briefing.
@@ -161,7 +163,11 @@
   command is stripped, the topic is asked); with the command off it opens the panel. Every other prompt, on or off, is a normal analysis or question.
   Picking the command in the slash menu while on puts "/fundamental-analysis " in the input. "Check fundamental" (ch-fd) button on every analysis
   card whose news indicator shows (`isNewsCurrent(strategy.newsBrief)`, `onCheckFundamental` in `ChatFeed.tsx`): reads today's high-impact
-  releases for that pair (switches the command on if needed). The analysis engine and `/api/market/analyze` are untouched. One credit
+  releases for that pair (switches the command on if needed). "Recheck" on the card (owner-specified, `POST /api/fundamental/recheck`,
+  `recheckFundamental` in `App.tsx`): reads the same question again now (never the 10-min cache; the question rides on the read as `question`),
+  and `compareReads` in `src/utils/fundamental.ts` sets `recheck` {state STILL_VALID / CHANGED / RELEASED, headline, lines, dueAt}: released or
+  not (actual vs forecast), forecast changed, most likely outcome changed, pair biases flipped, against the earlier read the app sends back
+  (`readPrevious` keeps only short cleaned fields). The card updates in place with a banner; one credit, refunded on failure. The analysis engine and `/api/market/analyze` are untouched. One credit
   (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and

@@ -176,6 +176,8 @@ export default function App() {
   const [openTool, setOpenTool] = useState<'preference' | 'strategy' | 'fundamental' | null>(null);
   // Fundamental Analysis (/fundamental-analysis) is on: prompts that start with the command get a fundamental read
   const [fundamentalOn, setFundamentalOn] = useState(false);
+  /** The fundamental card being rechecked (one at a time) */
+  const [recheckingId, setRecheckingId] = useState<string | null>(null);
   // Strategy mode: the trader's active strategy (the composer chip names it)
   const [activeStrategy, setActiveStrategy] = useState<{ id: string; name: string } | null>(null);
   const [calcSeed, setCalcSeed] = useState<CalcSeed | null>(null);
@@ -791,6 +793,7 @@ export default function App() {
     // Matt's conversation kept on this device belongs to this trader: it goes with the sign-out
     try {
       localStorage.removeItem('mx.matt.v1');
+      localStorage.removeItem('mx.matt.v2');
       sessionStorage.removeItem('mx.matt.ask');
     } catch {}
     setAuthUser(null);
@@ -1618,6 +1621,63 @@ export default function App() {
       }
     }
     runFundamental(fundamentalPrompt(topic));
+  };
+
+  // "Recheck" on a fundamental card: the same question read again now, compared with that card's read (released or not,
+  // forecast, most likely outcome, pair biases). The card is updated in place. One credit, refunded on any failure.
+  const recheckFundamental = async (messageId: string) => {
+    if (!authUser) return setIsAuthModalOpen(true);
+    if (recheckingId || isLoading) return;
+    const session = sessions.find(x => x.messages.some(m => m.id === messageId));
+    const idx = session ? session.messages.findIndex(m => m.id === messageId) : -1;
+    const msg = session && idx >= 0 ? session.messages[idx] : null;
+    const prev = msg?.fundamental;
+    if (!session || !prev) return;
+    // What was asked: kept on the read, else the trader's message just before it, else the event's name
+    const before = session.messages.slice(0, idx).reverse().find(m => m.role === 'user');
+    const topic = (prev.question || (before ? fundamentalTopic(before.content) : null) || prev.event || '').trim();
+    if (!topic) return;
+    if (isDailyLimitReached(creditState, userProfile.email)) {
+      setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
+      return;
+    }
+    if (!fundamentalOn) {
+      try {
+        await setFundamentalMode(true);
+      } catch {
+        return;
+      }
+    }
+    setRecheckingId(messageId);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 110_000);
+    try {
+      const data = await apiFetch<{ message: string; fundamental: FundamentalReport }>('/api/fundamental/recheck', {
+        method: 'POST',
+        body: JSON.stringify({ prompt: topic, previous: prev, ref: { sessionId: session.id, messageId } }),
+        signal: controller.signal,
+      });
+      const r = data.fundamental;
+      const at = Date.now();
+      setSessions(list =>
+        list.map(x =>
+          x.id !== session.id ? x : { ...x, updatedAt: at, lastMessage: r.event, messages: x.messages.map(m => (m.id === messageId ? { ...m, content: data.message, fundamental: r } : m)) }
+        )
+      );
+      const rc = r.recheck;
+      const label = rc ? (rc.state === 'STILL_VALID' ? 'Still valid' : rc.state === 'RELEASED' ? 'Released' : 'Changed') : '';
+      setToastNotification({ message: !rc ? 'Rechecked' : /^(still valid|released)/i.test(rc.headline) ? rc.headline : `${label}: ${rc.headline}`, type: 'success' });
+      refreshAccount();
+    } catch (err: any) {
+      const msg = controller.signal.aborted ? "The recheck didn't come back in time. Please try again." : err instanceof ApiError ? err.message : 'Could not reach the MarketX server. Check your connection and try again.';
+      if (err instanceof ApiError && err.status === 401) setIsAuthModalOpen(true);
+      if (err instanceof ApiError && err.code === 'FUNDAMENTAL_OFF') setFundamentalOn(false);
+      setToastNotification({ message: msg, type: 'info' });
+      refreshAccount();
+    } finally {
+      clearTimeout(timer);
+      setRecheckingId(null);
+    }
   };
 
   // Send a message and generate institutional strategy
@@ -2754,6 +2814,8 @@ export default function App() {
                 <ChatFeed
                   messages={currentMessages}
                   onCheckFundamental={checkFundamental}
+                  onRecheckFundamental={recheckFundamental}
+                  recheckingId={recheckingId}
                   isLoading={isLoading}
                   tickers={tickers}
                   onCalculate={strategy => {

@@ -70,6 +70,9 @@ interface ChatFeedProps {
   onCalculate?: (strategy: StrategyResult) => void;
   /** "Check fundamental" (ch-fd) on a result with today's news: a fundamental read of that news for the pair */
   onCheckFundamental?: (topic: string) => void;
+  /** "Recheck" on a fundamental card: reads the same question again and compares it with this read */
+  onRecheckFundamental?: (messageId: string) => void;
+  recheckingId?: string | null;
 }
 
 /** What "Check fundamental" asks about: today's high-impact releases for the pair, else today's news */
@@ -163,6 +166,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onToggleAlert,
   onCalculate,
   onCheckFundamental,
+  onRecheckFundamental,
+  recheckingId,
 }) => {
   const prefs = React.useMemo(() => withDefaults(userProfile?.preferences), [userProfile?.preferences]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1143,7 +1148,14 @@ Rationale: ${strategy.entryZone.rationale}
                   )}
 
                   {/* Fundamental Analysis result */}
-                  {!strategy && hasFundamental && <FundamentalCard report={message.fundamental!} markdown={message.content} />}
+                  {!strategy && hasFundamental && (
+                    <FundamentalCard
+                      report={message.fundamental!}
+                      markdown={message.content}
+                      onRecheck={onRecheckFundamental ? () => onRecheckFundamental(message.id) : undefined}
+                      rechecking={recheckingId === message.id}
+                    />
+                  )}
 
                   {/* Conversational text response if present without strategy card (also a damaged fundamental read: its text) */}
                   {!strategy && !hasFundamental && message.content && (

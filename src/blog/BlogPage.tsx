@@ -499,8 +499,8 @@ const SECTIONS: Section[] = [
         <Steps
           items={[
             <>
-              <B>Switch it on.</B> Type /fundamental-analysis in the input, press Enter and turn it on. A blue <B>Fundamentals</B> chip next to the input box
-              shows it is on; tap it any time to open it again or switch it off.
+              <B>Switch it on.</B> Type /fundamental-analysis in the input, press Enter and turn it on. A blue dot on the <B>Tools</B> button under the input box
+              shows it is on; open Tools any time to open it again or switch it off.
             </>,
             <>
               <B>Ask with the tool.</B> Type /fundamental-analysis followed by what you want read: "/fundamental-analysis CPI", "/fundamental-analysis next
@@ -515,6 +515,11 @@ const SECTIONS: Section[] = [
               <B>Read the result.</B> You get the most likely outcome with its odds, every scenario and what it would do to the currency, the past releases, what
               drives the number, the risks to the view, and the pairs it moves most. Each pair shows its live price and a <B>For</B> or <B>Against</B> tag:
               For means the most likely outcome favours the pair rising, Against means it weighs on the pair.
+            </>,
+            <>
+              <B>Recheck it later.</B> Tap <B>Recheck</B> on the result to read it again now. The card tells you whether the release is out (with the actual
+              figure against the forecast), whether the forecast changed, and whether the most likely outcome and each pair's For or Against still hold:
+              <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses one analysis credit.
             </>,
           ]}
         />
@@ -758,7 +763,8 @@ const SECTIONS: Section[] = [
         />
         <Note title="Ask Matt" tone="emerald">
           <B>Matt</B> is MarketX's help assistant. Switch to it with the <B>Ask SI / Matt</B> switch at the top of the side menu, type <B>/matt</B> in the input, or tap <B>Ask Matt</B> on a
-          trade card or in any panel to have that exact thing explained. Matt answers questions about MarketX features, tools and settings, your own account
+          trade card or in any panel to have that exact thing explained. Your chats with Matt are kept: tap the <B>History</B> icon at the top of the Matt page to
+          go back to any of them, search them, or delete one; <B>New chat</B> starts a fresh one. Matt answers questions about MarketX features, tools and settings, your own account
           (plan, credits, what is switched on), events and promos, and the markets (what a pair is, what moves it, its sessions). Matt doesn't place trades or
           give financial advice; for a trade plan use Ask SI. Questions about how MarketX is built or run are private and get "Not available"; asking them
           repeatedly pauses Matt for your account for a while.
