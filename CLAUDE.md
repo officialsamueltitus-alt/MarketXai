@@ -167,12 +167,23 @@
   `recheckFundamental` in `App.tsx`): reads the same question again now (never the 10-min cache; the question rides on the read as `question`),
   and `compareReads` in `src/utils/fundamental.ts` sets `recheck` {state STILL_VALID / CHANGED / RELEASED, headline, lines, dueAt}: released or
   not (actual vs forecast), forecast changed, most likely outcome changed, pair biases flipped, against the earlier read the app sends back
-  (`readPrevious` keeps only short cleaned fields). The card updates in place with a banner; one credit, refunded on failure. The analysis engine and `/api/market/analyze` are untouched. One credit
+  (`readPrevious` keeps only short cleaned fields). Live data on a recheck (owner-specified): the engine is told it is a RECHECK of the earlier
+  read and must search the latest information (released figure into `data.actual` + status RELEASED, else actual empty; `whatsNew` = "Update: …"
+  line), the live calendar's released figure (`actual` in `getFullCalendar`) is given to it and fills a missing actual when exactly one matching
+  line is out, and headlines since the earlier read ride on `recheck.news`. Card: Actual = the figure (sky tile, "just out", above/below/in line with
+  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; one credit, refunded on failure. Every read is kept (owner-specified):
+  the sidebar History has a Fundamentals tab (`fundamentalReads` in `Sidebar.tsx`, from the chats' `fundamental` messages, opens the read via
+  `openChatMessage`), and each read or recheck sends its own notification + email (`fundamentalAlert` in `server/account.ts`: release, most likely
+  with odds, effect, actual/forecast/previous, pairs for/against, confidence, recheck result; button = `/?chat=&msg=` of that read; `important`
+  = sent at once, never paced out, still only with activity emails on). The analysis engine and `/api/market/analyze` are untouched. One credit
   (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and
   labelled untrusted. Context: this week's matching calendar lines (`calendarMatches`, exact titles, figures given to the engine, release time kept),
-  headlines from the last 4 days (`relevantHeadlines`: BBC Business + CNBC Economy RSS fetched here only, plus the MarketWatch wires). Reply = one JSON
+  headlines from the last 4 days (`relevantHeadlines`: BBC Business + CNBC Economy RSS fetched here only, plus the MarketWatch wires). Engine calls (`askEngine`): every reply is checked
+  by the caller's `accept` (a report `parseReport` can read, or NOT_FUNDAMENTAL in any form, `isNotFundamental`); an unreadable one moves on to the
+  next engine; the web-search read gets a fast backup started alongside it after `FUNDAMENTAL_HEDGE_MS` (30s: no search, JSON only, still with the
+  live calendar + headlines); first usable answer wins; `extractJson` repairs small slips. 503 only when every engine failed. Reply = one JSON
   object, validated (`parseReport`): 2-4 scenarios normalised to 100, most likely = the top scenario, confidence ≤ 90, pairs folded to MarketX symbols
   (`normalizePairSymbol`), bias FOR (the most likely outcome favours the pair rising) / AGAINST / NEUTRAL, provider names scrubbed. The engine never
   writes prices: each pair's live price is fetched at serve time (`deps.quote` → `livePriceFor`, none = none shown). Same question reused 10 min (prices
@@ -297,6 +308,16 @@
   `server/account.ts`, counter `users.marketMail`). Site notifications are never capped. Hits found in the same alert cycle go out
   as one email; "Want a price alert?" invitations only use the allowance while 2 emails are still left for real hits. These emails
   stay short: one or two lines, at most 3 rows, no long notes.
+- Daily news alerts (owner-specified, `server/newsAlerts.ts`, Preference Mode "News alerts", `users.preferences.newsAlerts {enabled, impacts}`
+  HIGH/MEDIUM/LOW, `normalizeNewsImpacts` / `readNewsAlerts` / `newsImpactLabel` in `src/utils/preferences.ts`, off by default): lead worker sweep every
+  10 min (`NEWS_ALERT_SWEEP_MS`) from `NEWS_ALERT_HOUR` (7:00 AM site TZ, WAT): each trader on gets ONE notification + ONE email per day (claimed in a
+  transaction, `users.newsAlertsDay`) with the releases due in the next 24h of the chosen impacts from the LIVE calendar (`getFullCalendar` in
+  `server/news.ts`, all impacts + `actual`; the analysis keeps `getCalendar`, high impact only, untouched), high first, max 12. Each release = a mail
+  `section` (mailer `sections`: tag, title, 3-line briefing, its own "Analyze it on MarketX" button `/?fundamental=<CUR title>`); briefings written once per
+  release per day by the engine (`writeNewsBriefings` in `server/fundamental.ts`, own instructions, web search on) or `templateBriefing`. Sent at once
+  (`priority: 'high'`), regardless of the activity-email switch (the trader opted in here). Nothing sent on a day with no match. Notification
+  `actionPrompt` "/fundamental-analysis <first release>" runs `checkFundamental`; `/?fundamental=` (after sign-in) switches the tool on and puts the
+  command in the input (`composerSeed` → `ChatInput.seedText`, not sent); `/?news=1` opens Fundamental Analysis.
 - Preference Mode (`/preference`, `server/preferences.ts`, shared `src/utils/preferences.ts`, `PreferencePanel.tsx`, free): `users.preferences`
   {timeframe, slMode, accountSize, currency USD/NGN/EUR/GBP, riskPct 0.1 to 10, view DETAILED/SIMPLE, homeMarket, rdmTimeframes, analysisMode}, validated, autosaved
   (`PUT /api/preferences`, `reset`). Applies to the composer defaults, the trade card money strip (`PositionStrip`: risk and each TP in money; units
@@ -400,6 +421,9 @@
 - Composer (owner-specified, sleek, `ChatInput.tsx`): the text has its own full-width line; ONE slim row under it: attach + Tools on the left,
   timeframe, stop mode and send on the right. No per-mode chips in the composer: the modes on show as small coloured dots on the Tools button
   (sky = Fundamental Analysis, violet = Strategy Builder, emerald = Confirmation, cyan/amber/fuchsia = Scalp/Day/Swing). The slash menu is headed "Tools".
+- Try again (owner-specified): a failed analysis or fundamental read that a retry can fix (`canRetry` in `App.tsx`: 5xx, 408, 429, timeout, network;
+  never DAILY_LIMIT, PRO_REQUIRED, NOT_FUNDAMENTAL, UNKNOWN_ASSET, sign-in) carries `ChatMessage.retry` {kind, prompt, timeframe, slMode}; the card's
+  "Try again" button (`onRetry` in `ChatFeed.tsx`, `retryMessage`) removes the failed attempt and its prompt and runs it again in the same chat.
 - Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan

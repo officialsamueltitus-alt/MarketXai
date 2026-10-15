@@ -107,7 +107,7 @@ const UserDetail: React.FC<{ uid: string; onClose: () => void; onChanged: () => 
     setBusy(true);
     try {
       const r = await apiFetch<{ emailed: boolean }>(`/api/admin/users/${uid}/action`, { method: 'POST', body: JSON.stringify({ action: pending, reason }) });
-      setNote(`Done. ${r.emailed ? 'The user has been emailed.' : 'The email could not be sent (check SMTP settings).'}`);
+      setNote(`Done. ${r.emailed ? 'The user has been emailed.' : 'The email could not be sent (check the email settings).'}`);
       setPending(null);
       setReason('');
       onChanged();

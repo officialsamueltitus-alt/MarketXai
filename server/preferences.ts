@@ -13,6 +13,7 @@
 //   and the 9:00 PM WAT close (day: same day, swing: Friday) recorded as ENDED in alerts, journal, track record, Solana
 // - styleTimeframes: per trade type, the timeframes the trader keeps ([] = all of the type's); while that type is on,
 //   the choice overrides every other timeframe (composer pick, RDM, watchlist, Strategy Builder)
+// - newsAlerts: daily news alerts (server/newsAlerts.ts): on/off and which impacts (high, medium, low)
 // - analysisMode: NORMAL, or CONFIRMATION (server/confirmation.ts: a trade only once price confirms at the zone), for
 //   analyses and the watchlist alike
 // Free for everyone.
@@ -23,7 +24,7 @@ import { createKeyedThrottle } from './security';
 import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
 import { normalizeStyleFrames } from '../src/utils/tradeStyle';
-import { DEFAULT_PREFERENCES, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
+import { DEFAULT_PREFERENCES, normalizeNewsImpacts, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
 import { syncWatchPrefs } from './watchlist';
 export { DEFAULT_PREFERENCES };
 export type { Preferences };
@@ -98,6 +99,22 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
       merged[k] = list;
     }
     next.styleTimeframes = merged;
+  }
+  if (has('newsAlerts')) {
+    // A partial update: { enabled } and/or { impacts }
+    const v = body.newsAlerts;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return { error: 'Choose your news alerts.' };
+    const merged = { ...current.newsAlerts };
+    if ('enabled' in v) {
+      if (typeof v.enabled !== 'boolean') return { error: 'News alerts are on or off.' };
+      merged.enabled = v.enabled;
+    }
+    if ('impacts' in v) {
+      const list = normalizeNewsImpacts(v.impacts);
+      if (!list) return { error: 'Choose at least one impact: high, medium or low.' };
+      merged.impacts = list;
+    }
+    next.newsAlerts = merged;
   }
   if (has('rdmTimeframes')) {
     const list = normalizeRdmTimeframes(body.rdmTimeframes);

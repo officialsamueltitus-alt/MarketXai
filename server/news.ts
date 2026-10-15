@@ -12,6 +12,18 @@ export interface CalendarEvent {
   previous: string;
 }
 
+/** Every release on this week's calendar, any impact (daily news alerts); the analysis keeps using `getCalendar` (high impact) */
+export interface EconEvent {
+  title: string;
+  country: string;
+  impact: 'HIGH' | 'MEDIUM' | 'LOW';
+  at: number;
+  forecast: string;
+  previous: string;
+  /** The released figure, when the calendar has it */
+  actual: string;
+}
+
 export interface WireHeadline {
   title: string;
   url?: string;
@@ -55,6 +67,7 @@ export interface AssetRef {
 // Feeds (cached, refreshed on demand)
 // ---------------------------------------------------------------------------
 let calendar: CalendarEvent[] = [];
+let fullCalendar: EconEvent[] = [];
 let calendarFetchedAt = 0;
 let headlines: WireHeadline[] = [];
 let headlinesFetchedAt = 0;
@@ -134,6 +147,23 @@ async function fetchCalendar(): Promise<void> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!Array.isArray(data)) return;
+    const IMPACTS: Record<string, EconEvent['impact']> = { High: 'HIGH', Medium: 'MEDIUM', Low: 'LOW' };
+    fullCalendar = data
+      .filter((it: any) => IMPACTS[it?.impact] && it.title && it.country && it.date)
+      .map((it: any): EconEvent | null => {
+        const at = Date.parse(it.date);
+        if (!Number.isFinite(at)) return null;
+        return {
+          title: String(it.title).slice(0, 160),
+          country: String(it.country).toUpperCase().slice(0, 4),
+          impact: IMPACTS[it.impact],
+          at,
+          forecast: String(it.forecast || '').slice(0, 24),
+          previous: String(it.previous || '').slice(0, 24),
+          actual: String(it.actual || '').slice(0, 24),
+        };
+      })
+      .filter(Boolean) as EconEvent[];
     calendar = data
       .filter((it: any) => (it?.impact === 'High' || it?.impact === 'Holiday') && it.title && it.country && it.date)
       .map((it: any): CalendarEvent | null => {
@@ -177,10 +207,12 @@ export async function refreshNewsFeedsWithin(ms: number): Promise<void> {
 }
 
 export const getCalendar = () => calendar;
+export const getFullCalendar = () => fullCalendar;
 export const getHeadlines = () => headlines;
 
 /** Test hook: load feed data directly. */
-export function __setNewsFeedsForTest(data: { calendar?: CalendarEvent[]; headlines?: WireHeadline[] }) {
+export function __setNewsFeedsForTest(data: { calendar?: CalendarEvent[]; fullCalendar?: EconEvent[]; headlines?: WireHeadline[] }) {
+  if (data.fullCalendar) fullCalendar = data.fullCalendar;
   if (data.calendar) {
     calendar = data.calendar;
     calendarFetchedAt = Date.now();

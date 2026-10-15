@@ -51,6 +51,8 @@ export interface EmailOptions {
   /** A picture embedded in the message (sent as an inline attachment, so it shows without loading remote images);
    *  href opens the full original when tapped */
   image?: { data: Buffer; contentType: string; alt?: string; href?: string };
+  /** Cards after the message, each with a small tag, a title, a few lines and its own button (daily news alerts) */
+  sections?: Array<{ tag?: string; title: string; lines: string[]; cta?: { label: string; url: string } }>;
 }
 
 // Transactional email; failures are logged and never break the request. Resolves true when sent.
@@ -85,6 +87,18 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
           .join('')}
       </table>`
     : '';
+  const safeUrl = (u: string) => (/^https:\/\/[^\s"'<>]+$/i.test(String(u || '')) || String(u || '').startsWith(siteUrl) ? u : siteUrl);
+  const sections = (options.sections || [])
+    .slice(0, 20)
+    .map(
+      sec => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 14px;border:1px solid ${LINE};border-radius:14px;border-collapse:separate;background-color:#fbfbfd"><tr><td style="padding:16px 18px">
+        ${sec.tag ? `<p style="margin:0 0 6px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#6d28d9">${escapeHtml(sec.tag)}</p>` : ''}
+        <p style="margin:0 0 8px;color:${INK};font-size:16px;font-weight:800;line-height:1.35">${escapeHtml(sec.title)}</p>
+        ${sec.lines.map(l => `<p style="margin:0 0 6px;line-height:1.55;color:${BODY};font-size:14px">${escapeHtml(l)}</p>`).join('')}
+        ${sec.cta ? `<p style="margin:10px 0 0"><a href="${escapeHtml(safeUrl(sec.cta.url))}" style="display:inline-block;color:#ffffff;background-color:${VIOLET};text-decoration:none;font-weight:700;font-size:13px;padding:8px 14px;border-radius:10px">${escapeHtml(sec.cta.label)} &rarr;</a></p>` : ''}
+      </td></tr></table>`
+    )
+    .join('');
   const html = `<!doctype html><html lang="en" style="color-scheme:light only"><head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">
@@ -120,6 +134,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
             : ''
         }
         ${rows}
+        ${sections}
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:4px"><tr><td bgcolor="${VIOLET}" style="border-radius:12px;background-color:${VIOLET};background-image:linear-gradient(95deg,#7c3aed,#4f46e5)">
           <a href="${escapeHtml(cta.url)}" style="display:inline-block;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 26px;border-radius:12px">${escapeHtml(cta.label)} &rarr;</a>
         </td></tr></table>
@@ -146,6 +161,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
     ...(options.image?.href ? ['', `View the full picture: ${options.image.href}`] : []),
     ...(options.code ? ['', `    ${options.code}`, ''] : []),
     ...(options.rows || []).map(([k, v]) => `${k}: ${v}`),
+    ...(options.sections || []).slice(0, 20).flatMap(sec => ['', ...(sec.tag ? [sec.tag.toUpperCase()] : []), sec.title, ...sec.lines, ...(sec.cta ? [`${sec.cta.label}: ${safeUrl(sec.cta.url)}`] : [])]),
     '',
     `${cta.label}: ${cta.url}`,
     ...(options.note ? ['', options.note] : []),

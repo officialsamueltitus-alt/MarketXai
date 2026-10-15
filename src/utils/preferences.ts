@@ -4,6 +4,14 @@ import { readStyleTimeframes, readTradeStyle, type StyleTimeframes, type TradeSt
 
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
 export type AnalysisMode = 'NORMAL' | 'CONFIRMATION';
+export type NewsImpact = 'HIGH' | 'MEDIUM' | 'LOW';
+export const NEWS_IMPACTS: NewsImpact[] = ['HIGH', 'MEDIUM', 'LOW'];
+/** Daily news alerts: a notification and an email each morning with the day's releases of the chosen impacts */
+export interface NewsAlertsPref {
+  enabled: boolean;
+  /** Which impacts to include; all three = "All" */
+  impacts: NewsImpact[];
+}
 export interface Preferences {
   timeframe: string;
   slMode: 'normal' | 'tight';
@@ -23,6 +31,8 @@ export interface Preferences {
   /** The timeframes the trader keeps for each trade type ([] = all of that type's). While a type is on, its choice
    *  overrides every other timeframe (composer, RDM, watchlist, Strategy Builder) */
   styleTimeframes: Required<StyleTimeframes>;
+  /** Daily news alerts (off by default) */
+  newsAlerts: NewsAlertsPref;
   updatedAt?: number;
 }
 
@@ -38,7 +48,26 @@ export const DEFAULT_PREFERENCES: Preferences = {
   analysisMode: 'NORMAL',
   tradeStyle: 'ANY',
   styleTimeframes: { SCALP: [], DAY: [], SWING: [] },
+  newsAlerts: { enabled: false, impacts: ['HIGH'] },
 };
+
+/** A valid impact choice (known impacts, no repeats, high first), or null; at least one */
+export function normalizeNewsImpacts(list: unknown): NewsImpact[] | null {
+  if (!Array.isArray(list)) return null;
+  const want = new Set(list.map(x => String(x || '').trim().toUpperCase()));
+  for (const x of want) if (!(NEWS_IMPACTS as string[]).includes(x)) return null;
+  const out = NEWS_IMPACTS.filter(x => want.has(x));
+  return out.length ? out : null;
+}
+export function readNewsAlerts(v: any): NewsAlertsPref {
+  return { enabled: v?.enabled === true, impacts: normalizeNewsImpacts(v?.impacts) || ['HIGH'] };
+}
+/** "High impact", "High and medium impact", "All impacts" */
+export function newsImpactLabel(list: NewsImpact[]): string {
+  if (list.length === 3) return 'All impacts';
+  const names = list.map((x, i) => (i ? x.toLowerCase() : x.charAt(0) + x.slice(1).toLowerCase()));
+  return `${names.join(' and ')} impact`;
+}
 
 
 /** Stored preferences with every missing field filled in */
@@ -48,6 +77,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   if (out.analysisMode !== 'CONFIRMATION') out.analysisMode = 'NORMAL';
   out.tradeStyle = readTradeStyle(out.tradeStyle);
   out.styleTimeframes = readStyleTimeframes(out.styleTimeframes);
+  out.newsAlerts = readNewsAlerts(out.newsAlerts);
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;
   delete (out as any).tradeLockChosenAt;

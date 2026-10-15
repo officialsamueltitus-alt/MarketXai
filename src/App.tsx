@@ -187,6 +187,9 @@ export default function App() {
   const [alertFocus, setAlertFocus] = useState<string | null>(null);
   const [watchFocus, setWatchFocus] = useState<string | null>(null);
   const chatLinkRef = useRef<{ sessionId: string; messageId: string } | null>(null);
+  /** News alert links: "Analyze it" (?fundamental=<release>) puts the read in the input; ?news=1 opens Fundamental Analysis */
+  const newsLinkRef = useRef<{ topic?: string; open?: boolean } | null>(null);
+  const [composerSeed, setComposerSeed] = useState<{ text: string; at: number } | null>(null);
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertQuotes, setAlertQuotes] = useState<Record<string, AlertLiveQuote>>({});
@@ -340,7 +343,12 @@ export default function App() {
     if (params.get('pricing') === '1') setIsPricingModalOpen(true);
     // The Ask SI side of the Ask SI / Matt switch on the Matt page opens the chat, not the Markets tab
     if (params.get('ask') === '1') setCurrentView('chat');
-    if (params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
+    const newsTopic = (params.get('fundamental') || '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 200);
+    if (newsTopic) {
+      newsLinkRef.current = { topic: newsTopic };
+      setCurrentView('chat');
+    } else if (params.get('news') === '1') newsLinkRef.current = { open: true };
+    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1380,13 +1388,13 @@ export default function App() {
   );
 
   /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
-  const openChatMessage = (sessionId: string, messageId: string) => {
+  const openChatMessage = (sessionId: string, messageId: string, keepSidebar = false) => {
     const session = sessions.find(x => x.id === sessionId);
     if (!session) {
       setToastNotification({ message: 'That chat is no longer in your history.', type: 'info' });
       return false;
     }
-    setIsSidebarOpen(false);
+    if (!keepSidebar) setIsSidebarOpen(false);
     setCurrentSessionId(sessionId);
     setTargetSignalMessageId(session.messages.some(m => m.id === messageId) ? messageId : null);
     setCurrentView('chat');
@@ -1405,6 +1413,9 @@ export default function App() {
     if (notif.type === 'announcement') return setOpenAnnouncement(notif);
     if (notif.actionPrompt) {
       setCurrentView('chat');
+      // A news alert's "analyze it": the fundamental read (the command is switched on first when needed)
+      const topic = fundamentalTopic(notif.actionPrompt);
+      if (topic) return void checkFundamental(topic);
       return void handleSendMessage(notif.actionPrompt, '4H');
     }
     switch (notif.actionType) {
@@ -1491,6 +1502,11 @@ export default function App() {
       });
     }
   };
+
+  /** Failures a retry can fix: the engine busy or unavailable, a timeout, a dropped connection (not limits, sign-in or Pro) */
+  const canRetry = (status?: number, code?: string) =>
+    !['DAILY_LIMIT', 'PRO_REQUIRED', 'NOT_FUNDAMENTAL', 'UNKNOWN_ASSET', 'FUNDAMENTAL_OFF', 'BAD_REQUEST', 'INSUFFICIENT_CREDITS', 'NO_CREDITS'].includes(code || '') &&
+    (!status || status >= 500 || status === 408 || status === 429);
 
   // Fundamental Analysis: "/fundamental-analysis CPI" (with the command on) gets the same intro steps as every prompt, then
   // the fundamental read of the event or market asked about. One credit, refunded by the server on any failure.
@@ -1594,11 +1610,13 @@ export default function App() {
       if (err instanceof ApiError && err.code === 'FUNDAMENTAL_OFF') setFundamentalOn(false);
       const notFundamental = err instanceof ApiError && err.code === 'NOT_FUNDAMENTAL';
       activity = activity.map(st => (st.status === 'active' ? { ...st, status: notFundamental ? 'stopped' : 'error', endedAt: Date.now() } : st));
+      const retryable = timedOut || !(err instanceof ApiError) || canRetry(err.status, err.code);
       patch({
         content: notFundamental ? msg : `⚠️ ${msg}`,
         status: 'completed',
         searchStep: undefined,
         activity,
+        ...(retryable && !notFundamental ? { retry: { kind: 'fundamental' as const, prompt: fundamentalPrompt(topic) } } : {}),
         ...(notFundamental ? { choices: FUNDAMENTAL_EXAMPLES.slice(0, 3).map(e => ({ kind: 'analysis' as const, label: e.label, prompt: fundamentalPrompt(e.prompt) })) } : {}),
       });
       refreshAccount();
@@ -1609,6 +1627,44 @@ export default function App() {
       setTimeout(refreshNotifications, 1500);
     }
   };
+
+  // "Try again" on a failed analysis or fundamental read: the failed attempt (and its prompt) leave the chat, and the same
+  // prompt runs again with the same timeframe, stop mode and chart, in the same chat
+  const retryMessage = (messageId: string) => {
+    if (isLoading) return;
+    const session = sessions.find(x => x.messages.some(m => m.id === messageId));
+    const idx = session ? session.messages.findIndex(m => m.id === messageId) : -1;
+    const msg = session && idx >= 0 ? session.messages[idx] : null;
+    if (!session || !msg?.retry) return;
+    const userIdx = session.messages.slice(0, idx).map(m => m.role).lastIndexOf('user');
+    const userMsg = userIdx >= 0 ? session.messages[userIdx] : null;
+    const drop = new Set([messageId, ...(userMsg ? [userMsg.id] : [])]);
+    setSessions(list => list.map(x => (x.id === session.id ? { ...x, messages: x.messages.filter(m => !drop.has(m.id)) } : x)));
+    setCurrentSessionId(session.id);
+    const r = msg.retry;
+    // (on the next tick, so the chat no longer holds the failed attempt when the new one starts)
+    setTimeout(() => {
+      if (r.kind === 'fundamental') runFundamental(r.prompt);
+      else handleSendMessage(r.prompt, r.timeframe || getSavedTimeframe(), r.slMode || 'normal', undefined, userMsg?.chartImage, userMsg?.chartFileName);
+    }, 0);
+  };
+
+  // A news alert link, once signed in: Fundamental Analysis is switched on and "/fundamental-analysis <release>" waits in
+  // the input (sending it uses one credit, as any read); ?news=1 opens Fundamental Analysis
+  useEffect(() => {
+    const link = newsLinkRef.current;
+    if (!authUser || !link) return;
+    newsLinkRef.current = null;
+    if (link.topic) {
+      setCurrentView('chat');
+      setComposerSeed({ text: fundamentalPrompt(link.topic), at: Date.now() });
+      // (asked from the server: the local switch may not have loaded yet right after sign-in)
+      apiFetch<{ enabled: boolean }>('/api/fundamental')
+        .then(d => (d.enabled ? setFundamentalOn(true) : setFundamentalMode(true)))
+        .catch(() => {});
+    } else if (link.open) openToolPanel('fundamental');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
 
   // "Check fundamental" on an analysis card with today's news: switches the command on if needed, then reads it
   const checkFundamental = async (topic: string) => {
@@ -2185,6 +2241,7 @@ export default function App() {
           searchStep: undefined,
           durationSeconds: actualDuration,
           activity,
+          ...(canRetry(result.status, result.code) ? { retry: { kind: 'analysis' as const, prompt: promptText, timeframe, slMode } } : {}),
         });
         refreshAccount();
         return;
@@ -2300,7 +2357,7 @@ export default function App() {
       }
       console.error('Market analysis computation notice:', err);
       activity = activity.map(st => (st.status === 'active' ? { ...st, status: 'error', endedAt: Date.now() } : st));
-      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity });
+      updateAssistant({ content: '⚠️ Something went wrong. Please try again.', status: 'completed', searchStep: undefined, activity, retry: { kind: 'analysis', prompt: promptText, timeframe, slMode } });
     } finally {
       clearTimeout(requestTimer);
       toolsSettled = true;
@@ -2670,6 +2727,7 @@ export default function App() {
         savedAnalyses={savedAnalyses}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
+        onOpenMessage={(sid, mid) => openChatMessage(sid, mid, true)}
         onSelectSignal={handleSelectSignal}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
@@ -2815,6 +2873,7 @@ export default function App() {
                   messages={currentMessages}
                   onCheckFundamental={checkFundamental}
                   onRecheckFundamental={recheckFundamental}
+                  onRetry={retryMessage}
                   recheckingId={recheckingId}
                   isLoading={isLoading}
                   tickers={tickers}
@@ -2856,6 +2915,7 @@ export default function App() {
                     onAnalyze={prompt => handleSendMessage(prompt)}
                   />
                   <ChatInput
+                    seedText={composerSeed}
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
                     onCommand={id =>

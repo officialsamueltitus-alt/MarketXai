@@ -250,6 +250,8 @@ export interface ActivityMail {
   lines: string[];
   options?: EmailOptions;
   security?: boolean;
+  /** Sent at once like a security mail (never paced out), still only when activity emails are on (fundamental reads) */
+  important?: boolean;
 }
 
 export async function notifyActivity(uid: string, n: NotificationInput | null, mail?: ActivityMail): Promise<void> {
@@ -260,7 +262,7 @@ export async function notifyActivity(uid: string, n: NotificationInput | null, m
     if (n) await addNotification(uid, n);
     if (mail && (mail.security || doc.emailPrefs?.activity !== false)) {
       // Activity mail is low priority (paced and deduplicated); security mail always goes first
-      await sendEmail(doc.email, mail.subject, mail.lines, { ...mail.options, priority: mail.security ? 'high' : 'low' });
+      await sendEmail(doc.email, mail.subject, mail.lines, { ...mail.options, priority: mail.security || mail.important ? 'high' : 'low' });
     }
   } catch (err: any) {
     console.warn('[MarketX Notify] failed:', err?.message || err);
@@ -357,12 +359,84 @@ export function readChatRef(v: any): ChatRef | null {
 const chatLink = (ref: ChatRef | null) => siteLink(ref ? `/?chat=${encodeURIComponent(ref.sessionId)}&msg=${encodeURIComponent(ref.messageId)}` : '/');
 
 type CreditsLeft = { daily: number; campaign: number } | null;
+
+const mailText = (v: unknown, max: number) =>
+  String(v ?? '')
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u2028-\u202E\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+const releaseFmt = new Intl.DateTimeFormat('en-GB', { timeZone: CREDIT_RESET_TZ, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+/** Fundamental Analysis read or recheck: notification + email with the outcome, odds, figures, pairs and a link to the read */
+function fundamentalAlert(user: AuthedUser, f: any, left: [string, string][], ref: ChatRef | null, open: object) {
+  const event = mailText(f.event, 100);
+  const ml = f.mostLikely && typeof f.mostLikely === 'object' ? f.mostLikely : {};
+  const outcome = mailText(ml.outcome, 160);
+  const prob = Math.max(0, Math.min(100, Math.round(Number(ml.probability) || 0)));
+  const currency = mailText(f.currency, 8);
+  const effect = ml.impact === 'BULLISH' ? `Bullish ${currency}` : ml.impact === 'BEARISH' ? `Bearish ${currency}` : `Neutral ${currency}`;
+  const pairs = Array.isArray(f.pairs) ? f.pairs.slice(0, 10) : [];
+  const names = (bias: string) => pairs.filter((p: any) => p?.bias === bias).map((p: any) => mailText(p.symbol, 16)).filter(Boolean).join(', ');
+  const at = Number(f.releaseAt);
+  // (Lagos time reads as WAT, as everywhere else on MarketX)
+  const release = Number.isFinite(at) && at > 0 ? releaseFmt.format(new Date(at)).replace(CREDIT_RESET_TZ === 'Africa/Lagos' ? /GMT\+1$/ : /$^/, 'WAT') : mailText(f.releaseText, 60);
+  const status = f.status === 'RELEASED' ? 'Released' : f.status === 'UPCOMING' ? 'Upcoming' : 'Outlook';
+  const rc = f.recheck && typeof f.recheck === 'object' ? f.recheck : null;
+  const rcLabel = rc ? (rc.state === 'RELEASED' ? 'Released' : rc.state === 'CHANGED' ? 'Changed' : 'Still valid') : '';
+  const d = f.data && typeof f.data === 'object' ? f.data : {};
+  const rows: [string, string][] = [
+    ...(rc ? ([['Recheck', `${rcLabel}: ${mailText(rc.headline, 120)}`]] as [string, string][]) : []),
+    ['Release', release ? `${status} · ${release}` : status],
+    ...(outcome ? ([['Most likely', `${outcome}${prob ? ` (${prob}%)` : ''}`]] as [string, string][]) : []),
+    ['Effect', effect.trim()],
+    ...(d.actual ? ([['Actual', mailText(d.actual, 40)]] as [string, string][]) : []),
+    ...(d.forecast ? ([['Forecast', mailText(d.forecast, 40)]] as [string, string][]) : []),
+    ...(d.previous ? ([['Previous', mailText(d.previous, 40)]] as [string, string][]) : []),
+    ...(names('FOR') ? ([['Pairs for', names('FOR')]] as [string, string][]) : []),
+    ...(names('AGAINST') ? ([['Pairs against', names('AGAINST')]] as [string, string][]) : []),
+    ['Confidence', `${Math.max(0, Math.min(90, Math.round(Number(f.confidence) || 0)))}%`],
+    ...left,
+  ];
+  const lines = [
+    rc ? `MarketX rechecked ${event}.` : `Your fundamental analysis of ${event} is ready.`,
+    ...(rc && Array.isArray(rc.lines) ? rc.lines.slice(0, 4).map((l: unknown) => mailText(l, 200)).filter(Boolean) : []),
+    mailText(f.summary, 600),
+    ...(ml.reasoning ? [`Why: ${mailText(ml.reasoning, 500)}`] : []),
+  ].filter(Boolean);
+  recordUsage(user.uid, 'chat', null);
+  logActivity(user.uid, { type: 'chat', title: rc ? `Rechecked ${event}` : `Fundamental analysis: ${event}`, detail: outcome ? `${outcome}${prob ? ` (${prob}%)` : ''}` : '' });
+  notifyActivity(
+    user.uid,
+    {
+      type: 'system',
+      title: rc ? `Recheck: ${event} · ${rcLabel}` : `Fundamental analysis: ${event}`,
+      message: rc ? mailText(rc.headline, 140) : outcome ? `Most likely: ${outcome}${prob ? ` (${prob}%)` : ''}` : 'Your read is ready.',
+      ...open,
+    } as any,
+    {
+      subject: rc ? `Recheck: ${event} (${rcLabel})` : `Fundamental analysis: ${event}`,
+      lines,
+      important: true,
+      options: {
+        rows,
+        cta: { label: rc ? 'Open the rechecked read' : 'Open the full read', url: chatLink(ref) },
+        note: 'A fundamental read gives the odds of each outcome, never a certainty. Manage your risk around the release. You can turn off activity emails in MarketX → Notifications.',
+      },
+    }
+  );
+}
 function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: CreditsLeft, ref: ChatRef | null = null) {
   const open = ref ? { actionType: 'open_chat', actionPayload: { sessionId: ref.sessionId, messageId: ref.messageId } } : {};
   const left: [string, string][] = [];
   if (remaining) {
     if (remaining.campaign > 0) left.push(['Campaign credits left', String(remaining.campaign)]);
     left.push([remaining.campaign > 0 ? 'Daily analyses (paused)' : 'Analyses left today', String(remaining.daily)]);
+  }
+  // A Fundamental Analysis read (or recheck): its own notification and a detailed email that opens the read
+  const f = body?.fundamental;
+  if (f && typeof f === 'object' && typeof f.event === 'string') {
+    fundamentalAlert(user, f, left, ref, open);
+    return;
   }
   const s = body?.strategy;
   recordUsage(user.uid, s?.symbol ? 'analysis' : 'chat', s?.symbol || null);
