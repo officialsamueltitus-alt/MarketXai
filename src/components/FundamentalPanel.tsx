@@ -55,6 +55,8 @@ export const FundamentalPanel: React.FC<Props> = ({ isOpen, onClose, enabled, on
     setBusy(true);
     try {
       await onSetEnabled(next);
+    } catch {
+      // The toast already says what went wrong
     } finally {
       setBusy(false);
     }

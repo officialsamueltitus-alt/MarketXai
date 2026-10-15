@@ -786,6 +786,11 @@ export default function App() {
     // This device stops getting the trader's phone notifications before the session ends
     await unlinkPush();
     await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    // Matt's conversation kept on this device belongs to this trader: it goes with the sign-out
+    try {
+      localStorage.removeItem('mx.matt.v1');
+      sessionStorage.removeItem('mx.matt.ask');
+    } catch {}
     setAuthUser(null);
     resetToSignedOut();
     setActiveSidebarTab('history');

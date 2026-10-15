@@ -134,8 +134,9 @@
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
   page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). A violet dot on the composer's Tools button; the Tools sheet's Active now opens the builder.
-- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, conversation kept on the device
-  `mx.matt.v1`): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
+- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, borderless floating header, conversation kept on the
+  device `mx.matt.v1` as {owner, msgs}: `owner` is an anonymous tag from `GET /api/matt/status`, so only that trader ever sees it back; it is
+  dropped for another account or when signed out, and removed on sign-out): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
   credits, prefs, commands on; never email/ids) and markets (pairContext: live price + `pairKnowledge`, provider names scrubbed). Its knowledge is
   public only (`server/mattKnowledge.ts`, generated from the public guide + events; never add internals). It uses the main engine connection
   (`useMattEngine(getGeminiClient)`, only called) with ONLY Matt's own instructions; offline it answers from the guide/account/pair briefing.

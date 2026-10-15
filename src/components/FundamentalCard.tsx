@@ -85,8 +85,33 @@ const PairTile: React.FC<{ p: FundamentalPair }> = ({ p }) => {
   );
 };
 
-export const FundamentalCard: React.FC<{ report: FundamentalReport; markdown?: string }> = ({ report: r, markdown }) => {
+/** A stored read may come from an older version or a damaged history entry: fill every list and field so the card never breaks */
+const safeReport = (x: any): FundamentalReport | null => {
+  if (!x || typeof x !== 'object' || typeof x.event !== 'string') return null;
+  const arr = (v: any) => (Array.isArray(v) ? v.filter(Boolean) : []);
+  const ml = x.mostLikely && typeof x.mostLikely === 'object' ? x.mostLikely : {};
+  return {
+    ...x,
+    currency: String(x.currency || ''),
+    category: String(x.category || ''),
+    summary: String(x.summary || ''),
+    releaseText: String(x.releaseText || ''),
+    data: x.data && typeof x.data === 'object' ? x.data : {},
+    history: arr(x.history),
+    drivers: arr(x.drivers).map(String),
+    risks: arr(x.risks).map(String),
+    sources: arr(x.sources).map(String),
+    scenarios: arr(x.scenarios).map((s: any) => ({ ...s, name: String(s.name || ''), probability: Math.max(0, Math.min(100, Number(s.probability) || 0)), impact: ['BULLISH', 'BEARISH'].includes(s.impact) ? s.impact : 'NEUTRAL' })),
+    pairs: arr(x.pairs).filter((p: any) => typeof p.symbol === 'string').map((p: any) => ({ ...p, bias: ['FOR', 'AGAINST'].includes(p.bias) ? p.bias : 'NEUTRAL', strength: ['HIGH', 'LOW'].includes(p.strength) ? p.strength : 'MEDIUM', price: Number(p.price) > 0 ? Number(p.price) : null, change24h: Number.isFinite(Number(p.change24h)) && p.change24h !== null ? Number(p.change24h) : null })),
+    mostLikely: { outcome: String(ml.outcome || ''), reasoning: String(ml.reasoning || ''), probability: Math.max(0, Math.min(100, Number(ml.probability) || 0)), impact: ['BULLISH', 'BEARISH'].includes(ml.impact) ? ml.impact : 'NEUTRAL' },
+    confidence: Math.max(0, Math.min(90, Number(x.confidence) || 0)),
+  };
+};
+
+export const FundamentalCard: React.FC<{ report: FundamentalReport; markdown?: string }> = ({ report: raw, markdown }) => {
   const [copied, setCopied] = useState(false);
+  const r = React.useMemo(() => safeReport(raw), [raw]);
+  if (!r) return null;
   const forCount = r.pairs.filter(p => p.bias === 'FOR').length;
   const againstCount = r.pairs.filter(p => p.bias === 'AGAINST').length;
   const when = r.releaseAt
@@ -186,8 +211,8 @@ export const FundamentalCard: React.FC<{ report: FundamentalReport; markdown?: s
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {r.pairs.map(p => (
-                <PairTile key={p.symbol} p={p} />
+              {r.pairs.map((p, i) => (
+                <PairTile key={`${p.symbol}-${i}`} p={p} />
               ))}
             </div>
             <p className="text-[10.5px] text-slate-500 mt-1.5">For = the most likely outcome favours the pair rising. Against = it weighs on the pair.</p>

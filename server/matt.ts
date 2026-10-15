@@ -15,6 +15,7 @@
 // ===========================================================================
 import type { Express, NextFunction, Request, Response } from 'express';
 import type { GoogleGenAI } from '@google/genai';
+import { createHash } from 'crypto';
 import { getUser, readAccountState, requireAuth, toClientState, userRef } from './account';
 import { db } from './firebase';
 import { createKeyedThrottle } from './security';
@@ -275,8 +276,10 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     });
 
   app.get('/api/matt/status', limiter, requireAuth, wrap(async (_req, res) => {
-    const g = readGuard((await userRef(getUser(res).uid).get()).data());
-    res.json({ pausedUntil: g.until > Date.now() ? g.until : null });
+    const { uid } = getUser(res);
+    const g = readGuard((await userRef(uid).get()).data());
+    // `owner`: an anonymous tag of this account, so a conversation kept on a shared device is only shown back to its own trader
+    res.json({ pausedUntil: g.until > Date.now() ? g.until : null, owner: createHash('sha256').update(`marketx-matt-owner:${uid}`).digest('hex').slice(0, 20) });
   }));
 
   app.post('/api/matt/chat', limiter, requireAuth, wrap(async (req, res) => {
