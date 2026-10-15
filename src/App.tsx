@@ -174,7 +174,7 @@ export default function App() {
   const [openPlugin, setOpenPlugin] = useState<'watchlist' | 'journal' | 'trackRecord' | null>(null);
   // Tools without an on/off switch: /preference
   const [openTool, setOpenTool] = useState<'preference' | 'strategy' | 'fundamental' | null>(null);
-  // Fundamental Analysis (/fundamental-analysis) is on: every prompt gets a fundamental read
+  // Fundamental Analysis (/fundamental-analysis) is on: prompts that start with the command get a fundamental read
   const [fundamentalOn, setFundamentalOn] = useState(false);
   // Strategy mode: the trader's active strategy (the composer chip names it)
   const [activeStrategy, setActiveStrategy] = useState<{ id: string; name: string } | null>(null);
@@ -336,7 +336,9 @@ export default function App() {
     const chatParam = params.get('chat') || '', msgParam = params.get('msg') || '';
     if (/^[A-Za-z0-9_-]{1,64}$/.test(chatParam) && /^[A-Za-z0-9_-]{1,64}$/.test(msgParam)) chatLinkRef.current = { sessionId: chatParam, messageId: msgParam };
     if (params.get('pricing') === '1') setIsPricingModalOpen(true);
-    if (params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
+    // The Ask SI side of the Ask SI / Matt switch on the Matt page opens the chat, not the Markets tab
+    if (params.get('ask') === '1') setCurrentView('chat');
+    if (params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1292,7 +1294,7 @@ export default function App() {
     try {
       const r = await apiFetch<{ enabled: boolean }>('/api/fundamental/mode', { method: 'POST', body: JSON.stringify({ enabled }) });
       setFundamentalOn(!!r.enabled);
-      setToastNotification({ message: r.enabled ? 'Fundamental Analysis is on: every prompt gets a fundamental read' : 'Fundamental Analysis is off', type: 'success' });
+      setToastNotification({ message: r.enabled ? 'Fundamental Analysis is on: type /fundamental-analysis and a topic, e.g. CPI' : 'Fundamental Analysis is off', type: 'success' });
     } catch (err: any) {
       setToastNotification({ message: err?.message || 'Could not change Fundamental Analysis. Please try again.', type: 'info' });
       throw err;
@@ -1388,7 +1390,7 @@ export default function App() {
     return true;
   };
   /**
-   * Every notification (center, chat updates bar, toasts, email links) opens the exact thing it is about:
+   * Every notification (center, toasts, email links) opens the exact thing it is about:
    * the alert card, the watchlist pair, the reply in its chat, the support conversation, credits, plans, profile,
    * the campaign, or the announcement itself.
    */
@@ -2783,7 +2785,6 @@ export default function App() {
                     isSignedIn={!!authUser}
                     userProfile={userProfile}
                     creditState={creditState}
-                    notifications={notifications}
                     tickers={tickers}
                     tickersLive={tickersLive}
                     monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 20, paymentsConfig?.currency || 'USD', true)}
@@ -2791,8 +2792,6 @@ export default function App() {
                     onOpenCampaign={() => setIsShareModalOpen(true)}
                     onSignIn={() => setIsAuthModalOpen(true)}
                     onAnalyze={prompt => handleSendMessage(prompt)}
-                    onNotificationSeen={markNotificationRead}
-                    onNotificationAction={handleUpdateNotificationAction}
                   />
                   <ChatInput
                     onSendMessage={handleSendMessage}

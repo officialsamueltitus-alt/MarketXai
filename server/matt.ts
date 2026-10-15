@@ -207,7 +207,7 @@ async function accountSummary(res: Response): Promise<string> {
     const s = (await db().collection('userStrategies').doc(String(sm.strategyId)).get().catch(() => null))?.data() as any;
     if (s && s.uid === user.uid) lines.push(`Strategy Builder: on, running "${String(s.name || 'your strategy').slice(0, 60)}".`);
   } else lines.push('Strategy Builder: off.');
-  lines.push(`Fundamental Analysis: ${raw.fundamentalMode?.enabled ? 'on (every prompt gets a fundamental read)' : 'off'}.`);
+  lines.push(`Fundamental Analysis: ${raw.fundamentalMode?.enabled ? 'on (prompts that start with /fundamental-analysis get a fundamental read; every other prompt is a normal analysis)' : 'off'}.`);
   return lines.filter(Boolean).join('\n');
 }
 

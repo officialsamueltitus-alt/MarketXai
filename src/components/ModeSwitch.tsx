@@ -20,7 +20,7 @@ export const ModeSwitch: React.FC<{ active: 'si' | 'matt'; onAskSI?: () => void;
         aria-selected={active === 'si'}
         aria-label="Ask SI: trade plans and market answers"
         title="Ask SI"
-        onClick={() => (active === 'si' ? onAskSI?.() : window.location.assign('/'))}
+        onClick={() => (active === 'si' ? onAskSI?.() : window.location.assign('/?ask=1'))}
         className={item(active === 'si')}
       >
         <Sparkles className="w-4 h-4" />

@@ -152,7 +152,7 @@
   `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every tool panel header
   (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, slash command `/matt`; NOT in the Tools sheet.
   Matt's mark is the MarketX logo everywhere (`MattMark`, owner-specified, no "M" disc). Ask SI / Matt switch (owner-specified, `ModeSwitch.tsx`:
-  a two-icon segmented control) sits in the sidebar's top row next to the logo and in the Matt page header (replacing the back link).
+  a two-icon segmented control) sits in the sidebar's top row next to the logo and in the Matt page header (replacing the back link); its Ask SI side on the Matt page opens `/?ask=1`, which lands in the Ask SI chat (not the Markets tab).
 - Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
   `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, a sky dot on the composer's Tools
   button, listed in the Tools sheet): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
@@ -394,6 +394,8 @@
 - Composer (owner-specified, sleek, `ChatInput.tsx`): the text has its own full-width line; ONE slim row under it: attach + Tools on the left,
   timeframe, stop mode and send on the right. No per-mode chips in the composer: the modes on show as small coloured dots on the Tools button
   (sky = Fundamental Analysis, violet = Strategy Builder, emerald = Confirmation, cyan/amber/fuchsia = Scalp/Day/Swing). The slash menu is headed "Tools".
+- Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
+  (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
 - Emails (`server/mailer.ts`, the only template): light design (owner-specified): soft white page, white card with a violet to cyan
   top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.
