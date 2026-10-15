@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon, Newspaper } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
-import { DEFAULT_PREFERENCES, formatMoney, type Currency, type Preferences } from '../utils/preferences';
+import { DEFAULT_PREFERENCES, NEWS_IMPACTS, formatMoney, newsImpactLabel, type Currency, type NewsImpact, type Preferences } from '../utils/preferences';
 import type { AlertMode } from '../types';
 import { PluginSheet } from './PluginSheet';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
@@ -415,6 +415,56 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
             <TradeCalculator accountSize={account ? Number(account) || null : p.accountSize} currency={p.currency} riskPct={risk} seed={calcSeed} />
           </Section>
         </div>
+
+        <Section
+          icon={Newspaper}
+          title="News alerts"
+          text="Every morning at 7:00 AM WAT, a notification and an email with the releases due in the next 24 hours, each with a short briefing and a button to analyze it."
+          ask={{ q: 'How do daily news alerts work, and which impact levels should I choose?', label: 'News alerts' }}
+        >
+          {(() => {
+            const na = p.newsAlerts || DEFAULT_PREFERENCES.newsAlerts;
+            const all = na.impacts.length === NEWS_IMPACTS.length;
+            const setImpacts = (impacts: NewsImpact[]) => impacts.length && save({ newsAlerts: { ...na, impacts } });
+            const toggle = (x: NewsImpact) => (all ? setImpacts([x]) : na.impacts.includes(x) ? na.impacts.length > 1 && setImpacts(na.impacts.filter(i => i !== x)) : setImpacts([...na.impacts, x]));
+            const tone: Record<NewsImpact, string> = { HIGH: 'bg-rose-400', MEDIUM: 'bg-amber-400', LOW: 'bg-slate-400' };
+            return (
+              <>
+                <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-black/20 border border-white/[0.06]">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-white">{na.enabled ? 'News alerts are on' : 'Daily news alerts'}</div>
+                    <div className="text-[11px] text-slate-500 leading-snug">{na.enabled ? `${newsImpactLabel(na.impacts)} · notification and email` : 'Off. Switch on to get the day’s releases each morning.'}</div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={na.enabled}
+                    aria-label="Daily news alerts"
+                    onClick={() => save({ newsAlerts: { ...na, enabled: !na.enabled } })}
+                    className={`h-7 w-12 rounded-full relative transition-colors cursor-pointer shrink-0 ${na.enabled ? 'bg-emerald-500/80' : 'bg-white/[0.12]'}`}
+                  >
+                    <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all ${na.enabled ? 'right-1' : 'left-1'}`} />
+                  </button>
+                </div>
+                <div className="mt-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">Which news</div>
+                <div className="grid grid-cols-4 gap-1 p-1 rounded-full bg-black/25 border border-white/[0.08]" role="group" aria-label="News impact">
+                  {NEWS_IMPACTS.map(x => (
+                    <button key={x} type="button" aria-pressed={!all && na.impacts.includes(x)} onClick={() => toggle(x)} className={`${seg(!all && na.impacts.includes(x))} inline-flex items-center justify-center gap-1.5`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${tone[x]}`} />
+                      {x.charAt(0) + x.slice(1).toLowerCase()}
+                    </button>
+                  ))}
+                  <button type="button" aria-pressed={all} onClick={() => setImpacts([...NEWS_IMPACTS])} className={seg(all)}>
+                    All
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+                  Tap one or more. High impact moves markets most; medium and low add more of the calendar. Nothing is sent on a day with no matching release.
+                </p>
+              </>
+            );
+          })()}
+        </Section>
 
         <Section icon={LayoutList} title="How results look" text="Only changes how a trade is shown to you, never the analysis itself.">
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Result view">

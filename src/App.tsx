@@ -187,6 +187,9 @@ export default function App() {
   const [alertFocus, setAlertFocus] = useState<string | null>(null);
   const [watchFocus, setWatchFocus] = useState<string | null>(null);
   const chatLinkRef = useRef<{ sessionId: string; messageId: string } | null>(null);
+  /** News alert links: "Analyze it" (?fundamental=<release>) puts the read in the input; ?news=1 opens Fundamental Analysis */
+  const newsLinkRef = useRef<{ topic?: string; open?: boolean } | null>(null);
+  const [composerSeed, setComposerSeed] = useState<{ text: string; at: number } | null>(null);
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertQuotes, setAlertQuotes] = useState<Record<string, AlertLiveQuote>>({});
@@ -340,7 +343,12 @@ export default function App() {
     if (params.get('pricing') === '1') setIsPricingModalOpen(true);
     // The Ask SI side of the Ask SI / Matt switch on the Matt page opens the chat, not the Markets tab
     if (params.get('ask') === '1') setCurrentView('chat');
-    if (params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
+    const newsTopic = (params.get('fundamental') || '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 200);
+    if (newsTopic) {
+      newsLinkRef.current = { topic: newsTopic };
+      setCurrentView('chat');
+    } else if (params.get('news') === '1') newsLinkRef.current = { open: true };
+    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1405,6 +1413,9 @@ export default function App() {
     if (notif.type === 'announcement') return setOpenAnnouncement(notif);
     if (notif.actionPrompt) {
       setCurrentView('chat');
+      // A news alert's "analyze it": the fundamental read (the command is switched on first when needed)
+      const topic = fundamentalTopic(notif.actionPrompt);
+      if (topic) return void checkFundamental(topic);
       return void handleSendMessage(notif.actionPrompt, '4H');
     }
     switch (notif.actionType) {
@@ -1609,6 +1620,20 @@ export default function App() {
       setTimeout(refreshNotifications, 1500);
     }
   };
+
+  // A news alert link, once signed in: Fundamental Analysis is switched on and "/fundamental-analysis <release>" waits in
+  // the input (sending it uses one credit, as any read); ?news=1 opens Fundamental Analysis
+  useEffect(() => {
+    const link = newsLinkRef.current;
+    if (!authUser || !link) return;
+    newsLinkRef.current = null;
+    if (link.topic) {
+      setCurrentView('chat');
+      setComposerSeed({ text: fundamentalPrompt(link.topic), at: Date.now() });
+      if (!fundamentalOn) setFundamentalMode(true).catch(() => {});
+    } else if (link.open) openToolPanel('fundamental');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
 
   // "Check fundamental" on an analysis card with today's news: switches the command on if needed, then reads it
   const checkFundamental = async (topic: string) => {
@@ -2857,6 +2882,7 @@ export default function App() {
                     onAnalyze={prompt => handleSendMessage(prompt)}
                   />
                   <ChatInput
+                    seedText={composerSeed}
                     onSendMessage={handleSendMessage}
                     onStopAnalysis={handleStopAnalysis}
                     onCommand={id =>

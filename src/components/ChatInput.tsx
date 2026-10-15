@@ -166,6 +166,8 @@ interface ChatInputProps {
   initialChartImage?: string | null;
   initialChartFileName?: string;
   onClearInitialChart?: () => void;
+  /** Text put in the input, ready to send (e.g. "/fundamental-analysis USD CPI" from a news alert); `at` makes each one new */
+  seedText?: { text: string; at: number } | null;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -195,6 +197,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   initialChartImage,
   initialChartFileName,
   onClearInitialChart,
+  seedText,
 }) => {
   const [input, setInput] = useState('');
   // Phones get the compact one-row composer, which needs a shorter placeholder
@@ -270,6 +273,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [chartNotice, setChartNotice] = useState<'pair' | 'unreadable' | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!seedText?.text) return;
+    setInput(seedText.text.slice(0, 1500));
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [seedText]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);

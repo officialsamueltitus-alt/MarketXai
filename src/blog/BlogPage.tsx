@@ -517,8 +517,9 @@ const SECTIONS: Section[] = [
               For means the most likely outcome favours the pair rising, Against means it weighs on the pair.
             </>,
             <>
-              <B>Recheck it later.</B> Tap <B>Recheck</B> on the result to read it again now. The card tells you whether the release is out (with the actual
-              figure against the forecast), whether the forecast changed, and whether the most likely outcome and each pair's For or Against still hold:
+              <B>Recheck it later.</B> Tap <B>Recheck</B> on the result to read it again with live data. The card tells you whether the release is out:
+              <B> Actual</B> then shows the published figure and whether it beat or missed the forecast (until then it says Pending), what is new since your
+              last read, whether the forecast changed, and whether the most likely outcome and each pair's For or Against still hold:
               <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses one analysis credit.
             </>,
             <>
@@ -551,6 +552,12 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
+        <Note title="News alerts" tone="emerald">
+          Switch on <B>News alerts</B> in Preference Mode and choose which news you want: <B>High</B>, <B>Medium</B>, <B>Low</B> impact, any mix,
+          or <B>All</B>. Every morning at 7:00 AM WAT you get a notification and an email with the releases due in the next 24 hours. Each one has a
+          short three-line briefing (what it is, what to watch against the forecast, the pairs it moves) and an <B>Analyze it</B> button that opens
+          MarketX with the fundamental read ready to send. Switch it on during the day and the rest of that day's releases come within minutes.
+        </Note>
         <Note title="Analysis mode: Normal or Confirmation" tone="emerald">
           <B>Normal</B> (the default) gives you a fresh, untouched zone ahead of price with a limit entry. <B>Confirmation</B> waits: MarketX
           still finds the zone, but only calls the trade once price reaches it and a lower timeframe shows it holding, such as a liquidity sweep or

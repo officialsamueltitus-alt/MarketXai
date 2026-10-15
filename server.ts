@@ -41,6 +41,7 @@ import { runUserStrategy, type UserStrategyResult } from './server/userStrategy'
 import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
 import { registerMattRoutes, useMattEngine } from './server/matt';
 import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundamental';
+import { startNewsAlerts } from './server/newsAlerts';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -2221,6 +2222,7 @@ registerFundamentalRoutes(app, generalApiRateLimiter, analysisRateLimiter, {
     return q && q.price > 0 && q.live !== false ? { symbol: asset.symbol, name: asset.name, price: q.price, change24h: q.change24h } : null;
   },
 });
+startNewsAlerts();
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);

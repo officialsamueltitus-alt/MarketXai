@@ -63,6 +63,8 @@ export interface FundamentalReport {
   question?: string;
   /** Set when this read came from "Recheck": how it compares with the earlier read */
   recheck?: FundamentalRecheck;
+  /** On a recheck: what changed since the earlier read, in a sentence or two ('' when nothing did) */
+  whatsNew?: string;
 }
 
 /** "Recheck" on a fundamental card: has the release come out, is the forecast the same, does the read still hold */
@@ -77,6 +79,8 @@ export interface FundamentalRecheck {
   checkedAt: number;
   /** When the earlier read was made */
   previousAt?: number | null;
+  /** Headlines published since the earlier read (source, title, time) */
+  news?: Array<{ source: string; title: string; at: number }>;
 }
 
 /** The parts of an earlier read a recheck compares against */
@@ -139,6 +143,8 @@ export function compareReads(prev: FundamentalPrevious | null, next: Fundamental
       lines.push(`Bias flipped: ${flips.slice(0, 4).map(p => `${p.symbol} ${label[before.get(p.symbol)!]} → ${label[p.bias]}`).join(', ')}`);
     } else if (!released && before.size && next.pairs.some(p => before.has(p.symbol))) lines.push('Pair biases unchanged');
   }
+  const update = String(next.whatsNew || '').trim();
+  if (update && !/^(no|nothing)( new| has)? (change|update|development)/i.test(update)) lines.unshift(`Update: ${update}`);
   const state: FundamentalRecheck['state'] = released ? 'RELEASED' : changed ? 'CHANGED' : 'STILL_VALID';
   if (state === 'STILL_VALID' && !released && headline === 'Not released yet') headline = 'Still valid: not released yet';
   return { state, headline, lines: lines.slice(0, 6), dueAt, checkedAt: now, previousAt: prev?.generatedAt ?? null };

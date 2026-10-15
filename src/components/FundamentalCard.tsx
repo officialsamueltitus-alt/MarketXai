@@ -125,6 +125,21 @@ const RecheckBanner: React.FC<{ rc: FundamentalRecheck }> = ({ rc }) => {
           ))}
         </ul>
       )}
+      {Array.isArray(rc.news) && rc.news.length > 0 && (
+        <div className="mt-2.5 pt-2 border-t border-white/[0.06]">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 inline-flex items-center gap-1">
+            <Newspaper className="w-3 h-3" /> New since your last read
+          </div>
+          <ul className="space-y-1">
+            {rc.news.slice(0, 3).map((n, i) => (
+              <li key={i} className="text-[11.5px] text-slate-300 leading-snug">
+                <span className="text-slate-500">{String(n.source || '')} · {clock(n.at)}: </span>
+                {String(n.title || '')}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {rc.previousAt ? <p className="text-[10.5px] text-slate-500 mt-2">Compared with your read from {clock(rc.previousAt)}.</p> : null}
     </section>
   );
@@ -186,8 +201,12 @@ export const FundamentalCard: React.FC<{
       `Pairs: ${r.pairs.map(p => `${p.symbol} ${BIAS_LABEL[p.bias]}`).join(', ')}.`,
     ].join('\n'),
   };
+  // Actual: the released figure once it is out; Pending until then ("Awaiting figure" once the release time has passed)
+  const releasedNow = !!r.data.actual;
+  const pendingText = r.status === 'GENERAL' && !r.releaseAt ? '' : r.releaseAt && r.releaseAt <= Date.now() ? 'Awaiting figure' : 'Pending';
+  const actualVs = releasedNow ? versus(r.data.actual, r.data.forecast) : null;
   const data: Array<[string, string | undefined]> = [
-    ['Actual', r.data.actual || (r.status === 'UPCOMING' ? 'Pending' : '')],
+    ['Actual', r.data.actual || pendingText],
     ['Forecast', r.data.forecast],
     ['Previous', r.data.previous],
   ];
@@ -256,12 +275,21 @@ export const FundamentalCard: React.FC<{
         {/* The numbers */}
         {data.some(([, v]) => v) && (
           <section className="grid grid-cols-3 gap-2">
-            {data.map(([k, v]) => (
-              <div key={k} className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2 min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-slate-500">{k}</div>
-                <div className={`text-[12px] sm:text-[13px] font-semibold tabular-nums leading-tight break-words ${v === 'Pending' ? 'text-amber-300' : 'text-white'}`}>{v || '—'}</div>
-              </div>
-            ))}
+            {data.map(([k, v]) => {
+              const isActual = k === 'Actual';
+              const out = isActual && releasedNow;
+              const fresh = out && r.recheck?.state === 'RELEASED';
+              return (
+                <div key={k} className={`rounded-xl border px-3 py-2 min-w-0 ${out ? 'border-sky-400/35 bg-sky-500/[0.08]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                    {k}
+                    {fresh && <span className="normal-case tracking-normal text-[9.5px] font-semibold text-sky-300">· just out</span>}
+                  </div>
+                  <div className={`text-[12px] sm:text-[13px] font-semibold tabular-nums leading-tight break-words ${isActual && !releasedNow && v ? 'text-amber-300' : 'text-white'}`}>{v || '—'}</div>
+                  {out && actualVs && <div className={`text-[10px] font-medium mt-0.5 ${actualVs.cls}`}>{actualVs.label === 'In line' ? 'In line with forecast' : `${actualVs.label} forecast`}</div>}
+                </div>
+              );
+            })}
           </section>
         )}
 
