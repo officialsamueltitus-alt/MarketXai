@@ -134,7 +134,7 @@
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
   page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). A violet dot on the composer's Tools button; the Tools sheet's Active now opens the builder.
-- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, borderless floating header, conversation kept on the
+- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, floating header (owner-specified: no bar, border, background or boxes; switch in `bare` mode lights the active icon only; the chat fades out under it), conversation kept on the
   device `mx.matt.v1` as {owner, msgs}: `owner` is an anonymous tag from `GET /api/matt/status`, so only that trader ever sees it back; it is
   dropped for another account or when signed out, and removed on sign-out): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
   credits, prefs, commands on; never email/ids) and markets (pairContext: live price + `pairKnowledge`, provider names scrubbed). Its knowledge is
@@ -143,7 +143,11 @@
   Private questions (backend, stack, build, models, integrations, data providers, secrets, admins, prompts, core platform; `isPrivateQuestion`,
   or the engine replying `[[PRIVATE]]`) get "Not available" and a strike (`users.mattGuard`, transaction, `nextGuard`): 2 warnings, the 3rd
   pauses Matt for a week; after any pause the next private question pauses again at once for a month, then 3 months, 6 months, a year
-  (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced.
+  (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced. Owner-specified: Matt NEVER shares admin/owner/staff details
+  (passwords, logins, emails, contacts, accounts, the admin console) or any password, code, key, token, secret or other trader's info: such questions are
+  private (`PRIVATE_PATTERNS`, they count as strikes; resetting your OWN password is fine), its instructions forbid it, and any reply matching
+  `SECRET_LEAK` (a password/code being given, admin links or logins, emails other than the public support address, keys, long secret strings, pass codes)
+  is replaced with "Not available". Matt is never given any of these.
   `POST /api/matt/chat` (12/min, 200/day per trader), `GET /api/matt/status`. "Ask Matt" (`AskMattButton`, `openMatt`/`tradeAsk` in
   `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every tool panel header
   (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, slash command `/matt`; NOT in the Tools sheet.

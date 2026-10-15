@@ -167,21 +167,22 @@ export default function MattPage() {
   }, []);
 
   return (
-    <div className="mx-backdrop h-[100dvh] flex flex-col text-slate-100 overflow-hidden">
+    <div className="mx-backdrop relative h-[100dvh] flex flex-col text-slate-100 overflow-hidden">
       {/* Top bar */}
-      <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center justify-between gap-2 bg-transparent pt-[env(safe-area-inset-top)]">
+      {/* Top row (owner-specified): no bar, border or background, the icons float on the page; the chat fades out under them */}
+      <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center justify-between gap-2 bg-transparent mt-[env(safe-area-inset-top)]">
         <ModeSwitch active="matt" bare />
         <div className="flex items-center gap-2 min-w-0">
           <MattMark className="w-7 h-7" />
           <span className="text-[15px] font-semibold text-white leading-none">Matt</span>
         </div>
-        <button type="button" onClick={newChat} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition cursor-pointer">
+        <button type="button" onClick={newChat} className="inline-flex items-center gap-1.5 h-9 px-1 text-sm text-slate-400 hover:text-white transition-colors cursor-pointer">
           <Plus className="w-4 h-4" /> <span className="hidden sm:inline">New chat</span>
         </button>
       </header>
 
       {/* Conversation */}
-      <div ref={feedRef} className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-6 pt-4 pb-8">
+      <div ref={feedRef} className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-6 pt-4 pb-8 [mask-image:linear-gradient(to_bottom,transparent_0,#000_28px)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0,#000_28px)]">
         <div className="max-w-3xl mx-auto space-y-5 sm:space-y-6">
           {topic && !empty && (
             <div className="flex justify-center">
