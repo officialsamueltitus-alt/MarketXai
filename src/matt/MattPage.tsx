@@ -134,9 +134,11 @@ export default function MattPage() {
           setSignedOut(true);
           forget();
         } else if (d && typeof d.owner === 'string') {
+          // Anything already sent while this check ran stays, after the kept conversation
           const kept = load(d.owner);
-          msgsRef.current = kept;
-          setMsgs(kept);
+          const merged = [...kept, ...msgsRef.current.filter(m => !kept.some(k => k.id === m.id))];
+          msgsRef.current = merged;
+          setMsgs(merged);
           setOwner(d.owner);
         }
         if (d?.pausedUntil) setPausedUntil(d.pausedUntil);

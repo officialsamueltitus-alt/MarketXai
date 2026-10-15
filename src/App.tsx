@@ -2603,6 +2603,7 @@ export default function App() {
 
       {/* Sidebar Navigation: History, Credits, Profile */}
       <Sidebar
+        onOpenAskSI={() => setCurrentView('chat')}
         sessions={sessions}
         savedAnalyses={savedAnalyses}
         currentSessionId={currentSessionId}

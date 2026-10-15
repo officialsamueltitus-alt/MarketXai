@@ -64,13 +64,19 @@ const PRIVATE_PATTERNS: RegExp[] = [
   /\b(webhooks?|smtp|mail server|vapid|proof wallet|(wallet|signing) (private|secret|seed)|payment (keys?|secret))\b/,
   /\b(how (is|was|are|were) (marketx|the site|this site|this app|the app|you|matt|si) (built|made|coded|developed|engineered|programmed|architected|hosted)|what (is|was) (marketx|this|the site|the app) built (with|on)|architecture|internals|internal (tools|details|docs|systems?)|confidential|proprietary (code|logic|algorithm)|core (platform|engine|logic|algorithm|code)(s)? (details|works|info))\b/,
   /\b(exact (formula|algorithm|thresholds?|weights?|scoring)|scoring formula|(algorithm|code) (behind|of) (marketx|the engine|si)|reverse[\s-]?engineer)\b/,
-  // Admins, owners and staff (owner-specified: never, ever): their passwords, logins, emails, contacts, accounts, the admin console
-  /\b(admins?|administrators?|admin ?(panel|console|dashboard|page|area|login|portal|account|access|url|link|route|path)|superusers?|moderators?|mods|staff|employees?|developers?|devs|owners?'?s?|founders?'?s?|ceo|marketx team)\b.{0,60}\b(pass ?words?|pass ?codes?|pass ?phrases?|pins?|otps?|credentials?|log ?ins?|sign ?in details|user ?names?|e-?mails?|e-?mail address(es)?|phones?|numbers?|contacts?|whats ?app|telegram|address(es)?|accounts?|keys?|tokens?|secrets?|cookies?|sessions?|access|codes?|details|info(rmation)?|identity|names?|list|who|url|link|page|route|path|location|where)\b/,
+  // Admins, owners and staff (owner-specified: never, ever): their passwords, logins, emails, contacts, accounts, the admin console.
+  // Kept narrow on purpose: a refusal is also a strike, so ordinary trading questions ("the owner of a small account", "pin bars for
+  // traders", "best tokens for traders", "can other traders see my trades") must never trip it.
+  /\b(admins?|administrators?|admin ?(panel|console|dashboard|page|area|login|portal|account|access|url|link|route|path)|superusers?|moderators?)\b.{0,60}\b(pass ?words?|pass ?codes?|pass ?phrases?|pins?|otps?|credentials?|log ?ins?|sign ?in details|user ?names?|e-?mails?|e-?mail address(es)?|phones?|numbers?|contacts?|whats ?app|telegram|address(es)?|accounts?|keys?|tokens?|secrets?|cookies?|sessions?|access|codes?|details|info(rmation)?|identity|names?|list|who|url|link|page|route|path|location|where)\b/,
+  /\b(the|marketx'?s?|site'?s?|your|its|the site'?s?|the app'?s?)\s+(owners?|founders?|ceo|developers?|devs|staff|employees?|team)'?s?\b.{0,40}\b(pass ?words?|pass ?codes?|pins?|otps?|credentials?|log ?ins?|e-?mails?|e-?mail address(es)?|phones?|phone numbers?|contacts?|whats ?app|telegram|home address|bank|wallet|keys?|secrets?)\b/,
   /(^|[\s"'(])\/admin\b/,
-  /\b(list|show|name|tell me|give me|who)\b.{0,25}\b(admins?|administrators?|moderators?|mods|staff)\b/,
-  /\b(pass ?words?|pass ?codes?|pins?|otps?|credentials?|log ?in details|sign ?in details|keys?|tokens?|secrets?|cookies?|session ids?)\b.{0,40}\b(of|for|to|from|belonging to|used by)\b.{0,30}\b(admins?|administrators?|the owner|owners?|staff|moderators?|the site|marketx|the server|the database|the console|the dashboard|another (user|trader|account)|other (users|traders|accounts)|someone|everyone|all (users|traders|accounts)|users|traders)\b/,
-  /\b(who (is|are) (the )?(admins?|administrators?|moderators?|staff)|\/admin\b|admin(istrator)? (password|login|email|console|panel)|default password|master password|root password|backdoor|bypass (the )?(login|password|pay ?wall|limits?|credits?)|unlimited (account|credits) (hack|trick|code|password)|(hack|crack|brute ?force|steal|leak|dump) .{0,30}(account|password|credits?|database|admin|site|marketx))\b/,
-  /\b(other|another|someone else'?s?|all) (users?|traders?|accounts?|members?)'?s? .{0,40}\b(e-?mails?|pass ?words?|phones?|numbers?|details|info(rmation)?|data|accounts?|credits?|balances?|trades?|history|ids?)\b/,
+  /\b(owners?|founders?|ceo|staff|employees?|developers?)'?s? (accounts? )?(e-?mails?|e-?mail address(es)?|phones?|phone numbers?|whats ?app|telegram|pass ?words?|credentials?|log ?ins?|home address)\b/,
+  /\b(api |access |secret |private )?(tokens?|keys?|secrets?) (used by|of|on|in|for|inside) (the )?(server|backend|database|admin|console|dashboard)\b/,
+  /\b(list|show|name|tell me|give me|who)\b.{0,25}\b(admins?|administrators?|moderators?)\b/,
+  /\b(pass ?words?|pass ?codes?|pass ?phrases?|credentials?|log ?in details|sign ?in details|session ids?)\b.{0,40}\b(of|for|to|from|belonging to|used by)\b.{0,30}\b(admins?|administrators?|the owner|owners?|staff|moderators?|the site|marketx|the server|the database|the console|the dashboard|another (user|trader|account)|other (users|traders|accounts)|someone|everyone|all (users|traders|accounts))\b/,
+  /\b(who (is|are) (the )?(admins?|administrators?|moderators?)|admin(istrator)? (password|login|email|console|panel)|default password|master password|root password|backdoor|bypass (the )?(login|password|pay ?wall|limits?|credits?)|unlimited (account|credits) (hack|trick|code|password)|(hack|crack|brute ?force|steal) (into |an? |the |someone'?s? |other |another )?(accounts?|passwords?|database|admin|site|marketx|users?|traders?)|dump (the |your |all )?(database|db|users|accounts|passwords))\b/,
+  /\b(other|another|someone else'?s?|all) (users?|traders?|accounts?|members?)'?s? (e-?mails?|e-?mail address(es)?|pass ?words?|phones?|phone numbers?|numbers?|personal (details|info(rmation)?|data)|balances?|credits?|ids?|log ?ins?|accounts? details)\b/,
+  /\b(e-?mails?|pass ?words?|phone numbers?|balances?|log ?ins?|personal (details|data)) of (another|other|someone|all) (users?|traders?|accounts?)\b/,
 ];
 /** A question about how MarketX is built or run, or any private/secret/core detail (never answered) */
 export function isPrivateQuestion(text: string): boolean {
@@ -91,9 +97,10 @@ export function scrubReply(text: string): string {
 }
 const LEAK = /\b(api[\s-]?key|secret key|private key|system prompt|environment variable|process\.env|firestore|firebase|node\.?js|typescript|express\.js|backend|server-side|database schema)\b/i;
 // Never shown in a reply (owner-specified): passwords/codes being given, admin details or links, emails, keys, tokens, long secret-looking strings
-const SECRET_LEAK = new RegExp(
+export const SECRET_LEAK = new RegExp(
   [
-    String.raw`\b(pass ?word|pass ?code|pin|otp|password hash)\b\s*(is|was|=|:)\s*\S`,
+    // a value actually being given (with a digit or symbol, 4+ characters), not "your pass code is emailed"
+    String.raw`\b(pass ?word|pass ?code|pin|otp|password hash)\b\s*(is|was|=|:)\s*["'\x60]?(?=[^\s"'\x60]*[\d!@#$%^&*])[^\s"'\x60]{4,}`,
     String.raw`\badmin(istrator)?'?s?\s+(password|pass ?code|login|log-in|e-?mail|username|credentials?|console|panel|dashboard|url|link)\b`,
     String.raw`(^|[\s(])\/admin\b`,
     String.raw`\b[\w.+-]+@[\w-]+(\.[\w-]+)+\b`,
@@ -101,7 +108,7 @@ const SECRET_LEAK = new RegExp(
     String.raw`\bAIza[\w-]{20,}`,
     String.raw`-----BEGIN [A-Z ]*(PRIVATE KEY|CERTIFICATE)`,
     String.raw`\b[A-Fa-f0-9]{32,}\b`,
-    String.raw`\b(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[A-Za-z])[A-Za-z0-9+/_-]{40,}\b`,
+    String.raw`\beyJ[\w-]{8,}\.[\w-]{8,}\.`,
     String.raw`\b(MX-[A-Z0-9]{3,}-[A-Z0-9-]+)\b`,
   ].join('|'),
   'i'

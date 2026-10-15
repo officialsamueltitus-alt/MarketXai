@@ -54,6 +54,8 @@ interface SidebarProps {
   onSelectSession: (id: string) => void;
   onSelectSignal?: (analysis: SavedAnalysis) => void;
   onNewSession: () => void;
+  /** Opens the Ask SI chat (the switch's Ask SI side) */
+  onOpenAskSI?: () => void;
   onDeleteSession: (id: string, e: React.MouseEvent) => void;
   onClearAllSessions: () => void;
   onDeleteSignal?: (id: string, e: React.MouseEvent) => void;
@@ -101,6 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSession,
   onSelectSignal,
   onNewSession,
+  onOpenAskSI,
   onDeleteSession,
   onClearAllSessions,
   onDeleteSignal,
@@ -199,7 +202,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <MarketXIcon size="md" />
             <MarketXText className="text-[17px]" />
             {/* Ask SI / Matt */}
-            <ModeSwitch active="si" className="ml-auto" onAskSI={() => window.innerWidth < 1024 && onCloseMobile()} />
+            <ModeSwitch active="si" className="ml-auto" onAskSI={() => {
+                onOpenAskSI?.();
+                if (window.innerWidth < 1024) onCloseMobile();
+              }} />
           </div>
           <div className="p-3 pt-2 flex items-center justify-between gap-2">
             <button
