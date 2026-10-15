@@ -167,7 +167,11 @@
   `recheckFundamental` in `App.tsx`): reads the same question again now (never the 10-min cache; the question rides on the read as `question`),
   and `compareReads` in `src/utils/fundamental.ts` sets `recheck` {state STILL_VALID / CHANGED / RELEASED, headline, lines, dueAt}: released or
   not (actual vs forecast), forecast changed, most likely outcome changed, pair biases flipped, against the earlier read the app sends back
-  (`readPrevious` keeps only short cleaned fields). The card updates in place with a banner; one credit, refunded on failure. The analysis engine and `/api/market/analyze` are untouched. One credit
+  (`readPrevious` keeps only short cleaned fields). The card updates in place with a banner; one credit, refunded on failure. Every read is kept (owner-specified):
+  the sidebar History has a Fundamentals tab (`fundamentalReads` in `Sidebar.tsx`, from the chats' `fundamental` messages, opens the read via
+  `openChatMessage`), and each read or recheck sends its own notification + email (`fundamentalAlert` in `server/account.ts`: release, most likely
+  with odds, effect, actual/forecast/previous, pairs for/against, confidence, recheck result; button = `/?chat=&msg=` of that read; `important`
+  = sent at once, never paced out, still only with activity emails on). The analysis engine and `/api/market/analyze` are untouched. One credit
   (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and

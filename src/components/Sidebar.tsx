@@ -11,6 +11,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { CreditsPanel } from './CreditsPanel';
 import { ProfileView } from './ProfileView';
 import { campaignCreditsLeft, isUnlimitedUser } from '../utils/creditManager';
+import { Landmark } from 'lucide-react';
 import {
   History,
   Coins,
@@ -53,6 +54,8 @@ interface SidebarProps {
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
   onSelectSignal?: (analysis: SavedAnalysis) => void;
+  /** Opens one reply in its chat (a fundamental read in the History's Fundamentals tab) */
+  onOpenMessage?: (sessionId: string, messageId: string) => void;
   onNewSession: () => void;
   /** Opens the Ask SI chat (the switch's Ask SI side) */
   onOpenAskSI?: () => void;
@@ -102,6 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentSessionId,
   onSelectSession,
   onSelectSignal,
+  onOpenMessage,
   onNewSession,
   onOpenAskSI,
   onDeleteSession,
@@ -138,7 +142,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenConnectors,
   onToast,
 }) => {
-  const [historySubTab, setHistorySubTab] = useState<'trades' | 'chats'>('trades');
+  const [historySubTab, setHistorySubTab] = useState<'trades' | 'fundamentals' | 'chats'>('trades');
+  // Every fundamental read in the chats (newest first): the History's Fundamentals tab
+  const fundamentalReads = React.useMemo(
+    () =>
+      sessions
+        .flatMap(sess =>
+          (sess.messages || [])
+            .filter(m => m.fundamental && typeof m.fundamental === 'object' && typeof m.fundamental.event === 'string')
+            .map(m => ({ sessionId: sess.id, messageId: m.id, r: m.fundamental!, at: Number(m.fundamental!.recheck?.checkedAt || m.fundamental!.generatedAt || m.timestamp) || 0 }))
+        )
+        .sort((a, b) => b.at - a.at),
+    [sessions]
+  );
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
@@ -310,24 +326,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   type="button"
                   onClick={() => setHistorySubTab('trades')}
-                  className={`flex-1 py-1 px-2 rounded-md font-medium transition-all ${
+                  className={`flex-1 py-1 px-1.5 rounded-md font-medium whitespace-nowrap transition-all ${
                     historySubTab === 'trades'
                       ? 'bg-white/[0.08] text-white shadow-xs'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Trade Results ({savedAnalyses.length})
+                  Trades ({savedAnalyses.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistorySubTab('fundamentals')}
+                  className={`flex-1 py-1 px-1.5 rounded-md font-medium whitespace-nowrap transition-all ${
+                    historySubTab === 'fundamentals'
+                      ? 'bg-white/[0.08] text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Fundamentals ({fundamentalReads.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setHistorySubTab('chats')}
-                  className={`flex-1 py-1 px-2 rounded-md font-medium transition-all ${
+                  className={`flex-1 py-1 px-1.5 rounded-md font-medium whitespace-nowrap transition-all ${
                     historySubTab === 'chats'
                       ? 'bg-white/[0.08] text-white shadow-xs'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Chat History ({sessions.length})
+                  Chats ({sessions.length})
                 </button>
               </div>
 
@@ -430,6 +457,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
 
               {/* Sub-View 2: Chat Sessions */}
+              {/* Sub-View 2: Fundamental Analysis reads */}
+              {historySubTab === 'fundamentals' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-1 pb-1">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Fundamental reads ({fundamentalReads.length})</span>
+                  </div>
+                  {fundamentalReads.length === 0 ? (
+                    <div className="text-center py-8 px-4 space-y-2">
+                      <div className="w-10 h-10 rounded-full bg-white/[0.03] border border-white/[0.08] flex items-center justify-center mx-auto text-slate-500">
+                        <Landmark className="w-5 h-5" />
+                      </div>
+                      <p className="text-xs text-slate-400 font-medium">No fundamental reads yet</p>
+                      <p className="text-[11px] text-slate-500">Type /fundamental-analysis and a topic, like CPI or NFP. Every read is kept here.</p>
+                    </div>
+                  ) : (
+                    fundamentalReads.map(({ sessionId, messageId, r, at }) => {
+                      const ml = r.mostLikely || ({} as any);
+                      const impact = ml.impact === 'BULLISH' ? 'text-emerald-300' : ml.impact === 'BEARISH' ? 'text-rose-300' : 'text-slate-300';
+                      const forN = (r.pairs || []).filter(p => p.bias === 'FOR').length;
+                      const againstN = (r.pairs || []).filter(p => p.bias === 'AGAINST').length;
+                      const rc = r.recheck?.state;
+                      return (
+                        <button
+                          key={`${sessionId}-${messageId}`}
+                          type="button"
+                          onClick={() => {
+                            if (onOpenMessage) onOpenMessage(sessionId, messageId);
+                            else onSelectSession(sessionId);
+                            if (window.innerWidth < 1024) onCloseMobile();
+                          }}
+                          className="w-full text-left p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] hover:border-sky-400/40 cursor-pointer transition-all space-y-1.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <Landmark className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                              <span className="text-xs font-semibold text-white truncate">{r.event}</span>
+                            </span>
+                            <span className="text-[9.5px] text-slate-500 shrink-0">{at ? new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-300 leading-snug line-clamp-2">
+                            <span className={`font-semibold ${impact}`}>{ml.probability ? `${ml.probability}% ` : ''}</span>
+                            {ml.outcome || ''}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            {r.currency && <span className="px-1.5 rounded bg-white/[0.06] text-slate-300">{r.currency}</span>}
+                            {r.pairs?.length ? (
+                              <span className="text-slate-400">
+                                <span className="text-emerald-300">{forN} for</span> · <span className="text-rose-300">{againstN} against</span>
+                              </span>
+                            ) : null}
+                            {rc && (
+                              <span className={`ml-auto px-1.5 rounded ${rc === 'CHANGED' ? 'bg-amber-500/15 text-amber-200' : rc === 'RELEASED' ? 'bg-sky-500/15 text-sky-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
+                                {rc === 'CHANGED' ? 'Changed' : rc === 'RELEASED' ? 'Released' : 'Still valid'}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
               {historySubTab === 'chats' && (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between px-1 pb-1">

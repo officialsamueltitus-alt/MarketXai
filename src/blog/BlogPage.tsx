@@ -521,6 +521,10 @@ const SECTIONS: Section[] = [
               figure against the forecast), whether the forecast changed, and whether the most likely outcome and each pair's For or Against still hold:
               <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses one analysis credit.
             </>,
+            <>
+              <B>Find it again.</B> Every read is kept under <B>Fundamentals</B> in the History section of the side menu, and you get an email with the
+              outcome, its odds, the forecast and the pairs for and against, plus a button that opens that exact read.
+            </>,
           ]}
         />
         <Note title="Good to know">

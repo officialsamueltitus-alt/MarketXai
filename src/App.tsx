@@ -1380,13 +1380,13 @@ export default function App() {
   );
 
   /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
-  const openChatMessage = (sessionId: string, messageId: string) => {
+  const openChatMessage = (sessionId: string, messageId: string, keepSidebar = false) => {
     const session = sessions.find(x => x.id === sessionId);
     if (!session) {
       setToastNotification({ message: 'That chat is no longer in your history.', type: 'info' });
       return false;
     }
-    setIsSidebarOpen(false);
+    if (!keepSidebar) setIsSidebarOpen(false);
     setCurrentSessionId(sessionId);
     setTargetSignalMessageId(session.messages.some(m => m.id === messageId) ? messageId : null);
     setCurrentView('chat');
@@ -2670,6 +2670,7 @@ export default function App() {
         savedAnalyses={savedAnalyses}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
+        onOpenMessage={(sid, mid) => openChatMessage(sid, mid, true)}
         onSelectSignal={handleSelectSignal}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
