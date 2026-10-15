@@ -757,7 +757,7 @@ const SECTIONS: Section[] = [
           ]}
         />
         <Note title="Ask Matt" tone="emerald">
-          <B>Matt</B> is MarketX's help assistant. Open it from the side menu (<B>Ask Matt</B>), type <B>/matt</B> in the input, or tap <B>Ask Matt</B> on a
+          <B>Matt</B> is MarketX's help assistant. Switch to it with the <B>Ask SI / Matt</B> switch at the top of the side menu, type <B>/matt</B> in the input, or tap <B>Ask Matt</B> on a
           trade card or in any panel to have that exact thing explained. Matt answers questions about MarketX features, tools and settings, your own account
           (plan, credits, what is switched on), events and promos, and the markets (what a pair is, what moves it, its sessions). Matt doesn't place trades or
           give financial advice; for a trade plan use Ask SI. Questions about how MarketX is built or run are private and get "Not available"; asking them

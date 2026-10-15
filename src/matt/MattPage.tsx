@@ -2,9 +2,10 @@
 // events and promos, and the markets. Private platform questions get "Not available" (and repeated ones pause Matt; decided
 // by the server). The conversation stays on this device only.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, BookOpen, Coins, Gift, Loader2, Lock, Plus, Sparkles, Square, UserRound } from 'lucide-react';
+import { ArrowUp, BookOpen, Coins, Gift, Loader2, Lock, Plus, Sparkles, Square, UserRound } from 'lucide-react';
 import { LazyMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
+import { ModeSwitch } from '../components/ModeSwitch';
 import { takeMattAsk } from '../utils/matt';
 import { applyTheme, readThemePref } from '../utils/theme';
 
@@ -146,9 +147,7 @@ export default function MattPage() {
     <div className="mx-backdrop h-[100dvh] flex flex-col text-slate-100 overflow-hidden">
       {/* Top bar */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center justify-between gap-2 border-b border-white/[0.06] pt-[env(safe-area-inset-top)]">
-        <a href="/" className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition">
-          <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">MarketX</span>
-        </a>
+        <ModeSwitch active="matt" />
         <div className="flex items-center gap-2 min-w-0">
           <MattMark className="w-7 h-7 text-xs shadow-[0_0_0_4px_rgba(139,92,246,0.15)]" />
           <div className="leading-tight min-w-0">

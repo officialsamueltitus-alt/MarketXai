@@ -144,8 +144,10 @@
   pauses Matt for a week; after any pause the next private question pauses again at once for a month, then 3 months, 6 months, a year
   (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced.
   `POST /api/matt/chat` (12/min, 200/day per trader), `GET /api/matt/status`. "Ask Matt" (`AskMattButton`, `openMatt`/`tradeAsk` in
-  `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every command panel header
-  (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, sidebar, slash command `/matt`.
+  `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every tool panel header
+  (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, slash command `/matt`; NOT in the Tools sheet.
+  Matt's mark is the MarketX logo everywhere (`MattMark`, owner-specified, no "M" disc). Ask SI / Matt switch (owner-specified, `ModeSwitch.tsx`:
+  a two-icon segmented control) sits in the sidebar's top row next to the logo and in the Matt page header (replacing the back link).
 - Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
   `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, a sky dot on the composer's Tools
   button, listed in the Tools sheet): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
@@ -383,7 +385,7 @@
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside
   each tool (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data. The Tools sheet lists "Active now" (modes that change
   answers: Fundamental Analysis, Strategy Builder, Confirmation, trade type; each opens its settings), In use, Available, and More tools
-  (Fundamental Analysis, Strategy Builder, Preference Mode, Ask Matt).
+  (Fundamental Analysis, Strategy Builder, Preference Mode).
 - Composer (owner-specified, sleek, `ChatInput.tsx`): the text has its own full-width line; ONE slim row under it: attach + Tools on the left,
   timeframe, stop mode and send on the right. No per-mode chips in the composer: the modes on show as small coloured dots on the Tools button
   (sky = Fundamental Analysis, violet = Strategy Builder, emerald = Confirmation, cyan/amber/fuchsia = Scalp/Day/Swing). The slash menu is headed "Tools".
