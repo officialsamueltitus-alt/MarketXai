@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LayoutGrid, X, SlidersHorizontal, ChevronRight, Landmark, Target, MessageCircleQuestion } from 'lucide-react';
-import { openMatt } from '../utils/matt';
+import { LayoutGrid, X, SlidersHorizontal, ChevronRight, Landmark, Target } from 'lucide-react';
 import type { PluginId, PluginStates } from '../types';
 import { PLUGINS } from '../utils/plugins';
 import { PluginRow } from './PluginRow';
@@ -130,20 +129,6 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
                     <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={() => openMatt()}
-                  className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] text-left cursor-pointer transition"
-                >
-                  <span className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-300">
-                    <MessageCircleQuestion className="w-4 h-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium text-white">Ask Matt <span className="ml-1 text-[11px] font-mono text-slate-500">/matt</span></span>
-                    <span className="block text-xs text-slate-500 truncate">How any tool works, your account, the markets</span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                </button>
               </div>
             </div>
           )}

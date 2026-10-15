@@ -1,10 +1,11 @@
 // Matt: MarketX's help assistant, on its own page (/matt), styled like Ask SI. Answers about MarketX, the trader's account,
 // events and promos, and the markets. Private platform questions get "Not available" (and repeated ones pause Matt; decided
-// by the server). The conversation stays on this device only.
+// by the server). The conversation stays on this device only, tagged with its trader (another account on the same device never sees it).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, BookOpen, Coins, Gift, Loader2, Lock, Plus, Sparkles, Square, UserRound } from 'lucide-react';
+import { ArrowUp, BookOpen, Coins, Gift, Loader2, Lock, Plus, Sparkles, Square, UserRound } from 'lucide-react';
 import { LazyMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
+import { ModeSwitch } from '../components/ModeSwitch';
 import { takeMattAsk } from '../utils/matt';
 import { applyTheme, readThemePref } from '../utils/theme';
 
@@ -17,20 +18,30 @@ interface Msg {
   private?: boolean;
   error?: boolean;
 }
-const STORE = 'mx.matt.v1';
+export const MATT_STORE = 'mx.matt.v1';
 const MAX_KEEP = 40;
 const newId = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-const load = (): Msg[] => {
+/** The kept conversation, only when it belongs to `owner` (the signed-in trader); anything else is dropped */
+const load = (owner: string): Msg[] => {
   try {
-    const v = JSON.parse(localStorage.getItem(STORE) || '[]');
-    return Array.isArray(v) ? v.filter(m => m && (m.role === 'user' || m.role === 'matt') && typeof m.text === 'string').slice(-MAX_KEEP) : [];
+    const v = JSON.parse(localStorage.getItem(MATT_STORE) || 'null');
+    if (!v || typeof v !== 'object' || Array.isArray(v) || v.owner !== owner || !Array.isArray(v.msgs)) {
+      localStorage.removeItem(MATT_STORE);
+      return [];
+    }
+    return v.msgs.filter((m: any) => m && (m.role === 'user' || m.role === 'matt') && typeof m.text === 'string').slice(-MAX_KEEP);
   } catch {
     return [];
   }
 };
-const save = (msgs: Msg[]) => {
+const save = (owner: string, msgs: Msg[]) => {
   try {
-    localStorage.setItem(STORE, JSON.stringify(msgs.slice(-MAX_KEEP)));
+    localStorage.setItem(MATT_STORE, JSON.stringify({ owner, msgs: msgs.slice(-MAX_KEEP) }));
+  } catch {}
+};
+const forget = () => {
+  try {
+    localStorage.removeItem(MATT_STORE);
   } catch {}
 };
 const dateText = (t: number) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
@@ -44,7 +55,9 @@ const SUGGESTIONS = [
 
 export default function MattPage() {
   useEffect(() => applyTheme(readThemePref()), []);
-  const [msgs, setMsgs] = useState<Msg[]>(load);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  /** Who this conversation belongs to (from the server); nothing is kept on the device until it is known */
+  const [owner, setOwner] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
@@ -57,7 +70,9 @@ export default function MattPage() {
   const msgsRef = useRef(msgs);
   msgsRef.current = msgs;
 
-  useEffect(() => save(msgs), [msgs]);
+  useEffect(() => {
+    if (owner) save(owner, msgs);
+  }, [owner, msgs]);
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' });
   }, [msgs, busy]);
@@ -108,22 +123,33 @@ export default function MattPage() {
     }
   }, [busy]);
 
-  // Arrived from an "Ask Matt" button: ask that question straight away; otherwise check whether Matt is paused
+  // Who is signed in (and whether Matt is paused) first: only that trader's kept conversation is restored. Then, when
+  // arriving from an "Ask Matt" button, that question is asked straight away.
   useEffect(() => {
     const ask = takeMattAsk();
-    if (ask) {
-      contextRef.current = ask.context;
-      setTopic(ask.label || null);
-      send(ask.q);
-    } else {
-      fetch('/api/matt/status', { credentials: 'include' })
-        .then(async r => {
-          if (r.status === 401) setSignedOut(true);
-          const d = await r.json().catch(() => null);
-          if (d?.pausedUntil) setPausedUntil(d.pausedUntil);
-        })
-        .catch(() => {});
-    }
+    fetch('/api/matt/status', { credentials: 'include' })
+      .then(async r => {
+        const d = await r.json().catch(() => null);
+        if (r.status === 401) {
+          setSignedOut(true);
+          forget();
+        } else if (d && typeof d.owner === 'string') {
+          // Anything already sent while this check ran stays, after the kept conversation
+          const kept = load(d.owner);
+          const merged = [...kept, ...msgsRef.current.filter(m => !kept.some(k => k.id === m.id))];
+          msgsRef.current = merged;
+          setMsgs(merged);
+          setOwner(d.owner);
+        }
+        if (d?.pausedUntil) setPausedUntil(d.pausedUntil);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!ask) return;
+        contextRef.current = ask.context;
+        setTopic(ask.label || null);
+        send(ask.q);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -143,26 +169,22 @@ export default function MattPage() {
   }, []);
 
   return (
-    <div className="mx-backdrop h-[100dvh] flex flex-col text-slate-100 overflow-hidden">
+    <div className="mx-backdrop relative h-[100dvh] flex flex-col text-slate-100 overflow-hidden">
       {/* Top bar */}
-      <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center justify-between gap-2 border-b border-white/[0.06] pt-[env(safe-area-inset-top)]">
-        <a href="/" className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition">
-          <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">MarketX</span>
-        </a>
+      {/* Top row (owner-specified): no bar, border or background, the icons float on the page; the chat fades out under them */}
+      <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center justify-between gap-2 bg-transparent mt-[env(safe-area-inset-top)]">
+        <ModeSwitch active="matt" bare />
         <div className="flex items-center gap-2 min-w-0">
-          <MattMark className="w-7 h-7 text-xs shadow-[0_0_0_4px_rgba(139,92,246,0.15)]" />
-          <div className="leading-tight min-w-0">
-            <div className="text-sm font-semibold text-white">Matt</div>
-            <div className="text-[11px] text-slate-500 truncate">MarketX help</div>
-          </div>
+          <MattMark className="w-7 h-7" />
+          <span className="text-[15px] font-semibold text-white leading-none">Matt</span>
         </div>
-        <button type="button" onClick={newChat} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition cursor-pointer">
+        <button type="button" onClick={newChat} className="inline-flex items-center gap-1.5 h-9 px-1 text-sm text-slate-400 hover:text-white transition-colors cursor-pointer">
           <Plus className="w-4 h-4" /> <span className="hidden sm:inline">New chat</span>
         </button>
       </header>
 
       {/* Conversation */}
-      <div ref={feedRef} className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-6 pt-4 pb-8">
+      <div ref={feedRef} className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-6 pt-4 pb-8 [mask-image:linear-gradient(to_bottom,transparent_0,#000_28px)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0,#000_28px)]">
         <div className="max-w-3xl mx-auto space-y-5 sm:space-y-6">
           {topic && !empty && (
             <div className="flex justify-center">

@@ -93,7 +93,12 @@ export function readQuestion(q: string): { event: string | null; cal: RegExp | n
 export function calendarMatches(q: string, events: CalendarEvent[] = getCalendar()): CalendarEvent[] {
   const { cal, currency } = readQuestion(q);
   if (!cal) return [];
-  return events.filter(e => e.impact === 'HIGH' && cal.test(e.title) && (!currency || e.country === currency)).sort((a, b) => a.at - b.at).slice(0, 6);
+  const now = Date.now();
+  const hits = events.filter(e => e.impact === 'HIGH' && cal.test(e.title) && (!currency || e.country === currency));
+  // The next release first (soonest), then ones already out this week (most recent first): the card's release time is the first
+  const ahead = hits.filter(e => e.at >= now - 15 * 60 * 1000).sort((a, b) => a.at - b.at);
+  const past = hits.filter(e => e.at < now - 15 * 60 * 1000).sort((a, b) => b.at - a.at);
+  return [...ahead, ...past].slice(0, 6);
 }
 
 // ---------------------------------------------------------------------------

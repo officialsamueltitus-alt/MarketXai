@@ -91,6 +91,6 @@ export const MATT_KNOWLEDGE: MattSection[] = [
  {
   "id": "matt",
   "title": "About Matt",
-  "text": "Matt is MarketX's help assistant. Matt explains how MarketX works (features, tools, settings), your own account (plan, credits, daily analyses, what is switched on), events and promos, the site guide, and markets: what a pair is, what moves it, its sessions and fundamentals. Matt does not place trades, run analyses or give personal financial advice; for a trade plan use Ask SI. Tap Ask Matt on a trade card or in any panel to ask about that exact thing."
+  "text": "Matt is MarketX's help assistant. Matt explains how MarketX works (features, tools, settings), your own account (plan, credits, daily analyses, what is switched on), events and promos, the site guide, and markets: what a pair is, what moves it, its sessions and fundamentals. Matt does not place trades, run analyses or give personal financial advice; for a trade plan use Ask SI. Switch between Ask SI and Matt with the two-icon switch at the top of the side menu (or type /matt). Tap Ask Matt on a trade card or in any panel to ask about that exact thing."
  }
 ];

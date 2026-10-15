@@ -598,6 +598,7 @@ Rationale: ${strategy.entryZone.rationale}
       {messages.map((message, index) => {
         const isUser = message.role === 'user';
         const strategy = message.strategy;
+        const hasFundamental = !!message.fundamental && typeof message.fundamental === 'object' && typeof message.fundamental.event === 'string';
         const isTargeted = highlightedId === message.id;
 
         return (
@@ -1142,10 +1143,10 @@ Rationale: ${strategy.entryZone.rationale}
                   )}
 
                   {/* Fundamental Analysis result */}
-                  {!strategy && message.fundamental && <FundamentalCard report={message.fundamental} markdown={message.content} />}
+                  {!strategy && hasFundamental && <FundamentalCard report={message.fundamental!} markdown={message.content} />}
 
-                  {/* Conversational text response if present without strategy card */}
-                  {!strategy && !message.fundamental && message.content && (
+                  {/* Conversational text response if present without strategy card (also a damaged fundamental read: its text) */}
+                  {!strategy && !hasFundamental && message.content && (
                     <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl ai-writeup-container border border-white/[0.12] text-slate-100 text-xs sm:text-sm leading-relaxed shadow-2xl space-y-3 break-words">
                       <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
                         <div className="flex items-center gap-2 text-indigo-300 font-semibold text-xs">

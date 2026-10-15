@@ -1,5 +1,4 @@
-import { MattMark } from './AskMattButton';
-import { openMatt } from '../utils/matt';
+import { ModeSwitch } from './ModeSwitch';
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme, ThemePref } from '../utils/theme';
 import { createPortal } from 'react-dom';
@@ -55,6 +54,8 @@ interface SidebarProps {
   onSelectSession: (id: string) => void;
   onSelectSignal?: (analysis: SavedAnalysis) => void;
   onNewSession: () => void;
+  /** Opens the Ask SI chat (the switch's Ask SI side) */
+  onOpenAskSI?: () => void;
   onDeleteSession: (id: string, e: React.MouseEvent) => void;
   onClearAllSessions: () => void;
   onDeleteSignal?: (id: string, e: React.MouseEvent) => void;
@@ -102,6 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSession,
   onSelectSignal,
   onNewSession,
+  onOpenAskSI,
   onDeleteSession,
   onClearAllSessions,
   onDeleteSignal,
@@ -199,6 +201,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="px-4 pt-4 pb-1 flex items-center gap-2.5 select-none">
             <MarketXIcon size="md" />
             <MarketXText className="text-[17px]" />
+            {/* Ask SI / Matt */}
+            <ModeSwitch active="si" className="ml-auto" onAskSI={() => {
+                onOpenAskSI?.();
+                if (window.innerWidth < 1024) onCloseMobile();
+              }} />
           </div>
           <div className="p-3 pt-2 flex items-center justify-between gap-2">
             <button
@@ -686,18 +693,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                     ))}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => openMatt()}
-                  className="w-full flex items-center gap-2 p-2.5 rounded-xl bg-violet-500/[0.07] hover:bg-violet-500/[0.14] border border-violet-400/25 hover:border-violet-400/45 text-left transition-colors cursor-pointer"
-                >
-                  <MattMark className="w-7 h-7 text-xs" />
-                  <span className="min-w-0">
-                    <span className="block text-xs font-semibold text-white">Ask Matt</span>
-                    <span className="block text-[10px] text-slate-400 truncate">Your MarketX help: features, account, markets</span>
-                  </span>
-                </button>
                 {onOpenSupport && (
                   <button
                     type="button"

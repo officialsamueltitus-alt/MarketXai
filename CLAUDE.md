@@ -134,18 +134,25 @@
   edit; scanned with the rules, no AI). Tag "Personal strategy" (owner-specified) everywhere: card tag "Personal strategy · name", write-up heading,
   journal (`journalTrades.userStrategy`), track record, seal `signalProofs.tag` PERSONAL_STRATEGY (`strategy.proof.tag`, `/api/proofs/:id`, proof
   page badge) and the readable Solana record (`revealMemo` → "MarketX signal result (personal strategy)"). A violet dot on the composer's Tools button; the Tools sheet's Active now opens the builder.
-- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, conversation kept on the device
-  `mx.matt.v1`): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
+- Matt (owner-specified, help assistant, `server/matt.ts`, page `/matt` = `src/matt/MattPage.tsx`, Ask SI look, floating header (owner-specified: no bar, border, background or boxes; switch in `bare` mode lights the active icon only; the chat fades out under it), conversation kept on the
+  device `mx.matt.v1` as {owner, msgs}: `owner` is an anonymous tag from `GET /api/matt/status`, so only that trader ever sees it back; it is
+  dropped for another account or when signed out, and removed on sign-out): answers ONLY MarketX features/commands/tools/guides, events/bonuses/promos, the trader's OWN account (`accountSummary`: plan,
   credits, prefs, commands on; never email/ids) and markets (pairContext: live price + `pairKnowledge`, provider names scrubbed). Its knowledge is
   public only (`server/mattKnowledge.ts`, generated from the public guide + events; never add internals). It uses the main engine connection
   (`useMattEngine(getGeminiClient)`, only called) with ONLY Matt's own instructions; offline it answers from the guide/account/pair briefing.
   Private questions (backend, stack, build, models, integrations, data providers, secrets, admins, prompts, core platform; `isPrivateQuestion`,
   or the engine replying `[[PRIVATE]]`) get "Not available" and a strike (`users.mattGuard`, transaction, `nextGuard`): 2 warnings, the 3rd
   pauses Matt for a week; after any pause the next private question pauses again at once for a month, then 3 months, 6 months, a year
-  (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced.
+  (`MATT_PAUSES_MS`); pauses lift on their own (403 `MATT_PAUSED`). Replies are scrubbed (`scrubReply`) and any leak of internals is replaced. Owner-specified: Matt NEVER shares admin/owner/staff details
+  (passwords, logins, emails, contacts, accounts, the admin console) or any password, code, key, token, secret or other trader's info: such questions are
+  private (`PRIVATE_PATTERNS`, they count as strikes; resetting your OWN password is fine), its instructions forbid it, and any reply matching
+  `SECRET_LEAK` (a password/code being given, admin links or logins, emails other than the public support address, keys, long secret strings, pass codes)
+  is replaced with "Not available". Matt is never given any of these.
   `POST /api/matt/chat` (12/min, 200/day per trader), `GET /api/matt/status`. "Ask Matt" (`AskMattButton`, `openMatt`/`tradeAsk` in
-  `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every command panel header
-  (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, sidebar, slash command `/matt`.
+  `src/utils/matt.ts`, question + context via sessionStorage): trade card (action row, thesis notes, proof line), every tool panel header
+  (`PluginSheet` `ask`), Preference sections, price alerts, token safety card, proof page, checker, slash command `/matt`; NOT in the Tools sheet.
+  Matt's mark is the MarketX logo everywhere (`MattMark`, owner-specified, no "M" disc). Ask SI / Matt switch (owner-specified, `ModeSwitch.tsx`:
+  a two-icon segmented control) sits in the sidebar's top row next to the logo and in the Matt page header (replacing the back link).
 - Fundamental Analysis (owner-specified, `/fundamental-analysis`, `server/fundamental.ts`, shared types `src/utils/fundamental.ts`, panel
   `FundamentalPanel.tsx` (on/off, topics, this week's high-impact releases), card `FundamentalCard.tsx`, a sky dot on the composer's Tools
   button, listed in the Tools sheet): a command the trader switches on (`users.fundamentalMode {enabled, at}`, `GET /api/fundamental`, `POST /api/fundamental/mode`).
@@ -383,7 +390,7 @@
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside
   each tool (`setAlertsEnabled`, `setWatchlistEnabled`). Turning one off keeps its data. The Tools sheet lists "Active now" (modes that change
   answers: Fundamental Analysis, Strategy Builder, Confirmation, trade type; each opens its settings), In use, Available, and More tools
-  (Fundamental Analysis, Strategy Builder, Preference Mode, Ask Matt).
+  (Fundamental Analysis, Strategy Builder, Preference Mode).
 - Composer (owner-specified, sleek, `ChatInput.tsx`): the text has its own full-width line; ONE slim row under it: attach + Tools on the left,
   timeframe, stop mode and send on the right. No per-mode chips in the composer: the modes on show as small coloured dots on the Tools button
   (sky = Fundamental Analysis, violet = Strategy Builder, emerald = Confirmation, cyan/amber/fuchsia = Scalp/Day/Swing). The slash menu is headed "Tools".

@@ -1,11 +1,10 @@
 import React from 'react';
 import { openMatt, type MattAsk } from '../utils/matt';
+import { MARKETX_LOGO_SRC } from './MarketXIcon';
 
-/** Matt's mark: a small violet-to-cyan disc with an M */
-export const MattMark: React.FC<{ className?: string }> = ({ className = 'w-4 h-4 text-[9px]' }) => (
-  <span aria-hidden="true" style={{ color: '#fff' }} className={`inline-flex items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 font-bold leading-none shrink-0 ${className}`}>
-    M
-  </span>
+/** Matt's mark (owner-specified): the MarketX logo, everywhere Matt appears */
+export const MattMark: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <img src={MARKETX_LOGO_SRC} alt="" aria-hidden="true" draggable={false} className={`rounded-full object-contain select-none shrink-0 ${className}`} />
 );
 
 /**

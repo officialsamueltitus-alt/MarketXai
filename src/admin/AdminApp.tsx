@@ -221,9 +221,9 @@ const SecuritySection: React.FC<{ session: { custom: boolean; updatedAt: number 
         </button>
         <div className="mt-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] p-3.5 text-xs text-slate-400 leading-relaxed space-y-1.5">
           <p className="text-slate-300 font-medium">How the console is protected</p>
-          <p>Passwords are stored only as salted scrypt hashes. Sessions last 4 hours, are HTTP-only and same-site, and lock after 30 idle minutes.</p>
-          <p>Five wrong passwords from one network lock sign-in for 15 minutes. Changing or resetting the password signs out every other admin session.</p>
-          <p>Locked out of a custom password? Ask the site owner to remove the saved custom admin password in the database; the default from the server settings then works again.</p>
+          <p>Passwords are never stored in readable form. Admin sessions are short, sign out after a period of inactivity, and can't be read by page scripts.</p>
+          <p>Repeated wrong passwords lock sign-in for a while. Changing or resetting the password signs out every other admin session.</p>
+          <p>Locked out of a custom password? Ask the site owner to reset it; the default password then works again.</p>
         </div>
       </Card>
 
