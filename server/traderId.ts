@@ -16,6 +16,7 @@ import { isUnlimitedEmail, requireAuth, type UserDoc } from './account';
 import { base58Encode, RENT_EXEMPT_EMPTY, walletBalance, type ProofWallet } from './solana';
 import { IS_LEAD_WORKER } from './workers';
 import { clientIp, createKeyedThrottle } from './security';
+import { safeAvatar } from './trust';
 
 const PKCS8_ED25519 = Buffer.from('302e020100300506032b657004220420', 'hex');
 const CONFIG = () => db().collection('adminConfig').doc('traderIds');
@@ -149,7 +150,7 @@ export async function publicProfile(id: string) {
   const uniq = records.sort((a, b) => b.closedAt - a.closedAt).filter(r => { const k = r.signalKey || r.id; if (seen.has(k)) return false; seen.add(k); return true; });
   const wins = uniq.filter(r => r.outcome === 'WIN').length;
   const losses = uniq.filter(r => r.outcome === 'LOSS').length;
-  const avatar = typeof u.avatarUrl === 'string' && /^(https:\/\/|data:image\/(png|jpe?g|webp);base64,)/.test(u.avatarUrl) ? u.avatarUrl : null;
+  const avatar = safeAvatar(u.avatarUrl);
   return {
     id,
     username: u.username,

@@ -2249,10 +2249,13 @@ startCryptoUniverse();
 if (IS_LEAD_WORKER) setInterval(() => sweepExpiredAnswers().catch(() => {}), 60 * 60 * 1000).unref();
 
 // Telegram channel: the site links to /go/telegram and the server redirects to the invite link, so the link itself is
-// never in the page or the client bundle (set TELEGRAM_INVITE_URL to change it; only t.me links are accepted)
+// never in the page, the client bundle or the code (set TELEGRAM_INVITE_URL; only t.me links are accepted). Without it the
+// buttons open MarketX on X instead, so no invite link is ever kept in the source.
 const TELEGRAM_INVITE_URL = (() => {
   const v = String(process.env.TELEGRAM_INVITE_URL || '').trim();
-  return /^https:\/\/t\.me\/[A-Za-z0-9_+\-/]{2,120}$/.test(v) ? v : 'https://t.me/+DnG70znoUHowYWQ0';
+  if (/^https:\/\/t\.me\/[A-Za-z0-9_+\-/]{2,120}$/.test(v)) return v;
+  console.warn('[MarketX] TELEGRAM_INVITE_URL is not set: Telegram buttons open MarketX on X instead');
+  return 'https://x.com/_MarketX';
 })();
 app.get('/go/telegram', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store');

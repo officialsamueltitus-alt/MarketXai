@@ -8,6 +8,7 @@
 // Never sent to traders, never given to Matt or any engine. Kept KEEP_DAYS (90) days, swept daily by the lead worker,
 // and removed with the trader's account. Writing never throws and never delays a reply.
 // ===========================================================================
+import { FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { IS_LEAD_WORKER } from './workers';
 import { dayKey } from './tracking';
@@ -34,19 +35,23 @@ async function usernameOf(uid: string): Promise<string | null> {
   return name;
 }
 
+// Atomic increments (no transaction), so many traders at once never collide on the day's counter document
 async function bump(kind: 'matt' | 'fundamental', outcome: string, uid: string) {
   const day = dayKey();
   const ref = db().collection('siDaily').doc(day);
-  await db().runTransaction(async tx => {
-    const snap = await tx.get(ref);
-    const d: any = snap.exists ? snap.data() : { day };
-    const counts = (d[kind] = d[kind] || {});
-    counts.total = (counts.total || 0) + 1;
-    counts[outcome] = (counts[outcome] || 0) + 1;
-    const people = (d[`${kind}Users`] = d[`${kind}Users`] || {});
-    people[uid] = (people[uid] || 0) + 1;
-    tx.set(ref, d);
-  });
+  const patch = {
+    day,
+    [`${kind}.total`]: FieldValue.increment(1),
+    [`${kind}.${outcome}`]: FieldValue.increment(1),
+    [`${kind}Users.${uid}`]: FieldValue.increment(1),
+  };
+  try {
+    await ref.update(patch);
+  } catch {
+    // First entry of the day: create the document, then count
+    await ref.set({ day }, { merge: true });
+    await ref.update(patch);
+  }
 }
 
 /** One Matt message (question + what Matt replied) */
