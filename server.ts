@@ -42,6 +42,7 @@ import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server
 import { registerMattRoutes, useMattEngine } from './server/matt';
 import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundamental';
 import { startNewsAlerts } from './server/newsAlerts';
+import { startSiLogSweep } from './server/siLogs';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -2204,6 +2205,7 @@ registerMattRoutes(app, generalApiRateLimiter, {
       ].join('\n'),
       fallback: pairBriefing(asset, question, details, news),
       live: live ? quote!.price : null,
+      symbol: asset.symbol,
     };
   },
 });
@@ -2223,6 +2225,8 @@ registerFundamentalRoutes(app, generalApiRateLimiter, analysisRateLimiter, {
   },
 });
 startNewsAlerts();
+// Matt + Fundamental Analysis history for the admin console: older than 90 days removed daily
+startSiLogSweep();
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);

@@ -699,6 +699,107 @@ export function registerAdminRoutes(app: Express) {
     });
   }));
 
+  // --- Matt and Fundamental Analysis: usage + history (server/siLogs.ts) ---
+  // GET /api/admin/si/matt | /api/admin/si/fundamental ?before=<ts>&user=<username>&outcome=<OUTCOME>&limit=<n>
+  // The first page (no `before`) also carries the 30-day stats.
+  const SI_OUTCOMES: Record<'matt' | 'fundamental', string[]> = {
+    matt: ['ANSWERED', 'OFFLINE', 'PRIVATE', 'PAUSED', 'REPLACED'],
+    fundamental: ['OK', 'NOT_FUNDAMENTAL', 'UNAVAILABLE', 'ERROR'],
+  };
+  app.get('/api/admin/si/:tool', requireAdmin, wrap(async (req, res) => {
+    const tool = req.params.tool === 'matt' ? 'matt' : req.params.tool === 'fundamental' ? 'fundamental' : null;
+    if (!tool) return res.status(404).json({ error: 'NOT_FOUND' });
+    const col = db().collection(tool === 'matt' ? 'mattLogs' : 'fundamentalLogs');
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 40));
+    const before = Number(req.query.before) || 0;
+    const outcome = SI_OUTCOMES[tool].includes(String(req.query.outcome || '')) ? String(req.query.outcome) : '';
+    const userQ = typeof req.query.user === 'string' ? req.query.user.trim().toLowerCase().replace(/^@/, '').slice(0, 40) : '';
+
+    // History page (newest first)
+    let rows: any[] = [];
+    if (userQ) {
+      const owner = await db().collection('users').where('usernameLower', '==', userQ).limit(1).get();
+      if (!owner.empty) {
+        const snap = await col.where('uid', '==', owner.docs[0].id).limit(1000).get();
+        rows = snap.docs.map(d => d.data());
+      }
+    } else {
+      let q = col.orderBy('ts', 'desc');
+      if (before) q = q.where('ts', '<', before);
+      rows = (await q.limit(outcome ? 400 : limit + 1).get()).docs.map(d => d.data());
+    }
+    rows = rows
+      .filter(r => (!before || r.ts < before) && (!outcome || r.outcome === outcome))
+      .sort((a, b) => b.ts - a.ts);
+    const page = rows.slice(0, limit);
+    const next = rows.length > limit ? page[page.length - 1]?.ts || null : null;
+    if (before) return res.json({ logs: page, next });
+
+    // Stats (30 days, from the daily counters)
+    const days = lastDays(30);
+    const snaps = await Promise.all(days.map(d => db().collection('siDaily').doc(d).get()));
+    const daily = snaps.map((s, i) => {
+      const d: any = s.exists ? s.data() : {};
+      return { day: days[i], counts: (d[tool] || {}) as Record<string, number>, users: (d[`${tool}Users`] || {}) as Record<string, number> };
+    });
+    const total = (rows2: typeof daily) => rows2.reduce((a, r) => a + (r.counts.total || 0), 0);
+    const outcomes: Record<string, number> = {};
+    const perUser: Record<string, number> = {};
+    for (const r of daily) {
+      for (const o of SI_OUTCOMES[tool]) outcomes[o] = (outcomes[o] || 0) + (r.counts[o] || 0);
+      for (const [uid, n] of Object.entries(r.users)) perUser[uid] = (perUser[uid] || 0) + n;
+    }
+    const top = Object.entries(perUser).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const topSnaps = await Promise.all(top.map(([uid]) => userRef(uid).get()));
+    const stats: any = {
+      today: total(daily.slice(-1)),
+      week: total(daily.slice(-7)),
+      month: total(daily),
+      usersMonth: Object.keys(perUser).length,
+      usersToday: Object.keys(daily[daily.length - 1].users).length,
+      outcomes,
+      series: daily.map(r => ({ day: r.day, total: r.counts.total || 0 })),
+      topUsers: top.map(([uid, n], i) => ({ uid, username: topSnaps[i].exists ? (topSnaps[i].data() as UserDoc).username : '(deleted)', count: n })),
+    };
+    // Extra detail from the most recent entries
+    const recent = userQ || outcome ? rows.slice(0, 400) : (await col.orderBy('ts', 'desc').limit(400).get()).docs.map(d => d.data());
+    if (tool === 'matt') {
+      const pairs: Record<string, number> = {};
+      for (const r of recent) if (r.pair) pairs[r.pair] = (pairs[r.pair] || 0) + 1;
+      stats.topPairs = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
+      stats.fromCards = recent.filter(r => r.fromCard).length;
+      stats.sample = recent.length;
+      const now = Date.now();
+      stats.guarded = (await allUsers())
+        .map(u => ({ uid: u.uid, username: u.username, g: (u as any).mattGuard || {} }))
+        .filter(x => (Number(x.g.until) || 0) > now || (Number(x.g.strikes) || 0) > 0 || (Number(x.g.level) || 0) > 0)
+        .map(x => ({ uid: x.uid, username: x.username, strikes: Number(x.g.strikes) || 0, level: Number(x.g.level) || 0, pausedUntil: (Number(x.g.until) || 0) > now ? Number(x.g.until) : null, lastAt: Number(x.g.lastAt) || null }))
+        .sort((a, b) => (b.pausedUntil || 0) - (a.pausedUntil || 0) || (b.lastAt || 0) - (a.lastAt || 0))
+        .slice(0, 50);
+    } else {
+      const events: Record<string, number> = {};
+      for (const r of recent) if (r.event) events[r.event] = (events[r.event] || 0) + 1;
+      stats.topEvents = Object.entries(events).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
+      const ok = recent.filter(r => r.outcome === 'OK');
+      stats.rechecks = recent.filter(r => r.kind === 'RECHECK').length;
+      stats.cached = ok.filter(r => r.cached).length;
+      stats.avgSeconds = ok.filter(r => !r.cached).length ? Math.round(ok.filter(r => !r.cached).reduce((a, r) => a + (r.ms || 0), 0) / ok.filter(r => !r.cached).length / 100) / 10 : null;
+      stats.sample = recent.length;
+    }
+    res.json({ stats, logs: page, next });
+  }));
+
+  // Lifts a trader's Matt pause and clears their strikes (owner's call)
+  app.post('/api/admin/si/matt/:uid/clear', requireAdmin, wrap(async (req, res) => {
+    const uid = String(req.params.uid || '');
+    if (!/^[\w-]{6,128}$/.test(uid)) return res.status(400).json({ error: 'INVALID' });
+    const snap = await userRef(uid).get();
+    if (!snap.exists) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such trader.' });
+    await userRef(uid).update({ mattGuard: { strikes: 0, level: 0, until: 0, lastAt: 0 } });
+    adminLog('matt_guard_cleared', { uid, username: (snap.data() as UserDoc).username });
+    res.json({ success: true });
+  }));
+
   // --- Subscriptions & revenue --------------------------------------------
   app.get('/api/admin/subscriptions', requireAdmin, wrap(async (req, res) => {
     const now = Date.now();

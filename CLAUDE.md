@@ -437,6 +437,12 @@
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
+  Matt + Fundamentals sections (owner-specified, `src/admin/SiTools.tsx`, `GET /api/admin/si/:tool` matt|fundamental, `?user=&outcome=&before=&limit=`):
+  `server/siLogs.ts` logs every Matt message (`mattLogs`: question, reply, outcome ANSWERED/OFFLINE/PRIVATE/PAUSED/REPLACED, pair, from an Ask
+  Matt button) and every fundamental read/recheck (`fundamentalLogs`: question, event, most likely, actual/forecast, pairs for/against, outcome
+  OK/NOT_FUNDAMENTAL/UNAVAILABLE/ERROR, recheck state, seconds, reused), with day counters in `siDaily`; 30-day stats, chart, outcomes, top traders,
+  top markets/releases, Matt strikes + pauses (`POST /api/admin/si/matt/:uid/clear` resets them), history with username/outcome filters and Load more.
+  Server-only, never shown to traders or given to any engine; kept 90 days (`sweepSiLogs`, lead worker daily), deleted with the account; noted in Privacy.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
 

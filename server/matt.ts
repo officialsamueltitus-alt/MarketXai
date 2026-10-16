@@ -21,6 +21,7 @@ import { db } from './firebase';
 import { createKeyedThrottle } from './security';
 import { MATT_KNOWLEDGE, type MattSection } from './mattKnowledge';
 import { fixPriceClaims } from './priceGuard';
+import { logMatt } from './siLogs';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
 import { rdmLabel, withDefaults } from '../src/utils/preferences';
 
@@ -213,7 +214,7 @@ async function accountSummary(res: Response): Promise<string> {
 
 export interface MattDeps {
   /** Live price, market details and background facts for a market named in the question (public facts only), or null */
-  pairContext: (question: string) => Promise<{ context: string; fallback: string; live?: number | null } | null>;
+  pairContext: (question: string) => Promise<{ context: string; fallback: string; live?: number | null; symbol?: string } | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +318,11 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     const { uid } = getUser(res);
     if (perMinute.hit(uid) || perDay.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'You are messaging Matt very fast. Please wait a moment.' });
     const g = readGuard((await userRef(uid).get()).data());
-    if (g.until > Date.now()) return res.status(403).json({ error: 'MATT_PAUSED', pausedUntil: g.until, message: pausedText(g.until) });
+    if (g.until > Date.now()) {
+      const asked = Array.isArray(req.body?.messages) ? req.body.messages[req.body.messages.length - 1]?.text : '';
+      logMatt(uid, { question: clean(asked, 600), reply: pausedText(g.until), outcome: 'PAUSED', pausedUntil: g.until });
+      return res.status(403).json({ error: 'MATT_PAUSED', pausedUntil: g.until, message: pausedText(g.until) });
+    }
 
     const history = (Array.isArray(req.body?.messages) ? req.body.messages : [])
       .slice(-10)
@@ -330,9 +335,14 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
 
     const refuse = async () => {
       const s = await recordStrike(uid);
-      if (s.paused) return res.json({ reply: pausedText(s.until), private: true, pausedUntil: s.until });
+      if (s.paused) {
+        logMatt(uid, { question, reply: pausedText(s.until), outcome: 'PRIVATE', fromCard: !!context, pausedUntil: s.until });
+        return res.json({ reply: pausedText(s.until), private: true, pausedUntil: s.until });
+      }
       const warn = s.warningsLeft <= 1 ? `\n\nOne more question like this and Matt pauses for your account for a week.` : '';
-      return res.json({ reply: `${NOT_AVAILABLE} I'm here for MarketX features, your account and the markets.${warn}`, private: true });
+      const reply = `${NOT_AVAILABLE} I'm here for MarketX features, your account and the markets.${warn}`;
+      logMatt(uid, { question, reply, outcome: 'PRIVATE', fromCard: !!context });
+      return res.json({ reply, private: true });
     };
     if (isPrivateQuestion(question)) return refuse();
 
@@ -357,7 +367,9 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     let reply = fixPriceClaims(scrubReply(raw ? raw : fallbackAnswer(question, account, pair, context)), pair?.live ?? null).slice(0, 6000);
     // (the public support address from the guide is the one contact Matt may share)
     const checked = reply.replace(/\bhelp\.marketx@gmail\.com\b/gi, 'support');
-    if (LEAK.test(reply) || SECRET_LEAK.test(checked)) reply = `${NOT_AVAILABLE} Ask me about MarketX features, your account or the markets.`;
+    const replaced = LEAK.test(reply) || SECRET_LEAK.test(checked);
+    if (replaced) reply = `${NOT_AVAILABLE} Ask me about MarketX features, your account or the markets.`;
+    logMatt(uid, { question, reply, outcome: replaced ? 'REPLACED' : raw ? 'ANSWERED' : 'OFFLINE', pair: pair?.symbol || null, fromCard: !!context });
     res.json({ reply, engine: !!raw });
   }));
 }
