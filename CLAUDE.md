@@ -414,7 +414,10 @@
   (e.g. Binance BTC/USDT) but not at the trader's broker (MT5 BTCUSD) is not recorded. Entry still fills on touching the zone.
   Win rule (owner-specified, everywhere: journal, track record, checker, Solana records): TP1 hit first = WIN, even if price later returns to the
   stop; scored at the furthest TP reached (`outcomeR`, R from the signal's own levels, stored as `trackRecord.r`, `totalR`/`avgR` in stats).
-  Only a stop hit before any TP is a LOSS (-1R). The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:
+  Only a stop hit before any TP is a LOSS (-1R). The trade card's Recheck (`recheckSetup` in `server/strategy.ts`, owner-requested fix) follows the
+  same rules: the stop and targets count only from the trade's start (a market entry's issue candle, a limit order's fill candle), never
+  from candles before the signal; stop + target in one candle = stop; nothing counts after the stop; TP1 first = TP reached (a win) even if
+  price returns to the stop later; the 24h-range stop check applies only while no TP was hit and the range lies inside the trade. The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
 - Pro gate (owner-specified, `server/proAccess.ts`): the four commands, Strategy mode and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
   (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
