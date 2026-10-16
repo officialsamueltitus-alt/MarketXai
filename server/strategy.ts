@@ -1315,7 +1315,6 @@ export function recheckSetup(
   let fillIdx = -1;
   series.forEach((c, i) => {
     if (zoneAt === undefined && against(c, proximal)) zoneAt = c.t;
-    if (stopAt === undefined && against(c, setup.stop)) stopAt = c.t;
     if (market) return;
     if (fillAt === undefined && against(c, entryEdge)) {
       fillAt = c.t;
@@ -1325,19 +1324,37 @@ export function recheckSetup(
     // Only after the signal: the impulse that created the zone naturally traded beyond TP1 before the pullback
     if (fillAt === undefined && runAwayAt === undefined && c.t >= setup.issuedAt && setup.targets[0] && withTrade(c, setup.targets[0])) runAwayAt = c.t;
   });
-  // Targets count after the fill (market orders fill when the signal was issued)
-  const fromIdx = market ? series.findIndex(c => c.t + tfMs > setup.issuedAt) : fillIdx >= 0 ? fillIdx + 1 : -1;
-  if (fromIdx >= 0) {
-    for (let i = fromIdx; i < series.length; i++) {
+  // The trade starts when it is entered: a market order on the candle the signal was issued in, a limit order on its
+  // fill candle. Only from there do the stop and targets count, in time order, like the price alerts, journal and
+  // track record: a stop and a target in the same candle count as the stop (the safe reading), nothing counts after
+  // the stop, and TP1 reached first is a win even if price comes back to the stop later.
+  const startIdx = market ? series.findIndex(c => c.t + tfMs > setup.issuedAt) : fillIdx;
+  let preStopAt: number | undefined; // a stop tap before the trade started (an unfilled limit order is then invalid)
+  for (let i = 0; i < (startIdx >= 0 ? startIdx : series.length); i++) {
+    if (against(series[i], setup.stop)) {
+      preStopAt = series[i].t;
+      break;
+    }
+  }
+  if (startIdx >= 0) {
+    for (let i = startIdx; i < series.length; i++) {
+      const c = series[i];
+      if (against(c, setup.stop)) {
+        stopAt = c.t;
+        break;
+      }
+      // (a limit order's targets count from the candle after its fill: inside the fill candle the order of moves is unknown)
+      if (!market && i === startIdx) continue;
       setup.targets.forEach((t, k) => {
-        if (tpAt[k] === undefined && withTrade(series[i], t)) tpAt[k] = series[i].t;
+        if (tpAt[k] === undefined && withTrade(c, t)) tpAt[k] = c.t;
       });
     }
   }
-  // The live 24h range can show a stop tap the candle feed has not printed yet
+  // The live 24h range can show a stop tap the candle feed has not printed yet (only once the whole range is inside the trade)
   const session = opts.session;
+  const startedAt = startIdx >= 0 ? series[startIdx].t : undefined;
   let sessionStop = false;
-  if (session && session.since >= setup.since && stopAt === undefined) {
+  if (session && startedAt !== undefined && session.since >= startedAt && stopAt === undefined && tpAt[0] === undefined) {
     const extreme = long ? session.low : session.high;
     if (long ? extreme <= setup.stop : extreme >= setup.stop) sessionStop = true;
   }
@@ -1386,9 +1403,18 @@ export function recheckSetup(
     label: 'Stop loss',
     low: setup.stop,
     high: setup.stop,
-    status: stopAt !== undefined || sessionStop ? 'HIT' : 'UNTOUCHED',
-    ...(stopAt !== undefined ? { at: stopAt } : {}),
-    note: stopAt !== undefined ? `Hit ${when(stopAt)}` : sessionStop ? 'Reached inside the last 24 hours' : 'Untouched',
+    status: stopAt !== undefined || sessionStop || (preStopAt !== undefined && startIdx < 0) ? 'HIT' : 'UNTOUCHED',
+    ...(stopAt !== undefined ? { at: stopAt } : preStopAt !== undefined && startIdx < 0 ? { at: preStopAt } : {}),
+    note:
+      stopAt !== undefined
+        ? tpAt[0] !== undefined
+          ? `Hit ${when(stopAt)}, after TP1 (the trade had already won)`
+          : `Hit ${when(stopAt)}`
+        : sessionStop
+          ? 'Reached inside the last 24 hours'
+          : preStopAt !== undefined && startIdx < 0
+            ? `Hit ${when(preStopAt)}, before the entry`
+            : 'Untouched',
   });
   setup.targets.forEach((t, k) =>
     levels.push({
@@ -1404,27 +1430,30 @@ export function recheckSetup(
 
   const base = { price, levels, candlesChecked: candles.length };
   const side = long ? 'buy' : 'sell';
-  // Verdicts, most serious first
-  if (stopAt !== undefined || sessionStop) {
-    const filled = market || fillAt !== undefined;
-    return {
-      ...base,
-      state: 'SL_HIT',
-      headline: filled ? 'Stopped out' : 'Stop level already hit, setup invalid',
-      details: `The stop loss ${f(setup.stop)} ${stopAt !== undefined ? `was hit ${when(stopAt)}` : 'was reached inside the last 24 hours'}. ${
-        filled ? 'The trade is closed at a loss.' : 'Do not place this order.'
-      } Wait for a new, untouched zone.`,
-    };
-  }
+  // Verdicts, in the order things happened: a target reached before any stop is a win (TP1 first = WIN)
   if (tpHits.length) {
     const last = tpHits[tpHits.length - 1];
+    const stoppedLater = stopAt !== undefined;
     return {
       ...base,
       state: 'TP_HIT',
       headline: `TP${last + 1} reached`,
-      details: `${tpHits.map(k => `TP${k + 1} ${f(setup.targets[k])}`).join(', ')} reached after the entry filled. The move has played out${
-        last + 1 < setup.targets.length ? '; if you are in the trade, keep the stop at entry for the remaining targets' : ''
+      details: `${tpHits.map(k => `TP${k + 1} ${f(setup.targets[k])}`).join(', ')} reached after the entry filled${
+        stoppedLater
+          ? `. Price came back to the stop ${f(setup.stop)} later (${when(stopAt!)}), but TP${last + 1} was reached first, so the trade counts as a win`
+          : `. The move has played out${last + 1 < setup.targets.length ? '; if you are in the trade, keep the stop at entry for the remaining targets' : ''}`
       }. A new entry here is late, wait for a fresh setup.`,
+    };
+  }
+  if (stopAt !== undefined || sessionStop || (preStopAt !== undefined && startIdx < 0)) {
+    const filled = startIdx >= 0;
+    return {
+      ...base,
+      state: 'SL_HIT',
+      headline: filled ? 'Stopped out' : 'Stop level already hit, setup invalid',
+      details: `The stop loss ${f(setup.stop)} ${stopAt !== undefined ? `was hit ${when(stopAt)}` : sessionStop ? 'was reached inside the last 24 hours' : `was hit ${when(preStopAt!)}, before the entry`}. ${
+        filled ? 'The trade is closed at a loss.' : 'Do not place this order.'
+      } Wait for a new, untouched zone.`,
     };
   }
   if (!market) {
