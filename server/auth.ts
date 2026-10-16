@@ -279,7 +279,7 @@ async function deleteOwnedRecords(uid: string) {
     Promise.allSettled(live.map(col => each(col, ref => ref.delete()))).catch(() => {});
   }, 90_000).unref();
   const tasks: Array<Promise<unknown>> = [
-    ...['pushSubs', 'journalTrades', 'userStrategies', 'alertOffers', 'traderIds', 'campaignSubmissions'].map(col =>
+    ...['pushSubs', 'journalTrades', 'userStrategies', 'alertOffers', 'traderIds', 'campaignSubmissions', 'mattLogs', 'fundamentalLogs'].map(col =>
       each(col, ref => ref.delete())
     ),
     ...['trackRecord', 'signalProofs'].map(col => each(col, ref => ref.update({ uid: null }))),

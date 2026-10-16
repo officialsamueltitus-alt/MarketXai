@@ -40,6 +40,18 @@ export function cleanDisplayName(raw: unknown): string {
     .trim();
 }
 
+/** A profile picture others may see: an uploaded image (png/jpeg/webp data) or a Google account photo, nothing else
+ *  (an address on any other site could log the IP of everyone who views the profile) */
+export function safeAvatar(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > 300_000) return null;
+  if (/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(raw)) return raw;
+  try {
+    const u = new URL(raw);
+    if (u.protocol === 'https:' && !u.port && !u.username && !u.password && /(^|\.)googleusercontent\.com$/i.test(u.hostname)) return u.toString();
+  } catch {}
+  return null;
+}
+
 export function impersonates(raw: string): boolean {
   const f = foldName(raw);
   if (!f) return false;

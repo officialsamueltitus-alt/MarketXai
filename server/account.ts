@@ -10,7 +10,7 @@ import { logActivity, recordUsage } from './tracking';
 import { clientIp, createKeyedThrottle, stripReservedKeys } from './security';
 import { IS_LEAD_WORKER } from './workers';
 import { withDefaults } from '../src/utils/preferences';
-import { cleanDisplayName, giftNoteProblem, impersonates, RESERVED_NAME_MESSAGE } from './trust';
+import { cleanDisplayName, giftNoteProblem, safeAvatar, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import type {
   UserProfile,
   CreditState,
@@ -637,7 +637,7 @@ export async function createUserIfMissing(user: AuthedUser, requestedUsername?: 
           username: candidate,
           usernameLower: candidate,
           displayName: (safeName || `${candidate} Trader`).trim().slice(0, 40),
-          avatarUrl: user.picture || null,
+          avatarUrl: safeAvatar(user.picture),
           joinedAt: now,
           subscription: { plan: 'free', active: false, startDate: now, expiresAt: 0, price: 0 },
           credits: {
@@ -976,7 +976,7 @@ export function registerAccountRoutes(app: Express, limiter: any) {
 
     if (!displayName) return res.status(400).json({ error: 'INVALID', message: 'Display name is required.' });
     if (username.length < 3) return res.status(400).json({ error: 'INVALID', message: 'Username must be at least 3 characters (letters, numbers, _).' });
-    if (avatarUrl && !/^(https:\/\/|data:image\/(png|jpe?g|webp);base64,)/.test(avatarUrl)) {
+    if (avatarUrl && !safeAvatar(avatarUrl)) {
       return res.status(400).json({ error: 'INVALID', message: 'Unsupported profile picture format.' });
     }
     if (avatarUrl && avatarUrl.length > 300_000) {

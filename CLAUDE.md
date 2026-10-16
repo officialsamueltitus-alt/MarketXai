@@ -233,7 +233,8 @@
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Parent company (owner-specified): SpiriTech Labs owns and built MarketX; credited as "Built by SpiriTech Labs" in the
   sidebar Settings (under Terms & Privacy), the guide, Terms, proof and checker footers, the email footer, the `index.html` JSON-LD (`#spiritech`
   parentOrganization / creator, meta author) and Matt's public knowledge. Telegram buttons link to `/go/telegram`, a
-  server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle.
+  server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle, and it is never written in the
+  code or `.env.example` (the repository is public); unset = the buttons open @_MarketX on X.
 - Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
   Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,
   the Solana proof link, the origin (Personal strategy name, Confirmed on the LTF, RDM pick) and @_MarketX, always within X's 280 limit
@@ -269,7 +270,9 @@
 - Anti-scam (`server/trust.ts`): usernames and display names that read as MarketX or its staff (admin, support, official, moderator,
   staff, help desk, refund, recovery…, look-alike spellings folded) are refused at sign-up and on rename (`RESERVED_NAME`), and an
   email-derived name like that becomes a neutral `trader…` name; unlimited staff accounts are exempt. Display names go through `cleanDisplayName` (text only;
-  hidden, zero-width and direction-flipping characters removed; one line, 40 chars) at sign-up, Google sign-up and rename. Gift notes refuse links, contacts,
+  hidden, zero-width and direction-flipping characters removed; one line, 40 chars) at sign-up, Google sign-up and rename. Profile
+  pictures go through `safeAvatar`: an uploaded png/jpeg/webp image or a Google account photo only (any other address could log viewers' IPs),
+  on save, at Google sign-up and in the public checker. Gift notes refuse links, contacts,
   socials, emails/handles, phone numbers and scam wording (`NOTE_REFUSED`), hidden control characters are stripped, and a sender can
   gift at most 10 times a day, 3 to the same trader (`GIFT_LIMIT`).
 - On-chain lookups are budgeted per worker (`DEX_SEARCH_PER_MIN` default 60, `GECKO_CALLS_PER_MIN` default 12).
@@ -437,6 +440,12 @@
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.
+  Matt + Fundamentals sections (owner-specified, `src/admin/SiTools.tsx`, `GET /api/admin/si/:tool` matt|fundamental, `?user=&outcome=&before=&limit=`):
+  `server/siLogs.ts` logs every Matt message (`mattLogs`: question, reply, outcome ANSWERED/OFFLINE/PRIVATE/PAUSED/REPLACED, pair, from an Ask
+  Matt button) and every fundamental read/recheck (`fundamentalLogs`: question, event, most likely, actual/forecast, pairs for/against, outcome
+  OK/NOT_FUNDAMENTAL/UNAVAILABLE/ERROR, recheck state, seconds, reused), with day counters in `siDaily`; 30-day stats, chart, outcomes, top traders,
+  top markets/releases, Matt strikes + pauses (`POST /api/admin/si/matt/:uid/clear` resets them), history with username/outcome filters and Load more.
+  Server-only, never shown to traders or given to any engine; kept 90 days (`sweepSiLogs`, lead worker daily), deleted with the account; noted in Privacy.
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
 

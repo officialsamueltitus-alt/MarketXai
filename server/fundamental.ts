@@ -20,6 +20,7 @@ import { scrubReply } from './matt';
 import { createKeyedThrottle } from './security';
 import { compareReads, fundamentalTopic } from '../src/utils/fundamental';
 import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalPrevious, FundamentalReport, FundamentalScenario, FundamentalStrength } from '../src/utils/fundamental';
+import { logFundamental, type FundamentalOutcome } from './siLogs';
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 /** One budget for the whole read, under the client's 110s limit */
@@ -631,8 +632,19 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
       research: { web: r.report.web, queries: [], sources: r.report.sources.map(domain => ({ domain })), data: ['Economic calendar', 'BBC, CNBC and MarketWatch news', 'Live prices'], cached: r.cached },
     });
 
+  // Admin history (server/siLogs.ts): every read and recheck, whatever its outcome
+  const track = (res: Response, kind: 'READ' | 'RECHECK', started: number, r: Read | null) => {
+    const outcome: FundamentalOutcome = !r ? 'ERROR' : !('status' in r) ? 'OK' : r.status === 422 ? 'NOT_FUNDAMENTAL' : 'UNAVAILABLE';
+    logFundamental(getUser(res).uid, { kind, question: res.locals.fundamentalPrompt, outcome, ms: Date.now() - started, cached: !!r && !('status' in r) && r.cached, report: r && !('status' in r) ? r.report : null });
+  };
+
   app.post('/api/fundamental/analyze', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (_req, res) => {
-    const r = await read(res.locals.fundamentalPrompt, false);
+    const started = Date.now();
+    const r = await read(res.locals.fundamentalPrompt, false).catch(err => {
+      track(res, 'READ', started, null);
+      throw err;
+    });
+    track(res, 'READ', started, r);
     if ('status' in r) return res.status(r.status).json(r.body);
     send(res, r);
   }));
@@ -642,14 +654,22 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
   // One analysis credit, refunded on any failure, like a normal read.
   app.post('/api/fundamental/recheck', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (req, res) => {
     const prev = readPrevious(req.body?.previous);
-    const r = await read(res.locals.fundamentalPrompt, true, prev);
-    if ('status' in r) return res.status(r.status).json(r.body);
+    const started = Date.now();
+    const r = await read(res.locals.fundamentalPrompt, true, prev).catch(err => {
+      track(res, 'RECHECK', started, null);
+      throw err;
+    });
+    if ('status' in r) {
+      track(res, 'RECHECK', started, r);
+      return res.status(r.status).json(r.body);
+    }
     r.report.recheck = compareReads(prev, r.report);
     // Headlines out since the earlier read
     if (prev?.generatedAt) {
       const since = relevantHeadlines(res.locals.fundamentalPrompt).filter(h => h.publishedAt > prev.generatedAt!).slice(0, 3);
       if (since.length) r.report.recheck.news = since.map(h => ({ source: h.source, title: txt(h.title, 160), at: h.publishedAt }));
     }
+    track(res, 'RECHECK', started, r);
     send(res, r);
   }));
 }

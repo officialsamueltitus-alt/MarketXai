@@ -16,6 +16,8 @@ import {
   RefreshCw,
   MessageCircle,
   Gift,
+  Bot,
+  Landmark,
 } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -27,14 +29,17 @@ import { SubscriptionsSection } from './Subscriptions';
 import { CampaignSection } from './Campaign';
 import { BroadcastSection } from './Broadcast';
 import { SupportSection } from './Support';
+import { FundamentalAdminSection, MattAdminSection } from './SiTools';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'usage' | 'subscriptions' | 'campaign' | 'support' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'usage' | 'matt' | 'fundamental' | 'subscriptions' | 'campaign' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'usage', label: 'Usage', icon: BarChart3 },
+  { id: 'matt', label: 'Matt', icon: Bot },
+  { id: 'fundamental', label: 'Fundamentals', icon: Landmark },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'campaign', label: 'Campaign', icon: Gift },
   { id: 'support', label: 'Support', icon: MessageCircle },
@@ -431,6 +436,8 @@ export default function AdminApp() {
               />
             )}
             {section === 'usage' && <UsageSection />}
+            {section === 'matt' && <MattAdminSection />}
+            {section === 'fundamental' && <FundamentalAdminSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}
             {section === 'campaign' && <CampaignSection />}
             {section === 'support' && <SupportSection />}
