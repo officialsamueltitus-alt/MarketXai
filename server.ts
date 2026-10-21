@@ -2281,6 +2281,16 @@ app.get('/go/youtube', (_req: Request, res: Response) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.redirect(302, YOUTUBE_CHANNEL_URL);
 });
+// X profile: a short shareable link (marketx.world/go/x) to MarketX on X (X_PROFILE_URL can change it; only x.com / twitter.com links)
+const X_PROFILE_URL = (() => {
+  const v = String(process.env.X_PROFILE_URL || '').trim();
+  return /^https:\/\/(www\.)?(x|twitter)\.com\/[A-Za-z0-9_]{1,15}\/?$/.test(v) ? v : 'https://x.com/_MarketX';
+})();
+app.get('/go/x', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.redirect(302, X_PROFILE_URL);
+});
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 

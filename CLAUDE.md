@@ -238,6 +238,8 @@
   YouTube (owner-specified): the channel is linked everywhere through `/go/youtube` (`MARKETX_YOUTUBE_URL`), a server redirect to
   `YOUTUBE_CHANNEL_URL` (youtube.com only, default the @marketx-si channel), so the address never ships in the page or emails; `YouTubeIcon`
   in `SocialIcons.tsx`; buttons next to Telegram in the sidebar, the Markets support desk ("Watch on YouTube"), Terms footer, emails.
+  X short link (owner-requested): `/go/x` redirects to `X_PROFILE_URL` (x.com / twitter.com only, default https://x.com/_MarketX), for sharing
+  marketx.world/go/x; the site's own X buttons keep linking to `MARKETX_X_URL` directly.
 - Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
   Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,
   the Solana proof link, the origin (Personal strategy name, Confirmed on the LTF, RDM pick) and @_MarketX, always within X's 280 limit
