@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileText, Lock, AlertTriangle, X, Mail, MessageCircle } from 'lucide-react';
-import { TelegramIcon } from './SocialIcons';
-import { MARKETX_TELEGRAM_URL } from '../utils/campaign';
+import { TelegramIcon, YouTubeIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL, MARKETX_YOUTUBE_URL } from '../utils/campaign';
 
 type Tab = 'terms' | 'privacy' | 'risk';
 
@@ -60,6 +60,10 @@ const DOCS: Record<Tab, Doc> = {
       {
         title: 'How it is stored',
         body: 'Account data is stored on secure cloud servers and is only accessed through the MarketX server, never directly from your browser. All traffic is encrypted with TLS. Passwords are stored as one-way hashes.',
+      },
+      {
+        title: 'Voice input',
+        body: 'When you use the mic, your words are written down on your device by your browser, or, where the browser cannot do it, a short recording is sent once to MarketX to be written down. Recordings are never stored or kept; only the words you send are used, exactly like a typed message. Your browser asks your permission before the mic is used, and you can turn it off at any time in its settings.',
       },
       {
         title: 'Cookies',
@@ -220,6 +224,9 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({ isOp
             </a>
             <a href={MARKETX_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
               <TelegramIcon className="w-3.5 h-3.5" /> Telegram
+            </a>
+            <a href={MARKETX_YOUTUBE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              <YouTubeIcon className="w-3.5 h-3.5" /> YouTube
             </a>
           </span>
         </footer>

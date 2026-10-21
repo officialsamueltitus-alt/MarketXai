@@ -267,6 +267,12 @@ const SECTIONS: Section[] = [
           <B>Analyze</B> for a trade plan, or <B>Info</B> for the pair's details. Asking is free; a credit is only used once you pick one. Add a timeframe or
           a word like buy, sell, setup or outlook (gold 4H, sell BTC) to go straight to the analysis.
         </Note>
+        <Note title="Just say it" tone="emerald">
+          Tap the <B>mic</B> in the input box (or in the Ask box on <B>Markets</B>) and speak: <em>Analyze gold on the 4 hour</em>, <em>Is WIF safe?</em> or{' '}
+          <em>Fundamental analysis CPI</em>. Your words appear as you talk, and the moment you stop, MarketX sends them like a typed message. Say{' '}
+          <em>Open my watchlist</em> (or price alerts, trade journal, track record, Strategy Builder, Preference Mode) to open a tool. Tap the glowing button to
+          send early, or the X to cancel. Voice is free; an analysis still uses one credit as usual. Your browser asks once for microphone access.
+        </Note>
         <Note title="Watch it work">
           After you send, the process report shows each step as it happens: <B>Starting…</B>, <B>Waking up MarketX engine</B>, <B>Looking at prompt</B> (the analysis begins once these three are done; Stop works at any time),
           then reading your request, <B>Finding tools</B>, then <B>Using tools</B>, checking the
@@ -717,7 +723,7 @@ const SECTIONS: Section[] = [
             your balance and arrive in theirs straight away. You cannot gift to yourself.
           </>,
           <>
-            <B>Follow us.</B> Updates and new features are posted on X at @_MarketX and in the MarketX Telegram community (the Telegram button in the sidebar and on the Direct institutional desk).
+            <B>Follow us.</B> Updates and new features are posted on X at @_MarketX, in the MarketX Telegram community and on the MarketX YouTube channel (the Telegram and YouTube buttons in the sidebar and on the Direct institutional desk).
           </>,
         ]}
       />
