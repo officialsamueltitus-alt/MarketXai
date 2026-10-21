@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileText, Lock, AlertTriangle, X, Mail, MessageCircle } from 'lucide-react';
-import { TelegramIcon } from './SocialIcons';
-import { MARKETX_TELEGRAM_URL } from '../utils/campaign';
+import { TelegramIcon, YouTubeIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL, MARKETX_YOUTUBE_URL } from '../utils/campaign';
 
 type Tab = 'terms' | 'privacy' | 'risk';
 
@@ -224,6 +224,9 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({ isOp
             </a>
             <a href={MARKETX_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
               <TelegramIcon className="w-3.5 h-3.5" /> Telegram
+            </a>
+            <a href={MARKETX_YOUTUBE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
+              <YouTubeIcon className="w-3.5 h-3.5" /> YouTube
             </a>
           </span>
         </footer>

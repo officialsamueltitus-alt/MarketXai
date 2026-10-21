@@ -2270,6 +2270,17 @@ app.get('/go/telegram', (_req: Request, res: Response) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.redirect(302, TELEGRAM_INVITE_URL);
 });
+// YouTube channel (owner-specified): the site and emails link to /go/youtube and the server sends people to the channel, so the
+// channel address lives only here (YOUTUBE_CHANNEL_URL can change it; only youtube.com links are accepted)
+const YOUTUBE_CHANNEL_URL = (() => {
+  const v = String(process.env.YOUTUBE_CHANNEL_URL || '').trim();
+  return /^https:\/\/(www\.)?youtube\.com\/[A-Za-z0-9_@.\-/]{2,120}$/.test(v) ? v : 'https://www.youtube.com/@marketx-si';
+})();
+app.get('/go/youtube', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.redirect(302, YOUTUBE_CHANNEL_URL);
+});
 // Support chat: users write from Settings, admins answer from the console
 registerSupportRoutes(app, generalApiRateLimiter);
 

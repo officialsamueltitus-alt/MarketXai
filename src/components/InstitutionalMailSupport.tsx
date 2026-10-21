@@ -1,7 +1,7 @@
 import React from 'react';
 import { Mail, ArrowUpRight, Headphones, LineChart, CreditCard, Plug, Clock, MessageCircle, BookOpen, ArrowRight } from 'lucide-react';
-import { TelegramIcon } from './SocialIcons';
-import { MARKETX_TELEGRAM_URL } from '../utils/campaign';
+import { TelegramIcon, YouTubeIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL, MARKETX_YOUTUBE_URL } from '../utils/campaign';
 
 interface InstitutionalMailSupportProps {
   className?: string;
@@ -101,6 +101,15 @@ export const InstitutionalMailSupport: React.FC<InstitutionalMailSupportProps> =
           >
             <TelegramIcon className="w-[18px] h-[18px]" />
             Join our Telegram
+          </a>
+          <a
+            href={MARKETX_YOUTUBE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="h-12 px-5 rounded-2xl border border-[#FF0033]/30 bg-[#FF0033]/[0.07] text-slate-100 text-sm font-medium hover:bg-[#FF0033]/[0.13] hover:border-[#FF0033]/50 transition inline-flex items-center justify-center gap-2"
+          >
+            <YouTubeIcon className="w-[18px] h-[18px]" />
+            Watch on YouTube
           </a>
         </div>
       </div>

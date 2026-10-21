@@ -5,6 +5,8 @@ export const MARKETX_X_HANDLE = '@_MarketX';
 export const MARKETX_X_URL = 'https://x.com/_MarketX';
 /** Opens the MarketX Telegram channel (the server redirects to the invite link, which never ships in the page) */
 export const MARKETX_TELEGRAM_URL = '/go/telegram';
+/** Opens the MarketX YouTube channel (a server redirect; the channel address lives on the server) */
+export const MARKETX_YOUTUBE_URL = '/go/youtube';
 
 export type CampaignStepId = 'follow' | 'engage' | 'download' | 'post' | 'reward';
 

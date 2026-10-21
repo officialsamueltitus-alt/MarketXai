@@ -235,6 +235,9 @@
   parentOrganization / creator, meta author) and Matt's public knowledge. Telegram buttons link to `/go/telegram`, a
   server redirect to `TELEGRAM_INVITE_URL` (t.me only), so the invite link never ships in the page or bundle, and it is never written in the
   code or `.env.example` (the repository is public); unset = the buttons open @_MarketX on X.
+  YouTube (owner-specified): the channel is linked everywhere through `/go/youtube` (`MARKETX_YOUTUBE_URL`), a server redirect to
+  `YOUTUBE_CHANNEL_URL` (youtube.com only, default the @marketx-si channel), so the address never ships in the page or emails; `YouTubeIcon`
+  in `SocialIcons.tsx`; buttons next to Telegram in the sidebar, the Markets support desk ("Watch on YouTube"), Terms footer, emails.
 - Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
   Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,
   the Solana proof link, the origin (Personal strategy name, Confirmed on the LTF, RDM pick) and @_MarketX, always within X's 280 limit
@@ -473,8 +476,10 @@
   "Try again" button (`onRetry` in `ChatFeed.tsx`, `retryMessage`) removes the failed attempt and its prompt and runs it again in the same chat.
 - Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
-- Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, white card with a violet to cyan
-  top bar, dark readable text, violet button, footer with marketx.world, @_MarketX and Support; tables with `bgcolor` and
+- Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, NO logo header
+  above the card (owner-specified, removed), white card with a violet to cyan top bar, dark readable text, violet button, footer with a row of round icon buttons
+  (`SOCIALS`: X → x.com/_MarketX, Telegram → `/go/telegram`, YouTube → `/go/youtube`; PNGs `public/brand/social/{x,telegram,youtube}-72.png?v=1`, shown 32px)
+  then marketx.world · Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
   hard-coded; or a custom scrypt hash in `adminConfig/auth`; with neither, admin sign-in is disabled), its own short-lived HMAC cookie scoped to `/api/admin`, brute-force lockout.

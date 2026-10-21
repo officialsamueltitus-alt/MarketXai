@@ -61,6 +61,13 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   if (!t || !to) return false;
   const from = process.env.SMTP_FROM || `MarketX <${process.env.SMTP_USER}>`;
   const siteUrl = (process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '');
+  // Footer icon buttons (owner-specified): X, the Telegram community and the YouTube channel. Telegram and YouTube go through the
+  // site's own redirects, so their links live only on the server.
+  const SOCIALS: [string, string, string][] = [
+    ['X', 'https://x.com/_MarketX', 'x'],
+    ['Telegram', `${siteUrl}/go/telegram`, 'telegram'],
+    ['YouTube', `${siteUrl}/go/youtube`, 'youtube'],
+  ];
   const ctaIn = options.cta || { label: 'Open MarketX', url: siteUrl };
   // The button only ever opens a secure web address (anything else falls back to the site)
   const cta = { label: ctaIn.label, url: /^https:\/\/[^\s"'<>]+$/i.test(String(ctaIn.url || '')) || String(ctaIn.url || '').startsWith(siteUrl) ? ctaIn.url : siteUrl };
@@ -108,11 +115,6 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
   <body bgcolor="${PAGE}" style="margin:0;padding:0;background-color:${PAGE}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAGE}" style="width:100%;background-color:${PAGE}"><tr><td align="center" style="padding:32px 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%"><tr><td align="left">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 4px 18px"><tr>
-        <td style="vertical-align:middle"><img src="${escapeHtml(siteUrl)}/brand/marketx-logo-64.png?v=3" width="34" height="34" alt="" style="display:block;border:0"></td>
-        <td style="vertical-align:middle;padding-left:10px;color:${INK};font-size:19px;font-weight:800;letter-spacing:-.3px">Market<span style="color:${VIOLET}">X</span></td>
-        <td style="vertical-align:middle;padding-left:8px"><span style="display:inline-block;padding:3px 8px;border-radius:999px;background:#f1edff;color:#6d28d9;font-size:11px;font-weight:700;letter-spacing:.6px">SI</span></td>
-      </tr></table>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${CARD}" style="width:100%;background-color:${CARD};border:1px solid ${LINE};border-radius:20px;border-collapse:separate;overflow:hidden;box-shadow:0 8px 30px rgba(20,20,40,.06)">
         <tr><td height="5" style="height:5px;line-height:5px;font-size:0;background-color:${VIOLET};background-image:linear-gradient(90deg,#7c3aed,#6366f1 50%,#06b6d4)">&nbsp;</td></tr>
         <tr><td style="padding:30px 28px 28px">
@@ -146,10 +148,14 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%"><tr><td align="center" style="padding:22px 10px 0">
         <p style="margin:0 0 4px;font-size:13px;color:${BODY};font-weight:600">MarketX SI &middot; Super Intelligence for traders</p>
         <p style="margin:0 0 10px;font-size:11px;color:#a1a1aa">Built by SpiriTech Labs</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 12px"><tr>
+          ${SOCIALS.map(
+            ([label, href, icon]) =>
+              `<td style="padding:0 5px"><a href="${escapeHtml(href)}" target="_blank" title="${label}" style="display:block;text-decoration:none"><img src="${escapeHtml(siteUrl)}/brand/social/${icon}-72.png?v=1" width="32" height="32" alt="${label}" style="display:block;width:32px;height:32px;border:0;border-radius:16px"></a></td>`
+          ).join('')}
+        </tr></table>
         <p style="margin:0 0 12px;font-size:12px">
           <a href="${escapeHtml(siteUrl)}" style="color:${VIOLET};text-decoration:none">marketx.world</a>
-          <span style="color:#c4c4cc">&nbsp;&middot;&nbsp;</span>
-          <a href="https://x.com/_MarketX" style="color:${VIOLET};text-decoration:none">@_MarketX</a>
           <span style="color:#c4c4cc">&nbsp;&middot;&nbsp;</span>
           <a href="mailto:help.marketx@gmail.com" style="color:${VIOLET};text-decoration:none">Support</a>
         </p>

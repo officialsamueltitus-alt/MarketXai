@@ -43,8 +43,8 @@ import {
   LayoutGrid,
   Maximize2
 } from 'lucide-react';
-import { TelegramIcon, XLogoIcon } from './SocialIcons';
-import { MARKETX_TELEGRAM_URL, MARKETX_X_URL } from '../utils/campaign';
+import { TelegramIcon, YouTubeIcon, XLogoIcon } from './SocialIcons';
+import { MARKETX_TELEGRAM_URL, MARKETX_X_URL, MARKETX_YOUTUBE_URL } from '../utils/campaign';
 import { formatMarketPrice } from '../utils/formatPrice';
 import { PushToggle } from './PushToggle';
 
@@ -878,6 +878,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label="Join the MarketX Telegram community"
               >
                 <TelegramIcon className="w-4 h-4" />
+              </a>
+              <a
+                href={MARKETX_YOUTUBE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0"
+                title="Watch MarketX on YouTube"
+                aria-label="Watch MarketX on YouTube"
+              >
+                <YouTubeIcon className="w-4 h-4" />
               </a>
               <a
                 href={MARKETX_X_URL}

@@ -723,7 +723,7 @@ const SECTIONS: Section[] = [
             your balance and arrive in theirs straight away. You cannot gift to yourself.
           </>,
           <>
-            <B>Follow us.</B> Updates and new features are posted on X at @_MarketX and in the MarketX Telegram community (the Telegram button in the sidebar and on the Direct institutional desk).
+            <B>Follow us.</B> Updates and new features are posted on X at @_MarketX, in the MarketX Telegram community and on the MarketX YouTube channel (the Telegram and YouTube buttons in the sidebar and on the Direct institutional desk).
           </>,
         ]}
       />
