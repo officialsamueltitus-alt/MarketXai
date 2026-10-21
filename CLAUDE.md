@@ -424,7 +424,7 @@
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
 - Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
   fundamental, Recheck, save/share, daily news alerts), Preference Mode (incl. confirmation, trade types, RDM timeframe choice, calculator/Lot size)
-  and chart screenshot analysis; free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
+  chart screenshot analysis and voice input; free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
   staff). FREE for everyone, always (owner-specified): price alerts (Auto and Manual), the track record and the RDM timeframe. After the gate: Pro
   routes return 402 `PRO_REQUIRED` before any credit is charged (turning off and deleting still work; `chartProGate` on `/api/market/analyze`, the
   fundamental `ready` check, `PUT /api/preferences`); a free account's stored preferences are ignored, not deleted (`effectivePreferences`:
@@ -450,7 +450,8 @@
   lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
   `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 10 Nov 2026 00:00 to
   20 Dec 2026 23:59:59 Lagos, pop-up on, email to everyone 10 Nov 9:00 AM Lagos (`promoMail`).
-- Voice input (owner-specified, free for everyone): a mic in the Ask SI composer (`ChatInput.tsx`), the Markets hero Ask box (`HomePage.tsx`) and
+- Voice input (owner-specified; free until 1 Nov 2026 (`PRO_GATE_AT`), then Pro only: `proGuard` on `/api/voice/transcribe` (402 before the
+  daily cap), and the mic shows a lock + opens pricing (`voiceLocked` on `ChatInput` / `HomePage`, `voice` from `GET /api/matt/status` on the Matt page)): a mic in the Ask SI composer (`ChatInput.tsx`), the Markets hero Ask box (`HomePage.tsx`) and
   Matt (`MattPage.tsx`, speech to text only, no read-aloud: Matt answers as soon as the trader stops). `src/components/VoiceInput.tsx`:
   `useVoiceInput` uses the browser's SpeechRecognition (live words in the input while talking) and falls back (no API, or a network /
   service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (1.6s after speech, 7s with none, 30s max),

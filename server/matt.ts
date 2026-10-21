@@ -22,7 +22,7 @@ import { createKeyedThrottle } from './security';
 import { MATT_KNOWLEDGE, type MattSection } from './mattKnowledge';
 import { fixPriceClaims } from './priceGuard';
 import { logMatt } from './siLogs';
-import { effectivePreferences } from './proAccess';
+import { effectivePreferences, hasProFeatures } from './proAccess';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
 import { rdmLabel, withDefaults } from '../src/utils/preferences';
 
@@ -310,9 +310,15 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
 
   app.get('/api/matt/status', limiter, requireAuth, wrap(async (_req, res) => {
     const { uid } = getUser(res);
-    const g = readGuard((await userRef(uid).get()).data());
-    // `owner`: an anonymous tag of this account, so a conversation kept on a shared device is only shown back to its own trader
-    res.json({ pausedUntil: g.until > Date.now() ? g.until : null, owner: createHash('sha256').update(`marketx-matt-owner:${uid}`).digest('hex').slice(0, 20) });
+    const doc = (await userRef(uid).get()).data();
+    const g = readGuard(doc);
+    // `owner`: an anonymous tag of this account, so a conversation kept on a shared device is only shown back to its own trader.
+    // `voice`: the mic is open to this account (free until the Pro gate, then Pro only)
+    res.json({
+      pausedUntil: g.until > Date.now() ? g.until : null,
+      owner: createHash('sha256').update(`marketx-matt-owner:${uid}`).digest('hex').slice(0, 20),
+      voice: hasProFeatures(doc as any),
+    });
   }));
 
   app.post('/api/matt/chat', limiter, requireAuth, wrap(async (req, res) => {

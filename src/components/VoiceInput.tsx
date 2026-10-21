@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, Square, X } from 'lucide-react';
+import { Loader2, Lock, Mic, Square, X } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { clipToWav, toBase64 } from '../utils/voice';
 
@@ -295,7 +295,13 @@ export const VoiceWave: React.FC<{ levelRef: React.MutableRefObject<number>; cla
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 /** The mic button: Mic → glowing stop while listening → spinner while the words are written down */
-export const VoiceMicButton: React.FC<{ state: VoiceState; onClick: () => void; disabled?: boolean; className?: string }> = ({ state, onClick, disabled, className = '' }) => {
+export const VoiceMicButton: React.FC<{ state: VoiceState; onClick: () => void; disabled?: boolean; className?: string; locked?: boolean }> = ({
+  state,
+  onClick,
+  disabled,
+  className = '',
+  locked = false,
+}) => {
   const listening = state === 'listening';
   return (
     <button
@@ -309,11 +315,12 @@ export const VoiceMicButton: React.FC<{ state: VoiceState; onClick: () => void; 
             ? 'text-violet-200 bg-violet-500/15'
             : 'text-slate-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-40'
       } ${className}`}
-      title={listening ? 'Stop and send' : state === 'transcribing' ? 'Writing it down…' : 'Speak your message'}
-      aria-label={listening ? 'Stop listening and send' : 'Speak your message'}
+      title={locked ? 'Voice input is a Pro feature' : listening ? 'Stop and send' : state === 'transcribing' ? 'Writing it down…' : 'Speak your message'}
+      aria-label={locked ? 'Speak your message (Pro)' : listening ? 'Stop listening and send' : 'Speak your message'}
       aria-pressed={listening}
     >
       {listening ? <Square className="w-3 h-3 fill-current" /> : state === 'transcribing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-[17px] h-[17px]" />}
+      {locked && <Lock className="absolute top-0.5 right-0.5 w-3 h-3 p-[1px] rounded-full bg-[var(--mx-bg-2)] text-amber-300" aria-hidden="true" />}
     </button>
   );
 };
