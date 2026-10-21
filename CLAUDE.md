@@ -438,7 +438,10 @@
   (a code that fails = 400 `COUPON_*`, never a silent full price), stores `coupon` {code, pct} + `fullUsdAmount` on the payment, the receipt shows it,
   `uses.{plan}` counted after the grant. Plans window (`PricingModal.tsx`): the coupon box is always there (Apply, applied chip with remove, struck-out
   price, `initialCoupon` from the pop-up or `/?pricing=1&coupon=`). Promo pop-up (`PromoBanner.tsx`, `GET /api/promo`, signed in or out): the newest LIVE
-  coupon with `banner`, pops up on EVERY page load (owner-specified), close button hides it until the next load; Claim offer opens Plans with the code
+  coupon with `banner`, pops up on EVERY page load (owner-specified), close button / Escape hides it until the next load; design (owner-specified,
+  premium): Christmas promos (`FESTIVE` match) get the festive card (pine/midnight/wine gradient, gold hairline frame, falling snow, swaying
+  baubles, gold "Christmas" in the headline, % OFF tiles with Best tag, ticket-style code with Copy, gold Claim button with a light sweep,
+  live "ends in" countdown; keyframes `mx-promo-in`/`mx-snow`/`mx-sway`/`mx-shine`/`mx-twinkle` in `index.css`), other promos the same card in MarketX violet; Claim offer opens Plans with the code
   (signed out: sign-in first, then Plans). Announcement email: a coupon with `mailAt` is emailed ONCE to every trader (not banned/suspended) by the
   lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
   `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 25 Nov 2026 00:00 to

@@ -506,6 +506,41 @@ header.glass-panel {
 .mx-pop-in {
   animation: mx-pop 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+
+/* Promo pop-up (PromoBanner.tsx): entrance, falling snow, swaying ornaments, a light sweep across the button */
+@keyframes mx-promo-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.96); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+.mx-promo-in { animation: mx-promo-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes mx-snow {
+  0% { transform: translate3d(0, -12px, 0); opacity: 0; }
+  12% { opacity: var(--o, 0.8); }
+  100% { transform: translate3d(var(--dx, 12px), 360px, 0); opacity: 0; }
+}
+.mx-snowflake {
+  position: absolute; top: 0; border-radius: 9999px; background: #fff;
+  animation: mx-snow var(--d, 9s) linear var(--delay, 0s) infinite both;
+}
+@keyframes mx-sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+.mx-ornament { transform-origin: 50% 0; animation: mx-sway var(--d, 4.5s) ease-in-out var(--delay, 0s) infinite; }
+@keyframes mx-shine {
+  0%, 55% { transform: translateX(-120%) skewX(-20deg); }
+  100% { transform: translateX(260%) skewX(-20deg); }
+}
+.mx-shine::after {
+  content: ''; position: absolute; inset: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: mx-shine 3.6s ease-in-out 1s infinite;
+}
+@keyframes mx-twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+.mx-twinkle { animation: mx-twinkle var(--d, 2.4s) ease-in-out var(--delay, 0s) infinite; }
 @keyframes mx-shake {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-5px); }
