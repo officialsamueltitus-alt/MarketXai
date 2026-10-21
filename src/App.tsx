@@ -2859,6 +2859,8 @@ export default function App() {
         {currentView === 'home' && (
           <HomePage
             tickers={tickers}
+            voiceLocked={proLocked}
+            onVoiceLocked={() => lockedPro('voice')}
             onAskMarketX={() => {
               handleNewSession();
               setCurrentView('chat');
@@ -2981,6 +2983,7 @@ export default function App() {
                     defaultTimeframe={authUser ? preferences.timeframe : undefined}
                     defaultSlMode={authUser ? preferences.slMode : undefined}
                     chartLocked={proLocked}
+                    voiceLocked={proLocked}
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
                     onRdmTimeframesChange={authUser && !proLocked ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
@@ -2991,7 +2994,7 @@ export default function App() {
                     fundamentalOn={!!authUser && fundamentalOn}
                     onOpenFundamental={() => openToolPanel('fundamental')}
                     onOpenPreference={() => openToolPanel('preference')}
-                    onLockedFeature={f => f === 'chart' && lockedPro('chart')}
+                    onLockedFeature={f => (f === 'chart' || f === 'voice') && lockedPro(f)}
                     onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}
                     connectorsOn={authUser ? Object.values(pluginStates).filter(Boolean).length : 0}
                     commandBadge={commandBadge}

@@ -58,6 +58,9 @@ function MiniCandlestickChart({ isBullish }: { isBullish: boolean }) {
 }
 
 interface HomePageProps {
+  /** Voice input is Pro after the free period: the mic offers the upgrade instead */
+  voiceLocked?: boolean;
+  onVoiceLocked?: () => void;
   tickers: MarketQuote[];
   onAskMarketX: () => void;
   onSelectPrompt: (prompt: string, timeframe?: string) => void;
@@ -408,6 +411,8 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenEmailReceipt,
   onOpenSupport,
   supportUnread = 0,
+  voiceLocked = false,
+  onVoiceLocked,
 }) => {
   // Voice (free): speak in the hero box; the words show as you talk and go out as a prompt when you stop
   const heroInputRef = useRef<HTMLInputElement | null>(null);
@@ -684,9 +689,11 @@ export const HomePage: React.FC<HomePageProps> = ({
             <VoiceMicButton
               state={heroVoice.state}
               onClick={() => {
+                if (voiceLocked && !heroListening) return onVoiceLocked?.();
                 setHeroVoiceError(null);
                 heroVoice.toggle();
               }}
+              locked={voiceLocked && !heroListening}
               className="h-10 w-10"
             />
           )}

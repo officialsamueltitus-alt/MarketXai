@@ -136,7 +136,9 @@ interface ChatInputProps {
   rdmLocked?: boolean;
   /** Chart screenshot analysis is Pro after the free period: attaching, pasting or dropping a chart calls onLockedFeature */
   chartLocked?: boolean;
-  onLockedFeature?: (feature: 'RDM' | 'chart') => void;
+  onLockedFeature?: (feature: 'RDM' | 'chart' | 'voice') => void;
+  /** Voice input is Pro after the free period: the mic offers the upgrade instead of listening */
+  voiceLocked?: boolean;
   /** Timeframes RDM scans, from Preference Mode ([] = all); picking RDM shows them to change */
   rdmTimeframes?: string[];
   /** Saves a new RDM choice to Preference Mode (signed in only) */
@@ -181,6 +183,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onCommand,
   rdmLocked = false,
   chartLocked = false,
+  voiceLocked = false,
   onLockedFeature,
   rdmTimeframes,
   onRdmTimeframesChange,
@@ -513,6 +516,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   });
   const voiceOn = voice.state !== 'idle';
   const toggleVoice = () => {
+    if (!voiceOn && voiceLocked) {
+      onLockedFeature?.('voice');
+      return;
+    }
     if (!voiceOn) {
       voiceBaseRef.current = input.trim();
       setVoiceError(null);
@@ -979,7 +986,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <span className={tiny ? 'sr-only' : ''}>{slMode === 'tight' ? 'Tight' : 'SL'}</span>
             </button>
 
-            {!isLoading && credits > 0 && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} />}
+            {!isLoading && credits > 0 && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} locked={voiceLocked && !voiceOn} />}
             {voiceOn ? null : isLoading ? (
               <button
                 type="button"

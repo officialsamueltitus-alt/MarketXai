@@ -219,6 +219,9 @@ export default function MattPage() {
   // Voice (free): speak a question, the words fill the box as you talk, and Matt answers as soon as you stop
   const voiceBaseRef = useRef('');
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  // Voice is free until 1 Nov 2026, then Pro only (the server's status says whether this account may use it)
+  const [voiceAllowed, setVoiceAllowed] = useState(true);
+  const [voiceUpsell, setVoiceUpsell] = useState(false);
   const voice = useVoiceInput({
     onInterim: t => setInput(voiceBaseRef.current ? `${voiceBaseRef.current} ${t}` : t),
     onFinal: t => {
@@ -232,6 +235,10 @@ export default function MattPage() {
   });
   const voiceOn = voice.state !== 'idle';
   const toggleVoice = () => {
+    if (!voiceOn && !voiceAllowed) {
+      setVoiceUpsell(true);
+      return;
+    }
     if (!voiceOn) {
       voiceBaseRef.current = input.trim();
       setVoiceError(null);
@@ -255,6 +262,7 @@ export default function MattPage() {
           setSignedOut(true);
           forget();
         } else if (d && typeof d.owner === 'string') {
+          setVoiceAllowed(d.voice !== false);
           const kept = load(d.owner);
           // A chat already started while this check ran stays on top of the kept ones
           const started = chatsRef.current.filter(c => !kept.chats.some(k => k.id === c.id));
@@ -512,6 +520,20 @@ export default function MattPage() {
               }}
               className={`mx-composer ${voiceOn ? 'is-listening' : ''}`}
             >
+              {voiceUpsell && (
+                <div className="px-3 pt-3">
+                  <div className="mx-rise inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-amber-500/10 border border-amber-400/20 text-[12px] text-amber-100" role="alert">
+                    <Lock className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                    Voice input is a Pro feature.
+                    <a href="/?pricing=1" className="font-semibold underline underline-offset-2 hover:text-white">
+                      See Pro
+                    </a>
+                    <button type="button" onClick={() => setVoiceUpsell(false)} aria-label="Dismiss" className="ml-0.5 w-5 h-5 rounded-full hover:bg-white/[0.08] flex items-center justify-center cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
               {voiceError && (
                 <div className="px-3 pt-3">
                   <div className="mx-rise inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-[12px] text-slate-200" role="alert">
@@ -545,7 +567,7 @@ export default function MattPage() {
                   </span>
                 )}
                 <div className="flex items-center gap-1 shrink-0">
-                {!busy && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} />}
+                {!busy && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} locked={!voiceAllowed && !voiceOn} />}
                 {voiceOn ? null : busy ? (
                   <button type="button" onClick={() => abortRef.current?.abort()} aria-label="Stop" title="Stop" className="h-9 w-9 rounded-full flex items-center justify-center bg-white text-slate-950 hover:bg-slate-200 cursor-pointer">
                     <Square className="w-3.5 h-3.5" fill="currentColor" />

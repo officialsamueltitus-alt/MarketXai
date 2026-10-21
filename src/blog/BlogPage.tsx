@@ -271,7 +271,8 @@ const SECTIONS: Section[] = [
           Tap the <B>mic</B> in the input box (or in the Ask box on <B>Markets</B>) and speak: <em>Analyze gold on the 4 hour</em>, <em>Is WIF safe?</em> or{' '}
           <em>Fundamental analysis CPI</em>. Your words appear as you talk, and the moment you stop, MarketX sends them like a typed message. Say{' '}
           <em>Open my watchlist</em> (or price alerts, trade journal, track record, Strategy Builder, Preference Mode) to open a tool. Tap the glowing button to
-          send early, or the X to cancel. Voice is free; an analysis still uses one credit as usual. Your browser asks once for microphone access.
+          send early, or the X to cancel. Voice is free for everyone until 1 November 2026, then part of Pro; an analysis still uses one credit as usual.
+          Your browser asks once for microphone access.
         </Note>
         <Note title="Watch it work">
           After you send, the process report shows each step as it happens: <B>Starting…</B>, <B>Waking up MarketX engine</B>, <B>Looking at prompt</B> (the analysis begins once these three are done; Stop works at any time),
@@ -449,8 +450,7 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Free and Pro">
           Price alerts, the track record and the <B>RDM</B> timeframe are free for everyone. The watchlist, trade journal, Strategy Builder, Fundamental
-          Analysis, Preference Mode and chart screenshot analysis are free for everyone until 1 November 2026, then part of Pro. On the Free plan they
-          pause, and your pairs, trades and settings are kept for when you upgrade.
+          Analysis, Preference Mode, chart screenshot analysis and voice input are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.

@@ -258,6 +258,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     [`Fundamental Analysis${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
     [`Preference Mode${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
     [`Chart screenshot analysis${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`Voice input${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
   ];
   const proFeatures: string[] = [
     `${benefits.proDailyAnalyses} SI analyses every day`,
@@ -272,6 +273,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     'Fundamental Analysis',
     'Preference Mode',
     'Chart screenshot analysis',
+    'Voice input',
   ];
 
   return (

@@ -535,13 +535,18 @@ header.glass-panel {
 }
 .mx-snowflake {
   position: absolute; top: 0; border-radius: 9999px; background: #fff;
-  animation: mx-snow var(--d, 9s) linear var(--delay, 0s) infinite both;
+  /* About 40 seconds of snowfall, then it settles (no endless GPU work on phones) */
+  animation: mx-snow var(--d, 9s) linear var(--delay, 0s) 4 both;
+}
+/* Phones: half the flakes */
+@media (max-width: 639.98px) {
+  .mx-snowflake:nth-child(even) { display: none; }
 }
 @keyframes mx-sway {
   0%, 100% { transform: rotate(-4deg); }
   50% { transform: rotate(4deg); }
 }
-.mx-ornament { transform-origin: 50% 0; animation: mx-sway var(--d, 4.5s) ease-in-out var(--delay, 0s) infinite; }
+.mx-ornament { transform-origin: 50% 0; animation: mx-sway var(--d, 4.5s) ease-in-out var(--delay, 0s) 8; }
 @keyframes mx-shine {
   0%, 55% { transform: translateX(-120%) skewX(-20deg); }
   100% { transform: translateX(260%) skewX(-20deg); }
@@ -549,13 +554,13 @@ header.glass-panel {
 .mx-shine::after {
   content: ''; position: absolute; inset: 0; width: 40%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: mx-shine 3.6s ease-in-out 1s infinite;
+  animation: mx-shine 3.6s ease-in-out 1s 6;
 }
 @keyframes mx-twinkle {
   0%, 100% { opacity: 0.25; transform: scale(0.8); }
   50% { opacity: 1; transform: scale(1); }
 }
-.mx-twinkle { animation: mx-twinkle var(--d, 2.4s) ease-in-out var(--delay, 0s) infinite; }
+.mx-twinkle { animation: mx-twinkle var(--d, 2.4s) ease-in-out var(--delay, 0s) 12; }
 @keyframes mx-shake {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-5px); }

@@ -1,5 +1,5 @@
 // ===========================================================================
-// Voice input (owner-specified, free for everyone): the mic in the Ask SI box and in Matt.
+// Voice input (owner-specified; free until 1 Nov 2026, then Pro only): the mic in the Ask SI box and in Matt.
 //
 // Most browsers turn speech into text on the device (the browser's own speech recognition). Where that isn't available
 // (Firefox, some in-app browsers, a recognition network error), the app records a short clip, converts it to 16 kHz
@@ -9,7 +9,9 @@
 // ===========================================================================
 import type { Express, Request, Response } from 'express';
 import type { GoogleGenAI } from '@google/genai';
-import { requireAuth } from './account';
+import { requireAuth, getUser } from './account';
+import { createKeyedThrottle } from './security';
+import { proGuard } from './proAccess';
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 const TIMEOUT_MS = 20_000;
@@ -70,7 +72,14 @@ export function cleanTranscript(raw: string): string {
 }
 
 export function registerVoiceRoutes(app: Express, limiter: any) {
-  app.post('/api/voice/transcribe', limiter, requireAuth, async (req: Request, res: Response) => {
+  // Each clip is an engine call: besides 20 a minute, at most 300 a day per trader (stops anyone draining the engine budget)
+  const perDay = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 300 });
+  // Voice is free until the Pro gate (1 Nov 2026, Lagos), then Pro only (owner-specified)
+  const voicePro = proGuard('Voice input is a Pro feature. Type your message, or upgrade to Pro to talk to MarketX.');
+  app.post('/api/voice/transcribe', limiter, requireAuth, voicePro, async (req: Request, res: Response) => {
+    if (perDay.hit(getUser(res).uid)) {
+      return res.status(429).json({ error: 'VOICE_DAILY_LIMIT', message: "You've used voice a lot today. Please type your message; voice is back tomorrow." });
+    }
     const audio = typeof req.body?.audio === 'string' ? req.body.audio : '';
     const mimeType = String(req.body?.mimeType || 'audio/wav').toLowerCase();
     if (!audio || audio.length > MAX_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(audio) || !AUDIO_TYPES.has(mimeType)) {

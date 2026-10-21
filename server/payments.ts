@@ -16,6 +16,7 @@ import {
   STARTING_CREDITS,
 } from './account';
 import { couponForCheckout, countCouponUse } from './coupons';
+import { createKeyedThrottle } from './security';
 
 type Plan = 'monthly' | 'yearly';
 
@@ -241,9 +242,14 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
   refreshRate();
   setInterval(refreshRate, RATE_TTL_MS).unref();
 
+  // At most 10 checkouts a minute per trader (each creates a pending payment record)
+  const checkoutThrottle = createKeyedThrottle({ windowMs: 60_000, max: 10 });
   // Creates a server-owned payment reference with the server-defined price
   app.post('/api/payments/initialize', limiter, requireAuth, async (req: Request, res: Response) => {
     try {
+      if (checkoutThrottle.hit(getUser(res).uid)) {
+        return res.status(429).json({ error: 'RATE_LIMITED', message: 'Too many checkout attempts. Please wait a minute.' });
+      }
       const config = getPaymentsPublicConfig();
       if (!config.enabled) {
         return res.status(503).json({ error: 'PAYMENTS_DISABLED', message: 'Payments are not available yet.' });
