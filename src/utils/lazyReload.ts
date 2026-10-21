@@ -26,19 +26,26 @@ export function reloadForNewVersion(): boolean {
   return true;
 }
 
-export type PreloadableComponent<T extends ComponentType<any>> = LazyExoticComponent<T> & { preload: () => Promise<unknown> };
+export type PreloadableComponent<T extends ComponentType<any>> = LazyExoticComponent<T> & {
+  preload: () => Promise<unknown>;
+  /** The component itself once downloaded (renders without a Suspense round trip), else null */
+  loaded: () => T | null;
+};
 
 /** React.lazy that survives a new deploy and can be preloaded ahead of the first tap. */
 export function lazyWithReload<T extends ComponentType<any>>(factory: () => Promise<{ default: T }>): PreloadableComponent<T> {
   let pending: Promise<{ default: T }> | null = null;
+  let done: T | null = null;
   // Download (shared by preload and render); a flaky mobile connection often succeeds on the second try
   const attempt = (): Promise<{ default: T }> =>
-    (pending ??= factory().catch(() =>
-      factory().catch(err => {
-        pending = null;
-        throw err;
-      })
-    ));
+    (pending ??= factory()
+      .catch(() =>
+        factory().catch(err => {
+          pending = null;
+          throw err;
+        })
+      )
+      .then(m => ((done = m.default), m)));
   // Only a screen the user actually opens may reload the page; a failed background preload stays silent
   const Component = lazy(() =>
     attempt().catch(err => {
@@ -47,5 +54,6 @@ export function lazyWithReload<T extends ComponentType<any>>(factory: () => Prom
     })
   ) as PreloadableComponent<T>;
   Component.preload = () => attempt().catch(() => {});
+  Component.loaded = () => done;
   return Component;
 }

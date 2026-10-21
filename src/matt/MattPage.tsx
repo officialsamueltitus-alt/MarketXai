@@ -4,7 +4,7 @@
 // sees them); History lists the past chats to reopen or delete.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowUp, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
-import { LazyMarkdown } from '../components/LazyMarkdown';
+import { LazyMarkdown, preloadMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
 import { ModeSwitch } from '../components/ModeSwitch';
 import { takeMattAsk } from '../utils/matt';
@@ -181,6 +181,8 @@ export default function MattPage() {
       setCurrentId(chatId);
       setInput('');
       setBusyId(chatId);
+      // Fetch the Markdown parser while Matt thinks, so the answer never flashes as raw text
+      preloadMarkdown();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       const reply = (m: Partial<Msg>) => addTo(chatId, [{ id: newId(), role: 'matt', text: '', at: Date.now(), ...m }]);
