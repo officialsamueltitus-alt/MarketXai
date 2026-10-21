@@ -446,6 +446,19 @@
   lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
   `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 10 Nov 2026 00:00 to
   20 Dec 2026 23:59:59 Lagos, pop-up on, email to everyone 10 Nov 9:00 AM Lagos (`promoMail`).
+- Voice input (owner-specified, free for everyone): a mic in the Ask SI composer (`ChatInput.tsx`), the Markets hero Ask box (`HomePage.tsx`) and
+  Matt (`MattPage.tsx`, speech to text only, no read-aloud: Matt answers as soon as the trader stops). `src/components/VoiceInput.tsx`:
+  `useVoiceInput` uses the browser's SpeechRecognition (live words in the input while talking) and falls back (no API, or a network /
+  service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (1.6s after speech, 7s with none, 30s max),
+  `clipToWav` (16 kHz mono) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
+  20/min, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; nothing stored or logged; 422 NO_SPEECH,
+  503 VOICE_UNAVAILABLE; no credit). UI: `VoiceMicButton` (Mic → violet/fuchsia stop with rings → spinner), `VoiceStatus` (cancel X, live
+  `VoiceWave`, "Listening 0:04"), composer `is-listening` glow (`index.css`). The final words go through `normalizeSpokenPrompt`
+  (`src/utils/voice.ts`: spoken pairs → EURUSD / GBPJPY / NAS100 / US30 / XAUUSD, number-word timeframes → "4 hour", spelled letters,
+  "fundamental analysis X" → `/fundamental-analysis X`, "rug check X" → `/token-safety X`; Matt skips commands) and are sent like a typed
+  prompt (same credit rules); `voiceCommand` ("open my watchlist", price alerts, journal, track record, Strategy Builder, Preference Mode,
+  Fundamental Analysis, Matt) opens the tool instead. `Permissions-Policy` allows `microphone=(self)` only. Noted in the guide, Matt's
+  knowledge and Privacy ("Voice input").
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside

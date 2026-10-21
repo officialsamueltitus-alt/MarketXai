@@ -44,6 +44,7 @@ import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundam
 import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
 import { registerCouponRoutes, startCoupons } from './server/coupons';
+import { registerVoiceRoutes, useVoiceEngine } from './server/voice';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -213,7 +214,7 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
-const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account'];
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
@@ -2100,6 +2101,8 @@ registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
 // Coupon codes: 20 tries a minute per trader / visitor
 registerCouponRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many coupon tries. Please wait a minute.' }));
+// Voice input (free): speech to text for browsers without on-device recognition, 20 clips a minute per trader
+registerVoiceRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many voice messages. Please wait a minute.' }));
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
 // Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
@@ -2186,6 +2189,7 @@ registerPreferenceRoutes(app, generalApiRateLimiter);
 useMainEngine(getGeminiClient);
 // Matt (help assistant): the same engine connection, only Matt's own instructions, public knowledge only
 useMattEngine(getGeminiClient);
+useVoiceEngine(getGeminiClient);
 registerMattRoutes(app, generalApiRateLimiter, {
   pairContext: async question => {
     if (!promptNamesAsset(question)) return null;

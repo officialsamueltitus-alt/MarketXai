@@ -25,6 +25,8 @@ import { Fingerprint,
   Layers
 } from 'lucide-react';
 import { formatMarketPrice } from '../utils/formatPrice';
+import { normalizeSpokenPrompt } from '../utils/voice';
+import { useVoiceInput, VoiceMicButton, VoiceWave } from './VoiceInput';
 
 // Mini Candlestick Chart graphic component strictly matching image.png sample
 function MiniCandlestickChart({ isBullish }: { isBullish: boolean }) {
@@ -407,6 +409,26 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenSupport,
   supportUnread = 0,
 }) => {
+  // Voice (free): speak in the hero box; the words show as you talk and go out as a prompt when you stop
+  const heroInputRef = useRef<HTMLInputElement | null>(null);
+  const [heroVoiceError, setHeroVoiceError] = useState<string | null>(null);
+  const heroVoice = useVoiceInput({
+    onInterim: t => {
+      if (heroInputRef.current) heroInputRef.current.value = t;
+    },
+    onFinal: t => {
+      const said = normalizeSpokenPrompt(t);
+      if (heroInputRef.current) heroInputRef.current.value = said;
+      if (said) onSelectPrompt(said, '4H');
+    },
+    onError: m => {
+      if (heroInputRef.current) heroInputRef.current.value = '';
+      setHeroVoiceError(m);
+      setTimeout(() => setHeroVoiceError(null), 4500);
+    },
+  });
+  const heroListening = heroVoice.state !== 'idle';
+
   // Exclude unwanted synthetic indices while keeping real market assets (Forex, Crypto, Equities, Commodities)
   const validTickers = useMemo(() => {
     const bannedKeywords = ['BOOM', 'CRASH', 'VOLATILITY 75', 'JUMP'];
@@ -635,7 +657,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         </p>
 
         <form
-          className="mx-rise mx-composer mt-7 flex items-center gap-2 p-1.5 pl-4 text-left"
+          className={`mx-rise mx-composer mt-7 flex items-center gap-2 p-1.5 pl-4 text-left ${heroListening ? 'is-listening' : ''}`}
           style={{ animationDelay: '180ms' }}
           onSubmit={e => {
             e.preventDefault();
@@ -645,14 +667,29 @@ export const HomePage: React.FC<HomePageProps> = ({
             else onAskMarketX();
           }}
         >
-          <Sparkles className="w-4 h-4 text-indigo-300 shrink-0" />
+          {heroVoice.state === 'listening' ? (
+            <VoiceWave levelRef={heroVoice.levelRef} className="shrink-0" barClass="bg-gradient-to-t from-violet-400 to-fuchsia-300" />
+          ) : (
+            <Sparkles className="w-4 h-4 text-indigo-300 shrink-0" />
+          )}
           <input
+            ref={heroInputRef}
             name="heroPrompt"
             type="text"
             autoComplete="off"
-            placeholder="e.g. Analyze EUR/USD on the 1H…"
+            placeholder={heroVoice.state === 'listening' ? 'Listening… say "Analyze gold on the 4H"' : heroVoice.state === 'transcribing' ? 'Writing down what you said…' : 'e.g. Analyze EUR/USD on the 1H…'}
             className="flex-1 min-w-0 bg-transparent text-[15px] text-white focus:outline-none h-10"
           />
+          {heroVoice.supported && (
+            <VoiceMicButton
+              state={heroVoice.state}
+              onClick={() => {
+                setHeroVoiceError(null);
+                heroVoice.toggle();
+              }}
+              className="h-10 w-10"
+            />
+          )}
           <button
             type="submit"
             className="h-10 px-4 rounded-2xl bg-white text-slate-950 text-sm font-medium hover:bg-slate-200 active:scale-[0.98] transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
@@ -660,6 +697,11 @@ export const HomePage: React.FC<HomePageProps> = ({
             Ask <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+        {heroVoiceError && (
+          <p className="mx-rise mt-2 text-[12px] text-violet-200" role="alert">
+            {heroVoiceError}
+          </p>
+        )}
 
         <div className="mx-rise mt-4 flex flex-wrap items-center justify-center gap-2" style={{ animationDelay: '240ms' }}>
           {[

@@ -3,11 +3,13 @@
 // by the server). Conversations stay on this device only, tagged with their trader (another account on the same device never
 // sees them); History lists the past chats to reopen or delete.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertCircle, ArrowUp, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
 import { LazyMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
 import { ModeSwitch } from '../components/ModeSwitch';
 import { takeMattAsk } from '../utils/matt';
+import { normalizeSpokenPrompt } from '../utils/voice';
+import { useVoiceInput, VoiceMicButton, VoiceStatus } from '../components/VoiceInput';
 import { applyTheme, readThemePref } from '../utils/theme';
 
 interface Msg {
@@ -213,6 +215,34 @@ export default function MattPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [busyId]
   );
+
+  // Voice (free): speak a question, the words fill the box as you talk, and Matt answers as soon as you stop
+  const voiceBaseRef = useRef('');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voice = useVoiceInput({
+    onInterim: t => setInput(voiceBaseRef.current ? `${voiceBaseRef.current} ${t}` : t),
+    onFinal: t => {
+      const said = normalizeSpokenPrompt(t, { commands: false });
+      send(voiceBaseRef.current ? `${voiceBaseRef.current} ${said}` : said);
+    },
+    onError: message => {
+      setInput(voiceBaseRef.current);
+      setVoiceError(message);
+    },
+  });
+  const voiceOn = voice.state !== 'idle';
+  const toggleVoice = () => {
+    if (!voiceOn) {
+      voiceBaseRef.current = input.trim();
+      setVoiceError(null);
+    }
+    voice.toggle();
+  };
+  useEffect(() => {
+    if (!voiceError) return;
+    const t = setTimeout(() => setVoiceError(null), 4500);
+    return () => clearTimeout(t);
+  }, [voiceError]);
 
   // Who is signed in (and whether Matt is paused) first: only that trader's chats are restored. Then, when arriving from
   // an "Ask Matt" button, that question starts a new chat straight away; otherwise the last chat opens again.
@@ -480,8 +510,16 @@ export default function MattPage() {
                 e.preventDefault();
                 send(input);
               }}
-              className="mx-composer"
+              className={`mx-composer ${voiceOn ? 'is-listening' : ''}`}
             >
+              {voiceError && (
+                <div className="px-3 pt-3">
+                  <div className="mx-rise inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-[12px] text-slate-200" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 text-violet-300 shrink-0" />
+                    {voiceError}
+                  </div>
+                </div>
+              )}
               <textarea
                 ref={taRef}
                 value={input}
@@ -494,15 +532,21 @@ export default function MattPage() {
                 }}
                 rows={1}
                 maxLength={1500}
-                placeholder="Ask Matt about MarketX, your account or a market"
+                placeholder={voice.state === 'listening' ? 'Listening… ask Matt anything' : voice.state === 'transcribing' ? 'Writing down what you said…' : 'Ask Matt about MarketX, your account or a market'}
                 aria-label="Message Matt"
                 className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px]"
               />
               <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
-                <span className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full border border-violet-400/25 bg-violet-500/10 text-[11px] font-medium text-violet-200">
-                  <MattMark className="w-3.5 h-3.5 text-[8px]" /> Matt · free
-                </span>
-                {busy ? (
+                {voiceOn ? (
+                  <VoiceStatus state={voice.state} elapsed={voice.elapsed} levelRef={voice.levelRef} onCancel={voice.cancel} />
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full border border-violet-400/25 bg-violet-500/10 text-[11px] font-medium text-violet-200">
+                    <MattMark className="w-3.5 h-3.5 text-[8px]" /> Matt · free
+                  </span>
+                )}
+                <div className="flex items-center gap-1 shrink-0">
+                {!busy && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} />}
+                {voiceOn ? null : busy ? (
                   <button type="button" onClick={() => abortRef.current?.abort()} aria-label="Stop" title="Stop" className="h-9 w-9 rounded-full flex items-center justify-center bg-white text-slate-950 hover:bg-slate-200 cursor-pointer">
                     <Square className="w-3.5 h-3.5" fill="currentColor" />
                   </button>
@@ -519,6 +563,7 @@ export default function MattPage() {
                     <ArrowUp className="w-4 h-4" />
                   </button>
                 )}
+                </div>
               </div>
             </form>
           )}
