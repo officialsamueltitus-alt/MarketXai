@@ -4,7 +4,7 @@
 // sees them); History lists the past chats to reopen or delete.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowUp, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
-import { LazyMarkdown } from '../components/LazyMarkdown';
+import { LazyMarkdown, preloadMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
 import { ModeSwitch } from '../components/ModeSwitch';
 import { takeMattAsk } from '../utils/matt';
@@ -181,6 +181,8 @@ export default function MattPage() {
       setCurrentId(chatId);
       setInput('');
       setBusyId(chatId);
+      // Fetch the Markdown parser while Matt thinks, so the answer never flashes as raw text
+      preloadMarkdown();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       const reply = (m: Partial<Msg>) => addTo(chatId, [{ id: newId(), role: 'matt', text: '', at: Date.now(), ...m }]);
@@ -554,7 +556,7 @@ export default function MattPage() {
                 }}
                 rows={1}
                 maxLength={1500}
-                placeholder={voice.state === 'listening' ? 'Listening… ask Matt anything' : voice.state === 'transcribing' ? 'Writing down what you said…' : 'Ask Matt about MarketX, your account or a market'}
+                placeholder={voice.state === 'starting' ? 'Waiting for your microphone…' : voice.state === 'listening' ? 'Listening… ask Matt anything' : voice.state === 'transcribing' ? 'Writing down what you said…' : 'Ask Matt about MarketX, your account or a market'}
                 aria-label="Message Matt"
                 className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px]"
               />

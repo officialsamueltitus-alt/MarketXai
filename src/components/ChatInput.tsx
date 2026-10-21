@@ -523,6 +523,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (!voiceOn) {
       voiceBaseRef.current = input.trim();
       setVoiceError(null);
+      setTfOpen(false);
     }
     voice.toggle();
   };
@@ -901,7 +902,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={voice.state === 'listening' ? 'Listening… try "Analyze gold on the 4H"' : voice.state === 'transcribing' ? 'Writing down what you said…' : credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
+          placeholder={voice.state === 'starting' ? 'Waiting for your microphone…' : voice.state === 'listening' ? (tiny || compact ? 'Listening…' : 'Listening… try "Analyze gold on the 4H"') : voice.state === 'transcribing' ? 'Writing down what you said…' : credits <= 0 ? (tiny ? `Back at ${refillLabel}` : `Daily limit reached, back at ${refillLabel}`) : tiny ? (chartImage ? 'Which pair?' : 'Ask MarketX…') : compact ? (chartImage ? 'Which pair? e.g. EURUSD' : 'Ask any market…') : chartImage ? 'Which pair is this chart? e.g. EURUSD, Gold, BTC' : 'Ask about any market, or type /'}
           rows={1}
           className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px] max-sm:px-3.5 max-sm:pt-3 max-sm:min-h-[44px] max-sm:max-h-[132px]"
         />
@@ -957,6 +958,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           )}
 
           <div className="flex items-center gap-1 shrink-0">
+            {!voiceOn && (
+            <>
             <button
               ref={tfButtonRef}
               type="button"
@@ -985,6 +988,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {slMode === 'tight' ? <Crosshair className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5 text-slate-500" />}
               <span className={tiny ? 'sr-only' : ''}>{slMode === 'tight' ? 'Tight' : 'SL'}</span>
             </button>
+            </>
+            )}
 
             {!isLoading && credits > 0 && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} locked={voiceLocked && !voiceOn} />}
             {voiceOn ? null : isLoading ? (

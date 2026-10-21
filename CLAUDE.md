@@ -238,6 +238,8 @@
   YouTube (owner-specified): the channel is linked everywhere through `/go/youtube` (`MARKETX_YOUTUBE_URL`), a server redirect to
   `YOUTUBE_CHANNEL_URL` (youtube.com only, default the @marketx-si channel), so the address never ships in the page or emails; `YouTubeIcon`
   in `SocialIcons.tsx`; buttons next to Telegram in the sidebar, the Markets support desk ("Watch on YouTube"), Terms footer, emails.
+  X short link (owner-requested): `/go/x` redirects to `X_PROFILE_URL` (x.com / twitter.com only, default https://x.com/_MarketX), for sharing
+  marketx.world/go/x; the site's own X buttons keep linking to `MARKETX_X_URL` directly.
 - Share to X (`buildShareText` / `openXPost` in `src/utils/shareText.ts`, used by `shareToX`): every result card (general engine and
   Strategy Builder, trades and no signals) opens x.com's post box filled with the result: side, pair, timeframe, entry, stop, TPs, R:R,
   the Solana proof link, the origin (Personal strategy name, Confirmed on the LTF, RDM pick) and @_MarketX, always within X's 280 limit
@@ -453,7 +455,10 @@
 - Voice input (owner-specified; free until 1 Nov 2026 (`PRO_GATE_AT`), then Pro only: `proGuard` on `/api/voice/transcribe` (402 before the
   daily cap), and the mic shows a lock + opens pricing (`voiceLocked` on `ChatInput` / `HomePage`, `voice` from `GET /api/matt/status` on the Matt page)): a mic in the Ask SI composer (`ChatInput.tsx`), the Markets hero Ask box (`HomePage.tsx`) and
   Matt (`MattPage.tsx`, speech to text only, no read-aloud: Matt answers as soon as the trader stops). `src/components/VoiceInput.tsx`:
-  `useVoiceInput` uses the browser's SpeechRecognition (live words in the input while talking) and falls back (no API, or a network /
+  `useVoiceInput` uses the browser's SpeechRecognition on desktop (live words in the input while talking); phones and tablets (iOS, iPadOS,
+  Android, every browser, `isMobileDevice`, owner-requested fix) always record instead, so the mic permission prompt always shows (getUserMedia, "Allow the mic"
+  state `starting`) and Stop always works; the AudioContext is made inside the tap (iOS). Stop ends any session within `STOP_GRACE_MS` (2.5s) even if the
+  browser never answers, a recognition that doesn't start in 5s records instead, leaving the page releases the mic; desktop also falls back (no API, or a network /
   service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (1.6s after speech, 7s with none, 30s max),
   `clipToWav` (16 kHz mono) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
   20/min and 300/day per trader, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; nothing stored or logged; 422 NO_SPEECH,

@@ -24,11 +24,16 @@ const MD_COMPONENTS = {
 };
 
 /** Renders Markdown; shows the plain text until the parser has loaded (no layout jump for short text). */
-export const LazyMarkdown: React.FC<{ children: string }> = React.memo(({ children }) => (
-  <Suspense fallback={<div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{children}</div>}>
-    <ReactMarkdown components={MD_COMPONENTS as any}>{children}</ReactMarkdown>
-  </Suspense>
-));
+export const LazyMarkdown: React.FC<{ children: string }> = React.memo(({ children }) => {
+  // Already downloaded: render it straight away, so the answer never flashes as raw Markdown for a frame
+  const Ready = ReactMarkdown.loaded();
+  if (Ready) return <Ready components={MD_COMPONENTS as any}>{children}</Ready>;
+  return (
+    <Suspense fallback={<div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{children}</div>}>
+      <ReactMarkdown components={MD_COMPONENTS as any}>{children}</ReactMarkdown>
+    </Suspense>
+  );
+});
 
 /** Starts downloading the parser early (e.g. when the user sends a prompt). */
 export const preloadMarkdown = () => {
