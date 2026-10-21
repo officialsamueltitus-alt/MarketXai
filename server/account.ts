@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
-import { hasProFeatures, PRO_GATE_AT } from './proAccess';
+import { effectivePreferences, hasProFeatures, PRO_GATE_AT } from './proAccess';
 import { CREDIT_RESET_LABEL, CREDIT_RESET_TZ, isDailyResetDue, nextDailyReset } from './dailyReset';
 import crypto from 'crypto';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
@@ -185,7 +185,8 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     isVerified: vip || doc.subscription.active,
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
-    preferences: withDefaults((doc as any).preferences),
+    // Preference Mode is Pro after the free period: a free account's saved choices don't apply (defaults are sent)
+    preferences: vip || hasProFeatures(doc) ? withDefaults((doc as any).preferences) : effectivePreferences(doc),
     alertsEnabled: !!doc.alerts?.enabled,
     alertsMode: doc.alerts?.mode || null,
     plugins: { alerts: !!doc.alerts?.enabled, watchlist: !!doc.watchlist?.enabled, journal: !!doc.plugins?.journal, trackRecord: !!doc.plugins?.trackRecord },

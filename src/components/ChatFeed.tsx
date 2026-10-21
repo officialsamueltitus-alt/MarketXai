@@ -70,6 +70,8 @@ interface ChatFeedProps {
   onCalculate?: (strategy: StrategyResult) => void;
   /** "Check fundamental" (ch-fd) on a result with today's news: a fundamental read of that news for the pair */
   onCheckFundamental?: (topic: string) => void;
+  /** A Pro feature was tapped by a free account after the free period: offer the upgrade */
+  onProLocked?: (feature: 'fundamental') => void;
   /** "Recheck" on a fundamental card: reads the same question again and compares it with this read */
   onRecheckFundamental?: (messageId: string) => void;
   /** "Try again" on a failed analysis or fundamental read */
@@ -168,11 +170,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onToggleAlert,
   onCalculate,
   onCheckFundamental,
+  onProLocked,
   onRecheckFundamental,
   onRetry,
   recheckingId,
 }) => {
   const prefs = React.useMemo(() => withDefaults(userProfile?.preferences), [userProfile?.preferences]);
+  // Fundamental Analysis is Pro after the free period: its buttons offer the upgrade instead
+  const fundamentalLocked = userProfile?.proAccess === false;
   const containerRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
   // Latest callback in a ref so memoised cards can hold a stable handler without going stale
@@ -716,7 +721,11 @@ Rationale: ${strategy.entryZone.rationale}
                         >
                           <Landmark className="w-3.5 h-3.5 text-sky-300" />
                           Check fundamental
-                          <span className="ml-0.5 px-1.5 rounded bg-sky-400/15 text-[10px] font-mono text-sky-300">ch-fd</span>
+                          {fundamentalLocked ? (
+                            <span className="ml-0.5 px-1.5 rounded bg-amber-500/15 text-[10px] font-semibold text-amber-300">Pro</span>
+                          ) : (
+                            <span className="ml-0.5 px-1.5 rounded bg-sky-400/15 text-[10px] font-mono text-sky-300">ch-fd</span>
+                          )}
                         </button>
                       )}
 
@@ -1157,6 +1166,8 @@ Rationale: ${strategy.entryZone.rationale}
                       markdown={message.content}
                       onRecheck={onRecheckFundamental ? () => onRecheckFundamental(message.id) : undefined}
                       rechecking={recheckingId === message.id}
+                      locked={fundamentalLocked}
+                      onLocked={() => onProLocked?.('fundamental')}
                       username={userProfile?.username}
                       isVerified={userProfile?.isVerified}
                     />

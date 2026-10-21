@@ -179,7 +179,10 @@ export const FundamentalCard: React.FC<{
   /** Shown on the saved / shared picture */
   username?: string;
   isVerified?: boolean;
-}> = ({ report: raw, markdown, onRecheck, rechecking = false, username, isVerified }) => {
+  /** Fundamental Analysis is Pro after the free period: Recheck, Save, Share and Post on X offer the upgrade instead */
+  locked?: boolean;
+  onLocked?: () => void;
+}> = ({ report: raw, markdown, onRecheck, rechecking = false, username, isVerified, locked = false, onLocked }) => {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<'' | 'save' | 'share'>('');
   const [note, setNote] = useState('');
@@ -202,8 +205,9 @@ export const FundamentalCard: React.FC<{
     setNote(text);
     setTimeout(() => setNote(''), 2600);
   };
-  const warm = () => void prepareFundamentalCard(r, username, isVerified);
+  const warm = () => void (locked || prepareFundamentalCard(r, username, isVerified));
   const save = async () => {
+    if (locked) return onLocked?.();
     if (busy) return;
     setBusy('save');
     const out = await saveFundamentalCard(r, username, isVerified).catch(() => 'failed' as const);
@@ -212,6 +216,7 @@ export const FundamentalCard: React.FC<{
     else if (out === 'failed') flash('Could not make the picture');
   };
   const share = async () => {
+    if (locked) return onLocked?.();
     if (busy) return;
     setBusy('share');
     const out = await shareFundamentalCard(r, username, isVerified).catch(() => 'failed' as const);
@@ -219,7 +224,7 @@ export const FundamentalCard: React.FC<{
     if (out === 'copied') flash('Text copied, picture saved');
     else if (out === 'failed') flash('Could not share');
   };
-  const postOnX = () => openXPost(buildFundamentalShareText(r, window.location.origin));
+  const postOnX = () => (locked ? onLocked?.() : openXPost(buildFundamentalShareText(r, window.location.origin)));
   const mattAsk = {
     q: `Explain this fundamental analysis of ${r.event} in simple terms: what the most likely outcome means and why these pairs are for or against.`,
     label: `${r.event} fundamentals`,
@@ -266,7 +271,7 @@ export const FundamentalCard: React.FC<{
         {onRecheck && (
           <button
             type="button"
-            onClick={onRecheck}
+            onClick={() => (locked ? onLocked?.() : onRecheck())}
             disabled={rechecking}
             title="Check again now: has it been released, is the forecast the same, does this read still hold? Uses 1 analysis credit."
             className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-sky-400/30 bg-sky-500/[0.1] text-[12px] font-semibold text-sky-100 hover:bg-sky-500/[0.18] disabled:opacity-70 disabled:cursor-wait cursor-pointer transition-colors"

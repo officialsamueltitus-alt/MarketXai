@@ -4,7 +4,7 @@ import { db, isFirebaseConfigured } from './firebase';
 import { sendEmail } from './mailer';
 import { sendPush } from './webPush';
 import { claimMarketMail, getUser, nextMarketMail, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
-import { hasProFeatures, requirePro, requireProToEnable } from './proAccess';
+import { hasProFeatures } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { archiveAlertOutcome, openAutoJournal, progressAutoJournal, signalKey } from './journal';
@@ -327,13 +327,13 @@ export function alertOfferMiddleware(req: Request, res: Response, next: NextFunc
   next();
 }
 
-/** Saves the offer; in Auto mode (Pro or free period) the alert starts at once, exactly as if the trader had tapped it */
+/** Saves the offer; in Auto mode the alert starts at once, exactly as if the trader had tapped it (price alerts are free) */
 async function recordOffer(uid: string, id: string, levels: AlertLevels, view: { id: string; auto?: boolean; autoSkipped?: string }) {
   const now = Date.now();
   const offer: AlertOffer = { ...levels, id, uid, createdAt: now, expiresAt: alertExpiry(levels, now), emailPending: true, emailAt: now + OFFER_EMAIL_DELAY_MS };
   await db().collection(OFFERS).doc(id).set(offer);
   const user = (await userRef(uid).get()).data() as UserDoc | undefined;
-  if (!user?.alerts?.enabled || user.alerts.mode !== 'AUTO' || !hasProFeatures(user)) return;
+  if (!user?.alerts?.enabled || user.alerts.mode !== 'AUTO') return;
   const started = await startAlert(uid, offer);
   if ('alert' in started) view.auto = true;
   else view.autoSkipped = started.error;
@@ -379,8 +379,9 @@ async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> 
   await db().collection(ALERTS).doc(id).set(alert);
   await db().collection(OFFERS).doc(offerId).update({ emailPending: false, alertId: id }).catch(() => {});
   if (IS_LEAD_WORKER) watched.set(id, alert);
-  // The trade goes into the journal by itself; the alert scores it when it ends
-  await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
+  // The trade goes into the journal by itself (the Trade Journal is Pro after the free period); the alert scores it when it ends
+  const owner = (await userRef(uid).get().catch(() => null))?.data() as UserDoc | undefined;
+  if (hasProFeatures(owner)) await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
   return { alert };
 }
 
@@ -617,8 +618,6 @@ export async function sweepAlertOfferEmails(): Promise<number> {
       if (!us.exists || o.expiresAt <= now || (o.closeBy && o.closeBy - now < CLOSE_WARNING_MS)) return null;
       const u = us.data() as UserDoc;
       if (u.emailPrefs?.activity === false || u.status === 'banned' || u.status === 'suspended') return null;
-      // Price alerts are Pro only once the free period ends: no invitation to a feature the trader can't use
-      if (!hasProFeatures(u)) return null;
       if ((u.alertMailAt || 0) > now - OFFER_EMAIL_GAP_MS) return null;
       // Invitations are optional: they use the shared daily allowance only while room is left for real alert hits
       const budget = nextMarketMail(u, true, now);
@@ -715,7 +714,7 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     res.json({ enabled: !!cfg?.enabled, mode: cfg?.mode || null, alerts, live, checkedAt: Date.now() });
   }));
 
-  app.post('/api/alerts/consent', limiter, requireAuth, guard, requireProToEnable, wrap(async (req, res) => {
+  app.post('/api/alerts/consent', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const enabled = req.body?.enabled === true;
     const mode = readAlertMode(req.body?.mode);
@@ -726,7 +725,7 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
   }));
 
   // Auto: every signal served from now on is watched by itself; Manual: the trader taps "Get price alert"
-  app.post('/api/alerts/mode', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
+  app.post('/api/alerts/mode', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const mode = readAlertMode(req.body?.mode);
     if (!mode) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Choose Auto or Manual.' });
@@ -736,7 +735,7 @@ export function registerPriceAlertRoutes(app: Express, deps: PriceAlertDeps, lim
     res.json({ enabled: true, mode });
   }));
 
-  app.post('/api/alerts', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
+  app.post('/api/alerts', limiter, requireAuth, guard, wrap(async (req, res) => {
     const { uid } = getUser(res);
     const offerId = String(req.body?.offerId || '');
     if (!/^of_[a-z0-9]{8,40}$/.test(offerId)) return res.status(400).json({ error: 'BAD_REQUEST', message: 'That setup could not be found.' });

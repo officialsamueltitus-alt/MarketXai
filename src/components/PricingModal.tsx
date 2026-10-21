@@ -184,19 +184,29 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     ['Full trade plans: entry, stop & targets', true],
     ['Live market prices', true],
     ['Gift credits & X rewards', true],
+    ['Price alerts & track record', true],
+    ['RDM: scan every timeframe', true],
     ['Verified trader badge', false],
-    // Open to everyone until the free period ends, then Pro only
-    [`Watchlist, price alerts, journal & track record${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
-    [`RDM: scan every timeframe${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    // Open to everyone until the free period ends, then Pro only (src/utils/proFeatures.ts)
+    [`Watchlist & trade journal${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`Strategy Builder${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`Fundamental Analysis${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`Preference Mode${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`Chart screenshot analysis${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
   ];
   const proFeatures: string[] = [
     `${benefits.proDailyAnalyses} SI analyses every day`,
     'Full trade plans: entry, stop & targets',
     'Live market prices',
     'Gift credits & X rewards',
-    'Verified trader badge',
-    'Watchlist, price alerts, journal & track record',
+    'Price alerts & track record',
     'RDM: scan every timeframe',
+    'Verified trader badge',
+    'Watchlist & trade journal',
+    'Strategy Builder',
+    'Fundamental Analysis',
+    'Preference Mode',
+    'Chart screenshot analysis',
   ];
 
   return (

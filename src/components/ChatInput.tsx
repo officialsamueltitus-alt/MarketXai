@@ -1,3 +1,4 @@
+import { isProFeatureId } from '../utils/proFeatures';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
 import { rdmLabel } from '../utils/preferences';
@@ -129,9 +130,11 @@ interface ChatInputProps {
   onStopAnalysis?: () => void;
   /** A live slash command was chosen (e.g. 'alerts'); return true when it was handled */
   onCommand?: (id: string) => boolean;
-  /** RDM is Pro only (after the free period): shown locked, and choosing it calls onLockedFeature */
+  /** RDM is free; kept for a locked state should it ever be needed again */
   rdmLocked?: boolean;
-  onLockedFeature?: (feature: 'RDM') => void;
+  /** Chart screenshot analysis is Pro after the free period: attaching, pasting or dropping a chart calls onLockedFeature */
+  chartLocked?: boolean;
+  onLockedFeature?: (feature: 'RDM' | 'chart') => void;
   /** Timeframes RDM scans, from Preference Mode ([] = all); picking RDM shows them to change */
   rdmTimeframes?: string[];
   /** Saves a new RDM choice to Preference Mode (signed in only) */
@@ -175,6 +178,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStopAnalysis,
   onCommand,
   rdmLocked = false,
+  chartLocked = false,
   onLockedFeature,
   rdmTimeframes,
   onRdmTimeframesChange,
@@ -368,7 +372,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [input, compact]);
 
+  const chartLockRef = useRef({ chartLocked, onLockedFeature });
+  chartLockRef.current = { chartLocked, onLockedFeature };
   const processImageFile = useCallback((file: File, customName?: string, fromPaste: boolean = false) => {
+    // Chart screenshots are a Pro feature after the free period: nothing is attached, the upgrade is offered
+    if (chartLockRef.current.chartLocked) {
+      chartLockRef.current.onLockedFeature?.('chart');
+      return;
+    }
     if (!file || !file.type.startsWith('image/')) {
       if (file) setChartNotice('unreadable');
       return;
@@ -748,7 +759,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         /{cmd.label.toLowerCase().replace(/\s+/g, '-')}
                         {LIVE_COMMANDS.has(cmd.id) ? (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{cmd.id === 'preference' || cmd.id === 'safety' ? 'Free' : cmd.id === 'fundamental' ? 'Live' : commandBadge || 'Live'}
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />{isProFeatureId(cmd.id) ? commandBadge || 'Live' : 'Free'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/10 text-amber-300/90 border border-amber-500/20">Soon</span>
@@ -841,14 +852,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <div className="flex items-center gap-1 min-w-0">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+              onClick={() => (chartLocked ? onLockedFeature?.('chart') : fileInputRef.current?.click())}
+              className={`relative h-8 w-8 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                 chartImage ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
               }`}
-              title="Attach a chart screenshot (or paste with Ctrl+V)"
-              aria-label="Attach chart image"
+              title={chartLocked ? 'Chart screenshot analysis is a Pro feature' : 'Attach a chart screenshot (or paste with Ctrl+V)'}
+              aria-label={chartLocked ? 'Attach chart image (Pro)' : 'Attach chart image'}
             >
               <ImagePlus className="w-4 h-4" />
+              {chartLocked && <Lock className="absolute -top-0.5 -right-0.5 w-3 h-3 p-[1px] rounded-full bg-[var(--mx-bg-2)] text-amber-300" aria-hidden="true" />}
             </button>
 
             {onOpenConnectors && (

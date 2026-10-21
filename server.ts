@@ -54,7 +54,7 @@ import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
 import { registerPushRoutes } from './server/webPush';
 import { exactPrice } from './src/utils/formatPrice';
-import { proGateActive, proGuard } from './server/proAccess';
+import { effectivePreferences, proGateActive, proGuard } from './server/proAccess';
 import { registerSupportRoutes } from './server/support';
 import { fetchDerivCandles, fetchDerivQuote as loadDerivQuote, mapDerivSymbol } from './server/deriv';
 import {
@@ -2848,7 +2848,8 @@ async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: A
   const uid = (res.locals.user as any)?.uid;
   if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   try {
-    const prefs = withDefaults(((await userRef(uid).get()).data() as any)?.preferences);
+    // Preference Mode is Pro after the free period: a free account's saved choices are ignored (defaults apply)
+    const prefs = effectivePreferences((await userRef(uid).get()).data() as any);
     // styleTfs: the timeframes the trader kept for the active trade type ([] = all of the type's)
     return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle, styleTfs: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle] };
   } catch {
@@ -3507,16 +3508,12 @@ async function serveUserStrategyAnalysis(
   return res.json({ success: true, isAnalysis: true, message: s.detailedThesis, strategy: s });
 }
 
-/** RDM (scan every timeframe) is Pro only once the free period ends: checked before any credit is used */
-async function rdmProGate(req: Request, res: Response, next: NextFunction) {
+/** Chart screenshot analyses are Pro only once the free period ends (owner-specified): checked before any credit is
+ *  used. RDM is free for everyone. */
+function chartProGate(req: Request, res: Response, next: NextFunction) {
   const b = req.body || {};
-  const rdm = typeof b.timeframe === 'string' && b.timeframe.trim().toUpperCase() === 'RDM';
-  if (!rdm || !proGateActive() || typeof b.prompt !== 'string' || b.baseStrategy) return next();
-  const prompt = b.prompt.trim().slice(0, 2000);
-  // A timeframe written in the prompt wins over RDM, and questions never use it
-  if (timeframeFromPrompt(prompt)) return next();
-  if (classifyPrompt(prompt, { hasChartImage: !!b.chartImage, namesAsset: promptNamesAsset(prompt) }) !== 'analysis') return next();
-  return rdmGuard(req, res, next);
+  if (!proGateActive() || !b.chartImage) return next();
+  return chartGuard(req, res, next);
 }
 /** Strategy mode is Pro only once the free period ends: checked before any credit is used */
 async function strategyProGate(req: Request, res: Response, next: NextFunction) {
@@ -3534,7 +3531,7 @@ async function strategyProGate(req: Request, res: Response, next: NextFunction) 
   } catch {}
   next();
 }
-const rdmGuard = proGuard('RDM (scanning every timeframe) is a Pro feature now. Pick a timeframe, or upgrade to Pro to keep using RDM. No credit was used.');
+const chartGuard = proGuard('Chart screenshot analysis is a Pro feature now. Type the market instead (for example "Analyze EURUSD 1H"), or upgrade to Pro to analyze screenshots. No credit was used.');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
 
@@ -3641,7 +3638,7 @@ function checkPromptSecurityViolation(prompt: unknown): boolean {
 }
 
 // Market Analysis & Conversational endpoint
-app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, rdmProGate, strategyProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
+app.post(['/api/market/analyze', '/api/market/chat'], analysisRateLimiter, requireAuth, clarifyBarePair, tokenSafetyGate, chartProGate, strategyProGate, chargeAnalysisCredit, async (req: Request, res: Response) => {
   try {
     const { prompt, timeframe = '4H', symbol: requestedSymbol, slMode = 'normal', baseStrategy, chartImage } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {

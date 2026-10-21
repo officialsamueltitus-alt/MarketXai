@@ -21,6 +21,7 @@ import { createKeyedThrottle } from './security';
 import { compareReads, fundamentalTopic } from '../src/utils/fundamental';
 import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalPrevious, FundamentalReport, FundamentalScenario, FundamentalStrength } from '../src/utils/fundamental';
 import { logFundamental, type FundamentalOutcome } from './siLogs';
+import { hasProFeatures, PRO_REQUIRED } from './proAccess';
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 /** One budget for the whole read, under the client's 110s limit */
@@ -519,16 +520,23 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
       if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'The fundamental analysis hit a snag. Your credit was refunded, please try again.' });
     });
 
+  // Fundamental Analysis is Pro after the free period (owner-specified): a free account sees it as off and locked, and
+  // every route below refuses it before any credit is used
+  const proMessage = 'Fundamental Analysis is a Pro feature. Upgrade to Pro to read releases and their effect on the pairs. No credit was used.';
+  const fundamentalPro = (doc: any) => hasProFeatures(doc);
+
   app.get('/api/fundamental', limiter, requireAuth, wrap(async (_req, res) => {
     const doc = (await userRef(getUser(res).uid).get()).data();
     await refreshNewsFeedsWithin(2000).catch(() => {});
-    res.json({ enabled: readFundamentalMode(doc), upcoming: upcomingEvents() });
+    const pro = fundamentalPro(doc);
+    res.json({ enabled: pro && readFundamentalMode(doc), upcoming: upcomingEvents(), ...(pro ? {} : { locked: true }) });
   }));
 
   app.post('/api/fundamental/mode', limiter, requireAuth, wrap(async (req, res) => {
     const { uid } = getUser(res);
     if (switches.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Please wait a moment.' });
     const enabled = req.body?.enabled === true;
+    if (enabled && !fundamentalPro((await userRef(uid).get()).data())) return res.status(402).json({ error: PRO_REQUIRED.error, message: proMessage });
     await userRef(uid).update({ fundamentalMode: { enabled, at: Date.now() } });
     res.json({ enabled });
   }));
@@ -542,6 +550,7 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
       const prompt = (fundamentalTopic(raw) ?? raw).slice(0, 1500);
       if (prompt.length < 2) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Ask about an economic release, a central bank or a market.' });
       const doc = (await userRef(getUser(res).uid).get()).data();
+      if (!fundamentalPro(doc)) return res.status(402).json({ error: PRO_REQUIRED.error, message: proMessage });
       if (!readFundamentalMode(doc)) return res.status(409).json({ error: 'FUNDAMENTAL_OFF', message: 'Fundamental Analysis is off. Turn it on in /fundamental-analysis. No credit was used.' });
       res.locals.fundamentalPrompt = prompt;
       next();

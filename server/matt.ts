@@ -22,6 +22,7 @@ import { createKeyedThrottle } from './security';
 import { MATT_KNOWLEDGE, type MattSection } from './mattKnowledge';
 import { fixPriceClaims } from './priceGuard';
 import { logMatt } from './siLogs';
+import { effectivePreferences } from './proAccess';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
 import { rdmLabel, withDefaults } from '../src/utils/preferences';
 
@@ -189,7 +190,7 @@ async function accountSummary(res: Response): Promise<string> {
   const raw = ((await userRef(user.uid).get().catch(() => null))?.data() || {}) as any;
   const p = st.profile;
   const c = st.credits;
-  const prefs = withDefaults(p.preferences as any);
+  const prefs = effectivePreferences(p as any);
   const unlimited = st.unlimited;
   const lines = [
     `Name: ${p.displayName} (@${p.username}), joined ${dateText(p.joinedAt)}${p.isVerified ? ', verified badge' : ''}.`,
