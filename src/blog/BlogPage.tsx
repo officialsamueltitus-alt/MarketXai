@@ -311,6 +311,7 @@ const SECTIONS: Section[] = [
         <Note title="Not a chart?" tone="amber">
           Photos, documents and other images are not analyzed. You get a short message and the analysis is refunded. The same happens if a chart can't be read.
         </Note>
+        <Note title="Free until 1 November">Chart screenshot analysis is free for everyone until 1 November 2026, then part of Pro. Typing the market works on every plan.</Note>
       </>
     ),
   },
@@ -440,9 +441,10 @@ const SECTIONS: Section[] = [
           Analysis, Strategy Builder, Confirmation, your trade type) show as small coloured dots on the Tools button and sit at the top under Active now. Open a
           tool from there, or use its switch to turn it off. Turning one off keeps your pairs, trades and results.
         </Note>
-        <Note title="Free until 1 November">
-          The watchlist, price alerts, trade journal, track record and the <B>RDM</B> timeframe are free for everyone until 1 November 2026. From then on they
-          are part of Pro. If you are on the Free plan they pause, and your pairs, trades and results are kept for when you upgrade.
+        <Note title="Free and Pro">
+          Price alerts, the track record and the <B>RDM</B> timeframe are free for everyone. The watchlist, trade journal, Strategy Builder, Fundamental
+          Analysis, Preference Mode and chart screenshot analysis are free for everyone until 1 November 2026, then part of Pro. On the Free plan they
+          pause, and your pairs, trades and settings are kept for when you upgrade.
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
@@ -538,6 +540,7 @@ const SECTIONS: Section[] = [
           or answer, exactly as before. Each read uses one analysis credit, and a message that isn't about fundamentals is not charged. A fundamental read gives
           the odds of each outcome, never a certainty: releases surprise and markets can react in unexpected ways, so manage your risk around big releases.
         </Note>
+        <Note title="Free until 1 November">Fundamental Analysis, its rechecks and the daily news alerts are free for everyone until 1 November 2026, then part of Pro.</Note>
       </>
     ),
   },
@@ -596,7 +599,7 @@ const SECTIONS: Section[] = [
           When you turn on price alerts you choose <B>Auto</B> (every trade MarketX gives you afterwards is watched by itself) or <B>Manual</B> (you tap Get
           price alert on the trades you want). Switch any time in the alerts panel or in Preference Mode.
         </Note>
-        <Note title="Free for everyone">Preference Mode and the trade calculator are free on every plan.</Note>
+        <Note title="Free until 1 November">Preference Mode and the trade calculator are free for everyone until 1 November 2026, then part of Pro.</Note>
       </>
     ),
   },
@@ -674,6 +677,10 @@ const SECTIONS: Section[] = [
           In Credits choose Upgrade to Pro (or Refill or change plan), pick Monthly or Yearly, and pay through the secure checkout by card, bank transfer or USSD
           where available. Pro switches on as soon as the payment is confirmed, and you get a notification and an email receipt. Current prices are always shown
           in the Plans window.
+        </Note>
+        <Note title="Coupon codes">
+          Have a coupon code? Type it in the coupon box in Plans and tap Apply: the discounted price shows before you pay and is what you are charged. A
+          code only works while its offer is running.
         </Note>
         <Note title="Daily limit reached?" tone="amber">
           Campaign credits are always used before your daily analyses, so the limit only shows once they are gone; the credit pill shows how many are left.

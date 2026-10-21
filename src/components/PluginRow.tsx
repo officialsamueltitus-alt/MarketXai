@@ -3,8 +3,13 @@ import { ChevronRight, Loader2 } from 'lucide-react';
 import type { PluginId } from '../types';
 import { PLUGINS } from '../utils/plugins';
 
+/** "Pro" (or "Free until 1 Nov") on a Pro feature */
+export const ProBadge: React.FC<{ text: string }> = ({ text }) => (
+  <span className="h-[18px] px-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[9.5px] font-semibold text-amber-300 inline-flex items-center shrink-0 whitespace-nowrap">{text}</span>
+);
+
 /** One command row: opens the command, and a switch turns it on or off */
-export const PluginRow: React.FC<{ id: PluginId; on: boolean; busy?: boolean; compact?: boolean; onOpen: () => void; onToggle: () => void }> = ({ id, on, busy, compact, onOpen, onToggle }) => {
+export const PluginRow: React.FC<{ id: PluginId; on: boolean; busy?: boolean; compact?: boolean; badge?: string | null; onOpen: () => void; onToggle: () => void }> = ({ id, on, busy, compact, badge, onOpen, onToggle }) => {
   const p = PLUGINS.find(x => x.id === id)!;
   const Icon = p.icon;
   return (
@@ -15,7 +20,10 @@ export const PluginRow: React.FC<{ id: PluginId; on: boolean; busy?: boolean; co
           {on && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[var(--mx-bg-2)]" aria-hidden="true" />}
         </span>
         <span className="min-w-0">
-          <span className={`block ${compact ? 'text-xs' : 'text-sm'} font-medium text-white truncate`}>{p.label}</span>
+          <span className={`flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'} font-medium text-white min-w-0`}>
+            <span className="truncate">{p.label}</span>
+            {badge && <ProBadge text={badge} />}
+          </span>
           <span className="block text-[11px] text-slate-500 truncate">{compact ? p.slash : p.description}</span>
         </span>
         {!compact && <ChevronRight className="ml-auto w-4 h-4 text-slate-600 group-hover:text-slate-300 shrink-0" />}

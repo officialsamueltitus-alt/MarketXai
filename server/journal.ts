@@ -577,7 +577,7 @@ export function registerJournalRoutes(app: Express, limiter: (req: Request, res:
     res.json(await journalPayload(uid));
   }));
 
-  app.get('/api/track-record', limiter, requireAuth, requirePro, wrap(async (_req, res) => {
+  app.get('/api/track-record', limiter, requireAuth, wrap(async (_req, res) => {
     const { uid } = getUser(res);
     const [mine, all] = await Promise.all([personalRecord(uid), globalRecord()]);
     res.json({ ...mine, global: all, checkedAt: Date.now() });

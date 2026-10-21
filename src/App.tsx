@@ -22,6 +22,7 @@ import {
   PluginStates,
 } from './types';
 import { NO_PLUGINS, PLUGINS, PLUGIN_COMMAND } from './utils/plugins';
+import { isProFeatureId, proMessage, type ProFeature } from './utils/proFeatures';
 import { withDefaults, type Preferences } from './utils/preferences';
 import type { CalcSeed } from './components/TradeCalculator';
 import { Sidebar } from './components/Sidebar';
@@ -67,6 +68,7 @@ import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
 import { WelcomeGate } from './components/WelcomeGate';
 import { SiteBanner } from './components/SiteBanner';
+import { PromoBanner } from './components/PromoBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
@@ -146,6 +148,9 @@ export default function App() {
 
   // Modals state
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  // A coupon to apply when Plans opens (promo pop-up, ?coupon= links in the promo email); claimed while signed out = opened after sign-in
+  const [pricingCoupon, setPricingCoupon] = useState<string | null>(null);
+  const claimAfterSignInRef = useRef(false);
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isEmailReceiptModalOpen, setIsEmailReceiptModalOpen] = useState(false);
@@ -341,6 +346,11 @@ export default function App() {
     const chatParam = params.get('chat') || '', msgParam = params.get('msg') || '';
     if (/^[A-Za-z0-9_-]{1,64}$/.test(chatParam) && /^[A-Za-z0-9_-]{1,64}$/.test(msgParam)) chatLinkRef.current = { sessionId: chatParam, messageId: msgParam };
     if (params.get('pricing') === '1') setIsPricingModalOpen(true);
+    const couponParam = (params.get('coupon') || '').toUpperCase();
+    if (/^[A-Z0-9][A-Z0-9_-]{2,23}$/.test(couponParam)) {
+      setPricingCoupon(couponParam);
+      claimAfterSignInRef.current = true;
+    }
     // The Ask SI side of the Ask SI / Matt switch on the Matt page opens the chat, not the Markets tab
     if (params.get('ask') === '1') setCurrentView('chat');
     const newsTopic = (params.get('fundamental') || '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 200);
@@ -348,7 +358,7 @@ export default function App() {
       newsLinkRef.current = { topic: newsTopic };
       setCurrentView('chat');
     } else if (params.get('news') === '1') newsLinkRef.current = { open: true };
-    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
+    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('coupon') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1053,7 +1063,7 @@ export default function App() {
     setOpenAnnouncement(fresh);
   }, [notifications, authUser, openAnnouncement]);
 
-  // ---------------- Pro features (commands + RDM): open to all until proFreeUntil, then Pro only ----------------
+  // ---------------- Pro features: open to all until proFreeUntil, then Pro only ----------------
   const proAccess = !authUser || userProfile.proAccess !== false;
   const proFreeUntil = userProfile.proFreeUntil || 0;
   const onPaidPlan = !!userProfile.subscription?.active;
@@ -1062,6 +1072,18 @@ export default function App() {
     setToastNotification({ message: message || 'This is a Pro feature. Upgrade to Pro to use it.', type: 'info' });
     setIsPricingModalOpen(true);
   }, []);
+  // Pro features after the free period (src/utils/proFeatures.ts: Watchlist, Trade Journal, Strategy Builder, Fundamental
+  // Analysis, Preference Mode, chart screenshots). The server refuses them too; this offers the upgrade at once.
+  // Price alerts, the track record and RDM are free.
+  const proLocked = !proAccess;
+  const lockedPro = useCallback(
+    (f: ProFeature) => {
+      if (!proLocked) return false;
+      showProUpsell(proMessage(f));
+      return true;
+    },
+    [proLocked, showProUpsell]
+  );
 
   // ---------------- Price alerts ----------------
   const alertsEnabled = !!userProfile.alertsEnabled;
@@ -1098,10 +1120,6 @@ export default function App() {
       setPriceAlerts(data.alerts || []);
       setToastNotification({ message: `🔔 Alert on for ${symbol}. You'll be notified at the entry zone, stop loss and every target.`, type: 'success' });
     } catch (err: any) {
-      if (err instanceof ApiError && err.code === 'PRO_REQUIRED') {
-        showProUpsell('Price alerts are a Pro feature. Upgrade to Pro to watch this setup.');
-        return;
-      }
       if (err instanceof ApiError && err.code === 'ALERTS_OFF') {
         setPendingAlertOffer({ id: offerId, symbol });
         setIsAlertsOpen(true);
@@ -1241,13 +1259,11 @@ export default function App() {
     }
     setIsConnectorsOpen(false);
     setIsSidebarOpen(false);
-    if (!proAccess) {
-      showProUpsell(`${PLUGINS.find(p => p.id === id)?.label || 'This tool'} is a Pro feature. Upgrade to Pro to use it.`);
-      return;
-    }
+    // Price alerts and the track record are free; the watchlist and the journal are Pro after the free period
+    if (isProFeatureId(id) && lockedPro(id)) return;
     if (id === 'alerts') setIsAlertsOpen(true);
     else setOpenPlugin(id);
-  }, [authUser, proAccess, showProUpsell]);
+  }, [authUser, lockedPro]);
   /** Turns a command on or off on the server; the same switch is used inside each command and in Connectors */
   const setPluginEnabled = useCallback(async (id: PluginId, enabled: boolean) => {
     try {
@@ -1285,8 +1301,10 @@ export default function App() {
     setIsConnectorsOpen(false);
     setIsSidebarOpen(false);
     setOpenPlugin(null);
+    // Preference Mode, the Strategy Builder and Fundamental Analysis are Pro after the free period
+    if (lockedPro(id)) return;
     setOpenTool(id);
-  }, [authUser, proAccess, showProUpsell]);
+  }, [authUser, lockedPro]);
   // Fundamental Analysis: on or off for this account
   useEffect(() => {
     if (!authUser) {
@@ -1328,11 +1346,18 @@ export default function App() {
       live = false;
     };
   }, [authUser]);
+  // A promo claimed while signed out (pop-up or email link) opens Plans with the code once signed in
+  useEffect(() => {
+    if (authUser && claimAfterSignInRef.current) {
+      claimAfterSignInRef.current = false;
+      setIsPricingModalOpen(true);
+    }
+  }, [authUser]);
   // A link from a watchlist email opens the watchlist once signed in
   useEffect(() => {
     if (authUser && watchlistLinkRef.current) {
       watchlistLinkRef.current = false;
-      setOpenPlugin('watchlist');
+      openPluginPanel('watchlist');
     }
   }, [authUser]);
   // While the watchlist is on, new setup notifications are picked up every 30s (tab visible only)
@@ -1519,6 +1544,9 @@ export default function App() {
       setIsAuthModalOpen(true);
       return;
     }
+    if (lockedPro('fundamental')) {
+      return;
+    }
     if (isDailyLimitReached(creditState, userProfile.email)) {
       setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
       return;
@@ -1657,10 +1685,14 @@ export default function App() {
     newsLinkRef.current = null;
     if (link.topic) {
       setCurrentView('chat');
-      setComposerSeed({ text: fundamentalPrompt(link.topic), at: Date.now() });
-      // (asked from the server: the local switch may not have loaded yet right after sign-in)
-      apiFetch<{ enabled: boolean }>('/api/fundamental')
-        .then(d => (d.enabled ? setFundamentalOn(true) : setFundamentalMode(true)))
+      // (asked from the server: the local switch may not have loaded yet right after sign-in; a free account after the
+      // free period is offered Pro instead, nothing is put in the input)
+      apiFetch<{ enabled: boolean; locked?: boolean }>('/api/fundamental')
+        .then(d => {
+          if (d.locked) return showProUpsell(proMessage('fundamental'));
+          setComposerSeed({ text: fundamentalPrompt(link.topic!), at: Date.now() });
+          return d.enabled ? setFundamentalOn(true) : setFundamentalMode(true);
+        })
         .catch(() => {});
     } else if (link.open) openToolPanel('fundamental');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1669,6 +1701,7 @@ export default function App() {
   // "Check fundamental" on an analysis card with today's news: switches the command on if needed, then reads it
   const checkFundamental = async (topic: string) => {
     if (!authUser) return setIsAuthModalOpen(true);
+    if (lockedPro('fundamental')) return;
     if (!fundamentalOn) {
       try {
         await setFundamentalMode(true);
@@ -1683,6 +1716,7 @@ export default function App() {
   // forecast, most likely outcome, pair biases). The card is updated in place. One credit, refunded on any failure.
   const recheckFundamental = async (messageId: string) => {
     if (!authUser) return setIsAuthModalOpen(true);
+    if (lockedPro('fundamental')) return;
     if (recheckingId || isLoading) return;
     const session = sessions.find(x => x.messages.some(m => m.id === messageId));
     const idx = session ? session.messages.findIndex(m => m.id === messageId) : -1;
@@ -1752,6 +1786,8 @@ export default function App() {
       setIsAuthModalOpen(true);
       return;
     }
+    // Chart screenshot analysis is Pro after the free period (the server refuses it too, before any credit is used)
+    if (chartImage && lockedPro('chart')) return;
 
     setCurrentView('chat');
     // Clear any historical signal locks so the view always focuses and slides down to the recent response
@@ -2449,6 +2485,14 @@ export default function App() {
       <>
         {toastBanner}
         <SiteBanner />
+        <PromoBanner
+          onClaim={code => {
+            setPricingCoupon(code);
+            claimAfterSignInRef.current = true;
+            setAuthModalMode('signin');
+            setIsAuthModalOpen(true);
+          }}
+        />
         {authChecked ? (
           <WelcomeGate
             notice={authUnavailable}
@@ -2487,6 +2531,7 @@ export default function App() {
         userProfile={userProfile}
         paymentsConfig={paymentsConfig}
         onPaymentVerified={handlePaymentVerified}
+        initialCoupon={pricingCoupon}
       />
       </Deferred>
 
@@ -2675,7 +2720,7 @@ export default function App() {
           }}
           preferences={preferences}
           onSave={savePreferences}
-          rdmLocked={!proAccess}
+          rdmLocked={false}
           alertsEnabled={alertsEnabled}
           alertsMode={userProfile.alertsMode || null}
           onSetAlertsMode={setAlertsMode}
@@ -2771,6 +2816,12 @@ export default function App() {
       {/* Main Workspace Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <SiteBanner />
+        <PromoBanner
+          onClaim={code => {
+            setPricingCoupon(code);
+            setIsPricingModalOpen(true);
+          }}
+        />
         {/* Top Header Bar */}
         <Header
           onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
@@ -2871,6 +2922,7 @@ export default function App() {
               <div className="flex-1 min-h-0 relative flex flex-col">
                 <ChatFeed
                   messages={currentMessages}
+                  onProLocked={f => lockedPro(f)}
                   onCheckFundamental={checkFundamental}
                   onRecheckFundamental={recheckFundamental}
                   onRetry={retryMessage}
@@ -2878,6 +2930,7 @@ export default function App() {
                   isLoading={isLoading}
                   tickers={tickers}
                   onCalculate={strategy => {
+                    if (lockedPro('preference')) return;
                     setCalcSeed({ symbol: strategy.symbol, entry: strategy.entryZone?.optimal, stop: strategy.stopLoss?.price, tp: strategy.takeProfits?.[0]?.price });
                     openToolPanel('preference');
                   }}
@@ -2927,9 +2980,9 @@ export default function App() {
                     }
                     defaultTimeframe={authUser ? preferences.timeframe : undefined}
                     defaultSlMode={authUser ? preferences.slMode : undefined}
-                    rdmLocked={!proAccess}
+                    chartLocked={proLocked}
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
-                    onRdmTimeframesChange={authUser ? next => savePreferences({ rdmTimeframes: next }) : undefined}
+                    onRdmTimeframesChange={authUser && !proLocked ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
                     tradeStyle={authUser ? preferences.tradeStyle : undefined}
                     styleFrames={authUser && preferences.tradeStyle && preferences.tradeStyle !== 'ANY' ? preferences.styleTimeframes?.[preferences.tradeStyle] : undefined}
@@ -2937,8 +2990,8 @@ export default function App() {
                     onOpenStrategy={() => openToolPanel('strategy')}
                     fundamentalOn={!!authUser && fundamentalOn}
                     onOpenFundamental={() => openToolPanel('fundamental')}
-                    onOpenPreference={() => setOpenTool('preference')}
-                    onLockedFeature={() => showProUpsell('RDM (scanning every timeframe) is a Pro feature. Upgrade to Pro to use it.')}
+                    onOpenPreference={() => openToolPanel('preference')}
+                    onLockedFeature={f => f === 'chart' && lockedPro('chart')}
                     onOpenConnectors={() => (authUser ? (setIsSidebarOpen(false), setIsConnectorsOpen(true)) : setIsAuthModalOpen(true))}
                     connectorsOn={authUser ? Object.values(pluginStates).filter(Boolean).length : 0}
                     commandBadge={commandBadge}

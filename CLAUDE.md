@@ -283,7 +283,7 @@
   (`users.alerts.enabled`), then taps "Get price alert" on a LONG/SHORT result. Auto / Manual (owner-specified): approving asks once
   (`users.alerts.mode`, kept when alerts are switched off and on; `POST /api/alerts/mode` changes it, switch in the panel). Auto: every
   signal served afterwards starts its alert by itself inside `alertOfferMiddleware` (`startAlert`, the same path as the tap, so the journal,
-  track record and notices follow it; Pro/free period only; result waits at most 2.5s; card shows "Alert on · Auto"). Manual: as before. Every signal served is recorded as an
+  track record and notices follow it; free for everyone; result waits at most 2.5s; card shows "Alert on · Auto"). Manual: as before. Every signal served is recorded as an
   `alertOffers` doc (levels server-side, via `alertOfferMiddleware` wrapping res.json; the analysis itself is untouched), and
   alerts (`priceAlerts`, id `al_{offerId}`) only ever use those stored levels. Only the lead worker monitors: active alerts in
   memory, one fresh 1-minute candle series per symbol per 5s cycle (`ALERT_TICK_MS`), candle high/low checks, hits written in transactions
@@ -419,11 +419,33 @@
   from candles before the signal; stop + target in one candle = stop; nothing counts after the stop; TP1 first = TP reached (a win) even if
   price returns to the stop later; the 24h-range stop check applies only while no TP was hit and the range lies inside the trade. The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
-- Pro gate (owner-specified, `server/proAccess.ts`): the four commands, Strategy mode and the RDM timeframe are free for everyone until 1 Nov 2026 00:00 Lagos
-  (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited staff). After that: command routes return 402 `PRO_REQUIRED` (turning off
-  and deleting still work), RDM analyses get 402 before any credit is charged (`rdmProGate`; a timeframe in the prompt or a question is not
-  gated), `pluginStates` reports all off, and the lead-worker sweep (`sweepFreeAccounts`, every 15 min) pauses alerts + watchlist of free or
-  lapsed accounts and tells them once. Data is kept. Client: `profile.proAccess`/`proFreeUntil`, RDM chip locked, commands open pricing.
+- Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
+  fundamental, Recheck, save/share, daily news alerts), Preference Mode (incl. confirmation, trade types, RDM timeframe choice, calculator/Lot size)
+  and chart screenshot analysis; free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
+  staff). FREE for everyone, always (owner-specified): price alerts (Auto and Manual), the track record and the RDM timeframe. After the gate: Pro
+  routes return 402 `PRO_REQUIRED` before any credit is charged (turning off and deleting still work; `chartProGate` on `/api/market/analyze`, the
+  fundamental `ready` check, `PUT /api/preferences`); a free account's stored preferences are ignored, not deleted (`effectivePreferences`:
+  defaults for analyses, the watchlist, Matt and the profile); `pluginStates` reports watchlist/journal off; the auto journal is opened only for
+  Pro; news alerts skip free accounts; the lead-worker sweep (`sweepFreeAccounts`, every 15 min) switches off watchlist, Fundamental Analysis,
+  news alerts and Strategy Builder of free or lapsed accounts and tells them once (alerts keep running). Data is kept. Client (shared list
+  `src/utils/proFeatures.ts`): `profile.proAccess`/`proFreeUntil`, "Pro" / "Free until 1 Nov" badges in the slash menu and Tools sheet, attach
+  locked (attach, paste, drop), every entry point (`lockedPro` in `App.tsx`, card buttons via `onProLocked`) opens pricing.
+- Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
+  with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
+  A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it
+  off or the end date passing stops it at once. `POST /api/coupons/check` (20/min) says why a code fails (invalid, starts on…, expired, not for this
+  plan) and returns the exact prices (`planPrice` in `server/payments.ts`); `/api/payments/initialize` takes `coupon`, prices it on the server
+  (a code that fails = 400 `COUPON_*`, never a silent full price), stores `coupon` {code, pct} + `fullUsdAmount` on the payment, the receipt shows it,
+  `uses.{plan}` counted after the grant. Plans window (`PricingModal.tsx`): the coupon box is always there (Apply, applied chip with remove, struck-out
+  price, `initialCoupon` from the pop-up or `/?pricing=1&coupon=`). Promo pop-up (`PromoBanner.tsx`, `GET /api/promo`, signed in or out): the newest LIVE
+  coupon with `banner`, pops up on EVERY page load (owner-specified), close button / Escape hides it until the next load; design (owner-specified,
+  premium): Christmas promos (`FESTIVE` match) get the festive card (pine/midnight/wine gradient, gold hairline frame, falling snow, swaying
+  baubles, gold "Christmas" in the headline, % OFF tiles with Best tag, ticket-style code with Copy, gold Claim button with a light sweep,
+  live "ends in" countdown; keyframes `mx-promo-in`/`mx-snow`/`mx-sway`/`mx-shine`/`mx-twinkle` in `index.css`), other promos the same card in MarketX violet; Claim offer opens Plans with the code
+  (signed out: sign-in first, then Plans). Announcement email: a coupon with `mailAt` is emailed ONCE to every trader (not banned/suspended) by the
+  lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
+  `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 10 Nov 2026 00:00 to
+  20 Dec 2026 23:59:59 Lagos, pop-up on, email to everyone 10 Nov 9:00 AM Lagos (`promoMail`).
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside

@@ -15,6 +15,7 @@ import {
   FREE_DAILY_LIMIT,
   STARTING_CREDITS,
 } from './account';
+import { couponForCheckout, countCouponUse } from './coupons';
 
 type Plan = 'monthly' | 'yearly';
 
@@ -88,13 +89,27 @@ function currentRate(): number | null {
 }
 
 // Amounts in the charge currency's minor unit (kobo/cents). Non-USD prices round up to a whole 10 units.
+function toMinorAmount(usdAmount: number, currency: string, rate: number | null): number | null {
+  return rate == null ? null : currency === 'USD' ? Math.round(usdAmount * 100) : Math.ceil((usdAmount * rate) / 10) * 10 * 100;
+}
+
 function getPricing() {
   const usd = usdPrices();
   const currency = chargeCurrency();
   const rate = currentRate();
-  const toMinor = (usdAmount: number) =>
-    rate == null ? null : currency === 'USD' ? Math.round(usdAmount * 100) : Math.ceil((usdAmount * rate) / 10) * 10 * 100;
-  return { usd, currency, rate, monthly: toMinor(usd.monthly), yearly: toMinor(usd.yearly) };
+  return { usd, currency, rate, monthly: toMinorAmount(usd.monthly, currency, rate), yearly: toMinorAmount(usd.yearly, currency, rate) };
+}
+
+/** A plan's USD price after a coupon's percent off (cents rounded) */
+const discountedUsd = (usd: number, pct: number) => Math.round(usd * (1 - pct / 100) * 100) / 100;
+
+/** What a plan costs with a coupon: the USD price and what Paystack charges (major units), exactly as the checkout prices it */
+export function planPrice(plan: Plan, pct: number): { usd: number; fullUsd: number; charge: number | null; currency: string; pct: number } {
+  const p = getPricing();
+  const fullUsd = plan === 'yearly' ? p.usd.yearly : p.usd.monthly;
+  const usd = discountedUsd(fullUsd, pct);
+  const minor = toMinorAmount(usd, p.currency, p.rate);
+  return { usd, fullUsd, charge: minor == null ? null : minor / 100, currency: p.currency, pct };
 }
 
 export function getPaymentsPublicConfig() {
@@ -140,6 +155,7 @@ interface FulfillResult {
   charged?: string;
   expiresAt?: number;
   reference?: string;
+  coupon?: { code: string; pct: number } | null;
 }
 
 async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult> {
@@ -192,12 +208,14 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
       charged: `${(Number(payment.amount) / 100).toLocaleString('en-US')} ${payment.currency}`,
       expiresAt: base + PLAN_DURATION_MS[plan],
       reference,
+      coupon: payment.coupon || null,
     };
   });
 }
 
 function notifyPaymentEmail(result: FulfillResult) {
   if (!result.granted || !result.plan) return;
+  if (result.coupon?.code) countCouponUse(result.coupon.code, result.plan);
   if (result.uid) {
     logActivity(result.uid, { type: 'payment', title: `Paid for Pro ${result.plan === 'yearly' ? 'Yearly' : 'Monthly'}`, detail: result.charged || '' });
   }
@@ -209,6 +227,7 @@ function notifyPaymentEmail(result: FulfillResult) {
       rows: [
         ['Plan', `Pro ${result.plan === 'yearly' ? 'Yearly' : 'Monthly'}`],
         ['Amount paid', result.charged || '-'],
+        ...(result.coupon?.code ? ([['Coupon', `${result.coupon.code} (${result.coupon.pct}% off)`]] as [string, string][]) : []),
         ['Active until', result.expiresAt ? new Date(result.expiresAt).toDateString() : '-'],
         ['Reference', result.reference || '-'],
       ],
@@ -230,6 +249,15 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
         return res.status(503).json({ error: 'PAYMENTS_DISABLED', message: 'Payments are not available yet.' });
       }
       const plan: Plan = req.body?.plan === 'yearly' ? 'yearly' : 'monthly';
+      // Coupon (optional): priced here on the server, and only while the code is live. A code that doesn't work is
+      // refused, never silently charged at the full price.
+      const rawCoupon = typeof req.body?.coupon === 'string' ? req.body.coupon.trim() : '';
+      let coupon: { code: string; pct: number } | null = null;
+      if (rawCoupon) {
+        const c = await couponForCheckout(rawCoupon, plan);
+        if ('error' in c) return res.status(400).json({ error: c.error, message: c.message });
+        coupon = { code: c.coupon.code, pct: c.pct };
+      }
       const pricing = getPricing();
       if (pricing.monthly == null || pricing.yearly == null) {
         await refreshRate();
@@ -240,14 +268,17 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
       if (!userSnap.exists) return res.status(404).json({ error: 'NO_ACCOUNT' });
 
       const reference = `mx_${plan}_${Date.now()}_${crypto.randomBytes(5).toString('hex')}`;
-      const amount = plan === 'yearly' ? pricing.yearly : pricing.monthly;
+      const fullUsd = plan === 'yearly' ? pricing.usd.yearly : pricing.usd.monthly;
+      const usdAmount = coupon ? discountedUsd(fullUsd, coupon.pct) : fullUsd;
+      const amount = coupon ? toMinorAmount(usdAmount, pricing.currency, pricing.rate)! : plan === 'yearly' ? pricing.yearly : pricing.monthly;
       await db().collection('payments').doc(reference).set({
         uid: user.uid,
         email: user.email,
         plan,
         amount,
         currency: pricing.currency,
-        usdAmount: plan === 'yearly' ? pricing.usd.yearly : pricing.usd.monthly,
+        usdAmount,
+        ...(coupon ? { coupon: { code: coupon.code, pct: coupon.pct }, fullUsdAmount: fullUsd } : {}),
         exchangeRate: pricing.rate,
         status: 'pending',
         createdAt: Date.now(),
@@ -260,6 +291,7 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
         channels: PAYMENT_CHANNELS,
         email: user.email,
         publicKey: config.publicKey,
+        ...(coupon ? { coupon: { code: coupon.code, pct: coupon.pct }, usdAmount, fullUsdAmount: fullUsd } : {}),
       });
     } catch (err: any) {
       console.error('[MarketX Payments] initialize failed:', err?.message || err);

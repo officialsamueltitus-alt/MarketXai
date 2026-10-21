@@ -25,6 +25,7 @@ import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
 import { normalizeStyleFrames } from '../src/utils/tradeStyle';
 import { DEFAULT_PREFERENCES, normalizeNewsImpacts, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
+import { effectivePreferences, hasProFeatures, PRO_REQUIRED } from './proAccess';
 import { syncWatchPrefs } from './watchlist';
 export { DEFAULT_PREFERENCES };
 export type { Preferences };
@@ -141,6 +142,8 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
     if (stored && typeof stored === 'object' && ('tradeLock' in stored || 'tradeLockChosenAt' in stored)) {
       await userRef(uid).update({ preferences: prefs }).catch(() => {});
     }
+    // Preference Mode is Pro after the free period: a free account sees (and gets) the defaults; its own choices are kept
+    if (!hasProFeatures(doc)) return res.json({ preferences: effectivePreferences(doc), defaults: DEFAULT_PREFERENCES, locked: true });
     res.json({ preferences: prefs, defaults: DEFAULT_PREFERENCES });
   }));
 
@@ -149,6 +152,7 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
     if (throttle.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many changes. Please wait a minute.' });
     const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
     if (!doc) return res.status(404).json({ error: 'NO_ACCOUNT', message: 'Account not found.' });
+    if (!hasProFeatures(doc)) return res.status(402).json({ error: PRO_REQUIRED.error, message: 'Preference Mode is a Pro feature. Upgrade to Pro to change your preferences.' });
     const reset = req.body?.reset === true;
     const out = reset ? { prefs: { ...DEFAULT_PREFERENCES } } : applyPreferenceChange(readPreferences(doc), req.body);
     if ('error' in out) return res.status(400).json({ error: 'BAD_REQUEST', message: out.error });

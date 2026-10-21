@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LayoutGrid, X, SlidersHorizontal, ChevronRight, Landmark, Target } from 'lucide-react';
 import type { PluginId, PluginStates } from '../types';
 import { PLUGINS } from '../utils/plugins';
-import { PluginRow } from './PluginRow';
+import { PluginRow, ProBadge } from './PluginRow';
+import { isProFeatureId } from '../utils/proFeatures';
 
 interface ConnectorsModalProps {
   isOpen: boolean;
@@ -10,7 +11,7 @@ interface ConnectorsModalProps {
   states: PluginStates;
   onOpen: (id: PluginId) => void;
   onToggle: (id: PluginId, enabled: boolean) => Promise<void>;
-  /** "Free till 1 Nov" while the tools are open to everyone, "Pro" once they are Pro only */
+  /** "Free until 1 Nov" while the Pro features are open to everyone, "Pro" once they are Pro only; shown on each Pro feature */
   badge?: string | null;
   /** Tools with their own panel (Preference Mode, Fundamental Analysis, Strategy Builder) */
   onOpenTool?: (id: 'preference' | 'fundamental' | 'strategy') => void;
@@ -57,7 +58,6 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white tracking-tight leading-tight flex items-center gap-2">
               Tools
-              {badge && <span className="h-5 px-2 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-semibold text-amber-300 inline-flex items-center">{badge}</span>}
             </h2>
             <p className="text-[11px] text-slate-500">{on.length + active.length ? `${on.length + active.length} on` : 'Nothing on yet'}</p>
           </div>
@@ -93,7 +93,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
               <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">In use</div>
               <div className="space-y-2">
                 {on.map(p => (
-                  <PluginRow key={p.id} id={p.id} on busy={busy === p.id} onOpen={() => onOpen(p.id)} onToggle={() => toggle(p.id)} />
+                  <PluginRow key={p.id} id={p.id} on busy={busy === p.id} badge={isProFeatureId(p.id) ? badge : null} onOpen={() => onOpen(p.id)} onToggle={() => toggle(p.id)} />
                 ))}
               </div>
             </div>
@@ -103,7 +103,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
               <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">Available</div>
               <div className="space-y-2">
                 {off.map(p => (
-                  <PluginRow key={p.id} id={p.id} on={false} busy={busy === p.id} onOpen={() => onOpen(p.id)} onToggle={() => onOpen(p.id)} />
+                  <PluginRow key={p.id} id={p.id} on={false} busy={busy === p.id} badge={isProFeatureId(p.id) ? badge : null} onOpen={() => onOpen(p.id)} onToggle={() => onOpen(p.id)} />
                 ))}
               </div>
             </div>
@@ -123,7 +123,11 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
                       <Icon className="w-4 h-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-white">{label} <span className="ml-1 text-[11px] font-mono text-slate-500">{slash}</span></span>
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-white min-w-0">
+                        <span className="truncate">{label}</span>
+                        <span className="text-[11px] font-mono text-slate-500 truncate">{slash}</span>
+                        {badge && <ProBadge text={badge} />}
+                      </span>
                       <span className="block text-xs text-slate-500 truncate">{text}</span>
                     </span>
                     <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />

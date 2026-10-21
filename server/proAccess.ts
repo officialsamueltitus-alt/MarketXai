@@ -1,11 +1,16 @@
 import type { NextFunction, Request, Response } from 'express';
 import { getUser, isUnlimitedEmail, userRef, type UserDoc } from './account';
+import { DEFAULT_PREFERENCES, withDefaults, type Preferences } from '../src/utils/preferences';
 
 // ===========================================================================
-// Pro features (owner-specified): the commands (/price-alerts, /watchlist, /trade-journal, /track-record) and the RDM
-// timeframe are open to everyone until 1 November 2026 (Africa/Lagos midnight). From then on they are for Pro only:
-// free accounts can't open or turn them on, and a sweep switches off what free accounts still have running (their
-// pairs, trades and results are kept for when they upgrade). PRO_GATE_AT (ms) overrides the date for tests.
+// Pro features (owner-specified): open to everyone until 1 November 2026 (Africa/Lagos midnight), then Pro only:
+//   Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check fundamental, Recheck and the daily
+//   news alerts), Preference Mode (incl. confirmation mode, trade types, the RDM timeframe choice and the calculator)
+//   and chart screenshot analyses.
+// Free for everyone, always: price alerts (Auto and Manual), the track record and the RDM timeframe.
+// Free accounts can't open, turn on or use the Pro ones (every route checks, before any credit is used), their saved
+// preferences are ignored (defaults apply), and a sweep switches off what they still have running. Their data is kept
+// for when they upgrade. PRO_GATE_AT (ms) overrides the date for tests.
 // ===========================================================================
 
 /** 1 November 2026, 00:00 in Lagos (UTC+1) */
@@ -51,4 +56,9 @@ export const proGuard = (message: string) => async (_req: Request, res: Response
 export function requireProToEnable(req: Request, res: Response, next: NextFunction) {
   if (req.body?.enabled !== true) return next();
   return requirePro(req, res, next);
+}
+
+/** The preferences that apply to this trader: their own on Pro (or before the gate), the defaults otherwise */
+export function effectivePreferences(doc: UserDoc | undefined, now = Date.now()): Preferences {
+  return hasProFeatures(doc, now) ? withDefaults((doc as any)?.preferences) : withDefaults(DEFAULT_PREFERENCES);
 }

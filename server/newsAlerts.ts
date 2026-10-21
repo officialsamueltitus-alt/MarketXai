@@ -12,6 +12,7 @@
 import { addNotification, siteLink, userRef, type UserDoc } from './account';
 import { db, isFirebaseConfigured } from './firebase';
 import { IS_LEAD_WORKER } from './workers';
+import { hasProFeatures } from './proAccess';
 import { sendEmail } from './mailer';
 import { CREDIT_RESET_TZ } from './dailyReset';
 import { getFullCalendar, refreshNewsFeedsWithin, type EconEvent } from './news';
@@ -85,6 +86,8 @@ async function briefingsFor(events: EconEvent[]): Promise<Map<string, string[]>>
 async function sendTo(uid: string, doc: UserDoc, now = Date.now()): Promise<boolean> {
   const prefs = readNewsAlerts((doc as any)?.preferences?.newsAlerts);
   if (!prefs.enabled || doc.status === 'banned' || doc.status === 'suspended') return false;
+  // Daily news alerts are part of Fundamental Analysis / Preference Mode: Pro after the free period
+  if (!hasProFeatures(doc)) return false;
   const day = siteDay(now);
   if ((doc as any).newsAlertsDay === day) return false;
   const events = eventsFor(prefs.impacts, now);
