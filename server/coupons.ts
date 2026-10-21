@@ -92,7 +92,8 @@ export async function couponForCheckout(raw: unknown, plan: CouponPlan, now = Da
   const c = isValidCode(code) ? await getCoupon(code) : null;
   const state = c ? couponState(c, now) : 'OFF';
   if (!c || state === 'OFF') return { error: 'COUPON_INVALID', message: "That coupon code isn't valid." };
-  if (state === 'SCHEDULED') return { error: 'COUPON_NOT_STARTED', message: `This code starts on ${dateText(c.startsAt!)}.` };
+  // A promo that hasn't started reads exactly like an unknown code, so nobody can discover upcoming promos by guessing
+  if (state === 'SCHEDULED') return { error: 'COUPON_INVALID', message: "That coupon code isn't valid." };
   if (state === 'EXPIRED') return { error: 'COUPON_EXPIRED', message: 'This coupon code has expired.' };
   const pct = couponPct(c, plan);
   if (pct <= 0) return { error: 'COUPON_PLAN', message: `This code doesn't apply to the ${plan === 'yearly' ? 'Yearly' : 'Monthly'} plan.` };

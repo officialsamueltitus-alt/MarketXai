@@ -436,15 +436,16 @@
 - Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
   with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
   A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it
-  off or the end date passing stops it at once. `POST /api/coupons/check` (20/min) says why a code fails (invalid, starts on…, expired, not for this
-  plan) and returns the exact prices (`planPrice` in `server/payments.ts`); `/api/payments/initialize` takes `coupon`, prices it on the server
+  off or the end date passing stops it at once. `POST /api/coupons/check` (20/min) says why a code fails (invalid, expired, not for this
+  plan; a code that hasn't started reads exactly like an unknown one, so upcoming promos can't be discovered) and returns the exact prices (`planPrice` in `server/payments.ts`); `/api/payments/initialize` takes `coupon`, prices it on the server
   (a code that fails = 400 `COUPON_*`, never a silent full price), stores `coupon` {code, pct} + `fullUsdAmount` on the payment, the receipt shows it,
   `uses.{plan}` counted after the grant. Plans window (`PricingModal.tsx`): the coupon box is always there (Apply, applied chip with remove, struck-out
   price, `initialCoupon` from the pop-up or `/?pricing=1&coupon=`). Promo pop-up (`PromoBanner.tsx`, `GET /api/promo`, signed in or out): the newest LIVE
   coupon with `banner`, pops up on EVERY page load (owner-specified), close button / Escape hides it until the next load; design (owner-specified,
   premium): Christmas promos (`FESTIVE` match) get the festive card (pine/midnight/wine gradient, gold hairline frame, falling snow, swaying
   baubles, gold "Christmas" in the headline, % OFF tiles with Best tag, ticket-style code with Copy, gold Claim button with a light sweep,
-  live "ends in" countdown; keyframes `mx-promo-in`/`mx-snow`/`mx-sway`/`mx-shine`/`mx-twinkle` in `index.css`), other promos the same card in MarketX violet; Claim offer opens Plans with the code
+  live "ends in" countdown; keyframes `mx-promo-in`/`mx-snow`/`mx-sway`/`mx-shine`/`mx-twinkle` in `index.css`, all finite: the snow settles after
+  about 40s and phones get half the flakes, so an open pop-up never keeps the GPU busy), other promos the same card in MarketX violet; Claim offer opens Plans with the code
   (signed out: sign-in first, then Plans). Announcement email: a coupon with `mailAt` is emailed ONCE to every trader (not banned/suspended) by the
   lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
   `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 10 Nov 2026 00:00 to
@@ -454,7 +455,7 @@
   `useVoiceInput` uses the browser's SpeechRecognition (live words in the input while talking) and falls back (no API, or a network /
   service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (1.6s after speech, 7s with none, 30s max),
   `clipToWav` (16 kHz mono) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
-  20/min, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; nothing stored or logged; 422 NO_SPEECH,
+  20/min and 300/day per trader, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; nothing stored or logged; 422 NO_SPEECH,
   503 VOICE_UNAVAILABLE; no credit). UI: `VoiceMicButton` (Mic → violet/fuchsia stop with rings → spinner), `VoiceStatus` (cancel X, live
   `VoiceWave`, "Listening 0:04"), composer `is-listening` glow (`index.css`). The final words go through `normalizeSpokenPrompt`
   (`src/utils/voice.ts`: spoken pairs → EURUSD / GBPJPY / NAS100 / US30 / XAUUSD, number-word timeframes → "4 hour", spelled letters,
@@ -493,7 +494,8 @@
   in `requireAuth` and at sign-in.
 
 ## Deployment
-- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory); `npm audit` is clean.
+- `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory);
+  `vite` is ^6.4.5 (patched dev-server advisories); `npm audit` is clean. Checkout (`/api/payments/initialize`) is capped at 10 a minute per trader.
 - Deployed on Render as a single Web Service (not a static site) on Node 22 (pinned by `.node-version`
   and `engines`; Node 25+ removed `SlowBuffer`, which breaks the Google/Firebase JWT libraries).
 - Env vars are documented in `.env.example` (Gemini, Firebase, Paystack, Gmail SMTP).
