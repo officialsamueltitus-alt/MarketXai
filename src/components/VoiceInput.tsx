@@ -9,21 +9,37 @@ import { clipToWav, toBase64 } from '../utils/voice';
 //    WAV and written down by the server (POST /api/voice/transcribe). Nothing is kept.
 // Either way the words land in the input and are sent like a typed message.
 
-export type VoiceState = 'idle' | 'listening' | 'transcribing';
+export type VoiceState = 'idle' | 'starting' | 'listening' | 'transcribing';
 
 const MAX_MS = 30_000;
 const SILENCE_MS = 1600;
 const NO_SPEECH_MS = 7000;
+/** A tap on Stop always ends the session within this time, even if the browser never answers */
+const STOP_GRACE_MS = 2500;
+/** The browser's recognition must really start by then, else MarketX records instead */
+const START_GRACE_MS = 5000;
 const NO_SPEECH = "Didn't catch that. Tap the mic and try again.";
+const MIC_BLOCKED = 'Allow microphone access for MarketX in your browser settings, then tap the mic again.';
 
 const recognitionCtor = (): any =>
   typeof window === 'undefined' ? null : (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+const audioCtor = (): typeof AudioContext | null => (typeof window === 'undefined' ? null : (window as any).AudioContext || (window as any).webkitAudioContext || null);
 const canRecord = () =>
-  typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof (window as any).MediaRecorder !== 'undefined' && !!((window as any).AudioContext || (window as any).webkitAudioContext);
+  typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof (window as any).MediaRecorder !== 'undefined' && !!audioCtor();
+/**
+ * Phones and tablets (iOS, iPadOS, Android, every browser on them): the browser's own speech service there can start
+ * without a proper microphone prompt, hang, or ignore Stop. They record with the microphone instead, which always asks
+ * for permission and stops the moment the trader taps Stop.
+ */
+const isMobileDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+};
 /** After a network/service error the browser's recognition is skipped for the rest of the visit */
 let recognitionBroken = false;
 
-export const voiceSupported = () => !!recognitionCtor() || canRecord();
+export const voiceSupported = () => canRecord() || (!isMobileDevice() && !!recognitionCtor());
 
 interface Handlers {
   /** Words so far, while the trader is still talking (browser recognition only) */
@@ -33,6 +49,11 @@ interface Handlers {
   onError?: (message: string) => void;
 }
 
+interface Session {
+  stop: () => void;
+  cancel: () => void;
+}
+
 export function useVoiceInput(handlers: Handlers) {
   const h = useRef(handlers);
   h.current = handlers;
@@ -40,16 +61,28 @@ export function useVoiceInput(handlers: Handlers) {
   const [elapsed, setElapsed] = useState(0);
   /** 0..1 loudness for the waveform (read by VoiceWave without re-rendering the input) */
   const levelRef = useRef(0);
-  const session = useRef<{ stop: () => void; cancel: () => void } | null>(null);
+  const session = useRef<Session | null>(null);
   const [supported] = useState(voiceSupported);
 
-  const finish = useCallback(() => {
+  /** Ends the given session once (later calls from a stale session are ignored) */
+  const finishFor = useCallback((s: Session | null) => {
+    if (s && session.current !== s) return;
     session.current = null;
     levelRef.current = 0;
     setState('idle');
   }, []);
 
   useEffect(() => () => session.current?.cancel(), []);
+  // Leaving the page or the app releases the microphone at once (phones keep the mic light on otherwise)
+  useEffect(() => {
+    const onHide = () => document.visibilityState === 'hidden' && session.current?.cancel();
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+    };
+  }, []);
   useEffect(() => {
     if (state !== 'listening') return setElapsed(0);
     const t0 = Date.now();
@@ -57,110 +90,201 @@ export function useVoiceInput(handlers: Handlers) {
     return () => clearInterval(id);
   }, [state]);
 
-  const startRecorder = useCallback(async () => {
-    if (!canRecord()) {
-      finish();
-      h.current.onError?.("Voice input isn't available in this browser. Please type your message.");
-      return;
-    }
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-    let ctx: AudioContext | null = null;
-    let recorder: MediaRecorder | null = null;
-    let raf = 0;
-    let spoke = false;
-    const chunks: Blob[] = [];
-    const cleanup = () => {
-      cancelAnimationFrame(raf);
-      stream?.getTracks().forEach(t => t.stop());
-      ctx?.close().catch(() => {});
-      stream = null;
-      ctx = null;
-    };
-    const stopRec = () => {
-      if (recorder && recorder.state !== 'inactive') recorder.stop();
-      else {
-        cleanup();
-        finish();
-      }
-    };
-    session.current = {
-      stop: stopRec,
-      cancel: () => {
-        cancelled = true;
-        stopRec();
-      },
-    };
-    setState('listening');
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    } catch (err: any) {
-      finish();
-      if (!cancelled) h.current.onError?.(err?.name === 'NotAllowedError' ? 'Allow microphone access in your browser to talk to MarketX.' : "Couldn't reach your microphone.");
-      return;
-    }
-    if (cancelled) {
-      cleanup();
-      finish();
-      return;
-    }
-    const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
-    ctx = new AC();
-    ctx.resume?.().catch(() => {});
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
-    ctx.createMediaStreamSource(stream).connect(analyser);
-    const MR: typeof MediaRecorder = (window as any).MediaRecorder;
-    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find(m => MR.isTypeSupported?.(m));
-    recorder = new MR(stream, mime ? { mimeType: mime } : undefined);
-    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
-    recorder.onstop = async () => {
-      cleanup();
-      if (cancelled) return finish();
-      if (!spoke || !chunks.length) {
-        finish();
-        h.current.onError?.(NO_SPEECH);
+  /**
+   * Records with the microphone and lets MarketX write the words down. `ctx` is created inside the tap itself
+   * (iOS only lets audio run when it starts from a tap).
+   */
+  const startRecorder = useCallback(
+    (ctx: AudioContext | null) => {
+      if (!canRecord()) {
+        ctx?.close().catch(() => {});
+        h.current.onError?.("Voice input isn't available in this browser. Please type your message.");
         return;
       }
-      setState('transcribing');
-      try {
-        const wav = await clipToWav(new Blob(chunks, { type: recorder?.mimeType || mime || 'audio/webm' }));
-        const r = await apiFetch<{ text: string }>('/api/voice/transcribe', {
-          method: 'POST',
-          body: JSON.stringify({ audio: toBase64(wav), mimeType: 'audio/wav' }),
-        });
-        finish();
-        if (r?.text) h.current.onFinal(r.text);
-        else h.current.onError?.(NO_SPEECH);
-      } catch (err: any) {
-        finish();
-        h.current.onError?.(err?.message || 'Voice input is busy right now. Please type your message or try again.');
-      }
-    };
-    recorder.start(250);
-    const t0 = performance.now();
-    let lastLoud = t0;
-    const buf = new Float32Array(analyser.fftSize);
-    const tick = () => {
-      analyser.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-      const rms = Math.sqrt(sum / buf.length);
-      levelRef.current = Math.min(1, rms * 7);
-      const now = performance.now();
-      if (rms > 0.03) {
-        spoke = true;
-        lastLoud = now;
-      }
-      if ((spoke && now - lastLoud > SILENCE_MS) || (!spoke && now - t0 > NO_SPEECH_MS) || now - t0 > MAX_MS) return stopRec();
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-  }, [finish]);
+      let cancelled = false;
+      let stopRequested = false;
+      let ended = false;
+      let stream: MediaStream | null = null;
+      let recorder: MediaRecorder | null = null;
+      let raf = 0;
+      let graceTimer = 0;
+      let spoke = false;
+      /** False while the level meter only reads silence (a suspended audio engine): then only Stop or the time limit end it */
+      let meterWorks = false;
+      let startedAt = 0;
+      const chunks: Blob[] = [];
+      const cleanup = () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(graceTimer);
+        stream?.getTracks().forEach(t => t.stop());
+        ctx?.close().catch(() => {});
+        stream = null;
+        ctx = null;
+      };
+      const me: Session = {
+        stop: () => {
+          stopRequested = true;
+          if (!recorder || recorder.state === 'inactive') {
+            // Still waiting for the microphone: nothing was recorded, so just close
+            cancelled = true;
+            cleanup();
+            finishFor(me);
+            return;
+          }
+          try {
+            recorder.stop();
+          } catch {
+            /* handled by the grace timer */
+          }
+          // Some phones never fire onstop: end it anyway with what was recorded
+          clearTimeout(graceTimer);
+          graceTimer = window.setTimeout(() => onStopped(), STOP_GRACE_MS);
+        },
+        cancel: () => {
+          cancelled = true;
+          me.stop();
+        },
+      };
+      session.current = me;
+      setState('starting');
 
+      const onStopped = async () => {
+        if (ended) return;
+        ended = true;
+        cleanup();
+        if (cancelled) return finishFor(me);
+        const long = performance.now() - startedAt > 600;
+        // A manual Stop sends what was said; an automatic stop needs speech first (when the meter can hear it)
+        if (!chunks.length || !long || (meterWorks && !spoke && !stopRequested)) {
+          finishFor(me);
+          h.current.onError?.(NO_SPEECH);
+          return;
+        }
+        if (session.current === me) setState('transcribing');
+        try {
+          const wav = await clipToWav(new Blob(chunks, { type: recorder?.mimeType || chunks[0]?.type || 'audio/webm' }));
+          const r = await apiFetch<{ text: string }>('/api/voice/transcribe', {
+            method: 'POST',
+            body: JSON.stringify({ audio: toBase64(wav), mimeType: 'audio/wav' }),
+          });
+          if (session.current !== me) return;
+          finishFor(me);
+          if (r?.text) h.current.onFinal(r.text);
+          else h.current.onError?.(NO_SPEECH);
+        } catch (err: any) {
+          if (session.current !== me) return;
+          finishFor(me);
+          h.current.onError?.(err?.message || 'Voice input is busy right now. Please type your message or try again.');
+        }
+      };
+
+      (async () => {
+        try {
+          // This is what shows the browser's "Allow microphone?" prompt
+          stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        } catch (err: any) {
+          cleanup();
+          if (session.current !== me) return;
+          finishFor(me);
+          if (!cancelled) {
+            const name = String(err?.name || '');
+            h.current.onError?.(
+              name === 'NotAllowedError' || name === 'SecurityError'
+                ? MIC_BLOCKED
+                : name === 'NotFoundError' || name === 'OverconstrainedError'
+                  ? 'No microphone was found on this device.'
+                  : "Couldn't reach your microphone. Close other apps using it and try again."
+            );
+          }
+          return;
+        }
+        if (cancelled || session.current !== me) {
+          cleanup();
+          return;
+        }
+        let analyser: AnalyserNode | null = null;
+        try {
+          if (!ctx) {
+            const AC = audioCtor();
+            ctx = AC ? new AC() : null;
+          }
+          if (ctx) {
+            ctx.resume?.().catch(() => {});
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            ctx.createMediaStreamSource(stream).connect(analyser);
+          }
+        } catch {
+          analyser = null;
+        }
+        const MR: typeof MediaRecorder = (window as any).MediaRecorder;
+        const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find(m => MR.isTypeSupported?.(m));
+        try {
+          recorder = new MR(stream, mime ? { mimeType: mime } : undefined);
+        } catch {
+          try {
+            recorder = new MR(stream);
+          } catch {
+            cleanup();
+            finishFor(me);
+            h.current.onError?.("Voice input isn't available in this browser. Please type your message.");
+            return;
+          }
+        }
+        recorder.ondataavailable = e => {
+          if (e.data?.size) chunks.push(e.data);
+        };
+        recorder.onstop = () => {
+          // The last chunk can arrive just after onstop on some browsers
+          setTimeout(() => onStopped(), 60);
+        };
+        try {
+          recorder.start(250);
+        } catch {
+          recorder.start();
+        }
+        startedAt = performance.now();
+        setState('listening');
+        let lastLoud = startedAt;
+        const buf = new Float32Array(analyser ? analyser.fftSize : 0);
+        const tick = () => {
+          if (ended || stopRequested) return;
+          const now = performance.now();
+          let rms = 0;
+          if (analyser) {
+            analyser.getFloatTimeDomainData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+            rms = Math.sqrt(sum / buf.length);
+            if (rms > 0.0005) meterWorks = true;
+          }
+          // Without a working meter the bars just breathe
+          levelRef.current = meterWorks ? Math.min(1, rms * 7) : 0.25 + 0.2 * Math.sin(now / 180);
+          if (rms > 0.03) {
+            spoke = true;
+            lastLoud = now;
+          }
+          if (now - startedAt > MAX_MS || (meterWorks && spoke && now - lastLoud > SILENCE_MS) || (meterWorks && !spoke && now - startedAt > NO_SPEECH_MS)) {
+            me.stop();
+            return;
+          }
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      })();
+    },
+    [finishFor]
+  );
+
+  /** The browser's own speech recognition (desktop): live words while the trader talks */
   const startRecognition = useCallback(
     (Rec: any) => {
-      const rec = new Rec();
+      let rec: any;
+      try {
+        rec = new Rec();
+      } catch {
+        return startRecorder(null);
+      }
       rec.lang = navigator.language || 'en-US';
       rec.interimResults = true;
       rec.continuous = false;
@@ -170,15 +294,51 @@ export function useVoiceInput(handlers: Handlers) {
       let cancelled = false;
       let fellBack = false;
       let errored = false;
+      let started = false;
+      let ended = false;
       let raf = 0;
+      let graceTimer = 0;
       // No raw audio here: the waveform breathes on its own and jumps as words arrive
       const breathe = () => {
         levelRef.current = Math.max(0.08, levelRef.current * 0.92);
         raf = requestAnimationFrame(breathe);
       };
-      const limit = setTimeout(() => rec.stop(), MAX_MS);
+      const limit = window.setTimeout(() => me.stop(), MAX_MS);
+      // The browser said nothing back: record with the microphone instead
+      const startWatch = window.setTimeout(() => {
+        if (started || ended) return;
+        fellBack = canRecord();
+        if (!fellBack) errored = true;
+        try {
+          rec.abort();
+        } catch {
+          /* ignore */
+        }
+        onEnd();
+        if (!fellBack) h.current.onError?.("Voice input didn't start. Please try again or type your message.");
+      }, START_GRACE_MS);
+      const onEnd = () => {
+        if (ended) return;
+        ended = true;
+        clearTimeout(limit);
+        clearTimeout(startWatch);
+        clearTimeout(graceTimer);
+        cancelAnimationFrame(raf);
+        if (fellBack && !cancelled) {
+          if (session.current === me) session.current = null;
+          startRecorder(null);
+          return;
+        }
+        const text = `${finalText}${interim}`.trim();
+        finishFor(me);
+        if (cancelled) return;
+        if (text) h.current.onFinal(text);
+        else if (!errored) h.current.onError?.(NO_SPEECH);
+      };
       rec.onstart = () => {
-        setState('listening');
+        started = true;
+        clearTimeout(startWatch);
+        if (session.current === me) setState('listening');
         raf = requestAnimationFrame(breathe);
       };
       rec.onresult = (e: any) => {
@@ -189,7 +349,7 @@ export function useVoiceInput(handlers: Handlers) {
           else interim += piece;
         }
         levelRef.current = 0.55 + Math.random() * 0.45;
-        h.current.onInterim?.(`${finalText}${interim}`.trim());
+        if (!cancelled) h.current.onInterim?.(`${finalText}${interim}`.trim());
       };
       rec.onerror = (e: any) => {
         const err = String(e?.error || '');
@@ -201,52 +361,79 @@ export function useVoiceInput(handlers: Handlers) {
           return;
         }
         errored = true;
-        if (err === 'not-allowed') h.current.onError?.('Allow microphone access in your browser to talk to MarketX.');
+        if (cancelled) return;
+        if (err === 'not-allowed') h.current.onError?.(MIC_BLOCKED);
         else if (err === 'audio-capture') h.current.onError?.("Couldn't reach your microphone.");
         else if (err === 'no-speech') h.current.onError?.(NO_SPEECH);
         else h.current.onError?.('Voice input stopped. Please try again.');
       };
-      rec.onend = () => {
-        clearTimeout(limit);
-        cancelAnimationFrame(raf);
-        if (fellBack) {
-          session.current = null;
-          startRecorder();
-          return;
-        }
-        const text = `${finalText}${interim}`.trim();
-        finish();
-        if (cancelled) return;
-        if (text) h.current.onFinal(text);
-        else if (!errored) h.current.onError?.(NO_SPEECH);
-      };
-      session.current = {
-        stop: () => rec.stop(),
+      rec.onend = onEnd;
+      const me: Session = {
+        stop: () => {
+          if (!started) {
+            cancelled = true;
+            try {
+              rec.abort();
+            } catch {
+              /* ignore */
+            }
+            return onEnd();
+          }
+          try {
+            rec.stop();
+          } catch {
+            /* the grace timer ends it */
+          }
+          // Stop always works: if the browser doesn't finish in time, end it here with the words heard so far
+          clearTimeout(graceTimer);
+          graceTimer = window.setTimeout(() => {
+            try {
+              rec.abort();
+            } catch {
+              /* ignore */
+            }
+            onEnd();
+          }, STOP_GRACE_MS);
+        },
         cancel: () => {
           cancelled = true;
           try {
             rec.abort();
           } catch {
-            finish();
+            /* ignore */
           }
+          onEnd();
         },
       };
-      setState('listening');
+      session.current = me;
+      setState('starting');
       try {
         rec.start();
       } catch {
+        ended = true;
+        clearTimeout(limit);
+        clearTimeout(startWatch);
         session.current = null;
-        startRecorder();
+        startRecorder(null);
       }
     },
-    [finish, startRecorder]
+    [finishFor, startRecorder]
   );
 
   const start = useCallback(() => {
     if (session.current) return;
     const Rec = recognitionCtor();
-    if (Rec && !recognitionBroken) startRecognition(Rec);
-    else startRecorder();
+    if (Rec && !recognitionBroken && !isMobileDevice()) return startRecognition(Rec);
+    // Created and resumed right here, inside the tap, so iOS lets it hear the microphone
+    let ctx: AudioContext | null = null;
+    try {
+      const AC = audioCtor();
+      ctx = AC ? new AC() : null;
+      ctx?.resume?.().catch(() => {});
+    } catch {
+      ctx = null;
+    }
+    startRecorder(ctx);
   }, [startRecognition, startRecorder]);
 
   const stop = useCallback(() => session.current?.stop(), []);
@@ -302,7 +489,7 @@ export const VoiceMicButton: React.FC<{ state: VoiceState; onClick: () => void; 
   className = '',
   locked = false,
 }) => {
-  const listening = state === 'listening';
+  const listening = state === 'listening' || state === 'starting';
   return (
     <button
       type="button"
@@ -325,14 +512,14 @@ export const VoiceMicButton: React.FC<{ state: VoiceState; onClick: () => void; 
   );
 };
 
-/** Shown in the input's bottom row while voice is on: cancel, live waveform, "Listening 0:04" */
+/** Shown in the input's bottom row while voice is on: cancel, live waveform, "Listening 0:04" (shrinks to fit narrow phones) */
 export const VoiceStatus: React.FC<{ state: VoiceState; elapsed: number; levelRef: React.MutableRefObject<number>; onCancel: () => void }> = ({
   state,
   elapsed,
   levelRef,
   onCancel,
 }) => (
-  <div className="mx-fade-in flex items-center gap-2 min-w-0" role="status" aria-live="polite">
+  <div className="mx-fade-in flex flex-1 items-center gap-1.5 min-w-0 overflow-hidden" role="status" aria-live="polite">
     <button
       type="button"
       onClick={onCancel}
@@ -343,14 +530,16 @@ export const VoiceStatus: React.FC<{ state: VoiceState; elapsed: number; levelRe
     >
       <X className="w-4 h-4" />
     </button>
-    <span className="h-8 pl-2.5 pr-3 rounded-full bg-violet-500/10 border border-violet-400/20 inline-flex items-center gap-2.5 min-w-0">
+    <span className="h-8 max-w-full pl-2 pr-2.5 rounded-full bg-violet-500/10 border border-violet-400/20 inline-flex items-center gap-2 min-w-0 overflow-hidden">
       {state === 'listening' ? (
-        <VoiceWave levelRef={levelRef} barClass="bg-gradient-to-t from-violet-400 to-fuchsia-300" />
+        <VoiceWave levelRef={levelRef} className="shrink-0" barClass="bg-gradient-to-t from-violet-400 to-fuchsia-300" />
       ) : (
-        <Loader2 className="w-3.5 h-3.5 text-violet-300 animate-spin" />
+        <Loader2 className="w-3.5 h-3.5 shrink-0 text-violet-300 animate-spin" />
       )}
-      <span className="text-[12px] font-medium text-violet-100 whitespace-nowrap">{state === 'listening' ? 'Listening' : 'Writing it down…'}</span>
-      {state === 'listening' && <span className="text-[11px] font-mono tabular-nums text-violet-300/80">{mmss(elapsed)}</span>}
+      <span className="text-[12px] font-medium text-violet-100 whitespace-nowrap truncate min-w-0">
+        {state === 'listening' ? 'Listening' : state === 'starting' ? 'Allow the mic' : 'Writing it down…'}
+      </span>
+      {state === 'listening' && <span className="shrink-0 text-[11px] font-mono tabular-nums text-violet-300/80">{mmss(elapsed)}</span>}
     </span>
   </div>
 );

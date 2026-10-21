@@ -453,7 +453,10 @@
 - Voice input (owner-specified; free until 1 Nov 2026 (`PRO_GATE_AT`), then Pro only: `proGuard` on `/api/voice/transcribe` (402 before the
   daily cap), and the mic shows a lock + opens pricing (`voiceLocked` on `ChatInput` / `HomePage`, `voice` from `GET /api/matt/status` on the Matt page)): a mic in the Ask SI composer (`ChatInput.tsx`), the Markets hero Ask box (`HomePage.tsx`) and
   Matt (`MattPage.tsx`, speech to text only, no read-aloud: Matt answers as soon as the trader stops). `src/components/VoiceInput.tsx`:
-  `useVoiceInput` uses the browser's SpeechRecognition (live words in the input while talking) and falls back (no API, or a network /
+  `useVoiceInput` uses the browser's SpeechRecognition on desktop (live words in the input while talking); phones and tablets (iOS, iPadOS,
+  Android, every browser, `isMobileDevice`, owner-requested fix) always record instead, so the mic permission prompt always shows (getUserMedia, "Allow the mic"
+  state `starting`) and Stop always works; the AudioContext is made inside the tap (iOS). Stop ends any session within `STOP_GRACE_MS` (2.5s) even if the
+  browser never answers, a recognition that doesn't start in 5s records instead, leaving the page releases the mic; desktop also falls back (no API, or a network /
   service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (1.6s after speech, 7s with none, 30s max),
   `clipToWav` (16 kHz mono) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
   20/min and 300/day per trader, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; nothing stored or logged; 422 NO_SPEECH,

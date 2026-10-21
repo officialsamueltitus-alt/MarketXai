@@ -556,7 +556,7 @@ export default function MattPage() {
                 }}
                 rows={1}
                 maxLength={1500}
-                placeholder={voice.state === 'listening' ? 'Listening… ask Matt anything' : voice.state === 'transcribing' ? 'Writing down what you said…' : 'Ask Matt about MarketX, your account or a market'}
+                placeholder={voice.state === 'starting' ? 'Waiting for your microphone…' : voice.state === 'listening' ? 'Listening… ask Matt anything' : voice.state === 'transcribing' ? 'Writing down what you said…' : 'Ask Matt about MarketX, your account or a market'}
                 aria-label="Message Matt"
                 className="block w-full bg-transparent text-[15px] leading-6 resize-none focus:outline-none px-4 pt-3.5 pb-1 max-h-[200px] min-h-[52px]"
               />

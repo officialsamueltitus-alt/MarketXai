@@ -682,7 +682,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             name="heroPrompt"
             type="text"
             autoComplete="off"
-            placeholder={heroVoice.state === 'listening' ? 'Listening… say "Analyze gold on the 4H"' : heroVoice.state === 'transcribing' ? 'Writing down what you said…' : 'e.g. Analyze EUR/USD on the 1H…'}
+            placeholder={heroVoice.state === 'starting' ? 'Waiting for your microphone…' : heroVoice.state === 'listening' ? 'Listening… say "Analyze gold on the 4H"' : heroVoice.state === 'transcribing' ? 'Writing down what you said…' : 'e.g. Analyze EUR/USD on the 1H…'}
             className="flex-1 min-w-0 bg-transparent text-[15px] text-white focus:outline-none h-10"
           />
           {heroVoice.supported && (
