@@ -18,6 +18,7 @@ import {
   Gift,
   Bot,
   Landmark,
+  Ticket,
 } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -27,12 +28,13 @@ import { UsersSection } from './Users';
 import { UsageSection } from './Usage';
 import { SubscriptionsSection } from './Subscriptions';
 import { CampaignSection } from './Campaign';
+import { CouponsSection } from './Coupons';
 import { BroadcastSection } from './Broadcast';
 import { SupportSection } from './Support';
 import { FundamentalAdminSection, MattAdminSection } from './SiTools';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'usage' | 'matt' | 'fundamental' | 'subscriptions' | 'campaign' | 'support' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'usage' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'campaign' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -41,6 +43,7 @@ const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'matt', label: 'Matt', icon: Bot },
   { id: 'fundamental', label: 'Fundamentals', icon: Landmark },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+  { id: 'coupons', label: 'Coupons', icon: Ticket },
   { id: 'campaign', label: 'Campaign', icon: Gift },
   { id: 'support', label: 'Support', icon: MessageCircle },
   { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
@@ -439,6 +442,7 @@ export default function AdminApp() {
             {section === 'matt' && <MattAdminSection />}
             {section === 'fundamental' && <FundamentalAdminSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}
+            {section === 'coupons' && <CouponsSection />}
             {section === 'campaign' && <CampaignSection />}
             {section === 'support' && <SupportSection />}
             {section === 'broadcast' && <BroadcastSection initialTarget={messageTarget} />}

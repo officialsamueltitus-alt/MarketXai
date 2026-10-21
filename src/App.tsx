@@ -68,6 +68,7 @@ import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
 import { WelcomeGate } from './components/WelcomeGate';
 import { SiteBanner } from './components/SiteBanner';
+import { PromoBanner } from './components/PromoBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
@@ -147,6 +148,9 @@ export default function App() {
 
   // Modals state
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  // A coupon to apply when Plans opens (promo pop-up, ?coupon= links in the promo email); claimed while signed out = opened after sign-in
+  const [pricingCoupon, setPricingCoupon] = useState<string | null>(null);
+  const claimAfterSignInRef = useRef(false);
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isEmailReceiptModalOpen, setIsEmailReceiptModalOpen] = useState(false);
@@ -342,6 +346,11 @@ export default function App() {
     const chatParam = params.get('chat') || '', msgParam = params.get('msg') || '';
     if (/^[A-Za-z0-9_-]{1,64}$/.test(chatParam) && /^[A-Za-z0-9_-]{1,64}$/.test(msgParam)) chatLinkRef.current = { sessionId: chatParam, messageId: msgParam };
     if (params.get('pricing') === '1') setIsPricingModalOpen(true);
+    const couponParam = (params.get('coupon') || '').toUpperCase();
+    if (/^[A-Z0-9][A-Z0-9_-]{2,23}$/.test(couponParam)) {
+      setPricingCoupon(couponParam);
+      claimAfterSignInRef.current = true;
+    }
     // The Ask SI side of the Ask SI / Matt switch on the Matt page opens the chat, not the Markets tab
     if (params.get('ask') === '1') setCurrentView('chat');
     const newsTopic = (params.get('fundamental') || '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 200);
@@ -349,7 +358,7 @@ export default function App() {
       newsLinkRef.current = { topic: newsTopic };
       setCurrentView('chat');
     } else if (params.get('news') === '1') newsLinkRef.current = { open: true };
-    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('chat') || params.has('focus')) {
+    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('coupon') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1336,6 +1345,13 @@ export default function App() {
     return () => {
       live = false;
     };
+  }, [authUser]);
+  // A promo claimed while signed out (pop-up or email link) opens Plans with the code once signed in
+  useEffect(() => {
+    if (authUser && claimAfterSignInRef.current) {
+      claimAfterSignInRef.current = false;
+      setIsPricingModalOpen(true);
+    }
   }, [authUser]);
   // A link from a watchlist email opens the watchlist once signed in
   useEffect(() => {
@@ -2469,6 +2485,14 @@ export default function App() {
       <>
         {toastBanner}
         <SiteBanner />
+        <PromoBanner
+          onClaim={code => {
+            setPricingCoupon(code);
+            claimAfterSignInRef.current = true;
+            setAuthModalMode('signin');
+            setIsAuthModalOpen(true);
+          }}
+        />
         {authChecked ? (
           <WelcomeGate
             notice={authUnavailable}
@@ -2507,6 +2531,7 @@ export default function App() {
         userProfile={userProfile}
         paymentsConfig={paymentsConfig}
         onPaymentVerified={handlePaymentVerified}
+        initialCoupon={pricingCoupon}
       />
       </Deferred>
 
@@ -2791,6 +2816,12 @@ export default function App() {
       {/* Main Workspace Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <SiteBanner />
+        <PromoBanner
+          onClaim={code => {
+            setPricingCoupon(code);
+            setIsPricingModalOpen(true);
+          }}
+        />
         {/* Top Header Bar */}
         <Header
           onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}

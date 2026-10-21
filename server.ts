@@ -43,6 +43,7 @@ import { registerMattRoutes, useMattEngine } from './server/matt';
 import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundamental';
 import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
+import { registerCouponRoutes, startCoupons } from './server/coupons';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -2097,6 +2098,8 @@ registerAuthRoutes(app);
 registerAccountRoutes(app, generalApiRateLimiter);
 registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
+// Coupon codes: 20 tries a minute per trader / visitor
+registerCouponRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many coupon tries. Please wait a minute.' }));
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
 // Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets
@@ -2227,6 +2230,7 @@ registerFundamentalRoutes(app, generalApiRateLimiter, analysisRateLimiter, {
 startNewsAlerts();
 // Matt + Fundamental Analysis history for the admin console: older than 90 days removed daily
 startSiLogSweep();
+startCoupons();
 registerStrategyBuilderRoutes(app, generalApiRateLimiter);
 // Live currency rates for the trade calculator
 registerFxRoutes(app, generalApiRateLimiter);

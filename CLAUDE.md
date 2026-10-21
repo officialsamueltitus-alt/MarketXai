@@ -430,6 +430,19 @@
   news alerts and Strategy Builder of free or lapsed accounts and tells them once (alerts keep running). Data is kept. Client (shared list
   `src/utils/proFeatures.ts`): `profile.proAccess`/`proFreeUntil`, "Pro" / "Free until 1 Nov" badges in the slash menu and Tools sheet, attach
   locked (attach, paste, drop), every entry point (`lockedPro` in `App.tsx`, card buttons via `onProLocked`) opens pricing.
+- Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
+  with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
+  A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it
+  off or the end date passing stops it at once. `POST /api/coupons/check` (20/min) says why a code fails (invalid, starts on…, expired, not for this
+  plan) and returns the exact prices (`planPrice` in `server/payments.ts`); `/api/payments/initialize` takes `coupon`, prices it on the server
+  (a code that fails = 400 `COUPON_*`, never a silent full price), stores `coupon` {code, pct} + `fullUsdAmount` on the payment, the receipt shows it,
+  `uses.{plan}` counted after the grant. Plans window (`PricingModal.tsx`): the coupon box is always there (Apply, applied chip with remove, struck-out
+  price, `initialCoupon` from the pop-up or `/?pricing=1&coupon=`). Promo pop-up (`PromoBanner.tsx`, `GET /api/promo`, signed in or out): the newest LIVE
+  coupon with `banner`, pops up on EVERY page load (owner-specified), close button hides it until the next load; Claim offer opens Plans with the code
+  (signed out: sign-in first, then Plans). Announcement email: a coupon with `mailAt` is emailed ONCE to every trader (not banned/suspended) by the
+  lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
+  `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 25 Nov 2026 00:00 to
+  28 Dec 2026 23:59:59 Lagos, pop-up on, email to everyone 25 Nov 9:00 AM Lagos (`promoMail`).
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside
