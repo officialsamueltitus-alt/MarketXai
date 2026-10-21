@@ -444,8 +444,8 @@
   live "ends in" countdown; keyframes `mx-promo-in`/`mx-snow`/`mx-sway`/`mx-shine`/`mx-twinkle` in `index.css`), other promos the same card in MarketX violet; Claim offer opens Plans with the code
   (signed out: sign-in first, then Plans). Announcement email: a coupon with `mailAt` is emailed ONCE to every trader (not banned/suspended) by the
   lead worker (`sweepCouponMail`, lease + `mail.lastUid` resume, `mail.state` SENT; bulk priority). Christmas promo (owner-specified, seeded once by
-  `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 25 Nov 2026 00:00 to
-  28 Dec 2026 23:59:59 Lagos, pop-up on, email to everyone 25 Nov 9:00 AM Lagos (`promoMail`).
+  `seedCoupons`, flag `adminConfig/couponSeeds`, deleting it never brings it back): MKXCMAS01, 30% off Monthly, 25% off Yearly, 10 Nov 2026 00:00 to
+  20 Dec 2026 23:59:59 Lagos, pop-up on, email to everyone 10 Nov 9:00 AM Lagos (`promoMail`).
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside

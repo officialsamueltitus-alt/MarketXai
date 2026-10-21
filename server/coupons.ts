@@ -108,8 +108,8 @@ export function countCouponUse(code: string, plan: CouponPlan) {
 }
 
 // ---------------------------------------------------------------------------
-// The Christmas promo (owner-specified): 30% off Monthly, 25% off Yearly, 25 Nov to 28 Dec 2026 (Lagos time), banner
-// on the site while it runs, and one email to every trader on 25 Nov.
+// The Christmas promo (owner-specified): 30% off Monthly, 25% off Yearly, 10 Nov to 20 Dec 2026 (Lagos time), banner
+// on the site while it runs, and one email to every trader on 10 Nov.
 // ---------------------------------------------------------------------------
 export const CHRISTMAS_CODE = 'MKXCMAS01';
 const LAGOS = (iso: string) => Date.parse(`${iso}+01:00`);
@@ -118,12 +118,12 @@ export const CHRISTMAS: Omit<Coupon, 'createdAt' | 'updatedAt'> = {
   monthlyPct: 30,
   yearlyPct: 25,
   active: true,
-  startsAt: LAGOS('2026-11-25T00:00:00'),
-  endsAt: LAGOS('2026-12-28T23:59:59'),
+  startsAt: LAGOS('2026-11-10T00:00:00'),
+  endsAt: LAGOS('2026-12-20T23:59:59'),
   title: 'The MarketX Christmas Promo is live',
   text: 'Unwrap MarketX Pro for less: 30% off Monthly and 25% off Yearly. Your edge for the new year starts now.',
   banner: true,
-  mailAt: LAGOS('2026-11-25T09:00:00'),
+  mailAt: LAGOS('2026-11-10T09:00:00'),
 };
 
 export async function seedCoupons(now = Date.now()) {
