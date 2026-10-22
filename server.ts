@@ -44,6 +44,7 @@ import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundam
 import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
 import { registerCouponRoutes, startCoupons } from './server/coupons';
+import { registerPressureRoutes } from './server/pressure';
 import { registerVoiceRoutes, useVoiceEngine } from './server/voice';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
@@ -2162,12 +2163,19 @@ registerWatchlistRoutes(
         const frames = await Promise.all(
           tfs.map(async tf => {
             if (st.rules.timeframes.length && !st.rules.timeframes.includes(tf) && !(style && style !== 'ANY')) return { timeframe: tf, price: q.price, equilibrium: 0, plan: null, zones: [] } as ScanFrame;
-            const cs = await fetchCandlesForAsset(asset, tf).catch(() => null);
+            // Confirmation analysis: the strategy's zone must be confirmed on the lower timeframe (same read as the analysis)
+            const confirmMode = mode === 'CONFIRMATION';
+            const ltfName = confirmMode ? confirmationTimeframe(tf) : '';
+            const [cs, ltf] = await Promise.all([fetchCandlesForAsset(asset, tf).catch(() => null), confirmMode ? fetchCandlesForAsset(asset, ltfName).catch(() => null) : Promise.resolve(null)]);
             if (!cs) return null;
-            const r = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec });
+            const r = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec, ...(confirmMode ? { confirm: { ltf: ltf || null, ltfName } } : {}) });
             // A setup is only announced when the analysis would serve it too (same check, so "ready" never turns into "no setup")
             const ok = r.signal && personalStrategyStatus(r.signal.direction, q.price, r.signal.entry.optimal, r.signal.stop, r.signal.targets.map(t => ({ level: t.label, price: t.price }))).state === 'ACTIVE';
-            return { timeframe: tf, price: q.price, equilibrium: 0, plan: ok ? { direction: r.signal!.direction, score: r.signal!.score, entry: r.signal!.entry } : null, zones: [] } as ScanFrame;
+            const cr = r.confirmationRead;
+            return {
+              timeframe: tf, price: q.price, equilibrium: 0, plan: ok ? { direction: r.signal!.direction, score: r.signal!.score, entry: r.signal!.entry } : null, zones: [],
+              ...(cr ? { confirm: { state: ok ? 'CONFIRMED' : cr.state === 'CONFIRMED' ? 'NONE' : cr.state, direction: cr.direction, zone: cr.zone } } : {}),
+            } as ScanFrame;
           })
         );
         return Object.assign(frames, { strategyName: st.name });
@@ -2178,6 +2186,29 @@ registerWatchlistRoutes(
     // Read when a scan runs (the constant is declared further down this file)
     get rdmMinScore() {
       return RDM_MIN_SCORE;
+    },
+  },
+  generalApiRateLimiter
+);
+// Buyers vs sellers (information only, owner-specified): read live for the card, never part of an analysis or a signal
+registerPressureRoutes(
+  app,
+  {
+    candles: async (symbol, tf) => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      if (!asset || asset.unresolved) return null;
+      const bars = await fetchCandlesForAsset(asset, tf);
+      return bars && bars.length ? { symbol: asset.symbol, bars } : null;
+    },
+    // Taker buy volume where the coin trades on Binance (the same pair its candles come from)
+    flow: async symbol => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      if (!asset || asset.unresolved || asset.type !== 'crypto' || asset.venue === 'bybit' || asset.venue === 'mexc' || asset.venue === 'dex') return null;
+      const compact = asset.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const binanceSym = (asset as any).binance || compact;
+      const pair = binanceSym.endsWith('USDT') ? binanceSym : `${binanceSym.replace(/USD$/, '')}USDT`;
+      const rows = await binanceRequest(`/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=1m&limit=61`, 4000);
+      return Array.isArray(rows) ? rows.map((r: any[]) => ({ t: Number(r[0]), volume: Number(r[5]), takerBuy: Number(r[9]) })) : null;
     },
   },
   generalApiRateLimiter
@@ -3436,9 +3467,12 @@ async function serveUserStrategyAnalysis(
     style?: TradeStyle;
     /** The timeframes the trader kept for that type ([] = all of the type's) */
     styleTfs?: string[];
+    /** Confirmation analysis (Preference Mode): the strategy's zone must be confirmed on the lower timeframe first */
+    mode?: AnalysisMode;
   }
 ) {
   const { strategy: st, asset, ticker } = o;
+  const confirmMode = o.mode === 'CONFIRMATION';
   const rules = st.rules;
   const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
   const price = ticker.price;
@@ -3460,15 +3494,20 @@ async function serveUserStrategyAnalysis(
   if (!stop) {
     const reads = await Promise.all(
       frames.map(async tf => {
-        const cs = await Promise.race([fetchCandlesForAsset(asset, tf), new Promise<null>(r => setTimeout(() => r(null), 7000))]).catch(() => null);
+        const ltfName = confirmMode ? confirmationTimeframe(tf) : '';
+        const timed = (t: string) => Promise.race([fetchCandlesForAsset(asset, t), new Promise<null>(r => setTimeout(() => r(null), 7000))]).catch(() => null);
+        const [cs, ltf] = await Promise.all([timed(tf), confirmMode ? timed(ltfName) : Promise.resolve(null)]);
         if (!cs) return null;
-        return { r: runUserStrategy(cs, rules, { price, timeframe: tf, decimals: dec, slMode: o.slMode }), tf, candles: cs.length };
+        const confirm = confirmMode ? { ltf: ltf || null, ltfName } : undefined;
+        return { r: runUserStrategy(cs, rules, { price, timeframe: tf, decimals: dec, slMode: o.slMode, confirm }), tf, candles: cs.length };
       })
     );
+    // Without a trade, the timeframe to explain is the one closest to a trade (waiting at its zone, then heading to it)
+    const near = (x: { r: UserStrategyResult }) => (x.r.confirmationRead?.state === 'WAITING_PATTERN' ? 2 : x.r.confirmationRead?.state === 'WAITING_TAP' ? 1 : 0);
     for (const x of reads) {
       if (!x) continue;
       if (x.r.signal && (!best || x.r.signal.score + Math.log2(timeframeMinutes(x.tf)) * 0.5 > best.r.signal!.score + Math.log2(timeframeMinutes(best.tf)) * 0.5)) best = x;
-      if (!x.r.signal && !firstNo) firstNo = x;
+      if (!x.r.signal && (!firstNo || near(x) > near(firstNo))) firstNo = x;
     }
     if (!best && !firstNo) stop = `No signal. The live candles could not be loaded to run your strategy "${st.name}" right now. Try again in a moment.`;
   }
@@ -3529,6 +3568,27 @@ async function serveUserStrategyAnalysis(
     s.detailedThesis =
       `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}\n\n#### No signal\n${reason}\n\n**Your rules:**\n${describeRules(rules).map(l => `- ${l}`).join('\n')}`;
     s.signalStatus = { state: 'PENDING_CONFIRMATION', verdict: 'No Signal Opportunity', details: reason };
+  }
+  // Confirmation analysis: the result says so (same tags as the general engine), a trade carries how it was confirmed
+  if (confirmMode) {
+    const cr = (best || used)?.r.confirmationRead;
+    const ltfName = confirmationTimeframe(tf);
+    s.analysisMode = 'CONFIRMATION';
+    const c = sig?.confirmation;
+    s.confirmationRead = {
+      state: sig ? 'CONFIRMED' : cr?.state || 'NONE',
+      ltf: c?.ltf || cr?.ltf || ltfName,
+      ...(cr?.zone ? { zone: cr.zone, direction: cr.direction } : {}),
+      ...(c ? { patterns: c.patterns, confirmedAt: c.confirmedAt, reactionExtreme: c.reactionExtreme, sweptZone: c.sweptZone } : {}),
+    };
+    if (c) {
+      const long = sig!.direction === 'LONG';
+      s.entryZone.rationale = `${long ? 'Buy' : 'Sell'} now at market: your strategy's ${sig!.zone.label} was reached and confirmed on the ${label(c.ltf)} (${c.patterns.slice(0, 2).join(', ').toLowerCase()})`;
+      if (rules.stop.type !== 'ATR' || Math.abs(sig!.stop - c.reactionExtreme) < Math.abs(sig!.entry.optimal - sig!.stop))
+        s.stopLoss.rationale = `Beyond the reaction ${long ? 'low' : 'high'} ${c.reactionExtreme}${c.sweptZone ? ' (the wick that swept the zone)' : ''} on the ${label(c.ltf)}, and your strategy's invalidation`;
+    }
+    const note = c ? c.note : cr && (cr.state === 'WAITING_PATTERN' || cr.state === 'WAITING_TAP') ? cr.text : '';
+    if (note && !String(s.detailedThesis).includes('**Confirmation analysis:**')) s.detailedThesis = `> **Confirmation analysis:** ${note}\n\n${s.detailedThesis}`;
   }
   // The trader's own rules govern the entry; only the hard checks apply (same check as the watchlist's scan)
   if (sig) enforcePersonalStrategyCheck(s);
@@ -4000,6 +4060,7 @@ Do NOT output structured trade card JSON.`;
           newsBrief,
           style: tradeStyle,
           styleTfs: tradePrefs!.styleTfs,
+          mode: tradePrefs?.mode || 'NORMAL',
         });
       }
     }

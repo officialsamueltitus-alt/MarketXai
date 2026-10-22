@@ -1,6 +1,7 @@
 import { pickGreeting } from '../utils/greeting';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { withDefaults, formatMoney, type Preferences } from '../utils/preferences';
+import { PressureMeter } from './PressureMeter';
 import { TokenSafetyCard, ProofBadge } from './TokenSafetyCard';
 import { FundamentalCard } from './FundamentalCard';
 import { LazyMarkdown } from './LazyMarkdown';
@@ -1038,6 +1039,9 @@ Rationale: ${strategy.entryZone.rationale}
                           </div>
                         )}
                         {strategy.tokenSafety && <TokenSafetyCard safety={strategy.tokenSafety} />}
+
+                        {/* Buyers vs sellers right now: live, for information only (never part of the analysis or the signal) */}
+                        <PressureMeter symbol={strategy.symbol} />
 
                         {/* Strategy Rationale Summary */}
                         <div className="p-3 rounded-xl bg-sky-950/25 border border-sky-400/20 text-xs text-slate-200 leading-relaxed font-sans shadow-inner break-words">

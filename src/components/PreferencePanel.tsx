@@ -188,6 +188,9 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
               <p className="mt-2 flex items-center gap-1 text-[10px] text-slate-500">
                 <ChevronRight className="w-3 h-3" /> Fewer trades, each one confirmed. Analyses say "waiting for confirmation" until price confirms.
               </p>
+              <p className="mt-1.5 flex items-start gap-1 text-[10px] leading-snug text-slate-500">
+                <ChevronRight className="w-3 h-3 shrink-0 mt-px" /> Your Strategy Builder strategies follow it too: a setup your rules find is only called once price reaches its zone and confirms it.
+              </p>
             </div>
           )}
         </Section>

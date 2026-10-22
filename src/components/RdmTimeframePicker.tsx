@@ -16,11 +16,13 @@ interface RdmTimeframePickerProps {
   /** Draft mode (the composer pop-up): taps only change the draft; Save stores it and calls onSaved, Cancel calls onCancel */
   onSaved?: () => void;
   onCancel?: () => void;
+  /** Replaces the "saved / save to use it everywhere" line (a parent that saves the choice with its own Save button) */
+  note?: string;
 }
 
 const label = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
 
-export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, onChange, compact, disabled, onSaved, onCancel }) => {
+export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, onChange, compact, disabled, onSaved, onCancel, note }) => {
   const draftMode = !!onSaved;
   const [saving, setSaving] = useState(false);
   // Shown at once; follows the saved value when it changes elsewhere (or when a save fails)
@@ -103,7 +105,7 @@ export const RdmTimeframePicker: React.FC<RdmTimeframePickerProps> = ({ value, o
           <>
             <Check className="inline w-3 h-3 -mt-0.5 mr-0.5 text-emerald-300" />
             RDM scans {all ? 'every timeframe' : rdmLabel(choice)} and picks the strongest setup.{' '}
-            {draftMode ? 'Save to use it everywhere.' : 'Saved to Preference Mode, used everywhere.'}
+            {note ?? (draftMode ? 'Save to use it everywhere.' : 'Saved to Preference Mode, used everywhere.')}
           </>
         )}
       </p>

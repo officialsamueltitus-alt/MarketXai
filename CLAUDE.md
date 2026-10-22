@@ -81,6 +81,12 @@
   untouched; card tag "Confirmed · 5m" / "Waiting for confirmation"). Watchlist items carry `analysisMode` (scan key includes it): READY
   only when confirmed (`setup.confirmation`, "confirmed" notices), BUILDING = waiting for confirmation; `syncWatchPrefs` moves a trader's
   pairs when the mode or RDM timeframes change.
+  Strategy Builder + Confirmation (owner-specified, every strategy): with CONFIRMATION on, `runUserStrategy` (`opts.confirm` {ltf, ltfName}) only
+  serves a setup once price reached its zone and the LTF confirmed it (`readZoneConfirmation` / `confirmWords` from `server/confirmation.ts`, same
+  rules and windows; RANGE_SWEEP = the range low down to the sweep wick, SESSION_BREAKOUT = the broken range high, thin levels get 0.25 ATR): MARKET
+  entry, stop also beyond the reaction wick (+0.4 / 0.2 LTF ATR), mitigation + half-way measured from the confirming LTF candle, `signal.confirmation`;
+  else NO_SIGNAL "Setup found, waiting for confirmation" (`confirmationRead` WAITING_TAP / WAITING_PATTERN). `serveUserStrategyAnalysis` (`mode`) and
+  the watchlist strategy scan fetch the LTF too and tag/scan like the general engine (READY = confirmed, BUILDING = waiting, keys RSC / CS).
   Trade type (owner-specified, Preference Mode `users.preferences.tradeStyle` ANY default / SCALP / DAY / SWING, shared `src/utils/tradeStyle.ts`,
   cards in `PreferencePanel.tsx`, a dot on the composer's Tools button, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
   the type (SCALP 1m to 15m, DAY 15m to 2H, SWING 4H to 1W; another timeframe moves to the nearest, `fitTimeframe`; RDM scans only the type's,
@@ -212,6 +218,12 @@
   claims more than 0.6% off the live price (`res.locals.liveQuotePrice`) are corrected to it, and in trade write-ups any sentence naming a
   price level that is not in the verified result (`numbersIn(strategy)` + live price, 0.15%) is removed (R, %, ATR, ratios and
   ~~crossed-out~~ numbers are ignored). Levels are never changed; the prompt text is untouched. Chart notes only say "live price now" for a live quote.
+- Buyers vs Sellers (owner-specified, INFORMATION ONLY, strict): `server/pressure.ts` (`readPressure`, pure) + `GET /api/pressure?symbol=` (signed in,
+  40/min per trader, one read per market shared for 5s, 8s cap, 503 `PRESSURE_UNAVAILABLE`) and `PressureMeter.tsx` on every analysis card in `ChatFeed.tsx`
+  (above the execution thesis; fetches on its own, refreshes every 15s only while on screen and the tab is visible). Read from fresh 1M candles (5M
+  fallback): close location in the true range, weighted by size and recency; for Binance-routed coins also taker buy volume (65% flow / 35% price
+  action); main window 60 min, last 15 min = buyers/sellers gaining; quiet = no candle for 20 min. NEVER read by the analysis engine, its
+  instructions, the analyze route, signals, the watchlist or alerts, and never added to the analysis response.
 - Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
   through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
   `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan
@@ -301,7 +313,11 @@
 - Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);
   a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM, or the first
   chosen RDM timeframe of an hour or more). RDM pairs scan the trader's RDM timeframes (`rdmFrames` on the item, copied on add / switch to RDM;
-  saving the preference calls `syncWatchPrefs`, which moves the trader's pairs to the new RDM choice / analysis mode and rescans them). The lead
+  saving the preference calls `syncWatchPrefs`, which moves the trader's pairs to the new RDM choice / analysis mode and rescans them). Editing a pair's timeframe
+  (owner-requested, never delete + re-add): the pair's timeframe chip (pencil) opens `TimeframeEditor` in `WatchlistPanel.tsx` (draft: tap one timeframe, or RDM
+  and its timeframes in `RdmTimeframePicker` with `note`; nothing changes until Save, Cancel discards); Save stores a changed RDM choice first (the one shared
+  preference) then `PATCH /api/watchlist/:id`. Tapping a timeframe in the add row above offers "Save X to all pairs" when some pair differs
+  (`POST /api/watchlist/timeframe`, Pro, every pair moved with the same `applyTimeframe` + rescan, returns `changed`). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a

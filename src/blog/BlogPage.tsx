@@ -577,7 +577,7 @@ const SECTIONS: Section[] = [
           still finds the zone, but only calls the trade once price reaches it and a lower timeframe shows it holding, such as a liquidity sweep or
           false breakout, an engulfing candle, a pin bar, a morning or evening star, or a structure break. Then you get the entry at market with the
           stop beyond the reaction wick, and the watchlist only says ready at that moment. Until then the result says <B>waiting for
-          confirmation</B> and shows the zone. Fewer trades, each one confirmed. A green chip next to the input box shows when it is on.
+          confirmation</B> and shows the zone. Fewer trades, each one confirmed. Your personal strategy from the Strategy Builder follows it too: a setup your rules find is only called once price reaches its zone and a lower timeframe confirms it. A green chip next to the input box shows when it is on.
         </Note>
         <Note title="Trade type: Scalp, Day or Swing" tone="amber">
           Pick the kind of trades you take and every analysis, your personal strategy and your watchlist only give trades of that type. <B>Scalp</B>{' '}
@@ -596,6 +596,12 @@ const SECTIONS: Section[] = [
           at risk. Enter your account size, then your entry and stop prices (or the stop in pips or points). It handles forex, gold, silver, oil, indices,
           crypto, stocks and synthetics, converts to your account currency, and rounds down so you never risk more than you set. Tap <B>Lot size</B> on
           any trade card to open it already filled with that trade.
+        </Note>
+        <Note title="Buyers vs Sellers">
+          Every analysis card shows who is in control of the market right now: the share of buying against selling pressure from the last hour of
+          one-minute candles (for coins, the volume bought and sold at market too), whether buyers or sellers are gaining in the last 15 minutes,
+          and a note when the market is quiet or closed. It updates live while the card is on your screen. It is for information only: it never
+          changes the signal, the levels or the analysis.
         </Note>
         <Note title="Your trade, in your money">
           With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.

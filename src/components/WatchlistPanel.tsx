@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, BellRing, Check, Loader2, Mail, Plus, Radar, RefreshCw, Search, Sparkles, Trash2, Wand2, Layers, Volume2, VolumeX } from 'lucide-react';
+import { Activity, BellRing, Check, Loader2, Mail, Pencil, Plus, Radar, RefreshCw, Search, Sparkles, Trash2, Wand2, Layers, Volume2, VolumeX } from 'lucide-react';
 import type { WatchItem } from '../types';
 import { apiFetch } from '../utils/apiClient';
 import { formatMarketPrice } from '../utils/formatPrice';
@@ -7,7 +7,7 @@ import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { playChime, setWatchSound, watchSoundOn } from '../utils/notifySound';
 import { PluginIntro, PluginSheet, ago } from './PluginSheet';
 import { RdmTimeframePicker } from './RdmTimeframePicker';
-import { rdmLabel } from '../utils/preferences';
+import { normalizeRdmTimeframes, rdmLabel } from '../utils/preferences';
 import { STYLE_INFO, styleFramesLabel } from '../utils/tradeStyle';
 
 interface WatchlistPanelProps {
@@ -48,6 +48,77 @@ const STATUS: Record<WatchItem['status'], { label: string; pill: string; dot: st
   NO_DATA: { label: 'No data', pill: 'bg-rose-500/10 text-rose-300 border-rose-500/25', dot: 'bg-rose-400' },
 };
 
+const tfLabel = (id: string) => TIMEFRAMES.find(t => t.id === id)?.label || id;
+const sameFrames = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every(x => b.includes(x));
+
+/**
+ * Edit a pair's timeframe (owner-requested): tap one timeframe, or RDM and the timeframes it scans, then Save.
+ * Nothing changes until Save; the RDM timeframes are the one shared RDM choice (saved to Preference Mode).
+ */
+const TimeframeEditor: React.FC<{
+  symbol: string;
+  current: string;
+  rdmValue: string[];
+  onSave: (timeframe: string, rdm: string[]) => Promise<void>;
+  onCancel: () => void;
+}> = ({ symbol, current, rdmValue, onSave, onCancel }) => {
+  const [tf, setTf] = useState(current);
+  const [rdm, setRdm] = useState<string[]>(() => normalizeRdmTimeframes(rdmValue) || []);
+  const [saving, setSaving] = useState(false);
+  const changed = tf !== current || (tf === 'RDM' && !sameFrames(rdm, normalizeRdmTimeframes(rdmValue) || []));
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(tf, rdm);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="mt-2.5 p-2.5 rounded-xl bg-black/20 border border-white/[0.06] mx-fade-in">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Timeframe for {symbol}</div>
+      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={`Timeframe for ${symbol}`}>
+        {TIMEFRAMES.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            role="radio"
+            aria-checked={tf === t.id}
+            disabled={saving}
+            onClick={() => setTf(t.id)}
+            className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 inline-flex items-center gap-1 cursor-pointer transition ${
+              tf === t.id ? 'bg-white text-slate-900' : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]'
+            }`}
+          >
+            {t.id === 'RDM' && <Layers className="w-3 h-3" />}
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tf === 'RDM' && (
+        <div className="mt-2.5 mx-fade-in">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">RDM searches</div>
+          <RdmTimeframePicker compact value={rdm} onChange={next => setRdm(next)} disabled={saving} note="Applies to every pair on RDM." />
+        </div>
+      )}
+      <div className="mt-2.5 flex items-center justify-end gap-2">
+        <button type="button" onClick={onCancel} disabled={saving} className="h-8 px-3 rounded-full text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer">
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !changed}
+          className="h-8 px-4 rounded-full bg-white text-slate-900 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+          {saving ? 'Saving…' : `Save ${tfLabel(tf)}`}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode, tradeStyle, styleFrames }) => {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [max, setMax] = useState(12);
@@ -55,6 +126,8 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
   const [busy, setBusy] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [timeframe, setTimeframe] = useState('RDM');
+  // Set once a timeframe above is tapped: only then is "Save … to all pairs" offered
+  const [picked, setPicked] = useState(false);
   const [verify, setVerify] = useState<Verify | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   // The RDM timeframe list stays closed until RDM is tapped (add form: 'add'; a pair: its id)
@@ -143,11 +216,31 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
     }
   };
 
-  const changeTf = (id: string, tf: string) =>
-    run(id, async () => {
-      const data = await apiFetch<{ items: WatchItem[] }>(`/api/watchlist/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ timeframe: tf }) });
+  // Saves an edited timeframe: the RDM choice first (it is shared), then the pair moves to its new timeframe
+  const saveTimeframe = async (id: string, tf: string, rdm: string[]) => {
+    try {
+      const rdmChanged = tf === 'RDM' && !sameFrames(rdm, normalizeRdmTimeframes(rdmTimeframes) || []);
+      if (rdmChanged) await onRdmTimeframesChange(rdm);
+      const item = items.find(i => i.id === id);
+      if (item && item.timeframe !== tf) {
+        const data = await apiFetch<{ items: WatchItem[] }>(`/api/watchlist/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ timeframe: tf }) });
+        setItems(data.items || []);
+      } else if (rdmChanged) await load();
+      setEditing(null);
+      onToast(`${item?.symbol || 'Pair'} now scans ${tf === 'RDM' ? `RDM (${rdmLabel(rdm)})` : `the ${tfLabel(tf)}`}`);
+    } catch (err: any) {
+      onToast(err?.message || 'Could not change the timeframe. Please try again.');
+    }
+  };
+  // The timeframe picked above, for every pair at once (owner-requested)
+  const toApply = items.filter(i => i.timeframe !== timeframe);
+  const saveAll = () =>
+    run('all', async () => {
+      const data = await apiFetch<{ items: WatchItem[]; changed: number }>('/api/watchlist/timeframe', { method: 'POST', body: JSON.stringify({ timeframe }) });
       setItems(data.items || []);
       setEditing(null);
+      setPicked(false);
+      onToast(`${data.changed} pair${data.changed === 1 ? '' : 's'} now scan${data.changed === 1 ? 's' : ''} ${timeframe === 'RDM' ? `RDM (${rdmLabel(rdmTimeframes)})` : `the ${tfLabel(timeframe)}`}`);
     });
   const scanNow = (id: string) =>
     run(`scan:${id}`, async () => {
@@ -201,6 +294,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
               onClick={() => {
                 setRdmOpen(tf.id === 'RDM' ? (timeframe === 'RDM' && rdmOpen === 'add' ? null : 'add') : null);
                 setTimeframe(tf.id);
+                setPicked(true);
               }}
               title={tf.id === 'RDM' ? `RDM: scan ${rdmLabel(rdmTimeframes).replace('All timeframes', 'every timeframe')}` : `Scan the ${tf.id}`}
               className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 inline-flex items-center gap-1 transition cursor-pointer ${
@@ -216,6 +310,23 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
           <div className="mt-2 p-2.5 rounded-xl bg-black/20 border border-white/[0.06] mx-fade-in">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">RDM searches</div>
             <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} onSaved={() => setRdmOpen(null)} onCancel={() => setRdmOpen(null)} />
+          </div>
+        )}
+        {picked && toApply.length > 0 && !(timeframe === 'RDM' && rdmOpen === 'add') && (
+          <div className="mt-2 flex items-center gap-2 px-1 mx-fade-in">
+            <p className="flex-1 min-w-0 text-[11px] text-slate-400 leading-snug">
+              {toApply.length === items.length ? `Your ${items.length === 1 ? 'pair scans' : `${items.length} pairs scan`} other timeframes.` : `${toApply.length} of your pairs scan${toApply.length === 1 ? 's' : ''} another timeframe.`}
+            </p>
+            <button
+              type="button"
+              onClick={saveAll}
+              disabled={busy === 'all'}
+              className="h-7 px-3 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[11px] font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+              title={`Move every pair on your watchlist to ${timeframe === 'RDM' ? 'RDM' : `the ${tfLabel(timeframe)}`}`}
+            >
+              {busy === 'all' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+              Save {tfLabel(timeframe)} to all pairs
+            </button>
           </div>
         )}
       </form>
@@ -355,42 +466,30 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                     <button
                       type="button"
                       onClick={() => setEditing(editing === i.id ? null : i.id)}
-                      aria-label={`Change the ${i.symbol} timeframe`}
-                      title="Change timeframe"
-                      className="h-5 px-1.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-[10px] font-mono text-slate-300 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                      aria-label={`Edit the ${i.symbol} timeframe (now ${i.timeframe})`}
+                      aria-expanded={editing === i.id}
+                      title="Edit timeframe"
+                      className={`h-6 pl-1.5 pr-2 rounded-md text-[10px] font-mono inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors ${
+                        editing === i.id ? 'bg-white text-slate-900' : 'bg-white/[0.06] hover:bg-white/[0.12] text-slate-300'
+                      }`}
                     >
                       {i.timeframe === 'RDM' && <Layers className="w-2.5 h-2.5" />}
-                      {i.timeframe}
+                      {tfLabel(i.timeframe)}
                       {i.timeframe === 'RDM' && i.rdmFrames && i.rdmFrames.length > 0 && <span className="text-slate-500">·{i.rdmFrames.length}</span>}
+                      <Pencil className="w-2.5 h-2.5 opacity-70" />
                     </button>
                     <span className={`h-5 px-2 rounded-full border text-[10px] font-semibold inline-flex items-center shrink-0 ${st.pill}`}>{i.active ? st.label : 'Paused'}</span>
                     <span className="ml-auto text-sm font-mono text-slate-200 tabular-nums truncate">{i.price ? formatMarketPrice(i.price) : ''}</span>
                   </div>
                   {editing === i.id && (
-                    <div className="mt-2 flex flex-wrap gap-1 mx-fade-in" role="radiogroup" aria-label={`Timeframe for ${i.symbol}`}>
-                      {TIMEFRAMES.map(tf => (
-                        <button
-                          key={tf.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={tf.id === i.timeframe}
-                          disabled={busy === i.id}
-                          onClick={() => {
-                            if (tf.id === 'RDM') setRdmOpen(i.timeframe === 'RDM' && rdmOpen === i.id ? null : i.id);
-                            else setRdmOpen(null);
-                            if (tf.id !== i.timeframe) changeTf(i.id, tf.id);
-                          }}
-                          className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold shrink-0 cursor-pointer ${tf.id === i.timeframe ? 'bg-white text-slate-900' : 'bg-white/[0.04] text-slate-400 hover:text-white'}`}
-                        >
-                          {tf.label}
-                        </button>
-                      ))}
-                      {i.timeframe === 'RDM' && rdmOpen === i.id && (
-                        <div className="w-full mt-1.5 mx-fade-in">
-                          <RdmTimeframePicker compact value={rdmTimeframes} onChange={saveRdm} disabled={busy === i.id} onSaved={() => setRdmOpen(null)} onCancel={() => setRdmOpen(null)} />
-                        </div>
-                      )}
-                    </div>
+                    <TimeframeEditor
+                      key={`${i.id}:${i.timeframe}`}
+                      symbol={i.symbol}
+                      current={i.timeframe}
+                      rdmValue={rdmTimeframes}
+                      onSave={(tf, rdm) => saveTimeframe(i.id, tf, rdm)}
+                      onCancel={() => setEditing(null)}
+                    />
                   )}
                   <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">{i.statusText}</p>
                   {setup && i.active && (
