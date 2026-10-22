@@ -12,7 +12,8 @@ import { clipToWav, toBase64 } from '../utils/voice';
 export type VoiceState = 'idle' | 'starting' | 'listening' | 'transcribing';
 
 const MAX_MS = 30_000;
-const SILENCE_MS = 1600;
+/** The recording ends this long after the trader stops talking (phones record, so this is their reply delay) */
+const SILENCE_MS = 950;
 const NO_SPEECH_MS = 7000;
 /** A tap on Stop always ends the session within this time, even if the browser never answers */
 const STOP_GRACE_MS = 2500;
@@ -246,6 +247,11 @@ export function useVoiceInput(handlers: Handlers) {
         startedAt = performance.now();
         setState('listening');
         let lastLoud = startedAt;
+        // Speech is judged against the room, not a fixed level: phones boost the mic (auto gain), so a quiet room can sit
+        // above a fixed threshold (never "silent", the clip ran on) or a soft voice below it (never "spoke")
+        let floor = -1;
+        let peak = 0;
+        let loudRun = 0;
         const buf = new Float32Array(analyser ? analyser.fftSize : 0);
         const tick = () => {
           if (ended || stopRequested) return;
@@ -260,9 +266,19 @@ export function useVoiceInput(handlers: Handlers) {
           }
           // Without a working meter the bars just breathe
           levelRef.current = meterWorks ? Math.min(1, rms * 7) : 0.25 + 0.2 * Math.sin(now / 180);
-          if (rms > 0.03) {
-            spoke = true;
-            lastLoud = now;
+          if (meterWorks) {
+            if (floor < 0) floor = rms;
+            const voiceAt = Math.min(0.06, Math.max(0.012, floor * 3));
+            // Once the trader has spoken, a drop well under their own level counts as silence too
+            const loud = rms > Math.max(voiceAt, spoke ? peak * 0.14 : 0);
+            // Background level: follows quieter frames down at once and drifts up slowly between words (not on speech)
+            floor = rms < floor ? rms : loud ? floor : floor + (rms - floor) * 0.01;
+            loudRun = loud ? loudRun + 1 : 0;
+            if (loudRun >= 3) {
+              spoke = true;
+              peak = Math.max(peak * 0.995, rms);
+            }
+            if (spoke && loud) lastLoud = now;
           }
           if (now - startedAt > MAX_MS || (meterWorks && spoke && now - lastLoud > SILENCE_MS) || (meterWorks && !spoke && now - startedAt > NO_SPEECH_MS)) {
             me.stop();

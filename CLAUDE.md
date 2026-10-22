@@ -241,6 +241,10 @@
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
   Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
   and spoken when the video has a voice-over) as its final card.
+  Owner-specified for every new video: the site is always captured in LIGHT mode; every phone/device is shown whole (all
+  four sides, frame and body in view, never cropped by the video edge); the music is always in the style of the owner's
+  chosen ad track (the Epidemic Sound track used in the MarketX ad, ~101 BPM, a quiet build-up then a bass drop), with
+  the cuts timed to its beat.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Parent company (owner-specified): SpiriTech Labs owns and built MarketX; credited as "Built by SpiriTech Labs" in the
   sidebar Settings (under Terms & Privacy), the guide, Terms, proof and checker footers, the email footer, the `index.html` JSON-LD (`#spiritech`
@@ -475,9 +479,11 @@
   Android, every browser, `isMobileDevice`, owner-requested fix) always record instead, so the mic permission prompt always shows (getUserMedia, "Allow the mic"
   state `starting`) and Stop always works; the AudioContext is made inside the tap (iOS). Stop ends any session within `STOP_GRACE_MS` (2.5s) even if the
   browser never answers, a recognition that doesn't start in 5s records instead, leaving the page releases the mic; desktop also falls back (no API, or a network /
-  service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (1.6s after speech, 7s with none, 30s max),
-  `clipToWav` (16 kHz mono) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
-  20/min and 300/day per trader, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; nothing stored or logged; 422 NO_SPEECH,
+  service-not-allowed error, then for the rest of the visit) to MediaRecorder with silence cut-off (owner-requested speed: ~1s (`SILENCE_MS` 950) after speech, judged against the room's own
+  noise floor and the speaker's level so phones' auto gain can't keep a clip running; 7s with none, 30s max),
+  `clipToWav` (16 kHz mono, silence before the first and after the last word trimmed, `trimSilence`) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
+  20/min and 300/day per trader, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; lightest model first, the next
+  started alongside after 2.5s (`HEDGE_MS`), first words back win; nothing stored or logged; 422 NO_SPEECH,
   503 VOICE_UNAVAILABLE; no credit). UI: `VoiceMicButton` (Mic → violet/fuchsia stop with rings → spinner), `VoiceStatus` (cancel X, live
   `VoiceWave`, "Listening 0:04"), composer `is-listening` glow (`index.css`). The final words go through `normalizeSpokenPrompt`
   (`src/utils/voice.ts`: spoken pairs → EURUSD / GBPJPY / NAS100 / US30 / XAUUSD, number-word timeframes → "4 hour", spelled letters,
