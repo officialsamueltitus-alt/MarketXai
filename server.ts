@@ -3478,10 +3478,12 @@ async function serveUserStrategyAnalysis(
         return { r: runUserStrategy(cs, rules, { price, timeframe: tf, decimals: dec, slMode: o.slMode, confirm }), tf, candles: cs.length };
       })
     );
+    // Without a trade, the timeframe to explain is the one closest to a trade (waiting at its zone, then heading to it)
+    const near = (x: { r: UserStrategyResult }) => (x.r.confirmationRead?.state === 'WAITING_PATTERN' ? 2 : x.r.confirmationRead?.state === 'WAITING_TAP' ? 1 : 0);
     for (const x of reads) {
       if (!x) continue;
       if (x.r.signal && (!best || x.r.signal.score + Math.log2(timeframeMinutes(x.tf)) * 0.5 > best.r.signal!.score + Math.log2(timeframeMinutes(best.tf)) * 0.5)) best = x;
-      if (!x.r.signal && !firstNo) firstNo = x;
+      if (!x.r.signal && (!firstNo || near(x) > near(firstNo))) firstNo = x;
     }
     if (!best && !firstNo) stop = `No signal. The live candles could not be loaded to run your strategy "${st.name}" right now. Try again in a moment.`;
   }

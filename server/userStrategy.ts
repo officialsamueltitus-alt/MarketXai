@@ -332,6 +332,8 @@ export function runUserStrategy(
     }
     // Confirmation analysis: the setup's zone must be reached and confirmed on the lower timeframe first
     let conf: { idx: number; L: Candle[]; close: number; low: number; buffer: number; patterns: string[]; swept: boolean; at: number; label: string; suffix: string } | null = null;
+    // Not confirmed yet: the rest of the rules still run, and only a setup they would accept is "waiting for confirmation"
+    let pending: { state: 'WAITING_PATTERN' | 'WAITING_TAP'; low: number; high: number; label: string; reason?: string } | null = null;
     if (opts.confirm) {
       const ltfName = opts.confirm.ltfName;
       if (ltfC.length < 40) { reasons.push(`${side}: confirmation needs the ${lbl(ltfName)} chart, which can't be read right now`); continue; }
@@ -348,29 +350,27 @@ export function runUserStrategy(
       const rd = readZoneConfirmation(L, top, bottom, opts.timeframe, ltfName);
       if (rd.state !== 'CONFIRMED') {
         if (rd.state === 'FAILED') { reasons.push(`${side}: no confirmation at the ${long ? zoneLabel : sellWords(zoneLabel)} (${rd.reason})`); continue; }
-        waits.push({ state: rd.state, direction: dir, low: long ? bottom : -top, high: long ? top : -bottom, label: long ? zoneLabel : sellWords(zoneLabel), quality: got.quality, reason: rd.reason });
-        reasons.push(rd.state === 'WAITING_TAP'
-          ? `${side}: setup found, waiting for price to reach the ${long ? zoneLabel : sellWords(zoneLabel)}`
-          : `${side}: price is at the ${long ? zoneLabel : sellWords(zoneLabel)}, waiting for the ${lbl(ltfName)} to confirm it${rd.reason ? ` (${rd.reason})` : ''}`);
-        continue;
+        pending = { state: rd.state, low: long ? bottom : -top, high: long ? top : -bottom, label: long ? zoneLabel : sellWords(zoneLabel), reason: rd.reason };
+      } else {
+        const c = L[rd.confirmIdx];
+        const words = confirmWords(rd.patterns, long);
+        const patterns = rd.divergence ? [...words, `RSI ${long ? 'bullish' : 'bearish'} divergence`] : words;
+        // Measured from the confirmation: the trigger becomes a market entry, the idea is wrong beyond the reaction wick
+        let hi = 0;
+        for (let k = 0; k < n; k++) if (cs[k].t <= c.t) hi = k;
+        conf = {
+          idx: rd.confirmIdx, L, close: c.c, low: rd.low, buffer: rd.ltfAtr * (opts.slMode === 'tight' ? 0.2 : 0.4), patterns, swept: rd.low < bottom, at: c.t,
+          label: long ? zoneLabel : sellWords(zoneLabel),
+          suffix: `, then price came back to the ${long ? zoneLabel : sellWords(zoneLabel)} and confirmed it on the ${lbl(ltfName)} (${patterns.slice(0, 2).join(', ').toLowerCase()})`,
+        };
+        got = { ...got, execution: 'MARKET', band: undefined, invalidation: Math.min(got.invalidation, rd.low), at: cs[hi].t };
       }
-      const c = L[rd.confirmIdx];
-      const words = confirmWords(rd.patterns, long);
-      const patterns = rd.divergence ? [...words, `RSI ${long ? 'bullish' : 'bearish'} divergence`] : words;
-      // Measured from the confirmation: the trigger becomes a market entry, the idea is wrong beyond the reaction wick
-      let hi = 0;
-      for (let k = 0; k < n; k++) if (cs[k].t <= c.t) hi = k;
-      conf = {
-        idx: rd.confirmIdx, L, close: c.c, low: rd.low, buffer: rd.ltfAtr * (opts.slMode === 'tight' ? 0.2 : 0.4), patterns, swept: rd.low < bottom, at: c.t,
-        label: long ? zoneLabel : sellWords(zoneLabel),
-        suffix: `, then price came back to the ${long ? zoneLabel : sellWords(zoneLabel)} and confirmed it on the ${lbl(ltfName)} (${patterns.slice(0, 2).join(', ').toLowerCase()})`,
-      };
-      got = { ...got, execution: 'MARKET', band: undefined, invalidation: Math.min(got.invalidation, rd.low), at: cs[hi].t };
     }
     // Entry
     let entry: { min: number; max: number; optimal: number };
     if (got.execution === 'LIMIT' && got.band) {
-      if (got.band.high > price) { reasons.push(`${side}: the limit entry is no longer ahead of price`); continue; }
+      // (while waiting for confirmation, price reaching the band is the touch it waits for, not a missed entry)
+      if (got.band.high > price && !pending) { reasons.push(`${side}: the limit entry is no longer ahead of price`); continue; }
       entry = { min: got.band.low, max: got.band.high, optimal: got.band.high - (got.band.high - got.band.low) * 0.3 };
     } else {
       const pad = atr * 0.1;
@@ -422,7 +422,7 @@ export function runUserStrategy(
         reasons.push(`${side}: already mitigated, TP${k + 1} ${lvl(tps[k].price)} was already reached (${when(tpHit)})`);
         continue;
       }
-      if (got.execution === 'LIMIT') {
+      if (got.execution === 'LIMIT' && !pending) {
         const tapped = after.find(c => c.l <= entry.max);
         if (tapped) { reasons.push(`${side}: already mitigated, the entry zone ${Math.min(lvl(entry.min), lvl(entry.max))} to ${Math.max(lvl(entry.min), lvl(entry.max))} was already traded into (${when(tapped)})`); continue; }
       }
@@ -431,12 +431,21 @@ export function runUserStrategy(
     // (a limit entry has not filled yet: its targets are the highs price is expected to revisit, so only market entries
     // are checked against what happened since the trigger)
     const fromIdx = cs.findIndex(c => c.t >= got.at);
-    if (got.execution === 'MARKET') {
+    // (a setup waiting for confirmation has no entry yet: these checks run from the confirming candle once it confirms)
+    if (got.execution === 'MARKET' && !pending) {
       const since = conf ? conf.L.slice(conf.idx) : cs.slice(Math.max(0, fromIdx));
       if (since.some(c => c.h >= tps[0].price)) { reasons.push(`${side}: TP1 was already reached since the setup ${conf ? 'confirmed' : 'formed'}`); continue; }
       const trig = conf ? conf.close : cs[Math.max(0, fromIdx)].c;
       const prog = (price - trig) / (tps[0].price - trig);
       if (tps[0].price > trig && prog >= 0.5) { reasons.push(`${side}: price already moved half-way to TP1 since the trigger`); continue; }
+    }
+    // A valid setup still waiting for its confirmation: reported as waiting, never served
+    if (pending) {
+      waits.push({ state: pending.state, direction: dir, low: pending.low, high: pending.high, label: pending.label, quality: got.quality, reason: pending.reason });
+      reasons.push(pending.state === 'WAITING_TAP'
+        ? `${side}: setup found, waiting for price to reach the ${pending.label}`
+        : `${side}: price is at the ${pending.label}, waiting for the ${lbl(opts.confirm!.ltfName)} to confirm it${pending.reason ? ` (${pending.reason})` : ''}`);
+      continue;
     }
     checks.unshift(got.trigger);
     if (conf) checks.push(`confirmed on the ${lbl(opts.confirm!.ltfName)}`);

@@ -661,7 +661,7 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
 
   // Change the timeframe of a pair (rescans it)
   // Moves one pair to a new timeframe (or RDM with the trader's RDM choice) and scans it again
-  const applyTimeframe = async (w: WatchItem, timeframe: string, rdm: string[]) => {
+  const applyTimeframe = async (w: WatchItem, timeframe: string, rdm: string[], scanDelayMs = 0) => {
     const t = now();
     const shown = shownTf({ timeframe, tradeStyle: w.tradeStyle, styleFrames: w.styleFrames });
     const lbl = rdmShown({ rdmFrames: rdm, tradeStyle: w.tradeStyle, styleFrames: w.styleFrames });
@@ -671,8 +671,13 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
       ...(w.active ? { status: 'SCANNING', statusText: statusText('SCANNING', null, shown, lbl) } : { status: 'WAITING', statusText: `Paused · ${tfLabel(shown, lbl)}` }),
     });
     if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, timeframe, rdmFrames: rdm, nextScanAt: t + scanGapMs(shown) });
-    if (w.active) scanItemNow(w.id, deps).catch(() => {});
+    if (w.active) {
+      if (scanDelayMs) setTimeout(() => scanItemNow(w.id, deps).catch(() => {}), scanDelayMs);
+      else scanItemNow(w.id, deps).catch(() => {});
+    }
   };
+  // Moving every pair at once: a few times a minute per trader, and the rescans are spread out
+  const bulkTf = createKeyedThrottle({ windowMs: 60_000, max: 5 });
   const readTimeframe = (req: Request) => (typeof req.body?.timeframe === 'string' ? req.body.timeframe.trim().toUpperCase() : '');
 
   app.patch('/api/watchlist/:id', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
@@ -690,11 +695,12 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     const { uid } = getUser(res);
     const timeframe = readTimeframe(req);
     if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
+    if (bulkTf.hit(uid)) return res.status(429).json({ error: 'TOO_SOON', message: 'Your pairs were just moved. Try again in a minute.' });
     const mine = (await db().collection(ITEMS).where('uid', '==', uid).get()).docs.map(d => d.data() as WatchItem);
     const rdm = timeframe === 'RDM' ? (await scanPrefs(uid)).rdm : [];
     const same = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every(x => b.includes(x));
     const moving = mine.filter(w => w.timeframe !== timeframe || (timeframe === 'RDM' && !same(w.rdmFrames, rdm)));
-    for (const w of moving) await applyTimeframe(w, timeframe, rdm);
+    for (const [i, w] of moving.entries()) await applyTimeframe(w, timeframe, rdm, i * 1500);
     res.json({ items: await listItems(uid), max: MAX_PAIRS, changed: moving.length });
   }));
 

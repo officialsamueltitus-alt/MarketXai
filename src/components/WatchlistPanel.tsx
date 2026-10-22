@@ -475,7 +475,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
                     >
                       {i.timeframe === 'RDM' && <Layers className="w-2.5 h-2.5" />}
                       {tfLabel(i.timeframe)}
-                      {i.timeframe === 'RDM' && i.rdmFrames && i.rdmFrames.length > 0 && <span className={editing === i.id ? 'text-slate-500' : 'text-slate-500'}>·{i.rdmFrames.length}</span>}
+                      {i.timeframe === 'RDM' && i.rdmFrames && i.rdmFrames.length > 0 && <span className="text-slate-500">·{i.rdmFrames.length}</span>}
                       <Pencil className="w-2.5 h-2.5 opacity-70" />
                     </button>
                     <span className={`h-5 px-2 rounded-full border text-[10px] font-semibold inline-flex items-center shrink-0 ${st.pill}`}>{i.active ? st.label : 'Paused'}</span>
