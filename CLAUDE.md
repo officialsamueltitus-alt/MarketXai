@@ -81,6 +81,12 @@
   untouched; card tag "Confirmed · 5m" / "Waiting for confirmation"). Watchlist items carry `analysisMode` (scan key includes it): READY
   only when confirmed (`setup.confirmation`, "confirmed" notices), BUILDING = waiting for confirmation; `syncWatchPrefs` moves a trader's
   pairs when the mode or RDM timeframes change.
+  Strategy Builder + Confirmation (owner-specified, every strategy): with CONFIRMATION on, `runUserStrategy` (`opts.confirm` {ltf, ltfName}) only
+  serves a setup once price reached its zone and the LTF confirmed it (`readZoneConfirmation` / `confirmWords` from `server/confirmation.ts`, same
+  rules and windows; RANGE_SWEEP = the range low down to the sweep wick, SESSION_BREAKOUT = the broken range high, thin levels get 0.25 ATR): MARKET
+  entry, stop also beyond the reaction wick (+0.4 / 0.2 LTF ATR), mitigation + half-way measured from the confirming LTF candle, `signal.confirmation`;
+  else NO_SIGNAL "Setup found, waiting for confirmation" (`confirmationRead` WAITING_TAP / WAITING_PATTERN). `serveUserStrategyAnalysis` (`mode`) and
+  the watchlist strategy scan fetch the LTF too and tag/scan like the general engine (READY = confirmed, BUILDING = waiting, keys RSC / CS).
   Trade type (owner-specified, Preference Mode `users.preferences.tradeStyle` ANY default / SCALP / DAY / SWING, shared `src/utils/tradeStyle.ts`,
   cards in `PreferencePanel.tsx`, a dot on the composer's Tools button, watchlist note, card tag "Day trade · close by 9:00 PM WAT"): every analysis runs on a timeframe of
   the type (SCALP 1m to 15m, DAY 15m to 2H, SWING 4H to 1W; another timeframe moves to the nearest, `fitTimeframe`; RDM scans only the type's,

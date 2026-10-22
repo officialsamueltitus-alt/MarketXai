@@ -164,6 +164,37 @@ function readLong(ltf: Candle[], top: number, bottom: number, window: number, fr
   return { state: 'CONFIRMED', patterns, confirmIdx, lowIdx, low, swept: low < bottom, divergence, rsiAtConfirm: rsiAt };
 }
 
+/** The touch must be recent (the last 3 candles of the analysis timeframe) and the confirmation fresh (the last 2), in LTF bars */
+function confirmWindows(htfTf: string, ltfTf: string) {
+  const ratio = Math.max(1, timeframeMinutes(htfTf) / Math.max(1, timeframeMinutes(ltfTf)));
+  return { window: Math.round(Math.min(120, Math.max(12, ratio * 3))), freshBars: Math.round(Math.min(60, Math.max(6, ratio * 2))) };
+}
+
+export interface ZoneRead {
+  state: 'CONFIRMED' | 'WAITING_PATTERN' | 'WAITING_TAP' | 'FAILED';
+  /** Pattern names, in a buyer's words (sells: confirmWords) */
+  patterns: string[];
+  confirmIdx: number;
+  /** Reaction extreme in buy space (the swept low; sells: the negated high) */
+  low: number;
+  swept: boolean;
+  divergence: boolean;
+  reason?: string;
+  /** ATR of the lower timeframe (for the stop buffer) */
+  ltfAtr: number;
+}
+/**
+ * The same confirmation read for any zone (owner-specified: Strategy Builder trades use Confirmation analysis too).
+ * Buy space: top = the zone's near edge, bottom = its far edge; sells pass the mirrored candles and negated levels.
+ */
+export function readZoneConfirmation(ltf: Candle[], top: number, bottom: number, htfTf: string, ltfTf: string): ZoneRead {
+  const { window, freshBars } = confirmWindows(htfTf, ltfTf);
+  const rd = readLong(ltf, top, bottom, window, freshBars);
+  return { state: rd.state, patterns: rd.patterns, confirmIdx: rd.confirmIdx, low: rd.low, swept: rd.swept, divergence: rd.divergence, reason: rd.reason, ltfAtr: computeAtr(ltf) || range(ltf[ltf.length - 1]) };
+}
+/** Pattern names in the trader's side words (a sell's patterns were read on the mirrored chart) */
+export const confirmWords = (names: string[], long: boolean) => (long ? names : names.map(sellWords));
+
 /**
  * Applies Confirmation analysis to a map built by the normal engine. Returns the read; the map is changed in place:
  * map.plan becomes the confirmed trade (market entry, stop beyond the reaction wick), or null with a "waiting for
@@ -208,10 +239,7 @@ export function applyConfirmation(
     return finish(null, read.text);
   }
 
-  const ratio = Math.max(1, timeframeMinutes(map.timeframe) / Math.max(1, timeframeMinutes(ltfName)));
-  // The touch must be recent (the last 3 candles of the analysis timeframe) and the confirmation fresh (the last 2)
-  const window = Math.round(Math.min(120, Math.max(12, ratio * 3)));
-  const freshBars = Math.round(Math.min(60, Math.max(6, ratio * 2)));
+  const { window, freshBars } = confirmWindows(map.timeframe, ltfName);
   const atrH = map.atr;
   const rightSide = (z: SDZone) => (z.kind === 'DEMAND' ? z.territory === 'DISCOUNT' : z.territory === 'PREMIUM');
 

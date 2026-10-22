@@ -174,18 +174,19 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
       status: 'SETUP',
       price,
       setup: {
-        key: `${opts.strategyName ? 'RS' : opts.confirmation ? 'RC' : 'R'}|${ready.timeframe}|${p.direction}|${p.entry.optimal.toPrecision(6)}`,
+        key: `${opts.strategyName ? (opts.confirmation ? 'RSC' : 'RS') : opts.confirmation ? 'RC' : 'R'}|${ready.timeframe}|${p.direction}|${p.entry.optimal.toPrecision(6)}`,
         kind: 'READY',
         timeframe: ready.timeframe,
         direction: p.direction,
         score: Math.round(p.score),
         distancePct: Number(distancePct.toFixed(3)),
-        ...(opts.strategyName ? { strategy: opts.strategyName } : opts.confirmation ? { confirmation: true } : {}),
+        ...(opts.strategyName ? { strategy: opts.strategyName } : {}),
+        ...(opts.confirmation ? { confirmation: true } : {}),
       },
     };
   }
-  // A trader's own strategy only reports trades its rules found
-  if (opts.strategyName) return { status: 'WAITING', setup: null, price };
+  // A trader's own strategy only reports trades its rules found (with Confirmation on, also a zone waiting to confirm)
+  if (opts.strategyName && !opts.confirmation) return { status: 'WAITING', setup: null, price };
 
   // Confirmation mode: price is at a zone (or heading to a valid one) and the lower timeframe has not confirmed yet
   if (opts.confirmation) {
@@ -203,17 +204,20 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
         status: 'BUILDING',
         price,
         setup: {
-          key: `C|${waiting.timeframe}|${z.kind}|${z.low.toPrecision(6)}|${c.state === 'WAITING_PATTERN' ? 'AT' : 'TO'}`,
+          key: `${opts.strategyName ? 'CS' : 'C'}|${waiting.timeframe}|${z.kind}|${z.low.toPrecision(6)}|${c.state === 'WAITING_PATTERN' ? 'AT' : 'TO'}`,
           kind: 'BUILDING',
           timeframe: waiting.timeframe,
           direction: z.kind === 'DEMAND' ? 'LONG' : 'SHORT',
           score: Math.round(zoneScore ?? 0),
           distancePct: Number(distancePct.toFixed(3)),
           confirmation: true,
+          ...(opts.strategyName ? { strategy: opts.strategyName } : {}),
         },
       };
     }
   }
+  // A strategy never falls back to the general engine's zones
+  if (opts.strategyName) return { status: 'WAITING', setup: null, price };
 
   // Building: price drifting toward a fresh zone (demand only in discount, supply only in premium)
   let best: { f: ScanFrame; z: ScanZone } | null = null;
@@ -432,7 +436,7 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
 }
 
 async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL', strategyId?: string | null, style: TradeStyle = 'ANY', custom?: string[]) {
-  const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: !strategyId && mode === 'CONFIRMATION' };
+  const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: mode === 'CONFIRMATION' };
   try {
     const frames = await Promise.race([
       deps.scan(symbol, framesFor(tf, rdm, style, custom), mode, strategyId || null, style, custom),

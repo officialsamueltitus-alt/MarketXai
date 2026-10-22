@@ -6,6 +6,7 @@
 // engine apply: stop on the right side, targets ahead of price, and price not already half-way to TP1.
 // ===========================================================================
 import { computeAtr, emaSeries, rsiSeries, type Candle } from './strategy';
+import { confirmWords, readZoneConfirmation } from './confirmation';
 import { timeframeMinutes } from '../src/utils/timeframe';
 import { SESSIONS, SETUPS, type StrategyRules } from '../src/utils/strategyRules';
 
@@ -25,6 +26,16 @@ export interface UserSignal {
   at: number;
   /** Every filter and check it passed */
   checks: string[];
+  /** Confirmation analysis (Preference Mode): how price confirmed the setup's zone on the lower timeframe */
+  confirmation?: { ltf: string; patterns: string[]; confirmedAt: number; confirmClose: number; reactionExtreme: number; sweptZone: boolean; note: string };
+}
+/** Confirmation analysis read of a strategy result (same shape the general engine tags results with) */
+export interface StrategyConfirmRead {
+  state: 'CONFIRMED' | 'WAITING_PATTERN' | 'WAITING_TAP' | 'NONE';
+  ltf: string;
+  direction?: 'LONG' | 'SHORT';
+  zone?: { low: number; high: number; kind: 'DEMAND' | 'SUPPLY' };
+  text: string;
 }
 export interface UserStrategyResult {
   signal: UserSignal | null;
@@ -32,6 +43,8 @@ export interface UserStrategyResult {
   reason: string | null;
   indicators: { rsi: number | null; atr: number; emaFast: number | null; emaSlow: number | null };
   setupName: string;
+  /** Only when Confirmation analysis is on */
+  confirmationRead?: StrategyConfirmRead;
 }
 
 const body = (c: Candle) => Math.abs(c.c - c.o);
@@ -249,7 +262,18 @@ const SETUP_FNS: Record<StrategyRules['setup'], SetupFn> = {
 export function runUserStrategy(
   candlesRaw: Candle[],
   rules: StrategyRules,
-  opts: { price: number; timeframe: string; decimals: number; slMode?: 'normal' | 'tight' }
+  opts: {
+    price: number;
+    timeframe: string;
+    decimals: number;
+    slMode?: 'normal' | 'tight';
+    /**
+     * Confirmation analysis is on (owner-specified, every strategy): the setup's zone must be reached and confirmed on the
+     * lower timeframe (sweep, engulfing, pin bar, star or structure break) before it is called; entry then at market,
+     * the stop also beyond the reaction wick. ltf = those candles (null = not readable now).
+     */
+    confirm?: { ltf: Candle[] | null; ltfName: string };
+  }
 ): UserStrategyResult {
   const setupName = SETUPS[rules.setup].name;
   const cs0 = candlesRaw.filter(c => [c.o, c.h, c.l, c.c].every(v => Number.isFinite(v) && v > 0) && c.h >= c.l);
@@ -268,6 +292,10 @@ export function runUserStrategy(
   const tfMin = timeframeMinutes(opts.timeframe);
   const reasons: string[] = [];
   let best: UserSignal | null = null;
+  const lbl = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
+  const ltfC = opts.confirm ? (opts.confirm.ltf || []).filter(c => [c.o, c.h, c.l, c.c].every(v => Number.isFinite(v) && v > 0) && c.h >= c.l) : [];
+  // Confirmation: setups whose zone is still waiting (price not there yet, or there without a confirmation)
+  const waits: Array<{ state: 'WAITING_PATTERN' | 'WAITING_TAP'; direction: 'LONG' | 'SHORT'; low: number; high: number; label: string; quality: number; reason?: string }> = [];
 
   for (const dir of ['LONG', 'SHORT'] as const) {
     if (rules.direction !== 'BOTH' && rules.direction !== dir) continue;
@@ -280,7 +308,7 @@ export function runUserStrategy(
     const ema = (k: number) => cache.get(k) || (cache.set(k, emaSeries(cs, k)), cache.get(k)!);
     const rsi = long ? rsi0 : rsi0.map(v => 100 - v);
     const side = long ? 'buy' : 'sell';
-    const got = SETUP_FNS[rules.setup]({ cs, price, atr, rules, tfMin, ema, rsi });
+    let got = SETUP_FNS[rules.setup]({ cs, price, atr, rules, tfMin, ema, rsi });
     if (typeof got === 'string') {
       reasons.push(`${side}: ${got}`);
       continue;
@@ -302,6 +330,43 @@ export function runUserStrategy(
       if (!ok) { reasons.push(`${side}: the setup formed outside your sessions (${rules.filters.sessions.join(', ').toLowerCase().replace('_', ' ')})`); continue; }
       checks.push('inside your session');
     }
+    // Confirmation analysis: the setup's zone must be reached and confirmed on the lower timeframe first
+    let conf: { idx: number; L: Candle[]; close: number; low: number; buffer: number; patterns: string[]; swept: boolean; at: number; label: string; suffix: string } | null = null;
+    if (opts.confirm) {
+      const ltfName = opts.confirm.ltfName;
+      if (ltfC.length < 40) { reasons.push(`${side}: confirmation needs the ${lbl(ltfName)} chart, which can't be read right now`); continue; }
+      const L = long ? ltfC : ltfC.map(mirror);
+      // The zone in buy space (near edge on top); a thin level (an EMA, a band) gets a quarter ATR of depth. A whole range
+      // is not a zone: a spring is confirmed at the range low (down to its sweep wick), a breakout at the broken high
+      let top = got.zone.high;
+      let bottom = got.zone.low;
+      let zoneLabel = got.zone.label;
+      if (rules.setup === 'RANGE_SWEEP') { top = got.zone.low + atr * 0.3; bottom = Math.min(got.invalidation, got.zone.low - atr * 0.1); zoneLabel = 'range low'; }
+      else if (rules.setup === 'SESSION_BREAKOUT') { top = got.zone.high + atr * 0.2; bottom = got.zone.high - atr * 0.3; zoneLabel = 'broken Asian range high'; }
+      if (got.execution === 'LIMIT' && got.band) { top = Math.max(top, got.band.high); bottom = Math.min(bottom, got.band.low); }
+      if (top - bottom < atr * 0.25) bottom = top - atr * 0.25;
+      const rd = readZoneConfirmation(L, top, bottom, opts.timeframe, ltfName);
+      if (rd.state !== 'CONFIRMED') {
+        if (rd.state === 'FAILED') { reasons.push(`${side}: no confirmation at the ${long ? zoneLabel : sellWords(zoneLabel)} (${rd.reason})`); continue; }
+        waits.push({ state: rd.state, direction: dir, low: long ? bottom : -top, high: long ? top : -bottom, label: long ? zoneLabel : sellWords(zoneLabel), quality: got.quality, reason: rd.reason });
+        reasons.push(rd.state === 'WAITING_TAP'
+          ? `${side}: setup found, waiting for price to reach the ${long ? zoneLabel : sellWords(zoneLabel)}`
+          : `${side}: price is at the ${long ? zoneLabel : sellWords(zoneLabel)}, waiting for the ${lbl(ltfName)} to confirm it${rd.reason ? ` (${rd.reason})` : ''}`);
+        continue;
+      }
+      const c = L[rd.confirmIdx];
+      const words = confirmWords(rd.patterns, long);
+      const patterns = rd.divergence ? [...words, `RSI ${long ? 'bullish' : 'bearish'} divergence`] : words;
+      // Measured from the confirmation: the trigger becomes a market entry, the idea is wrong beyond the reaction wick
+      let hi = 0;
+      for (let k = 0; k < n; k++) if (cs[k].t <= c.t) hi = k;
+      conf = {
+        idx: rd.confirmIdx, L, close: c.c, low: rd.low, buffer: rd.ltfAtr * (opts.slMode === 'tight' ? 0.2 : 0.4), patterns, swept: rd.low < bottom, at: c.t,
+        label: long ? zoneLabel : sellWords(zoneLabel),
+        suffix: `, then price came back to the ${long ? zoneLabel : sellWords(zoneLabel)} and confirmed it on the ${lbl(ltfName)} (${patterns.slice(0, 2).join(', ').toLowerCase()})`,
+      };
+      got = { ...got, execution: 'MARKET', band: undefined, invalidation: Math.min(got.invalidation, rd.low), at: cs[hi].t };
+    }
     // Entry
     let entry: { min: number; max: number; optimal: number };
     if (got.execution === 'LIMIT' && got.band) {
@@ -314,6 +379,8 @@ export function runUserStrategy(
     // Stop
     const buffer = atr * (opts.slMode === 'tight' ? 0.05 : 0.1);
     let stop = rules.stop.type === 'ATR' ? entry.optimal - atr * rules.stop.atrMult : got.invalidation - buffer;
+    // A confirmed setup's stop is always beyond the reaction wick (with a lower timeframe buffer)
+    if (conf) stop = Math.min(stop, conf.low - conf.buffer);
     // Small floor against noise: tight SL keeps less room than normal (owner-specified)
     const floor = atr * (opts.slMode === 'tight' ? 0.2 : 0.3);
     if (entry.optimal - stop < floor) stop = entry.optimal - floor;
@@ -343,7 +410,8 @@ export function runUserStrategy(
     // target, and a limit entry's band must still be untouched. A setup whose levels were already traded is never shown.
     {
       const fi = Math.max(0, cs.findIndex(c => c.t >= got.at));
-      const after = cs.slice(fi + 1);
+      // A confirmed setup is measured from the confirming candle on the lower timeframe
+      const after = conf ? conf.L.slice(conf.idx + 1) : cs.slice(fi + 1);
       const when = (c: Candle) => `${new Date(c.t).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
       const lvl = (p: number) => r(Math.abs(p));
       const stopHit = after.find(c => c.l <= stop);
@@ -364,14 +432,15 @@ export function runUserStrategy(
     // are checked against what happened since the trigger)
     const fromIdx = cs.findIndex(c => c.t >= got.at);
     if (got.execution === 'MARKET') {
-      const since = cs.slice(Math.max(0, fromIdx));
-      if (since.some(c => c.h >= tps[0].price)) { reasons.push(`${side}: TP1 was already reached since the setup formed`); continue; }
-      const trig = cs[Math.max(0, fromIdx)].c;
+      const since = conf ? conf.L.slice(conf.idx) : cs.slice(Math.max(0, fromIdx));
+      if (since.some(c => c.h >= tps[0].price)) { reasons.push(`${side}: TP1 was already reached since the setup ${conf ? 'confirmed' : 'formed'}`); continue; }
+      const trig = conf ? conf.close : cs[Math.max(0, fromIdx)].c;
       const prog = (price - trig) / (tps[0].price - trig);
       if (tps[0].price > trig && prog >= 0.5) { reasons.push(`${side}: price already moved half-way to TP1 since the trigger`); continue; }
     }
     checks.unshift(got.trigger);
-    const score = Math.max(50, Math.min(95, Math.round(62 + got.quality * 2 + checks.length * 3 + Math.min(8, (rrFinal - 2) * 3))));
+    if (conf) checks.push(`confirmed on the ${lbl(opts.confirm!.ltfName)}`);
+    const score = Math.max(50, Math.min(95, Math.round(62 + got.quality * 2 + checks.length * 3 + Math.min(8, (rrFinal - 2) * 3) + (conf ? Math.min(6, conf.patterns.length * 2) : 0))));
     const back = (p: number) => r(long ? p : -p);
     const sig: UserSignal = {
       direction: dir,
@@ -382,20 +451,56 @@ export function runUserStrategy(
       rrFinal: Number(rrFinal.toFixed(2)),
       score,
       zone: long ? { low: back(got.zone.low), high: back(got.zone.high), label: got.zone.label } : { low: back(got.zone.high), high: back(got.zone.low), label: got.zone.label },
-      trigger: long ? got.trigger : sellWords(got.trigger),
+      trigger: (long ? got.trigger : sellWords(got.trigger)) + (conf ? conf.suffix : ''),
       at: got.at,
       checks: long ? checks : checks.map(sellWords),
+      ...(conf
+        ? {
+            confirmation: {
+              ltf: opts.confirm!.ltfName,
+              patterns: conf.patterns,
+              confirmedAt: conf.at,
+              confirmClose: back(conf.close),
+              reactionExtreme: back(conf.low),
+              sweptZone: conf.swept,
+              note:
+                `Confirmed on the ${lbl(opts.confirm!.ltfName)}: ${conf.patterns.join(', ')} at the ${conf.label}` +
+                `${conf.swept ? ` (price wicked through it to ${back(conf.low)} and closed back inside)` : ''}. Stop beyond the reaction ${long ? 'low' : 'high'} ${back(conf.low)}.`,
+            },
+          }
+        : {}),
     };
     // (sg kept for readability of the mirrored maths above)
     void sg;
     if (!best || sig.score > best.score) best = sig;
   }
-  if (best) return { signal: best, reason: null, indicators: ind, setupName };
+  const ltfName = opts.confirm?.ltfName || '';
+  if (best) {
+    const z = best.zone;
+    const read: StrategyConfirmRead | undefined = best.confirmation
+      ? { state: 'CONFIRMED', ltf: ltfName, direction: best.direction, zone: { low: Math.min(z.low, z.high), high: Math.max(z.low, z.high), kind: best.direction === 'LONG' ? 'DEMAND' : 'SUPPLY' }, text: best.confirmation.note }
+      : undefined;
+    return { signal: best, reason: null, indicators: ind, setupName, ...(read ? { confirmationRead: read } : {}) };
+  }
+  const plain = `No signal from your strategy (${setupName}) on the ${lbl(opts.timeframe)}: ${reasons.join('; ') || 'no setup'}.`;
+  if (!opts.confirm) return { signal: null, reason: plain, indicators: ind, setupName };
+  // Confirmation: a setup at (or heading to) its zone is "waiting for confirmation", the one at the zone first
+  const w = waits.sort((a, b) => (a.state === 'WAITING_PATTERN' ? 0 : 1) - (b.state === 'WAITING_PATTERN' ? 0 : 1) || b.quality - a.quality)[0];
+  if (!w) return { signal: null, reason: plain, indicators: ind, setupName, confirmationRead: { state: 'NONE', ltf: ltfName, text: plain } };
+  const lo = r(Math.min(Math.abs(w.low), Math.abs(w.high)));
+  const hi2 = r(Math.max(Math.abs(w.low), Math.abs(w.high)));
+  const sideW = w.direction === 'LONG' ? 'buy' : 'sell';
+  const text =
+    `Setup found, waiting for confirmation. Your strategy (${setupName}) has a ${sideW} setup at the ${w.label} ${lo} to ${hi2} on the ${lbl(opts.timeframe)}, ` +
+    (w.state === 'WAITING_TAP' ? 'but price has not reached it yet. ' : `and price is there, but the ${lbl(ltfName)} has not confirmed it yet${w.reason ? ` (${w.reason})` : ''}. `) +
+    `With Confirmation analysis on, MarketX only calls it once price reaches that zone and the ${lbl(ltfName)} confirms it: a liquidity sweep or false breakout, ` +
+    `an engulfing candle, a pin bar, a ${w.direction === 'LONG' ? 'morning' : 'evening'} star or a break of structure. Stand aside until then.`;
   return {
     signal: null,
-    reason: `No signal from your strategy (${setupName}) on the ${opts.timeframe.replace(/^(\d+)M$/, '$1m')}: ${reasons.join('; ') || 'no setup'}.`,
+    reason: text,
     indicators: ind,
     setupName,
+    confirmationRead: { state: w.state, ltf: ltfName, direction: w.direction, zone: { low: lo, high: hi2, kind: w.direction === 'LONG' ? 'DEMAND' : 'SUPPLY' }, text },
   };
 }
 
