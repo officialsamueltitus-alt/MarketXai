@@ -126,6 +126,33 @@ export function toBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
+/**
+ * Cuts the silence before the first word and after the last (keeping 0.25s around the speech): a smaller clip uploads
+ * and is written down faster. A clip with no clear speech is kept whole.
+ */
+export function trimSilence(samples: Float32Array, sampleRate: number): Float32Array {
+  const win = Math.max(1, Math.round(sampleRate * 0.02));
+  const n = Math.floor(samples.length / win);
+  if (n < 10) return samples;
+  const rms = new Float32Array(n);
+  for (let w = 0; w < n; w++) {
+    let sum = 0;
+    for (let i = w * win; i < (w + 1) * win; i++) sum += samples[i] * samples[i];
+    rms[w] = Math.sqrt(sum / win);
+  }
+  const sorted = Array.from(rms).sort((a, b) => a - b);
+  const floor = sorted[Math.floor(n * 0.1)];
+  const at = Math.max(0.01, floor * 3);
+  let first = -1;
+  let last = -1;
+  for (let w = 0; w < n; w++) if (rms[w] > at) (first < 0 && (first = w), (last = w));
+  if (first < 0) return samples;
+  const pad = Math.round(sampleRate * 0.25);
+  const from = Math.max(0, first * win - pad);
+  const to = Math.min(samples.length, (last + 1) * win + pad);
+  return to - from >= sampleRate * 0.3 ? samples.subarray(from, to) : samples;
+}
+
 /** Decodes a recorded clip (webm/ogg/mp4) and resamples it to 16 kHz mono */
 export async function clipToWav(blob: Blob): Promise<ArrayBuffer> {
   const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -139,7 +166,7 @@ export async function clipToWav(blob: Blob): Promise<ArrayBuffer> {
     src.connect(off.destination);
     src.start();
     const rendered = await off.startRendering();
-    return encodeWav(rendered.getChannelData(0));
+    return encodeWav(trimSilence(rendered.getChannelData(0), VOICE_SAMPLE_RATE));
   } finally {
     ctx.close().catch(() => {});
   }

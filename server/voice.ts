@@ -13,8 +13,12 @@ import { requireAuth, getUser } from './account';
 import { createKeyedThrottle } from './security';
 import { proGuard } from './proAccess';
 
-const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
-const TIMEOUT_MS = 20_000;
+// The lightest model first: writing down a few seconds of speech needs speed, not reasoning
+const MODELS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
+const TIMEOUT_MS = 12_000;
+/** A model still silent after this gets the next one started alongside it; the first words back win */
+const HEDGE_MS = 2_500;
+const TOTAL_MS = 20_000;
 /** Base64 WAV cap (about 40s of 16 kHz mono); the app stops recording at 30s */
 const MAX_B64 = 1_800_000;
 const NO_SPEECH = '[[EMPTY]]';
@@ -39,7 +43,8 @@ async function transcribe(audio: string, mimeType: string): Promise<string | nul
   if (override) return override({ system: SYSTEM, audio, mimeType });
   const ai = engine ? engine() : null;
   if (!ai) return null;
-  for (const model of MODELS) {
+  const ask = async (model: string): Promise<string | null> => {
+    let timer: NodeJS.Timeout | undefined;
     try {
       const res: any = await Promise.race([
         ai.models.generateContent({
@@ -47,15 +52,44 @@ async function transcribe(audio: string, mimeType: string): Promise<string | nul
           contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: audio } }, { text: 'Write down what is said.' }] }],
           config: { systemInstruction: SYSTEM, temperature: 0 },
         }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS)),
+        new Promise((_, rej) => (timer = setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS))),
       ]);
-      const text = String(res?.text || '').trim();
-      if (text) return text;
+      return String(res?.text || '').trim() || null;
     } catch {
-      /* next model */
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
-  }
-  return null;
+  };
+  // Models run one after another, but a slow one gets the next started beside it after HEDGE_MS
+  return new Promise<string | null>(resolve => {
+    let next = 0;
+    let running = 0;
+    let done = false;
+    let hedge: NodeJS.Timeout | undefined;
+    const finish = (text: string | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(hedge);
+      clearTimeout(cap);
+      resolve(text);
+    };
+    const cap = setTimeout(() => finish(null), TOTAL_MS);
+    const launch = () => {
+      if (done || next >= MODELS.length) return;
+      const model = MODELS[next++];
+      running++;
+      clearTimeout(hedge);
+      hedge = setTimeout(launch, HEDGE_MS);
+      ask(model).then(text => {
+        running--;
+        if (text) return finish(text);
+        if (next < MODELS.length) launch();
+        else if (!running) finish(null);
+      });
+    };
+    launch();
+  });
 }
 
 /** One clean line of words: no control characters, quotes or labels, at most 500 characters */
