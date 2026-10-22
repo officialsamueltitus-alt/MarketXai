@@ -218,6 +218,12 @@
   claims more than 0.6% off the live price (`res.locals.liveQuotePrice`) are corrected to it, and in trade write-ups any sentence naming a
   price level that is not in the verified result (`numbersIn(strategy)` + live price, 0.15%) is removed (R, %, ATR, ratios and
   ~~crossed-out~~ numbers are ignored). Levels are never changed; the prompt text is untouched. Chart notes only say "live price now" for a live quote.
+- Buyers vs Sellers (owner-specified, INFORMATION ONLY, strict): `server/pressure.ts` (`readPressure`, pure) + `GET /api/pressure?symbol=` (signed in,
+  40/min per trader, one read per market shared for 5s, 8s cap, 503 `PRESSURE_UNAVAILABLE`) and `PressureMeter.tsx` on every analysis card in `ChatFeed.tsx`
+  (above the execution thesis; fetches on its own, refreshes every 15s only while on screen and the tab is visible). Read from fresh 1M candles (5M
+  fallback): close location in the true range, weighted by size and recency; for Binance-routed coins also taker buy volume (65% flow / 35% price
+  action); main window 60 min, last 15 min = buyers/sellers gaining; quiet = no candle for 20 min. NEVER read by the analysis engine, its
+  instructions, the analyze route, signals, the watchlist or alerts, and never added to the analysis response.
 - Prices (owner-specified): every pair price shows exactly as its source sends it, never rounded. The server passes feed prices
   through untouched (Yahoo, forex, Deriv, crypto), and every display uses `exactPrice` / `formatMarketPrice` in
   `src/utils/formatPrice.ts` (thousands separators only, tiny prices written out in full, never e-notation). Money (P/L, plan

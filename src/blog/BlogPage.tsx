@@ -597,6 +597,12 @@ const SECTIONS: Section[] = [
           crypto, stocks and synthetics, converts to your account currency, and rounds down so you never risk more than you set. Tap <B>Lot size</B> on
           any trade card to open it already filled with that trade.
         </Note>
+        <Note title="Buyers vs Sellers">
+          Every analysis card shows who is in control of the market right now: the share of buying against selling pressure from the last hour of
+          one-minute candles (for coins, the volume bought and sold at market too), whether buyers or sellers are gaining in the last 15 minutes,
+          and a note when the market is quiet or closed. It updates live while the card is on your screen. It is for information only: it never
+          changes the signal, the levels or the analysis.
+        </Note>
         <Note title="Your trade, in your money">
           With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.
           Preferences only change your view and starting values. MarketX finds and scores setups the same way for everyone.

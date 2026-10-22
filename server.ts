@@ -44,6 +44,7 @@ import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundam
 import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
 import { registerCouponRoutes, startCoupons } from './server/coupons';
+import { registerPressureRoutes } from './server/pressure';
 import { registerVoiceRoutes, useVoiceEngine } from './server/voice';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
@@ -2185,6 +2186,29 @@ registerWatchlistRoutes(
     // Read when a scan runs (the constant is declared further down this file)
     get rdmMinScore() {
       return RDM_MIN_SCORE;
+    },
+  },
+  generalApiRateLimiter
+);
+// Buyers vs sellers (information only, owner-specified): read live for the card, never part of an analysis or a signal
+registerPressureRoutes(
+  app,
+  {
+    candles: async (symbol, tf) => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      if (!asset || asset.unresolved) return null;
+      const bars = await fetchCandlesForAsset(asset, tf);
+      return bars && bars.length ? { symbol: asset.symbol, bars } : null;
+    },
+    // Taker buy volume where the coin trades on Binance (the same pair its candles come from)
+    flow: async symbol => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      if (!asset || asset.unresolved || asset.type !== 'crypto' || asset.venue === 'bybit' || asset.venue === 'mexc' || asset.venue === 'dex') return null;
+      const compact = asset.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const binanceSym = (asset as any).binance || compact;
+      const pair = binanceSym.endsWith('USDT') ? binanceSym : `${binanceSym.replace(/USD$/, '')}USDT`;
+      const rows = await binanceRequest(`/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=1m&limit=61`, 4000);
+      return Array.isArray(rows) ? rows.map((r: any[]) => ({ t: Number(r[0]), volume: Number(r[5]), takerBuy: Number(r[9]) })) : null;
     },
   },
   generalApiRateLimiter
