@@ -15,10 +15,10 @@ import { proGuard } from './proAccess';
 
 // The lightest model first: writing down a few seconds of speech needs speed, not reasoning
 const MODELS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
-const TIMEOUT_MS = 12_000;
+const TIMEOUT_MS = 10_000;
 /** A model still silent after this gets the next one started alongside it; the first words back win */
-const HEDGE_MS = 2_500;
-const TOTAL_MS = 20_000;
+const HEDGE_MS = 1_200;
+const TOTAL_MS = 12_000;
 /** Base64 WAV cap (about 40s of 16 kHz mono); the app stops recording at 30s */
 const MAX_B64 = 1_800_000;
 const NO_SPEECH = '[[EMPTY]]';
@@ -43,6 +43,8 @@ async function transcribe(audio: string, mimeType: string): Promise<string | nul
   if (override) return override({ system: SYSTEM, audio, mimeType });
   const ai = engine ? engine() : null;
   if (!ai) return null;
+  // Why each model failed, for the server log only (never the audio or the words)
+  const errors: string[] = [];
   const ask = async (model: string): Promise<string | null> => {
     let timer: NodeJS.Timeout | undefined;
     try {
@@ -54,8 +56,11 @@ async function transcribe(audio: string, mimeType: string): Promise<string | nul
         }),
         new Promise((_, rej) => (timer = setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS))),
       ]);
-      return String(res?.text || '').trim() || null;
-    } catch {
+      const text = String(res?.text || '').trim();
+      if (!text) errors.push(`${model}: empty reply`);
+      return text || null;
+    } catch (err: any) {
+      errors.push(`${model}: ${`${err?.status || err?.code || ''} ${String(err?.message || err)}`.trim().replace(/key=[^&\s]+/gi, 'key=…').slice(0, 140)}`);
       return null;
     } finally {
       clearTimeout(timer);
@@ -72,6 +77,7 @@ async function transcribe(audio: string, mimeType: string): Promise<string | nul
       done = true;
       clearTimeout(hedge);
       clearTimeout(cap);
+      if (!text) console.warn('[MarketX Voice] no transcript:', errors.join(' | ') || 'overall time limit');
       resolve(text);
     };
     const cap = setTimeout(() => finish(null), TOTAL_MS);

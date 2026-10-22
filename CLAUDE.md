@@ -131,8 +131,8 @@
   Analysis: `strategyProGate` (402 before credits for a locked mode) then, after the normal credit charge, `serveUserStrategyAnalysis` in
   `server.ts` replaces the general engine for analyses (not questions, not chart screenshots): candles → rules (RDM = RDM choice ∩ strategy
   timeframes, strongest wins), market/timeframe the strategy doesn't trade = NO_SIGNAL saying so, same result shape (`strategyEngine.method`
-  USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from the words engine (unavailable = 503 STRATEGY_ENGINE_UNAVAILABLE, credit
-  refunded, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. A found trade
+  USER_STRATEGY, `userStrategy`, no S&D/Fib fields), a trade's write-up from the words engine (models staggered: the next starts after 6s, 30s cap; owner-requested fix:
+  if it can't answer, the trade is still served with `rulesWriteUp`, written from the rules and levels, never the general engine), a no-signal explained from the rules; proofs, alert offers, journal follow as usual. A found trade
   gets ONLY the hard checks (`personalStrategyStatus` / `enforcePersonalStrategyCheck`: stop/targets on the right side and not reached, a
   limit entry not traded through), never the general engine's "already moved" proximity guard (the trader's rules govern the entry); the
   watchlist's strategy scan applies the same check, so a "setup ready" there is what the analysis serves. Offers/alerts/track
@@ -483,7 +483,8 @@
   noise floor and the speaker's level so phones' auto gain can't keep a clip running; 7s with none, 30s max),
   `clipToWav` (16 kHz mono, silence before the first and after the last word trimmed, `trimSilence`) and `POST /api/voice/transcribe` (`server/voice.ts`: signed in, WAV only (RIFF/WAVE checked), ≤1.8 MB base64,
   20/min and 300/day per trader, its own transcription instructions via `useVoiceEngine(getGeminiClient)`, only called; lightest model first, the next
-  started alongside after 2.5s (`HEDGE_MS`), first words back win; nothing stored or logged; 422 NO_SPEECH,
+  started alongside after 1.2s (`HEDGE_MS`), first words back win, 12s cap (the app gives up at 15s), failures logged as
+  `[MarketX Voice] no transcript:` with each model's error; nothing stored or logged; 422 NO_SPEECH,
   503 VOICE_UNAVAILABLE; no credit). UI: `VoiceMicButton` (Mic → violet/fuchsia stop with rings → spinner), `VoiceStatus` (cancel X, live
   `VoiceWave`, "Listening 0:04"), composer `is-listening` glow (`index.css`). The final words go through `normalizeSpokenPrompt`
   (`src/utils/voice.ts`: spoken pairs → EURUSD / GBPJPY / NAS100 / US30 / XAUUSD, number-word timeframes → "4 hour", spelled letters,
