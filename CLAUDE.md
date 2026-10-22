@@ -241,6 +241,10 @@
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
   Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
   and spoken when the video has a voice-over) as its final card.
+  Owner-specified for every new video: the site is always captured in LIGHT mode; every phone/device is shown whole (all
+  four sides, frame and body in view, never cropped by the video edge); the music is always in the style of the owner's
+  chosen ad track (the Epidemic Sound track used in the MarketX ad, ~101 BPM, a quiet build-up then a bass drop), with
+  the cuts timed to its beat.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Parent company (owner-specified): SpiriTech Labs owns and built MarketX; credited as "Built by SpiriTech Labs" in the
   sidebar Settings (under Terms & Privacy), the guide, Terms, proof and checker footers, the email footer, the `index.html` JSON-LD (`#spiritech`
