@@ -301,7 +301,11 @@
 - Watchlist (`/watchlist`, `server/watchlist.ts`, `src/components/WatchlistPanel.tsx`): the trader approves it once (`users.watchlist.enabled`);
   a pair (`watchItems`, max 12) is added only after the server confirms a live quote and 40+ candles on its timeframe (1H for RDM, or the first
   chosen RDM timeframe of an hour or more). RDM pairs scan the trader's RDM timeframes (`rdmFrames` on the item, copied on add / switch to RDM;
-  saving the preference calls `syncWatchPrefs`, which moves the trader's pairs to the new RDM choice / analysis mode and rescans them). The lead
+  saving the preference calls `syncWatchPrefs`, which moves the trader's pairs to the new RDM choice / analysis mode and rescans them). Editing a pair's timeframe
+  (owner-requested, never delete + re-add): the pair's timeframe chip (pencil) opens `TimeframeEditor` in `WatchlistPanel.tsx` (draft: tap one timeframe, or RDM
+  and its timeframes in `RdmTimeframePicker` with `note`; nothing changes until Save, Cancel discards); Save stores a changed RDM choice first (the one shared
+  preference) then `PATCH /api/watchlist/:id`. Tapping a timeframe in the add row above offers "Save X to all pairs" when some pair differs
+  (`POST /api/watchlist/timeframe`, Pro, every pair moved with the same `applyTimeframe` + rescan, returns `changed`). The lead
   worker scans pairs on its own with `buildStructureMap` only (no AI calls, no credits): READY = a plan scoring 60+ (RDM 75+, every timeframe),
   BUILDING = a fresh zone in the right half of the range within 2.5 ATR, else WAITING. Each setup key notifies once (in-app `open_watchlist` +
   email, link `/?watchlist=1`); the notice never carries the levels, "Get the plan" runs a normal analysis. A new notice also plays a

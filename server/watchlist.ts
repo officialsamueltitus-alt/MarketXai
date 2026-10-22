@@ -656,14 +656,9 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
   }));
 
   // Change the timeframe of a pair (rescans it)
-  app.patch('/api/watchlist/:id', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
-    const { uid } = getUser(res);
-    const timeframe = typeof req.body?.timeframe === 'string' ? req.body.timeframe.trim().toUpperCase() : '';
-    if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
-    const w = await ownItem(uid, String(req.params.id || ''));
-    if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
+  // Moves one pair to a new timeframe (or RDM with the trader's RDM choice) and scans it again
+  const applyTimeframe = async (w: WatchItem, timeframe: string, rdm: string[]) => {
     const t = now();
-    const rdm = timeframe === 'RDM' ? (await scanPrefs(uid)).rdm : [];
     const shown = shownTf({ timeframe, tradeStyle: w.tradeStyle, styleFrames: w.styleFrames });
     const lbl = rdmShown({ rdmFrames: rdm, tradeStyle: w.tradeStyle, styleFrames: w.styleFrames });
     // A paused pair keeps its new timeframe and is scanned when the watchlist is turned back on
@@ -673,7 +668,30 @@ export function registerWatchlistRoutes(app: Express, deps: WatchlistDeps, limit
     });
     if (IS_LEAD_WORKER && w.active) watched.set(w.id, { ...w, timeframe, rdmFrames: rdm, nextScanAt: t + scanGapMs(shown) });
     if (w.active) scanItemNow(w.id, deps).catch(() => {});
+  };
+  const readTimeframe = (req: Request) => (typeof req.body?.timeframe === 'string' ? req.body.timeframe.trim().toUpperCase() : '');
+
+  app.patch('/api/watchlist/:id', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    const timeframe = readTimeframe(req);
+    if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
+    const w = await ownItem(uid, String(req.params.id || ''));
+    if (!w) return res.status(404).json({ error: 'NOT_FOUND', message: 'That pair is not on your watchlist.' });
+    await applyTimeframe(w, timeframe, timeframe === 'RDM' ? (await scanPrefs(uid)).rdm : []);
     res.json({ items: await listItems(uid), max: MAX_PAIRS });
+  }));
+
+  // Every pair on the watchlist to one timeframe (or RDM) at once (owner-requested: edit instead of deleting and adding again)
+  app.post('/api/watchlist/timeframe', limiter, requireAuth, guard, requirePro, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    const timeframe = readTimeframe(req);
+    if (!isWatchTimeframe(timeframe)) return res.status(400).json({ error: 'BAD_TIMEFRAME', message: 'Pick a timeframe, or RDM to scan every timeframe.' });
+    const mine = (await db().collection(ITEMS).where('uid', '==', uid).get()).docs.map(d => d.data() as WatchItem);
+    const rdm = timeframe === 'RDM' ? (await scanPrefs(uid)).rdm : [];
+    const same = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every(x => b.includes(x));
+    const moving = mine.filter(w => w.timeframe !== timeframe || (timeframe === 'RDM' && !same(w.rdmFrames, rdm)));
+    for (const w of moving) await applyTimeframe(w, timeframe, rdm);
+    res.json({ items: await listItems(uid), max: MAX_PAIRS, changed: moving.length });
   }));
 
   // Scan a pair again now (at most once a minute per pair)
