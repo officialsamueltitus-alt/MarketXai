@@ -167,6 +167,8 @@ export function useVoiceInput(handlers: Handlers) {
           const r = await apiFetch<{ text: string }>('/api/voice/transcribe', {
             method: 'POST',
             body: JSON.stringify({ audio: toBase64(wav), mimeType: 'audio/wav' }),
+            // The server answers within 12s; never leave "Writing it down" spinning
+            timeoutMs: 15_000,
           });
           if (session.current !== me) return;
           finishFor(me);

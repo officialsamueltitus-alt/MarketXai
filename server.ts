@@ -38,7 +38,7 @@ import { STYLE_INFO, closeByText, closeDeadline, fitTimeframe, styleRdmFrames, s
 import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
 import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
 import { runUserStrategy, type UserStrategyResult } from './server/userStrategy';
-import { explainTrade, StrategyEngineUnavailable, useMainEngine } from './server/strategyAi';
+import { explainTrade, rulesWriteUp, useMainEngine } from './server/strategyAi';
 import { registerMattRoutes, useMattEngine } from './server/matt';
 import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundamental';
 import { startNewsAlerts } from './server/newsAlerts';
@@ -3546,12 +3546,13 @@ async function serveUserStrategyAnalysis(
     s.takeProfits = sig.targets.map((t, i) => ({ level: `TP${i + 1} (${t.label})`, price: t.price, rewardRatio: `1:${t.rr.toFixed(1)}`, exitPercent: exits[i] }));
     s.riskRewardRatio = `1 : ${sig.rrFinal.toFixed(1)}`;
     s.setupCheck = { zone: { low: r(Math.min(sig.entry.min, sig.zone.low)), high: r(Math.max(sig.entry.max, sig.zone.high)) }, since: sig.at, issuedAt: Date.now(), timeframe: tf };
+    const explainInput = { strategyName: st.name, rules, symbol: asset.symbol, timeframe: label(tf), price, signal: sig };
     try {
-      s.detailedThesis = await explainTrade({ strategyName: st.name, rules, symbol: asset.symbol, timeframe: label(tf), price, signal: sig });
-    } catch (err: any) {
-      // A trade is only served with its explanation from the strategy engine; never handed to the general engine
-      const msg = err instanceof StrategyEngineUnavailable ? 'Your strategy engine is unavailable right now.' : 'Your strategy analysis could not be finished.';
-      return res.status(503).json({ error: 'STRATEGY_ENGINE_UNAVAILABLE', message: `${msg} Your credit was refunded, please try again in a moment.` });
+      s.detailedThesis = await explainTrade(explainInput);
+    } catch {
+      // The levels come from the trader's rules in code, so a slow or failing words engine never costs them the trade: the
+      // explanation is written from the rules instead (never handed to the general engine)
+      s.detailedThesis = rulesWriteUp(explainInput);
     }
     const styleRan = style !== 'ANY' && rules.timeframes.length && !rules.timeframes.includes(tf) ? ` · ${STYLE_INFO[style].label}: your strategy lists ${rules.timeframes.map(label).join(', ')}, so it ran on the ${label(tf)}` : '';
     s.detailedThesis = `> **Personal strategy: ${st.name}** · ${SETUPS[rules.setup].name}${o.frames ? ` · RDM picked the ${label(tf)}` : ''}${styleRan}\n\n${s.detailedThesis}\n\n**Checks passed:** ${sig.checks.join('; ')}.`;
