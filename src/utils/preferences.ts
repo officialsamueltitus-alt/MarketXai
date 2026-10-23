@@ -33,6 +33,10 @@ export interface Preferences {
   styleTimeframes: Required<StyleTimeframes>;
   /** Daily news alerts (off by default) */
   newsAlerts: NewsAlertsPref;
+  /** Secure half (owner-specified, off by default): at +1R take half off and move the stop to entry. Shown on trade
+   *  cards; price alerts started while it is on follow it (a +1R notice, the stop at entry) and the journal / track
+   *  record score the trade that way (half at +1R, the rest at the target, or at entry) */
+  secureHalf: boolean;
   updatedAt?: number;
 }
 
@@ -49,6 +53,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   tradeStyle: 'ANY',
   styleTimeframes: { SCALP: [], DAY: [], SWING: [] },
   newsAlerts: { enabled: false, impacts: ['HIGH'] },
+  secureHalf: false,
 };
 
 /** A valid impact choice (known impacts, no repeats, high first), or null; at least one */
@@ -78,6 +83,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   out.tradeStyle = readTradeStyle(out.tradeStyle);
   out.styleTimeframes = readStyleTimeframes(out.styleTimeframes);
   out.newsAlerts = readNewsAlerts(out.newsAlerts);
+  out.secureHalf = out.secureHalf === true;
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;
   delete (out as any).tradeLockChosenAt;

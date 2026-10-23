@@ -107,6 +107,22 @@
   POI method (owner-specified): dealing range = recent swing range; its 0.50 equilibrium splits premium/discount. Demand only in
   discount, supply only in premium (range and Fib leg). POI map (`poiList`): demand order blocks, supply zones, FVGs, golden
   pocket pool, each with verified mitigation.
+- Back-tested edge + setup quality (owner-specified, Oct 2026, from the walk-forward back-tests): `server/edge.ts` lists, per market and
+  timeframe, the combinations switched OFF (no signal, with a plain reason: Normal `NORMAL_OFF` e.g. EUR/USD 4H + 1D, USD/JPY 1D, NAS100 4H + 1D,
+  gold 1D; Confirmation `CONFIRM_OFF`: gold on 4H and above, NAS100 4H) and the WEAK ones (a "> **Heads-up:**" line, `edgeNote`), plus the
+  prior R used by the score. `setupQuality` in `server/strategy.ts` grades every plan 20-95 from the traits that predicted results (prior,
+  trend, zone age, base candles, volatility percentile, distance, zone width, confluence, divergence, departure); it is the card's
+  "Quality N/100" (`confidenceScore`), the RDM and watchlist ranking, and a floor: under `MIN_SIGNAL_QUALITY` 45 = no signal (env
+  override for tests only). Market entries are refused in a hot market (ATR percentile ≥ 0.67) or deep in the zone. Tight SL is never used on
+  1D/1W, crypto or Confirmation (Normal SL with a "> **Stop loss:**" note, `slNote`). Forex 1D/1W zones use looser leg rules and forex
+  daily candles are built from 60m bars (`FOREX_DAILY_PLAN`, Sundays folded into Monday): the daily feed was flat. Confirmation tuning
+  `CONFIRM_TUNING` (back-test grid: TP1 ≥ 2R, quality ≥ 45; extra stop room and a measured TP1 tested worse, so off). Strategy Builder signals use
+  `ruleSetupQuality` (same 20-95 scale). Every LONG/SHORT card carries the risk note "Expect losing streaks… Risk 0.5% … or less".
+- Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
+  entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
+  price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
+  (BE = the rest closed at entry, alert ended `BE`). Journal and track record score it 0.5 × 1R + 0.5 × the rest (`withHalf`; HALF then BE =
+  +0.5R, a WIN; `trackRecord.secureHalf`). Public seals / Solana records stay on the signal's own levels.
 - Removed for good (owner-specified): the "One trade at a time" trade lock (`server/signalLock.ts`, its Preference Mode switch,
   the before/after-engine checks, the watchlist hold, the held-trade card and the credit give-back) is deleted. Every analysis can
   give a trade, whatever trades the trader already has. Never bring it back or add anything like it. Stored `preferences.tradeLock`

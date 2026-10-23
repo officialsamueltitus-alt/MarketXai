@@ -405,12 +405,42 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
               <>
                 You risk <span className="text-white font-semibold">{formatMoney(riskAmount, p.currency)}</span> per trade. A 1:3 target pays{' '}
                 <span className="text-emerald-300 font-semibold">{formatMoney(riskAmount * 3, p.currency)}</span>.
-                {risk > 2 && <span className="block mt-1 text-amber-300">Above 2% a short losing streak cuts deep. Most pros stay at 0.5% to 1%.</span>}
+                {risk > 0.5 && <span className="block mt-1 text-amber-300">Expect losing streaks: MarketX suggests 0.5% or less per trade.</span>}
               </>
             ) : (
               'Add your account size to see your risk and rewards in money on every trade.'
             )}
           </div>
+        </Section>
+
+        <Section
+          icon={Shield}
+          title="Secure half"
+          text="An optional way to manage every trade: at +1R take half off and move your stop to entry, so a trade that turns back still ends in profit."
+          ask={{ q: 'How does Secure half work, and how does it change my alerts, journal and results?', label: 'Secure half' }}
+        >
+          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-black/20 border border-white/[0.06]">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white">{p.secureHalf ? 'Secure half is on' : 'Secure half at 1R'}</div>
+              <div className="text-[11px] text-slate-500 leading-snug">
+                {p.secureHalf ? 'Trade cards show the +1R price; new price alerts tell you when to take half.' : 'Off. Every trade runs whole to its targets or stop.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={p.secureHalf}
+              aria-label="Secure half at 1R"
+              onClick={() => save({ secureHalf: !p.secureHalf })}
+              className={`h-7 w-12 rounded-full relative transition-colors cursor-pointer shrink-0 ${p.secureHalf ? 'bg-emerald-500/80' : 'bg-white/[0.12]'}`}
+            >
+              <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all ${p.secureHalf ? 'right-1' : 'left-1'}`} />
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+            You win more often, but your big winners are smaller: half the trade is closed at 1R. Price alerts started while this is on send a "secure half"
+            notice at +1R, then treat entry as the stop, and your journal and results score the trade that way (half at +1R, the rest at the target or at entry).
+          </p>
         </Section>
 
         <div id="mx-trade-calculator" className="scroll-mt-2">

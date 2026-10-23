@@ -89,7 +89,8 @@ export interface ScanFrame {
   timeframe: string;
   price: number;
   equilibrium: number;
-  plan: { direction: 'LONG' | 'SHORT'; score: number; entry: { min: number; max: number; optimal: number } } | null;
+  /** quality: the setup quality shown to traders (back-test grounded); score: the zone strength the gates use */
+  plan: { direction: 'LONG' | 'SHORT'; score: number; quality?: number; entry: { min: number; max: number; optimal: number } } | null;
   zones: ScanZone[];
   /** Confirmation mode: the plan (if any) is confirmed; otherwise what the zone is waiting for */
   confirm?: { state: 'CONFIRMED' | 'WAITING_PATTERN' | 'WAITING_TAP' | 'NONE'; direction?: 'LONG' | 'SHORT'; zone?: { low: number; high: number; kind: 'DEMAND' | 'SUPPLY' } };
@@ -164,7 +165,7 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
   // Ready: a plan the engine accepted (fresh, confirmed, levels untouched, price not run away)
   const ready = loaded
     .filter(f => f.plan && f.plan.score >= minReady && finite(f.plan.entry.optimal))
-    .sort((a, b) => b.plan!.score + tfWeight(b.timeframe) - (a.plan!.score + tfWeight(a.timeframe)))[0];
+    .sort((a, b) => (b.plan!.quality ?? b.plan!.score) + tfWeight(b.timeframe) - ((a.plan!.quality ?? a.plan!.score) + tfWeight(a.timeframe)))[0];
   if (ready) {
     const p = ready.plan!;
     const edge = p.direction === 'LONG' ? p.entry.max : p.entry.min;
@@ -178,7 +179,7 @@ export function summarizeScan(frames: Array<ScanFrame | null>, opts: { rdm: bool
         kind: 'READY',
         timeframe: ready.timeframe,
         direction: p.direction,
-        score: Math.round(p.score),
+        score: Math.round(p.quality ?? p.score),
         distancePct: Number(distancePct.toFixed(3)),
         ...(opts.strategyName ? { strategy: opts.strategyName } : {}),
         ...(opts.confirmation ? { confirmation: true } : {}),

@@ -87,6 +87,36 @@ const fundamentalAskFor = (s: StrategyResult) => {
 };
 
 /** Preference Mode: what this trade risks and pays in the trader's own money (risk % of the account size) */
+/** The +1R price of a trade (entry plus one risk in its direction), or null */
+const oneRPrice = (s: StrategyResult): number | null => {
+  const e = Number(s.entryZone?.optimal);
+  const sl = Number(s.stopLoss?.price);
+  if (!(e > 0) || !(sl > 0) || e === sl) return null;
+  return s.tradeType === 'LONG' ? e + Math.abs(e - sl) : e - Math.abs(e - sl);
+};
+
+/** Under every trade (owner-specified): the risk note, and the Secure half plan when it is on in Preference Mode */
+const TradeNotes: React.FC<{ strategy: StrategyResult; prefs: Preferences }> = React.memo(({ strategy, prefs }) => {
+  const half = prefs.secureHalf ? oneRPrice(strategy) : null;
+  return (
+    <div className="space-y-1.5 text-[11.5px] leading-relaxed">
+      {half !== null && (
+        <p className="flex items-start gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/[0.07] border border-emerald-500/20 text-emerald-200">
+          <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400" />
+          <span>
+            <b className="font-semibold">Secure half:</b> at +1R (${formatMarketPrice(half, strategy.currentPrice)}) take half off and move your stop to entry (
+            ${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}). The rest runs to the targets.
+          </span>
+        </p>
+      )}
+      <p className="flex items-start gap-1.5 px-1 text-slate-400">
+        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400/80" />
+        <span>Expect losing streaks: even good setups lose often. Risk 0.5% of your account or less per trade.</span>
+      </p>
+    </div>
+  );
+});
+
 const PositionStrip: React.FC<{ strategy: StrategyResult; prefs: Preferences; onCalculate?: (s: StrategyResult) => void }> = React.memo(({ strategy, prefs, onCalculate }) => {
   const entry = Number(strategy.entryZone?.optimal);
   const stop = Number(strategy.stopLoss?.price);
@@ -206,7 +236,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   const handleCopyTradeSetup = (strategy: any, msgId: string) => {
     const summary = `📊 MARKETX (@_MarketX) SETUP: ${strategy.symbol} (${strategy.timeframe} TF)
-Action: ${strategy.tradeType} | Confidence: ${strategy.confidenceScore}%
+Action: ${strategy.tradeType} | Setup quality: ${strategy.confidenceScore}/100
 🎯 Optimal Entry: $${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}
 🛑 Invalidation Stop Loss: $${formatMarketPrice(strategy.stopLoss.price, strategy.currentPrice)} (-${strategy.stopLoss.riskPercent}%)
 💰 Targets: ${strategy.takeProfits.map((tp: any) => `${tp.level}: $${formatMarketPrice(tp.price, strategy.currentPrice)} (${tp.rewardRatio})`).join(' | ')}
@@ -944,10 +974,12 @@ Rationale: ${strategy.entryZone.rationale}
                                 <span>{strategy.execution === 'MARKET' ? 'SELL NOW / MARKET' : 'SELL LIMIT / SELL ZONE'}</span>
                               </span>
                             )}
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 text-xs font-semibold">
-                              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                              <span>{strategy.confidenceScore}% Confluence</span>
-                            </div>
+                            {strategy.tradeType !== 'NO_SIGNAL' && (
+                              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 text-xs font-semibold">
+                                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                                <span title="Setup quality, graded from how similar setups performed in MarketX's back-tests">Quality {strategy.confidenceScore}/100</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1029,6 +1061,7 @@ Rationale: ${strategy.entryZone.rationale}
 
                         {/* Preference Mode: risk and rewards in the trader's money */}
                         {(strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && <PositionStrip strategy={strategy} prefs={prefs} onCalculate={onCalculate} />}
+                        {(strategy.tradeType === 'LONG' || strategy.tradeType === 'SHORT') && <TradeNotes strategy={strategy} prefs={prefs} />}
 
                         {/* On-chain proof of this signal, and the safety of the Solana token it is on */}
                         {strategy.proof && (

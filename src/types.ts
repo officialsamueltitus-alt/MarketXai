@@ -341,7 +341,8 @@ export interface UserProfile {
 export type PluginId = 'alerts' | 'watchlist' | 'journal' | 'trackRecord';
 export type PluginStates = Record<PluginId, boolean>;
 
-export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED' | 'END';
+/** HALF / BE: Secure half (+1R reached, stop moved to entry; the rest closed at entry) */
+export type PriceAlertKind = 'ENTRY' | 'TP1' | 'TP2' | 'TP3' | 'SL' | 'MISSED' | 'END' | 'HALF' | 'BE';
 /** A price alert the server watches for the trader (see server/priceAlerts.ts) */
 export interface PriceAlertItem {
   id: string;
@@ -361,7 +362,9 @@ export interface PriceAlertItem {
   active: boolean;
   entered: boolean;
   hits: { kind: PriceAlertKind; at: number; price: number }[];
-  endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | 'ENDED' | null;
+  endedReason: 'SL' | 'TP3' | 'MISSED' | 'EXPIRED' | 'TURNED_OFF' | 'ENDED' | 'BE' | null;
+  /** Secure half: the +1R price where half comes off and the stop moves to entry (null = off) */
+  secureHalf?: number | null;
   /** Trade type of the signal, and (day / swing) when it must be closed */
   tradeStyle?: 'SCALP' | 'DAY' | 'SWING' | null;
   closeBy?: number | null;
