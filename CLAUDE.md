@@ -217,6 +217,15 @@
   /api/admin/invite-rewards`); while on, the inviter gets that many credits into the campaign pool, inside the same transaction, never retroactively.
   Profile shows invited / this month / credits earned. Admin → Leaderboard lists both boards with emails, month picker and the latest invited
   sign-ups. Account deletion removes the trader's rows, code and referral record.
+  Optional "Invite code" box on Create account (owner-specified, `AuthModal.tsx`, prefilled from a link): sent as `ref` (email and Google); a
+  typed code that isn't real is 400 `INVALID_INVITE` (`inviteCodeValid`), empty is fine. Kept off the boards (owner-specified): accounts matched
+  by a fingerprint of their email (`BLOCKED_KEYS`) or MarketX ID (`BLOCKED_ID_KEYS`, flagged by a lead-worker check of the ID index every 6h)
+  or flagged `users.leaderboardBlocked` (Admin → Leaderboard "Keep off" / "Allow", `POST /api/admin/leaderboard/block`) never show on public
+  boards and can't switch themselves back on (`me.locked`); never write the address or ID itself in the code.
+- Admin → Credits (owner-specified, `server/adminCredits.ts`, `src/admin/Credits.tsx`): find a trader by email, MarketX ID, @username or account
+  id (`findTrader`, `GET /api/admin/credits/lookup`) and gift 1-10,000 credits (`POST /api/admin/credits/gift`, transaction, into the campaign
+  pool so they are spent first; refused for banned and unlimited accounts), with an optional note; the trader gets a notification + email;
+  each gift is kept in `adminGifts` (`GET /api/admin/credits/gifts`, unlinked from the account on deletion).
 - Every coin and meme (owner-specified): `server/cryptoUniverse.ts` loads the USDT spot lists of Binance, Bybit and MEXC (every 6h,
   per worker) and resolves on-chain tokens by ticker or contract address via DexScreener (most liquid pool, `MIN_DEX_LIQUIDITY_USD`
   default $20k) with GeckoTerminal candles (series shared across timeframes, 60s cache). `detectCryptoTicker` in

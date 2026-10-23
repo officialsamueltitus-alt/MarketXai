@@ -53,6 +53,7 @@ import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyM
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerLeaderboardRoutes } from './server/leaderboard';
+import { registerAdminCreditRoutes } from './server/adminCredits';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
@@ -2278,6 +2279,7 @@ registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, 
 // MarketX ID: each trader's own Solana address, listing their trade records on Solscan
 registerTraderIdRoutes(app, generalApiRateLimiter);
 registerLeaderboardRoutes(app, generalApiRateLimiter);
+registerAdminCreditRoutes(app);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)

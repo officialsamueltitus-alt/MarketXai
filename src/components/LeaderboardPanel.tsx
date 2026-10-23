@@ -28,14 +28,14 @@ interface UsageData {
   resetsAt: number;
   scoring: { points: Record<'analysis' | 'question' | 'fundamental' | 'matt', number>; activeDay: number };
   rows: UsageRow[];
-  me: Omit<UsageRow, keyof Person> & { rank: number | null; hidden: boolean };
+  me: Omit<UsageRow, keyof Person> & { rank: number | null; hidden: boolean; locked?: boolean };
   lastMonth: { month: string; top: Array<Person & { points: number; tier: Tier }> };
 }
 interface RefRow extends Person { invited: number; thisMonth: number }
 interface RefData {
   month: string;
   rows: RefRow[];
-  me: { rank: number | null; invited: number; thisMonth: number; earned: number; hidden: boolean };
+  me: { rank: number | null; invited: number; thisMonth: number; earned: number; hidden: boolean; locked?: boolean };
   program: { enabled: boolean; credits: number };
 }
 
@@ -366,12 +366,20 @@ function UsageBoardView({ data, onToggleHidden, hiding }: { data: UsageData; onT
         </section>
       )}
 
-      <VisibilityRow hidden={me.hidden} onToggle={onToggleHidden} busy={hiding} />
+      <VisibilityRow hidden={me.hidden} locked={me.locked} onToggle={onToggleHidden} busy={hiding} />
     </div>
   );
 }
 
-function VisibilityRow({ hidden, onToggle, busy }: { hidden: boolean; onToggle: () => void; busy: boolean }) {
+function VisibilityRow({ hidden, locked, onToggle, busy }: { hidden: boolean; locked?: boolean; onToggle: () => void; busy: boolean }) {
+  if (locked) {
+    return (
+      <div className="w-full flex items-center gap-2.5 px-3.5 h-12 rounded-2xl border border-white/[0.06] bg-[var(--mx-surface)]">
+        <EyeOff className="w-4 h-4 text-slate-400" />
+        <span className="text-xs font-semibold text-white">You are not shown on the public boards</span>
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -454,7 +462,7 @@ function ReferralBoardView({ data, onToggleHidden, hiding }: { data: RefData; on
         </div>
       )}
 
-      <VisibilityRow hidden={data.me.hidden} onToggle={onToggleHidden} busy={hiding} />
+      <VisibilityRow hidden={data.me.hidden} locked={data.me.locked} onToggle={onToggleHidden} busy={hiding} />
     </div>
   );
 }

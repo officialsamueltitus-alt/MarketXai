@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
+import { IS_LEAD_WORKER } from './workers';
 import { addNotificationInTx, getUser, isUnlimitedEmail, loadUserInTx, requireAuth, saveNormalized, type UserDoc } from './account';
 import { adminLog, requireAdmin } from './admin';
 import { canonicalEmail } from './signupGuard';
@@ -180,7 +181,17 @@ function personOf(u: UserDoc): Person {
   return { username: u.username, displayName: u.displayName, avatarUrl: safeAvatar(u.avatarUrl), verified: staff || pro };
 }
 /** Shown on public boards: not banned/suspended, not hidden by the trader, not unlimited staff (they don't compete) */
-const listable = (u: UserDoc | undefined): u is UserDoc => !!u && !blocked(u) && !(u as any).leaderboardHidden && !isUnlimitedEmail(u.email);
+// Accounts the owner keeps off the boards for good (owner-specified). Matched by a one-way fingerprint of the email, so no
+// address is written in the code; more are blocked from Admin → Leaderboard (users.leaderboardBlocked).
+const blockKey = (email: string) => crypto.createHash('sha256').update(`marketx-lbblock:${String(email || '').trim().toLowerCase()}`).digest('hex');
+const BLOCKED_KEYS = new Set(['e833992946340b3be1b820fefd2751654fc7ba2cbd0a3faa93169a1edac3e423']);
+// Same, by MarketX ID (fingerprinted too): matched once against the ID index, then the account carries leaderboardBlocked
+const idBlockKey = (id: string) => crypto.createHash('sha256').update(`marketx-lbblock-id:${id}`).digest('hex');
+const BLOCKED_ID_KEYS = new Set(['825bd36169856e88a0b3f0b64111ac81122c2283aeb09d31711f78196d837c28']);
+/** Kept off every public board, whatever the trader's own switch says */
+export const leaderboardBlocked = (u: Partial<UserDoc> | undefined) => !!u && (!!(u as any).leaderboardBlocked || (!!u.email && BLOCKED_KEYS.has(blockKey(u.email))));
+const listable = (u: UserDoc | undefined): u is UserDoc =>
+  !!u && !blocked(u) && !(u as any).leaderboardHidden && !leaderboardBlocked(u) && !isUnlimitedEmail(u.email);
 
 async function loadUsers(uids: string[]): Promise<Map<string, UserDoc>> {
   const out = new Map<string, UserDoc>();
@@ -289,7 +300,8 @@ export function registerLeaderboardRoutes(app: Express, limiter: (req: Request, 
     const me = getUser(res).uid;
     const board = req.query.board === 'referrals' ? 'referrals' : 'usage';
     const meDoc = (await users().doc(me).get()).data() as any;
-    const hidden = !!meDoc?.leaderboardHidden;
+    const lockedOff = leaderboardBlocked(meDoc);
+    const hidden = !!meDoc?.leaderboardHidden || lockedOff;
     if (board === 'usage') {
       const month = monthKey();
       const prev = previousMonth(month);
@@ -307,7 +319,7 @@ export function registerLeaderboardRoutes(app: Express, limiter: (req: Request, 
         resetsAt: nextMonthStart(),
         scoring: { points: USAGE_POINTS, activeDay: ACTIVE_DAY_BONUS },
         rows: strip(rows, me),
-        me: { ...mine, hidden },
+        me: { ...mine, hidden, ...(lockedOff ? { locked: true } : {}) },
         lastMonth: { month: prev, top: strip(last, me).map(r => ({ rank: r.rank, username: r.username, displayName: r.displayName, avatarUrl: r.avatarUrl, verified: r.verified, points: r.points, tier: r.tier })) },
       });
     }
@@ -330,7 +342,7 @@ export function registerLeaderboardRoutes(app: Express, limiter: (req: Request, 
       month: monthKey(),
       // Other traders' earned credits stay private (only counts are public)
       rows: strip(rows, me).map(({ earned: _e, ...r }) => r),
-      me: { rank, invited, thisMonth: Number(ref.months?.[monthKey()]) || 0, earned: Number(ref.earned) || 0, hidden },
+      me: { rank, invited, thisMonth: Number(ref.months?.[monthKey()]) || 0, earned: Number(ref.earned) || 0, hidden, ...(lockedOff ? { locked: true } : {}) },
       program: { enabled: program.enabled, credits: program.enabled ? program.credits : 0 },
     });
   }));
@@ -338,7 +350,10 @@ export function registerLeaderboardRoutes(app: Express, limiter: (req: Request, 
   // Show or hide me on the boards
   app.post('/api/leaderboard/visibility', limiter, ready, requireAuth, throttle, wrap(async (req, res) => {
     const hidden = req.body?.hidden === true;
-    await users().doc(getUser(res).uid).update({ leaderboardHidden: hidden });
+    const ref = users().doc(getUser(res).uid);
+    // An account kept off the boards stays off
+    if (!hidden && leaderboardBlocked((await ref.get()).data() as UserDoc)) return res.json({ success: true, hidden: true, locked: true });
+    await ref.update({ leaderboardHidden: hidden });
     cache.clear();
     res.json({ success: true, hidden });
   }));
@@ -399,12 +414,22 @@ export function registerLeaderboardRoutes(app: Express, limiter: (req: Request, 
     res.json({ success: true, settings: next });
   }));
 
+  app.post('/api/admin/leaderboard/block', requireAdmin, wrap(async (req, res) => {
+    const uid = String(req.body?.uid || '');
+    if (!/^[\w-]{6,128}$/.test(uid)) return res.status(400).json({ error: 'INVALID' });
+    if (!(await users().doc(uid).get()).exists) return res.status(404).json({ error: 'NOT_FOUND', message: 'User not found.' });
+    const on = req.body?.blocked === true;
+    await setLeaderboardBlocked(uid, on);
+    adminLog(on ? 'leaderboard_block' : 'leaderboard_unblock', { uid });
+    res.json({ success: true, blocked: on });
+  }));
+
   app.get('/api/admin/leaderboard', requireAdmin, wrap(async (req, res) => {
     const board = req.query.board === 'referrals' ? 'referrals' : 'usage';
     const adminRow = (r: any) => {
       const u: UserDoc = r.user;
       const { user: _u, ...rest } = r;
-      return { ...rest, email: u.email, status: u.status || 'active', hidden: !!(u as any).leaderboardHidden, staff: isUnlimitedEmail(u.email) };
+      return { ...rest, email: u.email, status: u.status || 'active', hidden: !!(u as any).leaderboardHidden, blocked: leaderboardBlocked(u), staff: isUnlimitedEmail(u.email) };
     };
     if (board === 'usage') {
       const month = isMonthKey(req.query.month) ? String(req.query.month) : monthKey();
@@ -441,4 +466,37 @@ export async function deleteLeaderboardData(uid: string, code?: string | null) {
   tasks.push(db().collection('referrals').doc(uid).delete());
   await Promise.allSettled(tasks);
   cache.clear();
+}
+
+/** Admin: keep an account off (or back on) the public boards */
+export async function setLeaderboardBlocked(uid: string, on: boolean) {
+  await users().doc(uid).update({ leaderboardBlocked: on });
+  cache.clear();
+}
+
+/** Lead worker: accounts blocked by MarketX ID get the flag (re-checked every 6h, so a newly indexed ID is caught) */
+async function applyIdBlocks() {
+  const snap = await db().collection('traderIds').get();
+  for (const d of snap.docs) {
+    if (!BLOCKED_ID_KEYS.has(idBlockKey(d.id))) continue;
+    const uid = String((d.data() as any).uid || '');
+    if (!uid) continue;
+    const u = await users().doc(uid).get();
+    if (u.exists && !(u.data() as any).leaderboardBlocked) await users().doc(uid).update({ leaderboardBlocked: true });
+  }
+  cache.clear();
+}
+if (IS_LEAD_WORKER && isFirebaseConfigured()) {
+  const run = () => applyIdBlocks().catch(err => console.warn('[MarketX Leaderboard] id blocks failed:', err?.message || err));
+  setTimeout(run, 45_000).unref();
+  setInterval(run, 6 * 60 * 60_000).unref();
+}
+
+/** Sign-up: is this invite code one MarketX can credit? (an account in good standing owns it) */
+export async function inviteCodeValid(code: string): Promise<boolean> {
+  const c = await codeRef(code).get();
+  const uid = c.exists ? String(c.data()?.uid || '') : '';
+  if (!uid) return false;
+  const u = await users().doc(uid).get();
+  return u.exists && !blocked(u.data() as UserDoc);
 }

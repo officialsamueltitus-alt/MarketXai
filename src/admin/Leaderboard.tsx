@@ -6,7 +6,7 @@ import { Badge, Card, Empty, ErrorNote, Segmented, Spinner, Stat, fmtDateTime, f
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const monthLabel = (m: string) => `${MONTHS[Number(m.split('-')[1]) - 1] || m} ${m.split('-')[0]}`;
 
-const Who: React.FC<{ r: any }> = ({ r }) => (
+const Who: React.FC<{ r: any; onBlock?: (uid: string, on: boolean) => void }> = ({ r, onBlock }) => (
   <div className="flex items-center gap-2 min-w-0">
     <span className="w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-[11px] font-semibold text-white shrink-0">
       {r.avatarUrl ? <img src={r.avatarUrl} alt="" className="w-full h-full object-cover" /> : String(r.displayName || r.username || '?').slice(0, 1).toUpperCase()}
@@ -20,6 +20,17 @@ const Who: React.FC<{ r: any }> = ({ r }) => (
     <div className="flex gap-1 shrink-0">
       {r.staff && <Badge tone="violet">Staff</Badge>}
       {r.hidden && <Badge tone="gray">Hidden</Badge>}
+      {r.blocked && <Badge tone="red">Kept off</Badge>}
+      {onBlock && !r.staff && (
+        <button
+          type="button"
+          onClick={() => onBlock(r.uid, !r.blocked)}
+          title={r.blocked ? 'Show this trader on the public boards again' : 'Keep this trader off the public boards for good'}
+          className="h-5 px-2 rounded-full text-[10px] font-semibold bg-white/[0.05] text-slate-300 hover:bg-white/[0.12] cursor-pointer"
+        >
+          {r.blocked ? 'Allow' : 'Keep off'}
+        </button>
+      )}
       {r.status && r.status !== 'active' && <Badge tone="red">{r.status}</Badge>}
     </div>
   </div>
@@ -33,6 +44,12 @@ export const LeaderboardAdminSection: React.FC = () => {
     () => apiFetch(`/api/admin/leaderboard?board=${board}${board === 'usage' && month ? `&month=${month}` : ''}`),
     [board, month]
   );
+  const toggleBlock = (uid: string, on: boolean) => {
+    if (on && !window.confirm('Keep this trader off the public leaderboards? They stay hidden even if they switch themselves back on.')) return;
+    apiFetch('/api/admin/leaderboard/block', { method: 'POST', body: JSON.stringify({ uid, blocked: on }) })
+      .then(reload)
+      .catch(() => {});
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -96,7 +113,7 @@ export const LeaderboardAdminSection: React.FC = () => {
                     {data.rows.map((r: any) => (
                       <tr key={r.uid} className="border-t border-white/[0.05]">
                         <td className="py-2 px-1 font-semibold text-slate-400">{r.rank}</td>
-                        <td className="py-2 px-1 max-w-[260px]"><Who r={r} /></td>
+                        <td className="py-2 px-1 max-w-[260px]"><Who r={r} onBlock={toggleBlock} /></td>
                         <td className="py-2 px-1 text-right font-semibold text-white tabular-nums">{fmtNum(r.points)}</td>
                         <td className="py-2 px-1 text-slate-300">{r.tier?.label}</td>
                         <td className="py-2 px-1 text-right tabular-nums">{fmtNum(r.analyses)}</td>
@@ -138,7 +155,7 @@ export const LeaderboardAdminSection: React.FC = () => {
                     {data.rows.map((r: any) => (
                       <tr key={r.uid} className="border-t border-white/[0.05]">
                         <td className="py-2 px-1 font-semibold text-slate-400">{r.rank}</td>
-                        <td className="py-2 px-1 max-w-[260px]"><Who r={r} /></td>
+                        <td className="py-2 px-1 max-w-[260px]"><Who r={r} onBlock={toggleBlock} /></td>
                         <td className="py-2 px-1 text-right font-semibold text-white tabular-nums">{fmtNum(r.invited)}</td>
                         <td className="py-2 px-1 text-right tabular-nums">{fmtNum(r.thisMonth)}</td>
                         <td className="py-2 px-1 text-right tabular-nums">{fmtNum(r.earned)}</td>

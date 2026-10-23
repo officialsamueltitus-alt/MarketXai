@@ -2,9 +2,9 @@ import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { lazyWithReload } from '../utils/lazyReload';
 import { deviceSignals } from '../utils/device';
 import { createPortal } from 'react-dom';
-import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check } from 'lucide-react';
+import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check, Gift } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
-import { storedRefCode } from '../utils/referral';
+import { cleanRefCode, storedRefCode } from '../utils/referral';
 import { MarketXText } from './MarketXText';
 import { MarketXIcon } from './MarketXIcon';
 import { TelegramIcon } from './SocialIcons';
@@ -69,6 +69,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
+  // Optional invite code (owner-specified): filled from an invite link, or typed by the trader
+  const [inviteCode, setInviteCode] = useState('');
+  const inviteRef = useRef('');
+  inviteRef.current = inviteCode;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -77,6 +81,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [inviter, setInviter] = useState<{ displayName: string; username: string; avatarUrl: string | null } | null>(null);
   useEffect(() => {
     const code = isOpen ? storedRefCode() : null;
+    if (code) setInviteCode(c => c || code);
     if (!code) return;
     let live = true;
     apiFetch<{ valid: boolean; inviter?: { displayName: string; username: string; avatarUrl: string | null } }>(`/api/referrals/code/${code}`)
@@ -146,7 +151,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             try {
               const account = await apiFetch('/api/auth/google', {
                 method: 'POST',
-                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals(), ref: storedRefCode() || undefined }),
+                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals(), ref: inviteRef.current.trim() || undefined }),
               });
               finish(account);
             } catch (err: any) {
@@ -245,7 +250,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             displayName: displayName.trim() || cleanUsername,
             acceptTerms: true,
             device: await deviceSignals(),
-            ref: storedRefCode() || undefined,
+            ref: inviteCode.trim() || undefined,
           }),
         });
         finish(account);
@@ -445,6 +450,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     />
                   </label>
                 </div>
+              )}
+              {mode === 'signup' && (
+                <label className="relative block">
+                  <Gift className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    className={`${inputClass} uppercase tracking-wider placeholder:normal-case placeholder:tracking-normal`}
+                    placeholder="Invite code (optional)"
+                    value={inviteCode}
+                    onChange={e => setInviteCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))}
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    aria-describedby="invite-hint"
+                  />
+                  {inviteCode && !cleanRefCode(inviteCode) && (
+                    <span id="invite-hint" className="block mt-1 text-[11px] text-amber-300 text-left">An invite code has 6 to 12 letters and numbers.</span>
+                  )}
+                </label>
               )}
               {mode !== 'reset' && (
                 <label className="relative block">

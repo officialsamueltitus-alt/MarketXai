@@ -21,6 +21,7 @@ import {
   Ticket,
   Trophy,
   UserPlus,
+  Coins,
 } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -35,13 +36,15 @@ import { BroadcastSection } from './Broadcast';
 import { SupportSection } from './Support';
 import { FundamentalAdminSection, MattAdminSection } from './SiTools';
 import { InviteRewardsSection, LeaderboardAdminSection } from './Leaderboard';
+import { CreditsSection } from './Credits';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'usage' | 'leaderboard' | 'invites' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'campaign' | 'support' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'credits' | 'usage' | 'leaderboard' | 'invites' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'campaign' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: UsersIcon },
+  { id: 'credits', label: 'Credits', icon: Coins },
   { id: 'usage', label: 'Usage', icon: BarChart3 },
   { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
   { id: 'invites', label: 'Invite rewards', icon: UserPlus },
@@ -443,6 +446,7 @@ export default function AdminApp() {
                 }}
               />
             )}
+            {section === 'credits' && <CreditsSection />}
             {section === 'usage' && <UsageSection />}
             {section === 'leaderboard' && <LeaderboardAdminSection />}
             {section === 'invites' && <InviteRewardsSection />}

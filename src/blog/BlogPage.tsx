@@ -726,7 +726,8 @@ const SECTIONS: Section[] = [
           </>,
           <>
             <B>Invite traders.</B> Open Profile: the Invite traders card has your own invite link. Copy it or press Share. Anyone who opens your link and
-            creates an account counts as your invite once they enter their pass code. The card shows how many traders you have invited, how many this month,
+            creates an account counts as your invite once they enter their pass code. Someone you told about MarketX can also type your invite code in the
+            optional Invite code box when they create their account. The card shows how many traders you have invited, how many this month,
             and the credits your invites have earned. Invite rewards are switched on by the MarketX team: while they are on, every new invite earns the
             credits shown on the card (used first, before your daily analyses).
           </>,
