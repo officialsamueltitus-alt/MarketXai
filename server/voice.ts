@@ -156,7 +156,9 @@ export function registerVoiceRoutes(app: Express, limiter: any) {
 // written here. Nothing is stored; the audio goes straight back to the app.
 // ---------------------------------------------------------------------------
 export type MattVoice = 'female' | 'male';
-const TTS_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'];
+// The light voice model first, the stronger one beside it if slow, and the light one once more if both fail (a busy
+// moment), so a reply is voiced by the server instead of falling back to the device voice
+const TTS_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts', 'gemini-2.5-flash-preview-tts'];
 const TTS_VOICES: Record<MattVoice, string> = { female: 'Aoede', male: 'Charon' };
 const TTS_TIMEOUT_MS = 15_000;
 const TTS_HEDGE_MS = 4_000;
@@ -300,7 +302,8 @@ export async function synthesize(text: string, voice: MattVoice): Promise<Buffer
       const model = TTS_MODELS[next++];
       running++;
       clearTimeout(hedge);
-      hedge = setTimeout(launch, TTS_HEDGE_MS);
+      // Only the second model is started beside a slow first one; the last try runs only after both failed
+      if (next < 2) hedge = setTimeout(launch, TTS_HEDGE_MS);
       one(model).then(b => {
         running--;
         if (b) return finish(b);
@@ -312,6 +315,30 @@ export async function synthesize(text: string, voice: MattVoice): Promise<Buffer
   });
   if (!out) console.warn('[MarketX Voice] no speech:', errors.join(' | '));
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Talk back speed: every part of a spoken reply starts being voiced the moment the reply is written (in the talk request),
+// and the app's /api/matt/speak call for a part picks up that same audio instead of voicing it again. Kept in memory for
+// 2 minutes, per trader, voice and text; nothing is written anywhere.
+// ---------------------------------------------------------------------------
+const PRESPOKEN_MS = 2 * 60_000;
+const prespoken = new Map<string, { at: number; audio: Promise<Buffer | null> }>();
+const preKey = (uid: string, text: string, voice: MattVoice) => `${uid}:${voice}:${digest(text)}`;
+/** Starts voicing a part now; the same call later (here or from /api/matt/speak) gets this audio */
+export function prespeak(uid: string, text: string, voice: MattVoice): Promise<Buffer | null> {
+  const key = preKey(uid, text, voice);
+  const hit = prespoken.get(key);
+  if (hit && Date.now() - hit.at < PRESPOKEN_MS) return hit.audio;
+  const audio = synthesize(speakableText(text), voice).catch(() => null);
+  prespoken.set(key, { at: Date.now(), audio });
+  // A failed voicing is forgotten, so asking again really tries again
+  audio.then(b => !b && prespoken.get(key)?.audio === audio && prespoken.delete(key));
+  if (prespoken.size > 500) {
+    for (const [k, v] of prespoken) if (Date.now() - v.at > PRESPOKEN_MS) prespoken.delete(k);
+    if (prespoken.size > 500) prespoken.delete(prespoken.keys().next().value as string);
+  }
+  return audio;
 }
 
 export function registerSpeakRoutes(app: Express, limiter: any) {
@@ -333,7 +360,8 @@ export function registerSpeakRoutes(app: Express, limiter: any) {
     const spoken = speakableText(text);
     if (!spoken) return res.status(400).json({ error: 'BAD_TEXT', message: 'Nothing to say.' });
     try {
-      const wav = await synthesize(spoken, voice);
+      // A reply part already being voiced for this trader (Talk back) is picked up, never voiced twice
+      const wav = req.body?.greeting === true ? await synthesize(spoken, voice) : await prespeak(uid, text, voice);
       if (!wav) return res.status(503).json({ error: 'VOICE_UNAVAILABLE', message: "Matt's voice is busy right now; his reply is written below.", text: spoken });
       res.json({ audio: wav.toString('base64'), mimeType: 'audio/wav', text, spoken });
     } catch (err: any) {

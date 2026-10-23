@@ -77,6 +77,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
+  // Matt's spoken replies play from in-page audio clips (never from another site)
+  "media-src 'self' blob: data:",
   // Only our own server, the Paystack checkout and Google sign-in: even a script slipped into the page could not send data elsewhere
   "connect-src 'self' https://*.paystack.co https://*.paystack.com https://paystack.com https://accounts.google.com https://*.google.com https://*.gstatic.com",
   'frame-src https://*.paystack.co https://*.paystack.com https://accounts.google.com',

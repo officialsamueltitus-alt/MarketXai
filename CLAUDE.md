@@ -520,7 +520,7 @@
   Talk back with Matt (owner-specified, Matt only): Matt's mic opens a menu (`MattPage.tsx`): Direct question (the speech-to-text above) or
   Talk back. Matt settings (owner-specified, `MattSettings.tsx`, the gear next to History, or `/matt?settings=1`; kept on the device):
   Mic in Matt on/off (`mx.matt.mic`; off hides Matt's mic) and Matt's voice Female/Male with "Hear it" samples (`mx.matt.voice`,
-  `src/matt/mattVoice.ts`); the voice is chosen ONLY there, never in the mic menu or on the talk screen. Talk back = `MattTalk.tsx`, a full-screen voice conversation styled on
+  `src/matt/mattVoice.ts`; owner-specified: picking a voice is a draft, only the Save button stores it, "Not saved yet" / "Saved"); the voice is chosen ONLY there, never in the mic menu or on the talk screen. Talk back = `MattTalk.tsx`, a full-screen voice conversation styled on
   the owner's reference (dark page, faint rings, glossy violet-blue orb with two white pill eyes that blink, look around while thinking, squint
   while talking; it drops in and moves with the voice; `.mx-orb*` in `index.css`): Matt greets the trader by first name, listens (the same
   recorder, sharing the AudioContext made in the tap so iOS plays and measures sound), sends the words to `/api/matt/chat` with `spoken: true`
@@ -541,6 +541,15 @@
   English accent", spoken prompts ask for American English, the device fallback voice is en-US. Phones stay cool: the orb has no blur filters
   or blend modes (gradient blobs), its glow is a separate opacity/scale layer, and the voice-follow loop runs ~30fps, writes only on change
   and stops while the tab is hidden.
+  Phones + one voice (owner-reported fixes): Matt's voice plays through an `<audio>` element unlocked inside the tap (`unlockedAudio`, plus
+  `unlockSpeech` for the device voice), never Web Audio buffers (iPhones mute those with the silent switch and send them to the earpiece after
+  the mic); the CSP allows `media-src 'self' blob: data:` for it (without it every clip was refused and phones fell back to the device voice);
+  `navigator.audioSession` is set to playback while Matt talks (Safari 16.4+); the orb follows the clip's own loudness (`envelopeOf`). A reply is
+  at most TWO parts (first sentence + the rest); the talk route starts voicing every part at once (`prespeak`, in-memory 2 min per trader +
+  voice + text) and `/api/matt/speak` hands that same audio back, never voicing it twice; the voice models are flash, pro beside it after 4s,
+  flash once more if both failed. The app asks again for a part that failed, and if it still fails the REST of that answer is read by the
+  device voice of the same kind (named US voices per platform, pitch keeps a male voice male), never a mix within one answer. Turn ends 0.7s
+  after the trader stops.
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside
