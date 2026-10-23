@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon, Newspaper } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon, Newspaper, Gauge } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, NEWS_IMPACTS, formatMoney, newsImpactLabel, type Currency, type NewsImpact, type Preferences } from '../utils/preferences';
@@ -473,6 +473,32 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
             You win more often, but your big winners are smaller: half the trade is closed at 1R. Price alerts started while this is on send a "secure half"
             notice at +1R, then treat entry as the stop, and your journal and results score the trade that way (half at +1R, the rest at the target or at entry).
           </p>
+        </Section>
+
+        <Section
+          icon={Gauge}
+          title="Buyers vs Sellers"
+          text="A live gauge on every analysis card showing who is in control right now. Information only: it never changes the signal."
+          ask={{ q: 'What does the Buyers vs Sellers gauge show and how should I read it?', label: 'Buyers vs Sellers' }}
+        >
+          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-black/20 border border-white/[0.06]">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white">{p.pressureMeter ? 'Gauge is on' : 'Show the Buyers vs Sellers gauge'}</div>
+              <div className="text-[11px] text-slate-500 leading-snug">
+                {p.pressureMeter ? 'Analysis cards show the live gauge.' : 'Off. Analysis cards hide the gauge.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={p.pressureMeter}
+              aria-label="Buyers vs Sellers gauge"
+              onClick={() => save({ pressureMeter: !p.pressureMeter })}
+              className={`h-7 w-12 rounded-full relative transition-colors cursor-pointer shrink-0 ${p.pressureMeter ? 'bg-emerald-500/80' : 'bg-white/[0.12]'}`}
+            >
+              <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all ${p.pressureMeter ? 'right-1' : 'left-1'}`} />
+            </button>
+          </div>
         </Section>
 
         <div id="mx-trade-calculator" className="scroll-mt-2">

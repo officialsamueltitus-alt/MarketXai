@@ -88,6 +88,10 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (typeof body.steadyMode !== 'boolean') return { error: 'Steady mode is on or off.' };
     next.steadyMode = body.steadyMode;
   }
+  if (has('pressureMeter')) {
+    if (typeof body.pressureMeter !== 'boolean') return { error: 'The Buyers vs Sellers gauge is on or off.' };
+    next.pressureMeter = body.pressureMeter;
+  }
   if (has('secureHalf')) {
     if (typeof body.secureHalf !== 'boolean') return { error: 'Secure half is on or off.' };
     next.secureHalf = body.secureHalf;

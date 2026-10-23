@@ -155,9 +155,26 @@
   `closeOpen` closes open trades at the live price), profit target (TARGET) or loss limit (LOSS_LIMIT): unfilled orders are cancelled, open trades are
   still managed to the end. Alerts (`tell`): order placed, filled, closed, run started/ended = site notification + push (`kind: 'agent'`); fills, closes and
   start/end also email within the market budget. Panel: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
-  (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account. Execution: TRACKED only
-  (MarketX follows each trade on live prices and alerts the exact order); MT5 execution through a trade copier is NOT built yet: MarketX never asks
-  for or stores MT5 logins. Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
+  (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account.
+  Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
+  Subscription (owner-specified): the agent has its OWN plan, $30 a month, a year = 12 months less 18% ($295.20): `agent_monthly` / `agent_yearly`
+  in `server/payments.ts` (same Paystack initialize/verify/webhook, references `mx_agent_*`, granted only after verification into `users.agentSub`
+  {active, plan, expiresAt}, renewals extend; coupons refused `COUPON_NOT_FOR_PLAN`; Pro is untouched); `agentSubActive` gates start and MT5 linking
+  (402 `AGENT_SUB_REQUIRED`), a lapsed plan ends the run `SUB_ENDED`; unlimited staff need none; the panel shows the plan cards + Paystack checkout
+  (`src/utils/paystack.ts`, shared with `PricingModal`). Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
+  PLACES it (same transaction as the order, campaign first, `campaignCharged`), refunded in full when the order is cancelled unfilled (`cancelPending`,
+  `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
+  MT5 execution (owner-specified, `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
+  (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
+  login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id) and are NEVER stored,
+  logged or returned; `mt5Links/{uid}` keeps MetaApi's account id + region (server only), masked login, server, broker, currency, balance and the
+  broker symbols matched per market (`matchSymbol`: exact, else a short suffix like XAUUSDm/XAUUSD.r; NAS100 = US100/USTEC…); `finishLink` polls until
+  DEPLOYED + CONNECTED (bad details = FAILED, the MetaApi account deleted). With a CONNECTED link, `mt5Open` places each agent order on the account:
+  the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
+  (`lotSize`: stop/tickSize x lossTickValue, rounded DOWN to the volume step; under the minimum = not placed), BUY/SELL LIMIT with stop, final target,
+  comment "MarketX agent" + clientId `MX…` (≤ 26 chars), timed expiry (GTC fallback); FAILED placements stay tracked and the trader is told. Cancels
+  (`mt5Cancel`, ORDER_CANCEL) follow MarketX's cancels; Stop and close uses POSITION_CLOSE_ID (`mt5Close`); the broker's own stop/target close filled
+  trades. MarketX's candle tracking stays the record (alerts, stats). Unlink and account deletion delete the MetaApi account first (`unlinkMt5`).
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
@@ -300,7 +317,7 @@
   price level that is not in the verified result (`numbersIn(strategy)` + live price, 0.15%) is removed (R, %, ATR, ratios and
   ~~crossed-out~~ numbers are ignored). Levels are never changed; the prompt text is untouched. Chart notes only say "live price now" for a live quote.
 - Buyers vs Sellers (owner-specified, INFORMATION ONLY, strict): `server/pressure.ts` (`readPressure`, pure) + `GET /api/pressure?symbol=` (signed in,
-  40/min per trader, one read per market shared for 5s, 8s cap, 503 `PRESSURE_UNAVAILABLE`) and `PressureMeter.tsx` on every analysis card in `ChatFeed.tsx`
+  40/min per trader, one read per market shared for 5s, 8s cap, 503 `PRESSURE_UNAVAILABLE`) and `PressureMeter.tsx` on analysis cards in `ChatFeed.tsx` ONLY when the trader turns it on (owner-specified: Preference Mode switch `users.preferences.pressureMeter`, off by default)
   (above the execution thesis; fetches on its own, refreshes every 15s only while on screen and the tab is visible). Read from fresh 1M candles (5M
   fallback): close location in the true range, weighted by size and recency; for Binance-routed coins also taker buy volume (65% flow / 35% price
   action); main window 60 min, last 15 min = buyers/sellers gaining; quiet = no candle for 20 min. NEVER read by the analysis engine, its

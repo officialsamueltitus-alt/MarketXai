@@ -18,22 +18,37 @@ import {
 import { couponForCheckout, countCouponUse } from './coupons';
 import { createKeyedThrottle } from './security';
 
-type Plan = 'monthly' | 'yearly';
+type ProPlan = 'monthly' | 'yearly';
+/** The Trading Agent's own subscription (owner-specified: $30 a month, yearly 18% off), separate from Pro */
+type AgentPlan = 'agent_monthly' | 'agent_yearly';
+type Plan = ProPlan | AgentPlan;
+const PLANS: Plan[] = ['monthly', 'yearly', 'agent_monthly', 'agent_yearly'];
+export const isAgentPlan = (p: Plan): p is AgentPlan => p === 'agent_monthly' || p === 'agent_yearly';
+const readPlan = (v: unknown): Plan => (PLANS.includes(v as Plan) ? (v as Plan) : 'monthly');
 
 const PLAN_DURATION_MS: Record<Plan, number> = {
   monthly: 30 * 24 * 60 * 60 * 1000,
   yearly: 365 * 24 * 60 * 60 * 1000,
+  agent_monthly: 30 * 24 * 60 * 60 * 1000,
+  agent_yearly: 365 * 24 * 60 * 60 * 1000,
 };
+const planName = (p: Plan) => (isAgentPlan(p) ? `Trading Agent ${p === 'agent_yearly' ? 'Yearly' : 'Monthly'}` : `Pro ${p === 'yearly' ? 'Yearly' : 'Monthly'}`);
 
 // Plans are priced in USD and charged in the currency the Paystack account supports
 // (NGN for Nigerian merchants, which also unlocks bank transfer and USSD).
 const YEARLY_DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.PRO_YEARLY_DISCOUNT_PERCENT) || 8));
 const PAYMENT_CHANNELS = ['card', 'bank_transfer', 'ussd', 'bank', 'qr', 'mobile_money'];
 
+/** Trading Agent: $30 a month; a year costs 12 months less 18% ($295.20) */
+const AGENT_MONTHLY_USD = 30;
+const AGENT_YEARLY_DISCOUNT_PCT = 18;
+
 function usdPrices() {
   const monthly = Number(process.env.PRO_MONTHLY_PRICE_USD) || 20;
   const yearly = Math.round(monthly * 12 * (1 - YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
-  return { monthly, yearly };
+  const agent_monthly = AGENT_MONTHLY_USD;
+  const agent_yearly = Math.round(AGENT_MONTHLY_USD * 12 * (1 - AGENT_YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
+  return { monthly, yearly, agent_monthly, agent_yearly } as Record<Plan, number>;
 }
 
 function chargeCurrency(): string {
@@ -98,7 +113,8 @@ function getPricing() {
   const usd = usdPrices();
   const currency = chargeCurrency();
   const rate = currentRate();
-  return { usd, currency, rate, monthly: toMinorAmount(usd.monthly, currency, rate), yearly: toMinorAmount(usd.yearly, currency, rate) };
+  const minor = Object.fromEntries(PLANS.map(p => [p, toMinorAmount(usd[p], currency, rate)])) as Record<Plan, number | null>;
+  return { usd, currency, rate, ...minor };
 }
 
 /** A plan's USD price after a coupon's percent off (cents rounded) */
@@ -107,7 +123,7 @@ const discountedUsd = (usd: number, pct: number) => Math.round(usd * (1 - pct / 
 /** What a plan costs with a coupon: the USD price and what Paystack charges (major units), exactly as the checkout prices it */
 export function planPrice(plan: Plan, pct: number): { usd: number; fullUsd: number; charge: number | null; currency: string; pct: number } {
   const p = getPricing();
-  const fullUsd = plan === 'yearly' ? p.usd.yearly : p.usd.monthly;
+  const fullUsd = p.usd[plan];
   const usd = discountedUsd(fullUsd, pct);
   const minor = toMinorAmount(usd, p.currency, p.rate);
   return { usd, fullUsd, charge: minor == null ? null : minor / 100, currency: p.currency, pct };
@@ -127,6 +143,12 @@ export function getPaymentsPublicConfig() {
     chargeCurrency: pricing.currency,
     chargeMonthlyAmount: pricing.monthly != null ? pricing.monthly / 100 : null,
     chargeYearlyAmount: pricing.yearly != null ? pricing.yearly / 100 : null,
+    // Trading Agent subscription
+    agentMonthlyAmount: pricing.usd.agent_monthly,
+    agentYearlyAmount: pricing.usd.agent_yearly,
+    agentYearlyDiscountPct: AGENT_YEARLY_DISCOUNT_PCT,
+    chargeAgentMonthlyAmount: pricing.agent_monthly != null ? pricing.agent_monthly / 100 : null,
+    chargeAgentYearlyAmount: pricing.agent_yearly != null ? pricing.agent_yearly / 100 : null,
     // Plan benefits as enforced by the server, so the UI never over-promises
     benefits: {
       freeDailyAnalyses: FREE_DAILY_LIMIT,
@@ -179,6 +201,23 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
 
     const plan = payment.plan as Plan;
     const now = Date.now();
+    if (isAgentPlan(plan)) {
+      // Trading Agent subscription: its own expiry, renewals extend it (Pro and daily analyses are untouched)
+      const cur = (loaded.doc as any).agentSub as { active?: boolean; expiresAt?: number; startDate?: number } | undefined;
+      const live = !!cur?.active && (cur.expiresAt || 0) > now;
+      const until = (live ? cur!.expiresAt! : now) + PLAN_DURATION_MS[plan];
+      t.update(loaded.ref, {
+        agentSub: { plan, active: true, startDate: live ? cur!.startDate || now : now, expiresAt: until, price: Number(payment.usdAmount) || 0, paystackRef: reference },
+      });
+      t.update(paymentRef, { status: 'fulfilled', fulfilledAt: now, paidAt: tx.paid_at || null, channel: tx.channel || null });
+      addNotificationInTx(t, payment.uid, {
+        type: 'credit',
+        title: `${planName(plan)} activated`,
+        message: 'Payment confirmed. Your Trading Agent is unlocked: set it up and switch it on.',
+        actionType: 'open_agent',
+      } as any);
+      return { granted: true, uid: payment.uid, plan, email: loaded.doc.email, charged: `${(Number(payment.amount) / 100).toLocaleString('en-US')} ${payment.currency}`, expiresAt: until, reference, coupon: null };
+    }
     const sub = loaded.doc.subscription;
     // Renewals extend from the current expiry instead of resetting it
     const base = sub.active && sub.expiresAt > now ? sub.expiresAt : now;
@@ -216,9 +255,27 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
 
 function notifyPaymentEmail(result: FulfillResult) {
   if (!result.granted || !result.plan) return;
-  if (result.coupon?.code) countCouponUse(result.coupon.code, result.plan);
+  if (result.coupon?.code && !isAgentPlan(result.plan)) countCouponUse(result.coupon.code, result.plan);
   if (result.uid) {
-    logActivity(result.uid, { type: 'payment', title: `Paid for Pro ${result.plan === 'yearly' ? 'Yearly' : 'Monthly'}`, detail: result.charged || '' });
+    logActivity(result.uid, { type: 'payment', title: `Paid for ${planName(result.plan)}`, detail: result.charged || '' });
+  }
+  if (isAgentPlan(result.plan)) {
+    sendEmail(
+      result.email,
+      `Your MarketX ${planName(result.plan)} plan is active`,
+      ['Thank you for your payment. Your Trading Agent is unlocked.', 'Open the agent, set it up and switch it on. Credits are used per trade it takes.'],
+      {
+        rows: [
+          ['Plan', planName(result.plan)],
+          ['Amount paid', result.charged || '-'],
+          ['Active until', result.expiresAt ? new Date(result.expiresAt).toDateString() : '-'],
+          ['Reference', result.reference || '-'],
+        ],
+        cta: { label: 'Open the trading agent', url: `${(process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '')}/?agent=1` },
+        note: 'Keep this email as your receipt.',
+      }
+    );
+    return;
   }
   sendEmail(
     result.email,
@@ -254,18 +311,21 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
       if (!config.enabled) {
         return res.status(503).json({ error: 'PAYMENTS_DISABLED', message: 'Payments are not available yet.' });
       }
-      const plan: Plan = req.body?.plan === 'yearly' ? 'yearly' : 'monthly';
+      const plan: Plan = readPlan(req.body?.plan);
       // Coupon (optional): priced here on the server, and only while the code is live. A code that doesn't work is
       // refused, never silently charged at the full price.
       const rawCoupon = typeof req.body?.coupon === 'string' ? req.body.coupon.trim() : '';
       let coupon: { code: string; pct: number } | null = null;
-      if (rawCoupon) {
+      if (rawCoupon && isAgentPlan(plan)) {
+        return res.status(400).json({ error: 'COUPON_NOT_FOR_PLAN', message: 'Coupons apply to Pro plans only, not the Trading Agent.' });
+      }
+      if (rawCoupon && !isAgentPlan(plan)) {
         const c = await couponForCheckout(rawCoupon, plan);
         if ('error' in c) return res.status(400).json({ error: c.error, message: c.message });
         coupon = { code: c.coupon.code, pct: c.pct };
       }
       const pricing = getPricing();
-      if (pricing.monthly == null || pricing.yearly == null) {
+      if (pricing[plan] == null) {
         await refreshRate();
         return res.status(503).json({ error: 'RATE_UNAVAILABLE', message: 'Checkout is warming up. Please try again in a few seconds.' });
       }
@@ -274,9 +334,9 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
       if (!userSnap.exists) return res.status(404).json({ error: 'NO_ACCOUNT' });
 
       const reference = `mx_${plan}_${Date.now()}_${crypto.randomBytes(5).toString('hex')}`;
-      const fullUsd = plan === 'yearly' ? pricing.usd.yearly : pricing.usd.monthly;
+      const fullUsd = pricing.usd[plan];
       const usdAmount = coupon ? discountedUsd(fullUsd, coupon.pct) : fullUsd;
-      const amount = coupon ? toMinorAmount(usdAmount, pricing.currency, pricing.rate)! : plan === 'yearly' ? pricing.yearly : pricing.monthly;
+      const amount = coupon ? toMinorAmount(usdAmount, pricing.currency, pricing.rate)! : pricing[plan];
       await db().collection('payments').doc(reference).set({
         uid: user.uid,
         email: user.email,
@@ -309,7 +369,7 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
   app.post('/api/payments/verify', limiter, requireAuth, async (req: Request, res: Response) => {
     try {
       const reference = String(req.body?.reference || '');
-      if (!/^mx_(monthly|yearly)_\d+_[a-f0-9]{10}$/.test(reference)) {
+      if (!/^mx_(monthly|yearly|agent_monthly|agent_yearly)_\d+_[a-f0-9]{10}$/.test(reference)) {
         return res.status(400).json({ error: 'INVALID_REFERENCE' });
       }
       const user = getUser(res);

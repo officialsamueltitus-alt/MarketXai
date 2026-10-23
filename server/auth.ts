@@ -25,6 +25,7 @@ import { cleanDisplayName, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import { IS_LEAD_WORKER } from './workers';
 import { readDeviceSignals, reserveSignup, releasePendingSignup, activateSignup, keysOf, signupMetaOf, canonicalEmail, type DeviceSignals } from './signupGuard';
 import { clientIp, createKeyedThrottle } from './security';
+import { unlinkMt5 } from './tradingAgent';
 import {
   batchFullMessage,
   checkPasscode,
@@ -305,6 +306,8 @@ async function deleteOwnedRecords(uid: string) {
     each('adminGifts', ref => ref.update({ uid: null, email: null })),
     db().recursiveDelete(db().collection('supportThreads').doc(uid)).then(() => db().collection('supportThreads').doc(uid).delete()),
   ];
+  // The MT5 link: removed at MetaApi (its stored credentials go with it), then here
+  tasks.push(unlinkMt5(uid, { force: true }));
   const results = await Promise.allSettled(tasks);
   const failed = results.filter(r => r.status === 'rejected').length;
   if (failed) console.warn(`[MarketX Auth] account cleanup: ${failed} collection(s) could not be cleared`);

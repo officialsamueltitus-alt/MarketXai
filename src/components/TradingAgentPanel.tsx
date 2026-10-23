@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Info, Loader2, Minus, Plug, Plus, Power, RefreshCw, ShieldAlert, Square, Target, X, XCircle } from 'lucide-react';
-import { apiFetch } from '../utils/apiClient';
+import { Activity, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Info, Link2, Loader2, Lock, Minus, Plug, Plus, Power, RefreshCw, ShieldAlert, Square, Target, Unlink, X, XCircle } from 'lucide-react';
+import { apiFetch, formatMoney } from '../utils/apiClient';
+import { loadPaystack } from '../utils/paystack';
 import { exactPrice } from '../utils/formatPrice';
 import {
   AGENT_FRAMES, AGENT_LIMITS, AGENT_PRICING, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, agentMaxCost, normalizeAgentSettings,
@@ -22,7 +23,11 @@ interface AgentState {
   minQuality: number;
   backtest: { won: number; avgR: number; profitFactor: number; maxDrawdownR: number; worstRun: number; tradesPerMonth: number };
   credits: number | null;
-  execution: { mode: 'TRACKED'; mt5: 'NOT_CONNECTED' };
+  subscription: { active: boolean; staff: boolean; plan: string | null; expiresAt: number | null; monthlyUsd: number; yearlyUsd: number; yearlyDiscountPct: number; payments: boolean };
+  mt5: {
+    available: boolean;
+    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
+  };
 }
 type Tab = 'setup' | 'trades' | 'activity';
 
@@ -113,6 +118,8 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
   const [error, setError] = useState('');
   const [confirmStop, setConfirmStop] = useState(false);
   const [showBacktest, setShowBacktest] = useState(false);
+  const [mt5Form, setMt5Form] = useState({ login: '', server: '', password: '', consent: false });
+  const [subPlan, setSubPlan] = useState<'agent_monthly' | 'agent_yearly'>('agent_monthly');
   const listRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -141,10 +148,10 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
   }, [isOpen, load]);
   // While the agent runs, the panel follows it (every 20s while the tab is visible)
   useEffect(() => {
-    if (!isOpen || !running) return;
+    if (!isOpen || !(running || data?.mt5?.link?.status === 'CONNECTING')) return;
     const id = setInterval(() => document.visibilityState === 'visible' && load(true), 20_000);
     return () => clearInterval(id);
-  }, [isOpen, running, load]);
+  }, [isOpen, running, data?.mt5?.link?.status, load]);
   // A notification's trade: open the Trades tab and ring it
   useEffect(() => {
     if (!isOpen || !focusId || !data) return;
@@ -189,8 +196,67 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
     }
   };
 
+  const connectMt5 = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setData(await apiFetch<AgentState>('/api/agent/mt5/connect', { method: 'POST', body: JSON.stringify(mt5Form), timeoutMs: 90_000 }));
+      setMt5Form(f => ({ ...f, password: '' }));
+    } catch (e: any) {
+      setError(e?.message || 'Could not link MT5.');
+      setMt5Form(f => ({ ...f, password: '' }));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const mt5Action = async (path: string, method: 'POST' | 'DELETE') => {
+    setBusy(true);
+    setError('');
+    try {
+      setData(await apiFetch<AgentState>(path, { method }));
+    } catch (e: any) {
+      setError(e?.message || 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  // The agent's subscription: Paystack checkout; only the server's verification switches it on
+  const subscribe = async () => {
+    setError('');
+    if (!window.PaystackPop) await loadPaystack().catch(() => {});
+    if (!window.PaystackPop) return setError('Checkout could not load. Disable any ad or script blocker and try again.');
+    setBusy(true);
+    try {
+      const init = await apiFetch<{ reference: string; amount: number; currency: string; channels?: string[]; email: string; publicKey: string }>('/api/payments/initialize', {
+        method: 'POST',
+        body: JSON.stringify({ plan: subPlan }),
+      });
+      window.PaystackPop.setup({
+        key: init.publicKey,
+        email: init.email,
+        amount: init.amount,
+        currency: init.currency,
+        ref: init.reference,
+        channels: init.channels,
+        callback: r => {
+          apiFetch('/api/payments/verify', { method: 'POST', body: JSON.stringify({ reference: r.reference || init.reference }) })
+            .then(() => load())
+            .catch(err => setError(err?.message || 'Payment could not be verified.'))
+            .finally(() => setBusy(false));
+        },
+        onClose: () => setBusy(false),
+      }).openIframe();
+    } catch (e: any) {
+      setError(e?.message || 'Could not start checkout.');
+      setBusy(false);
+    }
+  };
+
   if (!isOpen) return null;
   const run = data?.run || null;
+  const sub = data?.subscription;
+  const subscribed = !!sub?.active;
+  const link = data?.mt5?.link || null;
   const rs = run?.stats;
   const openTrades = (data?.trades || []).filter(t => t.state === 'OPEN' || t.state === 'PENDING');
   const marketLabel = (s: string) => data?.markets.find(m => m.symbol === s);
@@ -280,17 +346,107 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
                   ))}
               </div>
 
-              {/* MT5 */}
-              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5 flex gap-3">
-                <span className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
-                  <Plug className="w-4 h-4 text-amber-300" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">MT5: not linked yet</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
-                    Direct MT5 execution is coming. Until then MarketX tracks each agent trade on live prices and alerts you with the exact order to place. MarketX never asks for your MT5 password.
-                  </p>
+              {/* Subscription: the agent has its own plan */}
+              {sub && !subscribed && (
+                <div className="rounded-3xl border border-violet-400/30 bg-gradient-to-br from-violet-500/[0.12] to-fuchsia-500/[0.06] p-4">
+                  <div className="flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-violet-300" />
+                    <p className="text-sm font-semibold text-white">Unlock the Trading Agent</p>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">Its own subscription, separate from Pro. Credits are still used per trade the agent takes.</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        ['agent_monthly', 'Monthly', `${formatMoney(sub.monthlyUsd, 'USD', true)}`, 'a month'],
+                        ['agent_yearly', 'Yearly', `${formatMoney(sub.yearlyUsd, 'USD')}`, `a year · save ${sub.yearlyDiscountPct}%`],
+                      ] as const
+                    ).map(([id, label, price, per]) => (
+                      <button key={id} type="button" onClick={() => setSubPlan(id)} className={`rounded-2xl border px-3 py-2.5 text-left cursor-pointer transition ${subPlan === id ? 'border-violet-400/50 bg-violet-500/15' : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]'}`}>
+                        <span className="block text-xs font-semibold text-white">{label}</span>
+                        <span className="block text-base font-bold text-white tabular-nums">{price}</span>
+                        <span className="block text-[10px] text-slate-400">{per}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={subscribe} disabled={busy || !sub.payments} className="mt-3 w-full h-10 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
+                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />} {sub.payments ? 'Subscribe' : 'Payments are not available yet'}
+                  </button>
                 </div>
+              )}
+              {sub && subscribed && !sub.staff && sub.expiresAt && (
+                <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                  <Crown className="w-3.5 h-3.5 text-violet-300" /> Trading Agent {sub.plan === 'agent_yearly' ? 'Yearly' : 'Monthly'} · active until{' '}
+                  {new Date(sub.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                </p>
+              )}
+
+              {/* MT5 */}
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+                <div className="flex gap-3">
+                  <span className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${link?.status === 'CONNECTED' ? 'bg-emerald-500/15 border-emerald-500/25' : 'bg-amber-500/15 border-amber-500/25'}`}>
+                    <Plug className={`w-4 h-4 ${link?.status === 'CONNECTED' ? 'text-emerald-300' : 'text-amber-300'}`} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-white">
+                      {link?.status === 'CONNECTED' ? `MT5 linked · ${link.login}` : link?.status === 'CONNECTING' ? 'Linking your MT5…' : 'MT5: not linked'}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                      {link?.status === 'CONNECTED'
+                        ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.`
+                        : link?.status === 'CONNECTING'
+                          ? 'Signing in to your broker. This takes up to a minute or two.'
+                          : link?.status === 'FAILED'
+                            ? link.message || 'Linking failed. Check your details and try again.'
+                            : data.mt5.available
+                              ? 'Link your MT5 account and the agent places its trades there. Until then MarketX tracks each trade and alerts you with the exact order.'
+                              : 'MT5 linking is being set up. Until then MarketX tracks each trade and alerts you with the exact order to place.'}
+                    </p>
+                  </div>
+                </div>
+                {link?.status === 'CONNECTED' && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {Object.entries(link.symbols).map(([m, bs]) => (
+                      <span key={m} className={`text-[10px] px-2 py-0.5 rounded-full border ${bs ? 'border-emerald-500/25 text-emerald-200' : 'border-white/[0.08] text-slate-500'}`}>
+                        {marketLabel(m)?.label || m}: {bs || 'not at your broker'}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {link && (
+                  <div className="mt-2.5 flex gap-2">
+                    {link.status !== 'FAILED' && (
+                      <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5/refresh', 'POST')} className="px-3 h-8 rounded-full bg-white/[0.06] text-xs text-white hover:bg-white/[0.1] cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                        <RefreshCw className="w-3 h-3" /> Check
+                      </button>
+                    )}
+                    <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5', 'DELETE')} className="px-3 h-8 rounded-full bg-white/[0.06] text-xs text-slate-300 hover:bg-white/[0.1] cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                      <Unlink className="w-3 h-3" /> {link.status === 'FAILED' ? 'Clear' : 'Disconnect'}
+                    </button>
+                  </div>
+                )}
+                {(!link || link.status === 'FAILED') && data.mt5.available && subscribed && (
+                  <form
+                    className="mt-3 space-y-2"
+                    onSubmit={e => {
+                      e.preventDefault();
+                      connectMt5();
+                    }}
+                    autoComplete="off"
+                  >
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={mt5Form.login} onChange={e => setMt5Form(f => ({ ...f, login: e.target.value.replace(/\D/g, '').slice(0, 20) }))} inputMode="numeric" placeholder="MT5 login" aria-label="MT5 login" className="h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40" />
+                      <input value={mt5Form.server} onChange={e => setMt5Form(f => ({ ...f, server: e.target.value.slice(0, 80) }))} placeholder="Server, e.g. Exness-MT5Real8" aria-label="MT5 server" className="h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40" />
+                    </div>
+                    <input type="password" value={mt5Form.password} onChange={e => setMt5Form(f => ({ ...f, password: e.target.value.slice(0, 64) }))} placeholder="Master (trading) password" aria-label="MT5 master password" autoComplete="new-password" className="w-full h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40" />
+                    <label className="flex items-start gap-2 text-[11px] text-slate-400 cursor-pointer">
+                      <input type="checkbox" checked={mt5Form.consent} onChange={e => setMt5Form(f => ({ ...f, consent: e.target.checked }))} className="mt-0.5" />
+                      <span>I let the MarketX agent place and close trades on this account. The password goes straight to the secure MT5 connection: MarketX never stores it. An investor password can't place trades.</span>
+                    </label>
+                    <button type="submit" disabled={busy || !mt5Form.login || !mt5Form.server || !mt5Form.password || !mt5Form.consent} className="w-full h-9 rounded-xl bg-white/[0.08] text-sm font-medium text-white hover:bg-white/[0.12] disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
+                      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Link MT5
+                    </button>
+                  </form>
+                )}
               </div>
 
               {error && <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">{error}</p>}
@@ -366,7 +522,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
                     </div>
                     <div className="mt-3 rounded-2xl bg-black/20 border border-white/[0.06] p-3 text-[11px] text-slate-400 space-y-1">
                       <p>
-                        <span className="text-white font-medium">{price.perTrade} credits a trade</span>, used only when an order fills. Most this run can cost:{' '}
+                        <span className="text-white font-medium">{price.perTrade} credits a trade</span>, used once when the agent places it and refunded if the order never fills. Most this run can cost:{' '}
                         <span className="text-white font-medium">{maxCost} credits</span> ({draft.tradesPerDay} a day × {price.days} day{price.days === 1 ? '' : 's'}).
                       </p>
                       {credits !== null && (
@@ -395,7 +551,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
                   )}
 
                   {!running && (
-                    <button type="button" onClick={start} disabled={busy || !check.ok || short} className="mt-4 w-full h-11 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.8)] hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
+                    <button type="button" onClick={start} disabled={busy || !check.ok || short || !subscribed} className="mt-4 w-full h-11 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.8)] hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
                       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />} Start the agent
                     </button>
                   )}
@@ -438,7 +594,17 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
                           )}
                           {typeof t.r !== 'number' && <span className="ml-auto">{ago(t.filledAt || t.createdAt)}</span>}
                         </div>
-                        {t.note && t.state !== 'OPEN' && t.state !== 'PENDING' && <p className="mt-1 text-[10px] text-slate-500">{t.note}{t.credits ? ` · ${t.credits} credits` : ''}</p>}
+                        {t.mt5 && (
+                          <p className={`mt-1 text-[10px] ${t.mt5.state === 'FAILED' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                            {t.mt5.state === 'FAILED' ? `Not placed on MT5: ${t.mt5.error || 'error'}` : `On MT5 · ${t.mt5.symbol} · ${t.mt5.volume} lots${t.mt5.state === 'CANCELLED' ? ' · cancelled' : t.mt5.state === 'CLOSED' ? ' · closed' : ''}`}
+                          </p>
+                        )}
+                        {t.note && t.state !== 'OPEN' && t.state !== 'PENDING' && (
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            {t.note}
+                            {t.refunded ? ` · ${t.refunded} credits refunded` : t.credits ? ` · ${t.credits} credits` : ''}
+                          </p>
+                        )}
                       </div>
                     );
                   })}

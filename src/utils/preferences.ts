@@ -39,6 +39,8 @@ export interface Preferences {
    *  cards; price alerts started while it is on follow it (a +1R notice, the stop at entry) and the journal / track
    *  record score the trade that way (half at +1R, the rest at the target, or at entry) */
   secureHalf: boolean;
+  /** Buyers vs Sellers gauge on analysis cards (owner-specified: hidden unless the trader turns it on) */
+  pressureMeter: boolean;
   /** Steady mode (owner-specified option C, off by default, Normal analysis only): stop room x3 with the same entry and
    *  targets, limit entries only, 1H and 4H only, no entries in a hot market. Wins more often, makes less per trade */
   steadyMode: boolean;
@@ -59,6 +61,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   styleTimeframes: { SCALP: [], DAY: [], SWING: [] },
   newsAlerts: { enabled: false, impacts: ['HIGH'] },
   secureHalf: false,
+  pressureMeter: false,
   steadyMode: false,
 };
 
@@ -90,6 +93,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   out.styleTimeframes = readStyleTimeframes(out.styleTimeframes);
   out.newsAlerts = readNewsAlerts(out.newsAlerts);
   out.secureHalf = out.secureHalf === true;
+  out.pressureMeter = out.pressureMeter === true;
   out.steadyMode = out.steadyMode === true;
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;

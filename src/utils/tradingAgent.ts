@@ -145,13 +145,17 @@ export interface AgentTradeView {
   closedAt?: number;
   closePrice?: number;
   note?: string;
+  /** The order on the trader's MT5 account, when linked */
+  mt5?: { state: 'PLACED' | 'FAILED' | 'CANCELLED' | 'CLOSED'; symbol?: string; volume?: number; error?: string };
+  /** Credits given back (the order never filled) */
+  refunded?: number;
 }
 export interface AgentStats { trades: number; wins: number; losses: number; winRate: number; totalR: number; avgR: number; pnlPct: number }
 export interface AgentLogEntry { at: number; kind: 'START' | 'SCAN' | 'ORDER' | 'FILL' | 'WIN' | 'LOSS' | 'CLOSE' | 'CANCEL' | 'STOP' | 'END' | 'PAUSE'; text: string; tradeId?: string }
 export interface AgentRunView {
   id: string;
   state: 'RUNNING' | 'ENDED';
-  endedReason?: 'TIME_UP' | 'STOPPED' | 'TARGET' | 'LOSS_LIMIT' | 'NO_CREDITS';
+  endedReason?: 'TIME_UP' | 'STOPPED' | 'TARGET' | 'LOSS_LIMIT' | 'NO_CREDITS' | 'SUB_ENDED';
   startedAt: number;
   endsAt: number;
   endedAt?: number;
@@ -169,6 +173,7 @@ export const ENDED_TEXT: Record<NonNullable<AgentRunView['endedReason']>, string
   TARGET: 'Profit target reached',
   LOSS_LIMIT: 'Loss limit reached',
   NO_CREDITS: 'Out of credits',
+  SUB_ENDED: 'Agent subscription ended',
 };
 
 /** Win rate, R and account % from closed trades (TIMEOUT counts by its sign) */
