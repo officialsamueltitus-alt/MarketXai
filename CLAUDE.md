@@ -139,6 +139,25 @@
   them; none allowed = a Normal analysis saying so), no hot market (ATR percentile ≥ 0.67), stop moved to `STEADY_STOP_MULT` 3 × its normal
   distance (same entry and price targets, R recomputed) and untouched since the zone formed; else "No signal (Steady mode)…". Results carry
   `strategy.steadyMode` and a "> **Stop loss:** Steady mode…" note. Strategy Builder and Confirmation ignore it.
+- Trading agent (owner-specified, `/trading-agent`, `server/tradingAgent.ts`, shared `src/utils/tradingAgent.ts`, panel `TradingAgentPanel.tsx`, slash
+  command `agent` live, Tools sheet More tools, `?agent=1&focus=at_…`, notifications `open_agent`): the trader sets trade type (DAY = 1H, SWING = 4H,
+  ANY = both; Steady mode only trades 1H/4H), timeframes, markets (`AGENT_MARKETS`: gold, BTC, ETH, USD/JPY, GBP/USD, NAS100; EUR/USD lost in the
+  back-test so it is not offered), risk per trade 0.1-2%, trades per day 1-5, profit target and loss limit for the run (% of account, 0 = none) and
+  the run length; then switches it on and it works on its own (lead worker, `AGENT_TICK_MS` 60s): scans with Steady mode (option C, the same
+  `buildStructureMap(..., 'STEADY')` read, no AI call), takes only setups of quality `AGENT_MIN_QUALITY` 65+, one live order/trade per market, at most
+  `tradesPerDay` placed per site-TZ day and live at once, never the same setup twice (`seen`); places a LIMIT at the MIDDLE of the entry zone
+  (`orderPrice`) with the stop and the FINAL target (whole position held to the final target or the stop); `stepTrade` walks 1-minute candles (fill at the
+  order price; TP1 before the fill = cancelled; not filled in 48 candles = cancelled; stop before target on a candle, `levelTolerance` margins; open 500
+  candles = closed at market). Back-test (Oct 2026, real fills, `AGENT_BACKTEST`): 32.5% won, +0.19R, PF 1.28, deepest drop 17.9R, ~7 trades/month on all six;
+  splitting at targets, break-even moves, closing at TP1 and the zone edge/optimal entry all tested worse. Credits (owner-specified, never below 5 a trade):
+  `AGENT_PRICING` DAILY 7 / WEEKLY 6 / MONTHLY 5 per trade, charged ONLY when an order fills (`fillTrade`, transaction, campaign credits first, unlimited staff
+  free); starting needs one trade's credits; can't pay at the fill = order cancelled + run ends NO_CREDITS. Runs end on time (TIME_UP), Stop (STOPPED,
+  `closeOpen` closes open trades at the live price), profit target (TARGET) or loss limit (LOSS_LIMIT): unfilled orders are cancelled, open trades are
+  still managed to the end. Alerts (`tell`): order placed, filled, closed, run started/ended = site notification + push (`kind: 'agent'`); fills, closes and
+  start/end also email within the market budget. Panel: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
+  (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account. Execution: TRACKED only
+  (MarketX follows each trade on live prices and alerts the exact order); MT5 execution through a trade copier is NOT built yet: MarketX never asks
+  for or stores MT5 logins. Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle

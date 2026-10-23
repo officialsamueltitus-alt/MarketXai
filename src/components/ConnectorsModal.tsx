@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LayoutGrid, X, SlidersHorizontal, ChevronRight, Landmark, Target } from 'lucide-react';
+import { LayoutGrid, X, SlidersHorizontal, ChevronRight, Landmark, Target, Bot } from 'lucide-react';
 import type { PluginId, PluginStates } from '../types';
 import { PLUGINS } from '../utils/plugins';
 import { PluginRow, ProBadge } from './PluginRow';
@@ -14,15 +14,16 @@ interface ConnectorsModalProps {
   /** "Free until 1 Nov" while the Pro features are open to everyone, "Pro" once they are Pro only; shown on each Pro feature */
   badge?: string | null;
   /** Tools with their own panel (Preference Mode, Fundamental Analysis, Strategy Builder) */
-  onOpenTool?: (id: 'preference' | 'fundamental' | 'strategy') => void;
+  onOpenTool?: (id: 'preference' | 'fundamental' | 'strategy' | 'agent') => void;
   /** Modes on right now (Fundamental Analysis, Strategy Builder, Confirmation, trade type): listed first, each opens its settings */
   active?: Array<{ id: string; label: string; detail: string; dot: string; onOpen: () => void }>;
 }
 
 const TOOLS = [
-  { id: 'fundamental' as const, label: 'Fundamental Analysis', slash: '/fundamental-analysis', text: 'CPI, NFP, PPI, rate decisions and the pairs they move', icon: Landmark, tint: 'bg-sky-500/15 border-sky-500/30 text-sky-300' },
-  { id: 'strategy' as const, label: 'Strategy Builder', slash: '/strategy-builder', text: 'Run your own strategy in every analysis', icon: Target, tint: 'bg-violet-500/15 border-violet-500/30 text-violet-300' },
-  { id: 'preference' as const, label: 'Preference Mode', slash: '/preference', text: 'Your defaults, trade type, risk and view', icon: SlidersHorizontal, tint: 'bg-amber-500/15 border-amber-500/30 text-amber-300' },
+  { id: 'agent' as const, label: 'Trading Agent', slash: '/trading-agent', text: 'Finds, places and manages trades for you', icon: Bot, tint: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300', pro: false },
+  { id: 'fundamental' as const, label: 'Fundamental Analysis', slash: '/fundamental-analysis', text: 'CPI, NFP, PPI, rate decisions and the pairs they move', icon: Landmark, tint: 'bg-sky-500/15 border-sky-500/30 text-sky-300', pro: true },
+  { id: 'strategy' as const, label: 'Strategy Builder', slash: '/strategy-builder', text: 'Run your own strategy in every analysis', icon: Target, tint: 'bg-violet-500/15 border-violet-500/30 text-violet-300', pro: true },
+  { id: 'preference' as const, label: 'Preference Mode', slash: '/preference', text: 'Your defaults, trade type, risk and view', icon: SlidersHorizontal, tint: 'bg-amber-500/15 border-amber-500/30 text-amber-300', pro: true },
 ];
 
 /** Tools: what is on right now, every tool that is switched on, and the ones that can be turned on */
@@ -112,7 +113,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
             <div>
               <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">More tools</div>
               <div className="space-y-2">
-                {TOOLS.map(({ id, label, slash, text, icon: Icon, tint }) => (
+                {TOOLS.map(({ id, label, slash, text, icon: Icon, tint, pro }) => (
                   <button
                     key={id}
                     type="button"
@@ -126,7 +127,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ isOpen, onClos
                       <span className="flex items-center gap-1.5 text-sm font-medium text-white min-w-0">
                         <span className="truncate">{label}</span>
                         <span className="text-[11px] font-mono text-slate-500 truncate">{slash}</span>
-                        {badge && <ProBadge text={badge} />}
+                        {badge && pro && <ProBadge text={badge} />}
                       </span>
                       <span className="block text-xs text-slate-500 truncate">{text}</span>
                     </span>

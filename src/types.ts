@@ -422,7 +422,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   actionPrompt?: string;
-  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support' | 'open_alerts' | 'open_watchlist' | 'open_chat' | 'open_credits' | 'open_profile_security' | 'open_explain_campaign';
+  actionType?: 'view_receipt' | 'analyze_prompt' | 'open_profile' | 'open_pricing' | 'open_campaign' | 'open_support' | 'open_alerts' | 'open_watchlist' | 'open_agent' | 'open_chat' | 'open_credits' | 'open_profile_security' | 'open_explain_campaign';
   actionPayload?: any;
   /** Announcements: an optional https link attached by the MarketX team */
   link?: string;

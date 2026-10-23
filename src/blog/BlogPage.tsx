@@ -17,6 +17,7 @@ import {
   ImagePlus,
   Radar,
   Landmark,
+  Bot,
 } from 'lucide-react';
 import { MarketXIcon } from '../components/MarketXIcon';
 
@@ -179,7 +180,6 @@ const SECTIONS: Section[] = [
           rows={[
             ['Markets', 'Top bar, view switch', 'Live prices and ready made prompts for forex, gold, crypto, stocks and indices. Tap any card to analyze it.'],
             ['Ask SI', 'Top bar, view switch', 'The chat where you type prompts and get trade plans.'],
-            ['SI engines', 'Top bar, Models button', 'Shows the active MarketX Engine and engines coming soon.'],
             ['New chat', 'Top bar or sidebar', 'Starts a fresh conversation.'],
             ['Credits', 'Top bar credit pill, or Sidebar, Settings, Credits', "Your balance, today's analyses, and plans."],
             ['Notifications', 'Top bar bell', 'Analyses, sign ins, payments, rewards and replies from support.'],
@@ -281,8 +281,8 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Tools">
           Tap <B>Tools</B> under the input box, or type / in the input, to see every tool. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
-          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below), <B>/strategy-builder</B> (see Strategy Builder below) and <B>/fundamental-analysis</B> (see Fundamental Analysis below). Still
-          in private testing and marked Soon: Trading Agent, MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below), <B>/strategy-builder</B> (see Strategy Builder below), <B>/fundamental-analysis</B> (see Fundamental Analysis below) and <B>/trading-agent</B> (see Trading Agent below). Still
+          in private testing and marked Soon: MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -494,6 +494,49 @@ const SECTIONS: Section[] = [
           Your strategy only trades the timeframes and markets you chose; ask for another and it says so. If your strategy finds nothing, you get a clear No
           signal with the reason and your rules. Results from your own strategy count in your own track record, not in MarketX's. The Strategy Builder is free until
           1 November 2026, then part of Pro.
+        </Note>
+      </>
+    ),
+  },
+  {
+    id: 'trading-agent',
+    title: 'Trading Agent',
+    icon: Bot,
+    lead: 'Switch on an agent that finds trades on its own, places them, manages each one to its target or stop, and tells you every step.',
+    body: (
+      <>
+        <Steps
+          items={[
+            <>
+              <B>/trading-agent.</B> Type it in the input, or open it from Tools. Set it up: the <B>trade type</B> (Day trading on 1H charts, Swing on 4H, or
+              both), the <B>timeframes</B>, the <B>markets</B> (gold, Bitcoin, Ethereum, USD/JPY, GBP/USD and the Nasdaq 100), your <B>risk per trade</B>,
+              how many <B>trades per day</B> it may open, a <B>profit target</B> and a <B>loss limit</B> for the run.
+            </>,
+            <>
+              <B>Choose how long it runs:</B> a day, a week or a month. Each trade the agent takes costs credits: <B>7 a trade</B> on a daily run, <B>6</B> on
+              a weekly run and <B>5</B> on a monthly run. Credits are only used when an order fills; an order that never fills costs nothing. The setup shows
+              the most a run can cost before you start.
+            </>,
+            <>
+              <B>Start the agent.</B> From then on it works on its own with Steady mode: it waits for a clean, high quality setup on your markets, places a
+              limit order with its stop and target, and holds the trade until the target or the stop. You get a notification (and a phone notification
+              if you turned them on) when it places an order, when the order fills, and when the trade closes, plus a summary when the run ends.
+            </>,
+            <>
+              <B>Follow it</B> in its own screen: the run's win rate, result in R and in % of your account, credits used, every trade in <B>Trades</B> and
+              everything it did in <B>Activity</B>. Stop it any time: orders still waiting are cancelled (no credits used), and you choose to keep or close
+              trades that are open.
+            </>,
+          ]}
+        />
+        <Note title="Your MT5 account" tone="amber">
+          Direct execution on your MT5 account is coming. Until it is live, MarketX tracks every agent trade on live prices and alerts you with the exact
+          order to place (MT5 symbol, entry, stop and target). MarketX never asks for your MT5 password.
+        </Note>
+        <Note title="What to expect">
+          The agent only takes high quality setups, so some days it takes none. In MarketX's tests on years of real prices, about a third of its trades
+          won, and the winners were bigger than the losers. Expect losing streaks, keep your risk per trade small (0.5% or less), and remember that
+          back-tests are not live results. Not financial advice.
         </Note>
       </>
     ),

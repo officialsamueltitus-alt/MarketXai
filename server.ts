@@ -56,6 +56,7 @@ import { registerLeaderboardRoutes } from './server/leaderboard';
 import { registerAdminCreditRoutes } from './server/adminCredits';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
+import { registerTradingAgentRoutes } from './server/tradingAgent';
 import { registerPluginRoutes } from './server/plugins';
 import { registerPushRoutes } from './server/webPush';
 import { exactPrice } from './src/utils/formatPrice';
@@ -2289,6 +2290,28 @@ registerAdminCreditRoutes(app);
 registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)
 registerJournalRoutes(app, generalApiRateLimiter);
+// Trading agent (/trading-agent): finds Steady mode setups on its own (same engine read as the analysis, no AI call),
+// places and manages each trade, and alerts the trader; credits are charged only when an order fills
+registerTradingAgentRoutes(
+  app,
+  {
+    scan: async (symbol, tf) => {
+      const asset = await resolveAssetInfo(symbol, symbol);
+      const q = await livePriceFor(asset);
+      if (!q || q.live === false) return null;
+      const m = await buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q, 'STEADY');
+      const p = m?.steady ? m.plan : null;
+      if (!m || !p || p.execution !== 'LIMIT' || p.moved) return null;
+      return { direction: p.direction, entry: p.entry, stop: p.stopLoss, targets: p.targets.map(t => t.price), quality: Math.round(m.confidence), price: q.price };
+    },
+    getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M'),
+    closePrice: async symbol => {
+      const q = await livePriceFor(await resolveAssetInfo(symbol, symbol));
+      return q && q.live !== false && q.price > 0 ? q.price : null;
+    },
+  },
+  generalApiRateLimiter
+);
 // Connectors / Plugins: the commands a trader has switched on (Settings), each can be switched off there
 registerPluginRoutes(app, generalApiRateLimiter);
 registerPushRoutes(app, generalApiRateLimiter);
