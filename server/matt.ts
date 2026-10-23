@@ -444,6 +444,9 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     if (perMinute.hit(uid) || perDay.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'You are talking to Matt very fast. Please wait a moment.' });
     const voice: MattVoice = req.body?.voice === 'male' ? 'male' : 'female';
     let heard = clean(req.body?.text, 1500);
+    // A paused account is turned away before any recording is written down (no engine call for nothing)
+    const g = readGuard((await userRef(uid).get()).data());
+    if (g.until > Date.now()) return res.status(403).json({ error: 'MATT_PAUSED', pausedUntil: g.until, message: pausedText(g.until), heard });
     if (!heard) {
       const clip = readWavBody(req.body);
       if (!clip) return res.status(400).json({ error: 'BAD_AUDIO', message: "That recording couldn't be read. Please try again." });
