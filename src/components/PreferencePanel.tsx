@@ -193,6 +193,38 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
               </p>
             </div>
           )}
+          {/* Steady mode (owner-specified option C): a switch for Normal analysis */}
+          <div className={`mt-2.5 flex items-center justify-between gap-3 p-3 rounded-2xl border ${p.steadyMode && p.analysisMode === 'NORMAL' ? 'bg-lime-500/[0.05] border-lime-400/20' : 'bg-black/20 border-white/[0.06]'}`}>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${p.steadyMode ? 'bg-lime-400' : 'bg-slate-600'}`} />
+                Steady mode
+              </div>
+              <div className="text-[11px] text-slate-500 leading-snug">
+                {p.analysisMode === 'CONFIRMATION'
+                  ? 'Works with Normal analysis. Switch to Normal to use it.'
+                  : p.steadyMode
+                    ? 'On: wider stops, limit entries on the 1H and 4H charts, calm markets only.'
+                    : 'Off. For traders who want to win more often and sit through smaller drops.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={p.steadyMode}
+              aria-label="Steady mode"
+              onClick={() => save({ steadyMode: !p.steadyMode })}
+              className={`h-7 w-12 rounded-full relative transition-colors cursor-pointer shrink-0 ${p.steadyMode ? 'bg-lime-500/80' : 'bg-white/[0.12]'}`}
+            >
+              <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all ${p.steadyMode ? 'right-1' : 'left-1'}`} />
+            </button>
+          </div>
+          {p.steadyMode && p.analysisMode === 'NORMAL' && (
+            <p className="mt-2 text-[11px] text-slate-500 leading-snug mx-fade-in">
+              Your stop sits 3× further from the entry, with the same targets, so use a smaller lot to risk the same money. Only limit entries on the 1H and 4H
+              charts, and none while the market is moving too fast. In our tests about half of these trades won, with much smaller drops, but each win pays less.
+            </p>
+          )}
         </Section>
 
         <Section icon={Timer} title="Trade type" text="The kind of trades you take. Every analysis, your personal strategy and your watchlist only give trades of this type." ask={{ q: "How do Scalp, Day and Swing trade types work, including choosing my own timeframes and the 9:00 PM WAT close?", label: "Trade type" }}>

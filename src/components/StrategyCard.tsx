@@ -82,7 +82,7 @@ const StrategyCardView: React.FC<StrategyCardProps> = ({
   const handleCopy = () => {
     const summary = `📊 MARKETX (@_MarketX) SETUP: ${symbol} (${timeframe})
 Trader: ${traderHandle}${userProfile?.isVerified ? ' ✓ (Verified)' : ''}
-Action: ${tradeType} | Bias: ${bias} (Confidence: ${confidenceScore}%)
+Action: ${tradeType} | Bias: ${bias} (Setup quality: ${confidenceScore}/100)
 Current Price: $${formatPrice(currentPrice)} (24h: ${isPositive ? '+' : ''}${(Number(change24h) || 0).toFixed(2)}%)
 --------------------------------------------
 🎯 Optimal Entry: $${formatPrice(entryZone?.optimal)} ($${formatPrice(entryZone?.min)} - $${formatPrice(entryZone?.max)})
@@ -197,7 +197,7 @@ Generated via MarketX SI (@_MarketX) • https://marketx.world`;
 
             <div className="px-2.5 py-1.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{confidenceScore}% Confluence</span>
+              <span>Quality {confidenceScore}/100</span>
             </div>
 
             {/* Share to X Button */}

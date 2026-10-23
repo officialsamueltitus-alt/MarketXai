@@ -2669,6 +2669,7 @@ export default function App() {
           rdmTimeframes={preferences.rdmTimeframes}
           onRdmTimeframesChange={next => savePreferences({ rdmTimeframes: next })}
           confirmationMode={preferences.analysisMode === 'CONFIRMATION'}
+          steadyMode={!!preferences.steadyMode}
           tradeStyle={preferences.tradeStyle}
           styleFrames={preferences.tradeStyle && preferences.tradeStyle !== 'ANY' ? preferences.styleTimeframes?.[preferences.tradeStyle] : undefined}
         />
@@ -2708,6 +2709,7 @@ export default function App() {
             ...(fundamentalOn ? [{ id: 'fundamental', label: 'Fundamental Analysis', detail: 'Type /fundamental-analysis then a topic, e.g. CPI', dot: 'bg-sky-400', onOpen: () => openToolPanel('fundamental') }] : []),
             ...(activeStrategy ? [{ id: 'strategy', label: 'Strategy Builder', detail: `Your strategy "${activeStrategy.name}" finds your trades`, dot: 'bg-violet-400', onOpen: () => openToolPanel('strategy') }] : []),
             ...(preferences.analysisMode === 'CONFIRMATION' && !activeStrategy ? [{ id: 'confirmation', label: 'Confirmation analysis', detail: 'A trade is called once price confirms at the zone', dot: 'bg-emerald-400', onOpen: () => openToolPanel('preference') }] : []),
+            ...(preferences.steadyMode && preferences.analysisMode !== 'CONFIRMATION' && !activeStrategy ? [{ id: 'steady', label: 'Steady mode', detail: 'Wider stops, limit entries on 1H and 4H, calm markets only', dot: 'bg-lime-400', onOpen: () => openToolPanel('preference') }] : []),
             ...(preferences.tradeStyle && preferences.tradeStyle !== 'ANY'
               ? [{ id: 'style', label: `${STYLE_INFO[preferences.tradeStyle].label}s only`, detail: 'Trade type, set in Preference Mode', dot: preferences.tradeStyle === 'SCALP' ? 'bg-cyan-400' : preferences.tradeStyle === 'DAY' ? 'bg-amber-400' : 'bg-fuchsia-400', onOpen: () => openToolPanel('preference') }]
               : []),
@@ -3029,6 +3031,7 @@ export default function App() {
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
                     onRdmTimeframesChange={authUser && !proLocked ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
+                    steadyMode={!!authUser && !!preferences.steadyMode}
                     tradeStyle={authUser ? preferences.tradeStyle : undefined}
                     styleFrames={authUser && preferences.tradeStyle && preferences.tradeStyle !== 'ANY' ? preferences.styleTimeframes?.[preferences.tradeStyle] : undefined}
                     strategyName={authUser ? activeStrategy?.name || null : null}

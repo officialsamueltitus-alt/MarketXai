@@ -331,7 +331,7 @@ export function applyConfirmation(
     if (score < CONFIRM_MIN_SCORE) continue;
     // Quality (owner-specified, back-test calibrated): the zone's own quality; a confirmed entry at the zone is not the
     // risky "deep in the zone at market" case, so the at-zone penalty doesn't apply
-    const sq = setupQuality({ ...base, zone: { ...z, distanceAtr: 0.5 } }, { trend: map.trend, atr: atrH, volatilityPct: map.volatilityPct ?? 0.5, symbol: map.symbol, timeframe: map.timeframe });
+    const sq = setupQuality({ ...base, zone: { ...z, distanceAtr: 0.5 } }, { trend: map.trend, atr: atrH, volatilityPct: map.volatilityPct ?? 0.5, symbol: map.symbol, timeframe: map.timeframe, poc: map.volume?.poc ?? null });
     if (sq.quality < CONFIRM_TUNING.minQuality) continue;
     const named = long ? rd.patterns : rd.patterns.map(sellWords);
     const patterns = rd.divergence ? [...named, `RSI ${long ? 'bullish' : 'bearish'} divergence`] : named;

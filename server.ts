@@ -33,7 +33,7 @@ import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
 import { registerPreferenceRoutes } from './server/preferences';
-import { rdmFrames, withDefaults, type AnalysisMode } from './src/utils/preferences';
+import { engineModeOf, rdmFrames, withDefaults, type AnalysisMode, type EngineMode } from './src/utils/preferences';
 import { STYLE_INFO, closeByText, closeDeadline, fitTimeframe, styleRdmFrames, styleStrategyFrames, type TradeStyle, type TradeStyleTag } from './src/utils/tradeStyle';
 import { applyConfirmation, confirmationOf, confirmationTimeframe } from './server/confirmation';
 import { registerStrategyBuilderRoutes, strategyById, strategyModeFor, type ActiveStrategy } from './server/strategyBuilder';
@@ -81,6 +81,9 @@ import {
   timeframeFromPrompt,
   timeframeMinutes,
   SUPPORTED_TIMEFRAMES,
+  applySteady,
+  steadyTimeframe,
+  STEADY_FRAMES,
 } from './server/strategy';
 import { cryptoListing, fetchVenueCandles, fetchVenueQuote, isListedCoin, lookupDexToken, MIN_DEX_LIQUIDITY_USD, startCryptoUniverse, type CryptoListing, type DexToken } from './server/cryptoUniverse';
 import { CRYPTO_ALIASES, detectCryptoTicker } from './src/utils/cryptoTicker';
@@ -2183,8 +2186,10 @@ registerWatchlistRoutes(
         );
         return Object.assign(frames, { strategyName: st.name });
       }
-      const maps = await Promise.all(timeframes.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q, mode || 'NORMAL').catch(() => null)));
-      return maps.map((m, i) => toScanFrame(m, timeframes[i]));
+      // Steady mode scans its own timeframes (1H/4H): a pair on another timeframe is read on the nearest of them
+      const frames = mode === 'STEADY' ? [...new Set(timeframes.map(tf => steadyTimeframe(tf) || tf))] : timeframes;
+      const maps = await Promise.all(frames.map(tf => buildStructureMap(asset, tf, q.price, 'normal', '', q.currency, q, mode || 'NORMAL').catch(() => null)));
+      return maps.map((m, i) => toScanFrame(m, frames[i]));
     },
     // Read when a scan runs (the constant is declared further down this file)
     get rdmMinScore() {
@@ -2760,7 +2765,7 @@ async function fetchBinanceCandles(pair: string, tf: string): Promise<Candle[] |
   if (!interval) return null;
   const rows = await binanceRequest(`/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=${interval}&limit=300`, 5000);
   if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }));
+  return rows.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) || 0 }));
 }
 
 // Raw Yahoo series shared by every timeframe built from it (1m feeds 1m and 3m; 60m feeds 1H to 12H), so an RDM scan
@@ -2788,7 +2793,9 @@ function fetchYahooRaw(yahooSym: string, interval: string, rangeParam: string): 
         const candles: Candle[] = [];
         for (let i = 0; i < ts.length; i++) {
           const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
-          if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c });
+          // (Yahoo reports no volume for spot forex: those candles carry none)
+          const vol = q.volume?.[i];
+          if ([o, h, l, c].every(v => typeof v === 'number' && Number.isFinite(v))) candles.push({ t: ts[i] * 1000, o, h, l, c, ...(typeof vol === 'number' && vol > 0 ? { v: vol } : {}) });
         }
         return candles;
       } catch (err: any) {
@@ -2826,11 +2833,11 @@ function foldSundays(days: Candle[]): Candle[] {
   let carry: Candle | null = null;
   for (const d of days) {
     if (new Date(d.t).getUTCDay() === 0) {
-      carry = carry ? { ...carry, h: Math.max(carry.h, d.h), l: Math.min(carry.l, d.l), c: d.c } : { ...d };
+      carry = carry ? { ...carry, h: Math.max(carry.h, d.h), l: Math.min(carry.l, d.l), c: d.c, ...(d.v !== undefined ? { v: (carry.v || 0) + d.v } : {}) } : { ...d };
       continue;
     }
     if (carry) {
-      out.push({ t: d.t, o: carry.o, h: Math.max(carry.h, d.h), l: Math.min(carry.l, d.l), c: d.c });
+      out.push({ t: d.t, o: carry.o, h: Math.max(carry.h, d.h), l: Math.min(carry.l, d.l), c: d.c, ...(d.v !== undefined || carry.v !== undefined ? { v: (carry.v || 0) + (d.v || 0) } : {}) });
       carry = null;
     } else out.push(d);
   }
@@ -2932,17 +2939,35 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
 
 /** How this trader's analyses run (Preference Mode): RDM timeframes (all by default), Normal / Confirmation analysis
  *  and the trade type (Scalp, Day, Swing or any) */
-async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle; styleTfs: string[] }> {
+async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle; styleTfs: string[]; steady?: boolean }> {
   const uid = (res.locals.user as any)?.uid;
   if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   try {
     // Preference Mode is Pro after the free period: a free account's saved choices are ignored (defaults apply)
     const prefs = effectivePreferences((await userRef(uid).get()).data() as any);
     // styleTfs: the timeframes the trader kept for the active trade type ([] = all of the type's)
-    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle, styleTfs: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle] };
+    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle, styleTfs: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle], steady: engineModeOf(prefs) === 'STEADY' };
   } catch {
     return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   }
+}
+
+/** Steady mode (Preference Mode): the result is tagged `steadyMode` and the write-up opens with a note when the timeframe
+ *  moved or Steady mode couldn't apply (wraps res.json, like the trade type tag) */
+function tagSteady(res: Response, on: boolean, note: string) {
+  const send = res.json.bind(res);
+  res.json = ((body: any) => {
+    const s = body?.strategy;
+    if (res.statusCode < 400 && s && typeof s === 'object') {
+      if (on) s.steadyMode = true;
+      if (note) {
+        const line = `> **Steady mode:** ${note}\n\n`;
+        if (typeof s.detailedThesis === 'string' && !s.detailedThesis.includes(line)) s.detailedThesis = line + s.detailedThesis;
+        if (typeof body.message === 'string' && !body.message.includes(line)) body.message = line + body.message;
+      }
+    }
+    return send(body);
+  }) as any;
 }
 
 /**
@@ -2995,7 +3020,7 @@ async function scanAllTimeframes(
   currency?: string,
   quote?: { high24h?: number; low24h?: number },
   frames: string[] = SUPPORTED_TIMEFRAMES,
-  mode: AnalysisMode = 'NORMAL'
+  mode: EngineMode = 'NORMAL'
 ): Promise<{ map: MarketMap | null; tf: string; info: { mode: 'RDM'; scanned: number; withSetup: string[]; chosen: string | null; frames: string[] } }> {
   const maps = await Promise.all(
     frames.map(tf => buildStructureMap(asset, tf, price, slMode, prompt, currency, quote, mode).catch(() => null))
@@ -3044,7 +3069,7 @@ async function buildStructureMap(
   prompt: string,
   currency?: string,
   quote?: { high24h?: number; low24h?: number },
-  mode: AnalysisMode = 'NORMAL'
+  mode: EngineMode = 'NORMAL'
 ): Promise<MarketMap | null> {
   const within7s = <T,>(p: Promise<T>) => Promise.race([p, new Promise<null>(resolve => setTimeout(() => resolve(null), 7000))]);
   // Confirmation analysis also reads a lower timeframe (fetched alongside)
@@ -3065,6 +3090,8 @@ async function buildStructureMap(
     const map = buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session, symbol: asset.symbol, assetType: asset.type });
     // Confirmation analysis: no trade until price reaches the zone and confirms on the lower timeframe
     if (map && ltf) applyConfirmation(map, candles, ltfCandles, { ltf, slMode });
+    // Steady mode (Normal analysis): wider stop, limit entries on 1H/4H only, no hot markets
+    if (map && mode === 'STEADY') applySteady(map, candles);
     return map;
   } catch (err: any) {
     console.warn('[MarketX Strategy] map failed:', err?.message || err);
@@ -4066,8 +4093,35 @@ Do NOT output structured trade card JSON.`;
       if (randomTimeframe) tradePrefs.rdm = styleRdmFrames(tradePrefs.rdm, tradeStyle, tradePrefs.styleTfs);
       else analysisTimeframe = fitTimeframe(analysisTimeframe, tradeStyle, tradePrefs.styleTfs);
     }
+    // Steady mode (Normal analysis only): runs on 1H/4H (inside the trade type's timeframes); RDM scans only those. With
+    // no 1H or 4H allowed by the trade type, Steady mode can't apply and the analysis runs as Normal, saying so
+    let steadyOn = false;
+    let steadyNote = '';
+    // (a personal strategy from the Strategy Builder runs on its own rules, so Steady mode never applies to it)
+    const steadyAsked = !!tradePrefs?.steady && tradePrefs.mode === 'NORMAL' && !chartMode;
+    const strategyOn = steadyAsked ? !!(await strategyModeFor((res.locals.user as any).uid).catch(() => ({ strategy: null }))).strategy : false;
+    if (tradePrefs && steadyAsked && !strategyOn) {
+      const allowed = tradeStyle === 'ANY' ? null : styleRdmFrames([...SUPPORTED_TIMEFRAMES], tradeStyle, tradePrefs.styleTfs);
+      if (randomTimeframe) {
+        const frames = tradePrefs.rdm.filter(tf => STEADY_FRAMES.includes(tf));
+        const pool = frames.length ? frames : STEADY_FRAMES.filter(tf => !allowed || allowed.includes(tf));
+        if (pool.length) {
+          tradePrefs.rdm = pool;
+          steadyOn = true;
+        }
+      } else {
+        const tf = steadyTimeframe(analysisTimeframe, allowed);
+        if (tf) {
+          if (tf !== analysisTimeframe) steadyNote = `Steady mode trades the 1H and 4H charts, so this analysis uses the ${tf} chart.`;
+          analysisTimeframe = tf;
+          steadyOn = true;
+        }
+      }
+      if (!steadyOn) steadyNote = 'Steady mode trades the 1H and 4H charts, which your trade type leaves out, so this is a Normal analysis.';
+    }
     // (a chart's own timeframe can't be moved, so a chart analysis never says it was)
     tagTradeStyle(res, tradeStyle, chartMode ? '' : askedTimeframe, randomTimeframe);
+    if (steadyOn || steadyNote) tagSteady(res, steadyOn, steadyNote);
     // Candles for the requested timeframe load in parallel with the live quote
     const candleWarmup = chartMode || randomTimeframe ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});
@@ -4109,11 +4163,12 @@ Do NOT output structured trade card JSON.`;
       }
     }
     const analysisMode: AnalysisMode = tradePrefs?.mode || 'NORMAL';
+    const engineMode: EngineMode = steadyOn ? 'STEADY' : analysisMode;
     const structureMap = chartMode
       ? null
       : randomTimeframe
-        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, tradePrefs!.rdm, analysisMode)).map
-        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, analysisMode);
+        ? (rdmScan = await scanAllTimeframes(asset, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, tradePrefs!.rdm, engineMode)).map
+        : await buildStructureMap(asset, analysisTimeframe, currentTicker.price, safeSlMode, cleanPrompt, currentTicker.currency, currentTicker, engineMode);
     // Confirmation analysis: every result says so; a trade carries its confirmation, otherwise what it is waiting for
     const confirmRead = confirmationOf(structureMap);
     if (confirmRead) {

@@ -4,6 +4,8 @@ import { readStyleTimeframes, readTradeStyle, type StyleTimeframes, type TradeSt
 
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
 export type AnalysisMode = 'NORMAL' | 'CONFIRMATION';
+/** How the engine runs an analysis: the analysis mode, or Normal with Steady mode on (server-side and watchlist only) */
+export type EngineMode = AnalysisMode | 'STEADY';
 export type NewsImpact = 'HIGH' | 'MEDIUM' | 'LOW';
 export const NEWS_IMPACTS: NewsImpact[] = ['HIGH', 'MEDIUM', 'LOW'];
 /** Daily news alerts: a notification and an email each morning with the day's releases of the chosen impacts */
@@ -37,6 +39,9 @@ export interface Preferences {
    *  cards; price alerts started while it is on follow it (a +1R notice, the stop at entry) and the journal / track
    *  record score the trade that way (half at +1R, the rest at the target, or at entry) */
   secureHalf: boolean;
+  /** Steady mode (owner-specified option C, off by default, Normal analysis only): stop room x3 with the same entry and
+   *  targets, limit entries only, 1H and 4H only, no entries in a hot market. Wins more often, makes less per trade */
+  steadyMode: boolean;
   updatedAt?: number;
 }
 
@@ -54,6 +59,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   styleTimeframes: { SCALP: [], DAY: [], SWING: [] },
   newsAlerts: { enabled: false, impacts: ['HIGH'] },
   secureHalf: false,
+  steadyMode: false,
 };
 
 /** A valid impact choice (known impacts, no repeats, high first), or null; at least one */
@@ -84,6 +90,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   out.styleTimeframes = readStyleTimeframes(out.styleTimeframes);
   out.newsAlerts = readNewsAlerts(out.newsAlerts);
   out.secureHalf = out.secureHalf === true;
+  out.steadyMode = out.steadyMode === true;
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;
   delete (out as any).tradeLockChosenAt;
@@ -121,4 +128,9 @@ export function formatMoney(n: number, currency: Currency): string {
   const v = Number.isFinite(n) ? n : 0;
   const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${v < 0 ? '-' : ''}${SYMBOL[currency] || ''}${s}`;
+}
+
+/** The engine mode an analysis runs in: Confirmation, or Normal with Steady mode on, or plain Normal */
+export function engineModeOf(p: Pick<Preferences, 'analysisMode' | 'steadyMode'>): EngineMode {
+  return p.analysisMode === 'CONFIRMATION' ? 'CONFIRMATION' : p.steadyMode ? 'STEADY' : 'NORMAL';
 }

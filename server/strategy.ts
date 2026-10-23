@@ -28,6 +28,8 @@ export interface Candle {
   h: number;
   l: number;
   c: number;
+  /** Traded volume, when the feed has a real one (exchanges, futures, stocks; never spot forex) */
+  v?: number;
 }
 
 export type ZoneKind = 'DEMAND' | 'SUPPLY';
@@ -110,6 +112,8 @@ export interface TradePlan {
   expectR?: number;
   /** A market entry that failed the stricter market-entry rules (fast market, or price deep in the zone) */
   marketBlocked?: string;
+  /** Volume confluence failed (markets with real volume): the entry is not far enough on the cheap side of the POC */
+  volumeBlocked?: string;
 }
 
 export interface MarketMap {
@@ -144,6 +148,10 @@ export interface MarketMap {
   slNote?: string;
   /** Where the latest ATR sits among the last 200 candles' ATRs (0 calm .. 1 hottest) */
   volatilityPct?: number;
+  /** Volume read (markets with real volume only): profile of the latest candles and who has been in charge */
+  volume?: { poc: number; valueLow: number; valueHigh: number; flow6: number | null; flow24: number | null };
+  /** Steady mode (Preference Mode) was applied: the plan's stop is STEADY_STOP_MULT times the normal room */
+  steady?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,8 +172,9 @@ export function aggregateCandles(candles: Candle[], bucketMinutes: number): Cand
       last.h = Math.max(last.h, c.h);
       last.l = Math.min(last.l, c.l);
       last.c = c.c;
+      if (c.v !== undefined) last.v = (last.v || 0) + c.v;
     } else {
-      out.push({ t: key, o: c.o, h: c.h, l: c.l, c: c.c });
+      out.push({ t: key, o: c.o, h: c.h, l: c.l, c: c.c, ...(c.v !== undefined ? { v: c.v } : {}) });
     }
   }
   return out;
@@ -363,6 +372,14 @@ export function fvgOpenBefore(z: SDZone): boolean {
   return !!z.liveFirstTouch && z.touchStart !== undefined && z.fvg.filledAt !== undefined && z.fvg.filledAt >= z.touchStart;
 }
 
+/**
+ * Institutional zone rules (owner-requested strict model, tuned by back-test): strictBase = the base is only true basing
+ * candles (no single opposite-candle fallback); minLegIn = a decisive move INTO the base of at least this many ATR over up
+ * to 3 candles (0 = off); legOutCandles = the leg-out is this many directional candles in a row, or one candle of at least
+ * 2 ATR (0 = off); entry = FIB (golden pocket / retracement band inside the zone) or BASE (limit at the base's proximal edge).
+ */
+export const ZONE_RULES: { strictBase: boolean; minLegIn: number; legOutCandles: number; entry: 'FIB' | 'BASE' } = { strictBase: false, minLegIn: 0, legOutCandles: 0, entry: 'FIB' };
+
 export function detectZones(
   candles: Candle[],
   price: number,
@@ -415,9 +432,25 @@ export function detectZones(
       b--;
     }
     if (base.length === 0) {
+      if (ZONE_RULES.strictBase) continue;
       const prev = candles[i - 1];
       if ((up && bear(prev)) || (!up && bull(prev))) base.push(i - 1);
       else continue;
+    }
+    // Leg-in: a decisive move into the base (a drop or a rally of 1-3 candles)
+    if (ZONE_RULES.minLegIn > 0) {
+      const from = Math.max(0, base[0] - 3), to = base[0] - 1;
+      if (to < 1) continue;
+      const span = candles.slice(from, to + 1);
+      const dir = Math.sign(span[span.length - 1].c - span[0].o);
+      const move = Math.abs(span[span.length - 1].c - span[0].o) / (atrs[to] || a);
+      if (!dir || move < ZONE_RULES.minLegIn || span.filter(c => Math.sign(c.c - c.o) === dir).length < Math.ceil(span.length / 2)) continue;
+    }
+    // Leg-out: several directional candles in a row (e.g. a 3-candle rally), or one very large candle
+    if (ZONE_RULES.legOutCandles > 0 && !(body(leg) >= a * 2)) {
+      let k = 0;
+      while (k < ZONE_RULES.legOutCandles && i + k < n && (up ? bull(candles[i + k]) : bear(candles[i + k]))) k++;
+      if (k < ZONE_RULES.legOutCandles) continue;
     }
     const baseCandles = base.map(k => candles[k]);
     const baseHigh = Math.max(...baseCandles.map(c => c.h));
@@ -696,6 +729,13 @@ export function planForZone(
     eMax = z.high;
     optimal = long ? z.proximal - (z.high - z.low) * 0.25 : z.proximal + (z.high - z.low) * 0.25;
   }
+  // Entry at the base (strict institutional model): a limit at the base's proximal edge, the band reaching 30% into it
+  if (ZONE_RULES.entry === 'BASE') {
+    const w = z.high - z.low;
+    eMin = long ? z.proximal - w * 0.3 : z.proximal;
+    eMax = long ? z.proximal : z.proximal + w * 0.3;
+    optimal = long ? z.proximal - w * 0.1 : z.proximal + w * 0.1;
+  }
 
   // Instant (market) execution: price is making the zone's FIRST touch right now and sits at or beyond the leg's
   // 0.50 (discount for buys, premium for sells), so the entry is the current price instead of a pending order
@@ -880,7 +920,7 @@ export function planForZone(
  */
 export function setupQuality(
   p: TradePlan,
-  ctx: { trend: MarketMap['trend']; atr: number; volatilityPct: number; symbol?: string; timeframe: string }
+  ctx: { trend: MarketMap['trend']; atr: number; volatilityPct: number; symbol?: string; timeframe: string; poc?: number | null }
 ): { quality: number; expectR: number } {
   const z = p.zone;
   const long = p.direction === 'LONG';
@@ -895,6 +935,13 @@ export function setupQuality(
   e += p.confluence === 'FIB_BAND_OVERLAP' ? -0.4 : p.confluence === 'LEG_ORIGIN' ? 0.2 : 0;
   e += p.confirmation?.divergence ? -0.55 : 0;
   e += z.departureAtr < 2.5 ? 0.5 : z.departureAtr < 4 ? 0.15 : z.departureAtr < 6 ? -0.5 : 0;
+  // Volume profile (markets with real volume only): entries well on the cheap side of the point of control did far
+  // better in the back-tests (buys below it, sells above it), entries at or past it far worse
+  const risk = Math.abs(p.entry.optimal - p.stopLoss);
+  if (ctx.poc && risk > 0) {
+    const vsPoc = ((ctx.poc - p.entry.optimal) * (long ? 1 : -1)) / risk;
+    e += vsPoc < 1 ? -0.5 : vsPoc >= 3 ? 0.35 : 0.1;
+  }
   // Expected R → 0-100 (band edges from the back-test: 0.10 / 0.68 / 1.15 / 1.71)
   const pts: Array<[number, number]> = [[-0.6, 30], [0.1, 45], [0.68, 58], [1.15, 68], [1.71, 78], [3.0, 95]];
   let q = e <= pts[0][0] ? pts[0][1] : pts[pts.length - 1][1];
@@ -908,8 +955,46 @@ export function setupQuality(
   }
   return { quality: Math.round(Math.max(20, Math.min(95, q))), expectR: Number(e.toFixed(2)) };
 }
+/**
+ * Volume profile of the latest candles (only when the feed has real volume on most of them): the point of control
+ * (the price with the most volume traded) and the 70% value area around it. null = no reliable volume (spot forex).
+ */
+export function volumeProfile(candles: Candle[], lookback = 120): { poc: number; valueLow: number; valueHigh: number } | null {
+  const w = candles.slice(-lookback);
+  const withVol = w.filter(c => (c.v || 0) > 0);
+  if (w.length < 60 || withVol.length < w.length * 0.6) return null;
+  const lo = Math.min(...withVol.map(c => c.l)), hi = Math.max(...withVol.map(c => c.h));
+  const N = 40, bin = (hi - lo) / N;
+  if (!(bin > 0)) return null;
+  const prof = new Array(N).fill(0);
+  for (const c of withVol) {
+    const a = Math.max(0, Math.floor((c.l - lo) / bin)), b = Math.min(N - 1, Math.floor((c.h - lo) / bin));
+    for (let k = a; k <= b; k++) prof[k] += c.v! / (b - a + 1);
+  }
+  const total = prof.reduce((s, x) => s + x, 0);
+  const poc = prof.indexOf(Math.max(...prof));
+  // Value area: grow from the POC toward the busier side until 70% of the volume is inside
+  let a = poc, b = poc, inside = prof[poc];
+  while (inside < total * 0.7 && (a > 0 || b < N - 1)) {
+    const down = a > 0 ? prof[a - 1] : -1, up = b < N - 1 ? prof[b + 1] : -1;
+    if (up >= down) inside += prof[++b];
+    else inside += prof[--a];
+  }
+  return { poc: lo + (poc + 0.5) * bin, valueLow: lo + a * bin, valueHigh: lo + (b + 1) * bin };
+}
+
+/** Who has been in charge lately, from candles with volume: -1 (sellers) .. +1 (buyers), volume-weighted close location */
+export function volumeFlow(candles: Candle[], bars = 6): number | null {
+  const w = candles.slice(-bars).filter(c => (c.v || 0) > 0 && c.h > c.l);
+  if (w.length < Math.ceil(bars / 2)) return null;
+  const V = w.reduce((s, c) => s + c.v!, 0);
+  return V > 0 ? w.reduce((s, c) => s + c.v! * ((2 * (c.c - c.l)) / (c.h - c.l) - 1), 0) / V : null;
+}
+
 /** Signals need at least this quality: below it, similar setups averaged about breakeven in the back-tests */
 const qualityFloor = Number(process.env.MIN_SIGNAL_QUALITY);
+/** Volume confluence: a buy's entry must sit at least this many R below the volume point of control (sells above) */
+export const VOLUME_POC_MIN_R = process.env.VOLUME_POC_MIN_R === 'off' ? -Infinity : Number(process.env.VOLUME_POC_MIN_R) || 1;
 export const MIN_SIGNAL_QUALITY = process.env.MIN_SIGNAL_QUALITY && Number.isFinite(qualityFloor) ? Math.max(0, Math.min(95, qualityFloor)) : 45;
 
 /** Where the latest ATR sits among the last 200 candles' ATRs (0 = calmest, 1 = hottest) */
@@ -953,6 +1038,7 @@ export function buildMarketMap(
   const looseZones = !!opts.forex && (opts.timeframe === '1D' || opts.timeframe === '1W');
   const { demand, supply, atr, swings } = detectZones(clean, price, { loose: looseZones });
   const volatilityPct = volatilityPercentile(clean);
+  const vp = volumeProfile(clean);
   const trend = trendFromSwings(swings);
   const lookback = clean.slice(-120);
   const swingHigh = Math.max(...lookback.map(c => c.h));
@@ -982,7 +1068,7 @@ export function buildMarketMap(
     p.confirmation = confirmWithIndicators(p, indicators);
     // An RSI divergence in the trade's favour is the strongest leading confirmation
     if (p.confirmation.divergence) p.score = Math.min(100, p.score + 5);
-    Object.assign(p, setupQuality(p, { trend, atr, volatilityPct, symbol: opts.symbol, timeframe: opts.timeframe }));
+    Object.assign(p, setupQuality(p, { trend, atr, volatilityPct, symbol: opts.symbol, timeframe: opts.timeframe, poc: vp?.poc ?? null }));
     // Stricter market entries (owner-specified, from the back-tests: market entries earned less than half of limit
     // entries, worst in fast markets and deep inside the zone): enter at market only in a normal or calm market, with
     // price still in the zone's outer half (the first touch, not a deep push into it)
@@ -993,12 +1079,22 @@ export function buildMarketMap(
       if (volatilityPct >= 0.67) p.marketBlocked = 'the market is moving too fast right now for a safe market entry';
       else if (outer < 0.5) p.marketBlocked = 'price has already pushed deep into the zone, so the first-touch entry has passed';
     }
+    // Volume confluence (owner-requested, markets with real volume only): a buy must sit at least VOLUME_POC_MIN_R
+    // below the point of control (a sell above it), i.e. at value where institutions traded most; entries at or past
+    // the POC earned about a third of the rest in the back-tests (stable across periods and markets). Intraday charts
+    // only (up to 2H): on 4H and above the profile spans weeks and the rule tested worse, so there it is information only
+    if (vp && timeframeMinutes(opts.timeframe) <= 120) {
+      const risk = Math.abs(p.entry.optimal - p.stopLoss);
+      const vsPoc = risk > 0 ? ((vp.poc - p.entry.optimal) * (p.direction === 'LONG' ? 1 : -1)) / risk : 0;
+      if (vsPoc < VOLUME_POC_MIN_R)
+        p.volumeBlocked = `the entry sits too close to, or past, the price where most volume traded (${vp.poc.toFixed(dec)}), and entries like that rarely paid in our back-tests`;
+    }
   }
   // Only clean setups can become signals: fresh zone, entry / stop / targets never tapped for this setup, price still
   // well away from TP1 and the stop, the RSI / EMA crosscheck passed, a market entry passed its stricter rules, and the
   // setup's back-tested quality clears the minimum
   const ready = (p: TradePlan) =>
-    p.mitigation.length === 0 && !p.moved && !!p.confirmation?.ok && !p.marketBlocked && (p.quality ?? 100) >= MIN_SIGNAL_QUALITY;
+    p.mitigation.length === 0 && !p.moved && !!p.confirmation?.ok && !p.marketBlocked && !p.volumeBlocked && (p.quality ?? 100) >= MIN_SIGNAL_QUALITY;
   const longs = allLongs.filter(ready);
   const shorts = allShorts.filter(ready);
   // Ranked by quality (what the back-tests say pays), then the zone score
@@ -1064,6 +1160,8 @@ export function buildMarketMap(
     const m = movedSetup;
     const label = m.moved!.kind === 'NEAR_SL' ? 'already moved, close to the stop loss' : 'already moved, close to TP';
     noSignalReason = `No signal, ${label}. The ${zoneText(m)} is valid, but ${m.moved!.text}, so it is no longer a fresh entry. Wait for a new, untouched zone.`;
+  } else if (!plan && heldBack?.volumeBlocked && !heldBack.marketBlocked) {
+    noSignalReason = `No signal. The ${zoneText(heldBack)} is valid, but ${heldBack.volumeBlocked}. MarketX waits for an entry at value, below where most volume traded for a buy (above it for a sell).`;
   } else if (!plan && heldBack?.marketBlocked) {
     noSignalReason = `No signal. Price is on the first touch of the ${zoneText(heldBack)}, but ${heldBack.marketBlocked}. MarketX only enters at market in a calm market at the zone's edge; wait for the next clean setup.`;
   } else if (!plan && heldBack && (heldBack.quality ?? 100) < MIN_SIGNAL_QUALITY) {
@@ -1104,6 +1202,17 @@ export function buildMarketMap(
     ...(edgeNote && plan ? { edgeNote } : {}),
     ...(slNote ? { slNote } : {}),
     volatilityPct: Number(volatilityPct.toFixed(2)),
+    ...(vp
+      ? {
+          volume: {
+            poc: Number(vp.poc.toFixed(dec)),
+            valueLow: Number(vp.valueLow.toFixed(dec)),
+            valueHigh: Number(vp.valueHigh.toFixed(dec)),
+            flow6: volumeFlow(clean, 6),
+            flow24: volumeFlow(clean, 24),
+          },
+        }
+      : {}),
     timeframe: opts.timeframe,
     candles: clean.length,
     lastClose,
@@ -1125,6 +1234,65 @@ export function buildMarketMap(
     indicators,
     decimals: dec,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Steady mode (owner-specified option C, Preference Mode `steadyMode`, Normal analysis only)
+// ---------------------------------------------------------------------------
+/** The stop sits this many times the normal room from the entry (same entry, same price targets, smaller lot) */
+export const STEADY_STOP_MULT = 3;
+/** The timeframes Steady mode trades (the back-tested set) */
+export const STEADY_FRAMES = ['1H', '4H'];
+
+/**
+ * The timeframe a Steady analysis runs on: the asked one when it is 1H or 4H, else the nearest of those the trader
+ * allows (`allowed`, e.g. their trade type's timeframes). null = none allowed (Steady mode can't apply).
+ */
+export function steadyTimeframe(tf: string, allowed?: string[] | null): string | null {
+  const pool = STEADY_FRAMES.filter(x => !allowed || !allowed.length || allowed.includes(x));
+  if (!pool.length) return null;
+  if (pool.includes(tf)) return tf;
+  const m = Math.log(Math.max(1, timeframeMinutes(tf)));
+  return pool.slice().sort((a, b) => Math.abs(Math.log(timeframeMinutes(a)) - m) - Math.abs(Math.log(timeframeMinutes(b)) - m))[0];
+}
+
+/**
+ * Steady mode on a built Normal map (back-test: about 48% of trades won, losing runs and drawdowns about 60% smaller,
+ * less made per trade): only limit entries, only on 1H/4H, never in a hot market; the stop moves to STEADY_STOP_MULT
+ * times its normal distance (entry and price targets unchanged, R recomputed) and must still be untouched since the zone
+ * formed. Anything else = no signal, saying why.
+ */
+export function applySteady(map: MarketMap, candles: Candle[]): MarketMap {
+  map.steady = true;
+  const p = map.plan;
+  if (!p) return map;
+  const dec = map.decimals;
+  const off = (why: string) => {
+    map.plan = null;
+    map.alternate = null;
+    map.confidence = 50;
+    delete map.edgeNote;
+    map.noSignalReason = `No signal (Steady mode). ${why}`;
+    return map;
+  };
+  if (!STEADY_FRAMES.includes(map.timeframe)) return off(`Steady mode trades the 1H and 4H charts only.`);
+  if (p.execution !== 'LIMIT') return off('Price is already at the zone, and Steady mode only takes limit entries placed ahead of price. Wait for the next clean setup.');
+  if ((map.volatilityPct ?? 0) >= 0.67) return off('The market is moving too fast right now, and Steady mode stays out of hot markets. Wait for it to calm down.');
+  const long = p.direction === 'LONG';
+  const e = p.entry.optimal;
+  const risk0 = Math.abs(e - p.stopLoss);
+  if (!(risk0 > 0)) return off('The setup has no valid stop.');
+  const stop = Number((long ? e - risk0 * STEADY_STOP_MULT : e + risk0 * STEADY_STOP_MULT).toFixed(dec));
+  if (!(stop > 0)) return off('The wider Steady stop would sit below zero for this market.');
+  // The wider stop must still be untouched since the zone formed (and inside the live 24h range)
+  const since = candles.filter(c => c.t > p.zone.formedAt);
+  if (since.some(c => (long ? c.l <= stop : c.h >= stop))) return off(`The wider Steady stop at ${stop.toFixed(dec)} was already reached since the zone formed, so the setup is no longer clean.`);
+  const risk = Math.abs(e - stop);
+  const targets = p.targets.map(t => ({ ...t, rr: Number((Math.abs(t.price - e) / risk).toFixed(2)) }));
+  map.plan = { ...p, stopLoss: stop, targets, rrFinal: targets[targets.length - 1]?.rr ?? p.rrFinal };
+  map.alternate = null;
+  map.slNote = `Steady mode: the stop sits ${STEADY_STOP_MULT}× the normal room from the entry, at ${stop.toFixed(dec)}, so wicks rarely reach it. The targets are unchanged, so each one pays less per R: use a smaller lot so you still risk the same money.`;
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -1278,6 +1446,16 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
           ? `**Displacement:** the fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) stayed open until this first touch, so institutional orders were still resting in the zone when price arrived.\n\n`
           : `**Displacement:** an open fair value gap (${f(p.zone.fvg.low)} to ${f(p.zone.fvg.high)}) sits at the zone's doorstep, so the zone is untouched and institutional orders are still resting there.\n\n`;
     if (p.confirmation) out += `**Indicator crosscheck:** ${p.confirmation.note}. Price is still well away from TP1 and the stop loss, so this is a fresh entry.\n\n`;
+    if (map.volume) {
+      const vol = map.volume;
+      const long = p.direction === 'LONG';
+      const cheap = long ? p.entry.optimal < vol.poc : p.entry.optimal > vol.poc;
+      const flow = vol.flow6;
+      const who = flow === null ? '' : flow > 0.2 ? ' Buyers have been in charge over the last few candles' : flow < -0.2 ? ' Sellers have been in charge over the last few candles' : ' Buyers and sellers have been evenly matched over the last few candles';
+      out += `**Volume profile:** most volume traded around ${f(vol.poc)} (value area ${f(vol.valueLow)} to ${f(vol.valueHigh)}); the entry sits ${
+        cheap ? `on the ${long ? 'cheap side, below' : 'rich side, above'} that level, which adds confluence` : `at or past it, so this setup scores lower`
+      }.${who ? `${who} (information only).` : ''}\n\n`;
+    }
     const pois = poiList(map);
     out += `#### Points of Interest\n${pois
       .map(x => `- **${x.name}:** ${f(x.low)} to ${f(x.high)}, ${x.mitigated ? 'mitigated' : 'unmitigated'}`)
@@ -1287,7 +1465,9 @@ export function marketMapThesis(map: MarketMap, assetLabel: string, currencySymb
       p.execution === 'MARKET'
         ? `- **Entry (${long ? 'buy' : 'sell'} now at market):** price is making the zone's first touch right now, enter at **${f(p.entry.optimal)}** (band ${f(p.entry.min)} to ${f(p.entry.max)})\n`
         : `- **Entry (${long ? 'buy' : 'sell'} limit):** ${f(p.entry.min)} to ${f(p.entry.max)}, optimal **${f(p.entry.optimal)}**\n`;
-    out += `- **Stop loss:** ${f(p.stopLoss)}, beyond the zone's distal line (Fibonacci 100%)\n`;
+    out += map.steady
+      ? `- **Stop loss:** ${f(p.stopLoss)}, Steady mode room (${STEADY_STOP_MULT}× the normal distance beyond the zone's distal line)\n`
+      : `- **Stop loss:** ${f(p.stopLoss)}, beyond the zone's distal line (Fibonacci 100%)\n`;
     p.targets.forEach((t, i) => (out += `- **TP${i + 1}:** ${f(t.price)}, ${t.label} (1:${t.rr})\n`));
     out += `\n**Invalidation:** a candle close ${long ? 'below' : 'above'} ${f(p.zone.distal)} breaks the zone${
       p.execution === 'MARKET' ? '; if price leaves the entry band before you fill, do not chase it' : '; cancel the order if price reaches TP1 before filling'

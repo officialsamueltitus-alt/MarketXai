@@ -8,7 +8,7 @@ import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice } from './priceAlerts';
 import { SUPPORTED_TIMEFRAMES, timeframeMinutes } from '../src/utils/timeframe';
-import { normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults, type AnalysisMode } from '../src/utils/preferences';
+import { engineModeOf, normalizeRdmTimeframes, rdmFrames, rdmLabel, withDefaults, type EngineMode } from '../src/utils/preferences';
 import { fitTimeframe, hasStyleChoice, readTradeStyle, styleFrames, styleRdmFrames, type TradeStyle } from '../src/utils/tradeStyle';
 
 // ===========================================================================
@@ -51,7 +51,7 @@ export interface WatchItem {
   /** RDM only: the timeframes it scans, from the trader's Preference Mode ([] or missing = all) */
   rdmFrames?: string[];
   /** Analysis mode from Preference Mode (missing = NORMAL): CONFIRMATION is only ready once price confirms at the zone */
-  analysisMode?: AnalysisMode;
+  analysisMode?: EngineMode;
   /** Strategy mode: the trader's saved strategy the pair is scanned with (missing/null = the general engine) */
   strategyId?: string | null;
   /** Trade type from Preference Mode (missing = ANY): only that type's timeframes are scanned */
@@ -103,7 +103,7 @@ export interface WatchlistDeps {
   /** Number of candles readable on a timeframe (0 = no chart data) */
   candles: (symbol: string, timeframe: string) => Promise<number>;
   /** Engine read for each timeframe asked (null entries = no data on that timeframe) */
-  scan: (symbol: string, timeframes: string[], mode?: AnalysisMode, strategyId?: string | null, style?: TradeStyle, styleTfs?: string[]) => Promise<Array<ScanFrame | null> & { strategyName?: string }>;
+  scan: (symbol: string, timeframes: string[], mode?: EngineMode, strategyId?: string | null, style?: TradeStyle, styleTfs?: string[]) => Promise<Array<ScanFrame | null> & { strategyName?: string }>;
   /** Minimum plan score for an RDM pick (same bar as the RDM analysis) */
   rdmMinScore: number;
 }
@@ -268,7 +268,7 @@ function toClient(w: WatchItem) {
   return {
     id: w.id, symbol: w.symbol, name: w.name, type: w.type, timeframe: w.timeframe, addedAt: w.addedAt, active: w.active,
     status: w.status, statusText: w.statusText, price: w.price, priceAt: w.priceAt, scannedAt: w.scannedAt,
-    nextScanAt: w.nextScanAt, setup: w.setup, analysisMode: modeOf(w), strategy: !!w.strategyId, tradeStyle: styleOf(w),
+    nextScanAt: w.nextScanAt, setup: w.setup, analysisMode: modeOf(w) === 'CONFIRMATION' ? 'CONFIRMATION' : 'NORMAL', ...(modeOf(w) === 'STEADY' ? { steady: true } : {}), strategy: !!w.strategyId, tradeStyle: styleOf(w),
     ...(w.timeframe === 'RDM' ? { rdmFrames: normalizeRdmTimeframes(rdmShown(w) || []) || [] } : {}),
     ...(w.styleFrames?.length ? { styleFrames: w.styleFrames } : {}),
   };
@@ -344,15 +344,16 @@ const rdmShown = (w: Pick<WatchItem, 'rdmFrames' | 'tradeStyle' | 'styleFrames'>
   return hasStyleChoice(style, w.styleFrames) ? styleFrames(style, w.styleFrames) : w.rdmFrames;
 };
 /** Same-scan key: pairs on RDM with a different timeframe choice are scanned separately */
-const modeOf = (w: WatchItem): AnalysisMode => (w.analysisMode === 'CONFIRMATION' ? 'CONFIRMATION' : 'NORMAL');
+/** The engine mode a pair scans in (Steady mode = Normal analysis with Steady on) */
+const modeOf = (w: WatchItem): EngineMode => (w.analysisMode === 'CONFIRMATION' || w.analysisMode === 'STEADY' ? w.analysisMode : 'NORMAL');
 const scanKey = (w: WatchItem) => `${w.symbol}|${framesFor(w.timeframe, w.rdmFrames, styleOf(w), w.styleFrames).join(',')}|${w.timeframe === 'RDM' ? 'RDM' : 'TF'}|${w.strategyId ? `S:${w.strategyId}` : modeOf(w)}|${styleOf(w)}`;
 
 /** The trader's scan settings from Preference Mode: RDM timeframes ([] = all) and analysis mode */
-async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: AnalysisMode; strategyId: string | null; style: TradeStyle; styleTfs: string[] }> {
+async function scanPrefs(uid: string): Promise<{ rdm: string[]; mode: EngineMode; strategyId: string | null; style: TradeStyle; styleTfs: string[] }> {
   const doc = (await userRef(uid).get()).data() as UserDoc | undefined;
   const p = withDefaults((doc as any)?.preferences);
   const sm = (doc as any)?.strategyMode;
-  return { rdm: p.rdmTimeframes, mode: p.analysisMode, strategyId: sm?.enabled && typeof sm.strategyId === 'string' ? sm.strategyId : null, style: p.tradeStyle, styleTfs: p.tradeStyle === 'ANY' ? [] : p.styleTimeframes[p.tradeStyle] };
+  return { rdm: p.rdmTimeframes, mode: engineModeOf(p), strategyId: sm?.enabled && typeof sm.strategyId === 'string' ? sm.strategyId : null, style: p.tradeStyle, styleTfs: p.tradeStyle === 'ANY' ? [] : p.styleTimeframes[p.tradeStyle] };
 }
 
 /** Strategy mode changed (on, off, another strategy, or its rules edited): the trader's pairs scan with it from now on */
@@ -377,7 +378,7 @@ export async function syncWatchStrategy(uid: string, strategyId: string | null) 
  * Preference Mode changed the RDM timeframes or the analysis mode: the trader's pairs scan the new way from now on
  * (RDM pairs take the new timeframes; every pair takes the mode) and are rescanned.
  */
-export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; mode: AnalysisMode; style?: TradeStyle; styleFrames?: string[] }) {
+export async function syncWatchPrefs(uid: string, prefs: { rdmFrames: string[]; mode: EngineMode; style?: TradeStyle; styleFrames?: string[] }) {
   if (!isFirebaseConfigured()) return;
   const frames = normalizeRdmTimeframes(prefs.rdmFrames) || [];
   const snap = await db().collection(ITEMS).where('uid', '==', uid).get();
@@ -436,7 +437,7 @@ async function applyScan(itemId: string, result: ReturnType<typeof summarizeScan
   return outcome.item;
 }
 
-async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: AnalysisMode = 'NORMAL', strategyId?: string | null, style: TradeStyle = 'ANY', custom?: string[]) {
+async function scanFrames(symbol: string, tf: string, deps: WatchlistDeps, rdm?: string[], mode: EngineMode = 'NORMAL', strategyId?: string | null, style: TradeStyle = 'ANY', custom?: string[]) {
   const opts = { rdm: tf === 'RDM', rdmMinScore: deps.rdmMinScore, confirmation: mode === 'CONFIRMATION' };
   try {
     const frames = await Promise.race([

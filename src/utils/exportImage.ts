@@ -159,7 +159,7 @@ export async function downloadStrategyImage(
   ctx.textBaseline = 'middle';
   ctx.fillText(dirText, L + 24, pillY + 30);
 
-  // Stats: confidence + R:R
+  // Stats: setup quality + R:R
   const statY = 410;
   const stat = (x: number, label: string, value: string) => {
     ctx.textBaseline = 'alphabetic';
@@ -171,7 +171,7 @@ export async function downloadStrategyImage(
     ctx.fillText(value, x, statY + 46);
   };
   const conf = Math.max(0, Math.min(100, Math.round(strategy.confidenceScore || 0)));
-  stat(L, 'Confidence', `${conf}%`);
+  stat(L, 'Quality', `${conf}/100`);
   const rr = String(strategy.riskRewardRatio || '').replace(/\s+/g, '');
   const rrShort = rr.split(':').length > 2 ? `1:${rr.split(':').pop()}` : rr || '-';
   stat(L + 230, 'Risk : Reward', isNoSignal ? '-' : rrShort);
