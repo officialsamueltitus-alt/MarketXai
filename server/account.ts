@@ -7,6 +7,7 @@ import { db, isFirebaseConfigured } from './firebase';
 import { isSessionConfigured, readSessionCookie, verifySessionToken } from './session';
 import { sendEmail, EmailOptions } from './mailer';
 import { logActivity, recordUsage } from './tracking';
+import { recordMonthly } from './usageMonthly';
 import { clientIp, createKeyedThrottle, stripReservedKeys } from './security';
 import { IS_LEAD_WORKER } from './workers';
 import { withDefaults } from '../src/utils/preferences';
@@ -405,6 +406,7 @@ function fundamentalAlert(user: AuthedUser, f: any, left: [string, string][], re
     ...(ml.reasoning ? [`Why: ${mailText(ml.reasoning, 500)}`] : []),
   ].filter(Boolean);
   recordUsage(user.uid, 'chat', null);
+  recordMonthly(user.uid, 'fundamental');
   logActivity(user.uid, { type: 'chat', title: rc ? `Rechecked ${event}` : `Fundamental analysis: ${event}`, detail: outcome ? `${outcome}${prob ? ` (${prob}%)` : ''}` : '' });
   notifyActivity(
     user.uid,
@@ -441,6 +443,7 @@ function analysisAlert(user: AuthedUser, prompt: string, body: any, remaining: C
   }
   const s = body?.strategy;
   recordUsage(user.uid, s?.symbol ? 'analysis' : 'chat', s?.symbol || null);
+  recordMonthly(user.uid, s?.symbol ? 'analysis' : 'question', s?.symbol || null);
   logActivity(
     user.uid,
     s?.symbol

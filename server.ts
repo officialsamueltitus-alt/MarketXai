@@ -52,6 +52,8 @@ import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
 import { registerTraderIdRoutes } from './server/traderId';
+import { registerLeaderboardRoutes } from './server/leaderboard';
+import { registerAdminCreditRoutes } from './server/adminCredits';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
@@ -2127,7 +2129,7 @@ const toScanFrame = (m: MarketMap | null, tf: string): ScanFrame | null =>
         timeframe: tf,
         price: m.price,
         equilibrium: m.equilibrium,
-        plan: m.plan ? { direction: m.plan.direction, score: m.plan.score, entry: m.plan.entry } : null,
+        plan: m.plan ? { direction: m.plan.direction, score: m.plan.score, quality: Math.round(m.confidence), entry: m.plan.entry } : null,
         ...(confirmationOf(m) ? { confirm: { state: confirmationOf(m)!.state, direction: confirmationOf(m)!.direction, zone: confirmationOf(m)!.zone } } : {}),
         zones: [...m.demandZones, ...m.supplyZones].map(z => ({
           kind: z.kind, proximal: z.proximal, low: z.low, high: z.high, fresh: z.fresh, liveFirstTouch: z.liveFirstTouch,
@@ -2174,7 +2176,7 @@ registerWatchlistRoutes(
             const ok = r.signal && personalStrategyStatus(r.signal.direction, q.price, r.signal.entry.optimal, r.signal.stop, r.signal.targets.map(t => ({ level: t.label, price: t.price }))).state === 'ACTIVE';
             const cr = r.confirmationRead;
             return {
-              timeframe: tf, price: q.price, equilibrium: 0, plan: ok ? { direction: r.signal!.direction, score: r.signal!.score, entry: r.signal!.entry } : null, zones: [],
+              timeframe: tf, price: q.price, equilibrium: 0, plan: ok ? { direction: r.signal!.direction, score: r.signal!.score, quality: r.signal!.score, entry: r.signal!.entry } : null, zones: [],
               ...(cr ? { confirm: { state: ok ? 'CONFIRMED' : cr.state === 'CONFIRMED' ? 'NONE' : cr.state, direction: cr.direction, zone: cr.zone } } : {}),
             } as ScanFrame;
           })
@@ -2276,6 +2278,8 @@ registerTokenSafetyRoutes(app, { resolve: mint => resolveAssetInfo(mint, mint) }
 registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, tf) => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf) });
 // MarketX ID: each trader's own Solana address, listing their trade records on Solscan
 registerTraderIdRoutes(app, generalApiRateLimiter);
+registerLeaderboardRoutes(app, generalApiRateLimiter);
+registerAdminCreditRoutes(app);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)
@@ -2801,14 +2805,37 @@ function fetchYahooRaw(yahooSym: string, interval: string, rangeParam: string): 
   return p;
 }
 
+// Daily forex from the hourly series (owner-reported fix): Yahoo's daily currency candles are mostly flat (open = close,
+// high = low) for long stretches, so no daily zone could ever form; the hourly series is clean and is merged into days
+const FOREX_DAILY_PLAN: [string, string, number] = ['60m', '2y', 60];
+
 async function fetchYahooCandles(yahooSym: string, tf: string): Promise<Candle[] | null> {
-  const plan = YAHOO_PLAN[tf];
+  const plan = tf === '1D' && /=X$/i.test(yahooSym) ? FOREX_DAILY_PLAN : YAHOO_PLAN[tf];
   if (!plan) return null;
   const [interval, rangeParam, baseMinutes] = plan;
   const raw = await fetchYahooRaw(yahooSym, interval, rangeParam);
   if (!raw) return null;
   const want = timeframeMinutes(tf);
-  return (want > baseMinutes ? aggregateCandles(raw, want) : raw).slice(-300);
+  const out = want > baseMinutes ? aggregateCandles(raw, want) : raw;
+  return (plan === FOREX_DAILY_PLAN ? foldSundays(out) : out).slice(-300);
+}
+
+/** Forex trades a few Sunday-evening hours (UTC): they join Monday's candle instead of forming a tiny day of their own */
+function foldSundays(days: Candle[]): Candle[] {
+  const out: Candle[] = [];
+  let carry: Candle | null = null;
+  for (const d of days) {
+    if (new Date(d.t).getUTCDay() === 0) {
+      carry = carry ? { ...carry, h: Math.max(carry.h, d.h), l: Math.min(carry.l, d.l), c: d.c } : { ...d };
+      continue;
+    }
+    if (carry) {
+      out.push({ t: d.t, o: carry.o, h: Math.max(carry.h, d.h), l: Math.min(carry.l, d.l), c: d.c });
+      carry = null;
+    } else out.push(d);
+  }
+  if (carry) out.push(carry);
+  return out;
 }
 
 async function fetchDerivSeries(derivSym: string, tf: string): Promise<Candle[] | null> {
@@ -2975,7 +3002,8 @@ async function scanAllTimeframes(
   );
   const loaded = maps.map((m, i) => ({ m, tf: frames[i] })).filter(x => !!x.m) as Array<{ m: MarketMap; tf: string }>;
   const valid = loaded.filter(x => x.m.plan && x.m.plan.score >= RDM_MIN_SCORE);
-  const rank = (x: { m: MarketMap; tf: string }) => x.m.plan!.score + Math.log2(timeframeMinutes(x.tf)) * 0.5;
+  // Strongest = the best back-tested setup quality (owner-specified), slight edge to higher timeframes
+  const rank = (x: { m: MarketMap; tf: string }) => (x.m.plan!.quality ?? x.m.plan!.score) + Math.log2(timeframeMinutes(x.tf)) * 0.5;
   valid.sort((a, b) => rank(b) - rank(a));
   const best = valid[0];
   const info = { mode: 'RDM' as const, scanned: loaded.length, withSetup: valid.map(x => x.tf), chosen: best?.tf || null, frames: [...frames] };
@@ -2995,6 +3023,19 @@ async function scanAllTimeframes(
 }
 
 /** Candles → supply/demand + Fibonacci map, bounded so a slow feed never delays an analysis for long. */
+/**
+ * Heads-ups from the engine's back-tested record (owner-specified), above the write-up: a weaker market/timeframe for
+ * trades, and Tight SL replaced by Normal SL where it doesn't hold up. Never changes a level.
+ */
+function prependEngineNotes(s: any, map: MarketMap) {
+  const trade = s.tradeType === 'LONG' || s.tradeType === 'SHORT';
+  const lines: string[] = [];
+  if (trade && map.edgeNote) lines.push(`> **Heads-up:** ${map.edgeNote}`);
+  if (map.slNote) lines.push(`> **Stop loss:** ${map.slNote}`);
+  if (!lines.length || String(s.detailedThesis || '').includes(lines[0])) return;
+  s.detailedThesis = `${lines.join('\n')}\n\n${s.detailedThesis || ''}`;
+}
+
 async function buildStructureMap(
   asset: ReturnType<typeof extractAssetInfo>,
   tf: string,
@@ -3021,7 +3062,7 @@ async function buildStructureMap(
       quote && Number(quote.high24h) > 0 && Number(quote.low24h) > 0
         ? { high: Number(quote.high24h), low: Number(quote.low24h), since: Date.now() - 24 * 3600e3 }
         : null;
-    const map = buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session });
+    const map = buildMarketMap(candles, { price, timeframe: tf, slMode, prefer, jpy, forex: asset.type === 'forex', session, symbol: asset.symbol, assetType: asset.type });
     // Confirmation analysis: no trade until price reaches the zone and confirms on the lower timeframe
     if (map && ltf) applyConfirmation(map, candles, ltfCandles, { ltf, slMode });
     return map;
@@ -3100,7 +3141,8 @@ function applyStructureMap(strategy: any, map: MarketMap, direction: 'LONG' | 'S
     const long = plan.direction === 'LONG';
     strategy.tradeType = plan.direction;
     strategy.bias = long ? 'BULLISH' : 'BEARISH';
-    strategy.confidenceScore = Math.round(map.plan === plan ? map.confidence : Math.max(55, Math.min(90, plan.score)));
+    // The setup's back-tested quality (owner-specified), for the chosen plan and an alternate alike
+    strategy.confidenceScore = Math.round(map.plan === plan ? map.confidence : plan.quality ?? Math.max(55, Math.min(90, plan.score)));
     const confluenceText =
       plan.confluence === 'GOLDEN_POCKET_IN_ZONE'
         ? '0.618–0.705 golden pocket inside'
@@ -3530,7 +3572,7 @@ async function serveUserStrategyAnalysis(
     const long = sig.direction === 'LONG';
     s.tradeType = sig.direction;
     s.bias = long ? 'BULLISH' : 'BEARISH';
-    s.confidenceScore = Math.max(55, Math.min(92, sig.score));
+    s.confidenceScore = Math.round(sig.score);
     s.execution = sig.execution;
     s.entryZone = {
       min: sig.entry.min,
@@ -4146,6 +4188,7 @@ Do NOT output structured trade card JSON.`;
         applyStructureMap(s, structureMap, structureMap.plan?.direction || null);
         // Today's news is shown (and expires) in the process report, not baked into the write-up
         s.detailedThesis = marketMapThesis(structureMap, `${asset.name} (${asset.symbol})`);
+        prependEngineNotes(s, structureMap);
       } else {
         enforceVerifiedSignal(s, analysisTimeframe);
       }
@@ -4723,6 +4766,7 @@ INSTRUCTIONS:
           const at = newsSoon.at != null ? `${new Date(newsSoon.at).toISOString().slice(11, 16)} UTC` : 'today';
           fullStrategy.detailedThesis = `> **News heads-up:** high-impact ${newsSoon.title} [${newsSoon.currency}] at ${at}. Expect a volatility spike around it; consider waiting for the release or trading smaller.\n\n${fullStrategy.detailedThesis}`;
         }
+        prependEngineNotes(fullStrategy, structureMap);
         fullStrategy.structureVerified = true;
       }
 

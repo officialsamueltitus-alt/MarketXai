@@ -5,7 +5,7 @@
 // on the latest candles; filters, stop, targets and the minimum reward then decide, and the same guards as the general
 // engine apply: stop on the right side, targets ahead of price, and price not already half-way to TP1.
 // ===========================================================================
-import { computeAtr, emaSeries, rsiSeries, type Candle } from './strategy';
+import { computeAtr, emaSeries, rsiSeries, volatilityPercentile, type Candle } from './strategy';
 import { confirmWords, readZoneConfirmation } from './confirmation';
 import { timeframeMinutes } from '../src/utils/timeframe';
 import { SESSIONS, SETUPS, type StrategyRules } from '../src/utils/strategyRules';
@@ -259,6 +259,46 @@ const SETUP_FNS: Record<StrategyRules['setup'], SetupFn> = {
 };
 
 /** Runs the rules on the candles of one timeframe; the trade (if any) and why */
+/**
+ * Quality of a Strategy Builder setup, 20-95 on the same scale as the general engine's (owner-specified: the score
+ * reflects real setup quality everywhere). Built from the traits that moved results in MarketX's back-tests: trading
+ * with the trend, calm-to-normal volatility (not a hot market), a fresh trigger, an entry not far from price, room
+ * for the stop and a reachable first target. Every price is in buy space (sells are mirrored).
+ */
+export function ruleSetupQuality(x: {
+  cs: Candle[]; atr: number; price: number; entry: number; risk: number; tp1R: number; execution: 'MARKET' | 'LIMIT';
+  at: number; setupQuality: number; trendEma: number[]; patterns: number;
+}): number {
+  const n = x.cs.length;
+  let e = 0.6;
+  const em = x.trendEma[n - 1];
+  const em5 = x.trendEma[n - 6];
+  if (Number.isFinite(em) && Number.isFinite(em5)) e += x.price > em && em > em5 ? 0.25 : x.price < em && em < em5 ? -0.25 : 0;
+  const vol = volatilityPercentile(x.cs);
+  e += vol >= 0.67 ? (x.execution === 'MARKET' ? -0.45 : -0.3) : vol >= 0.34 ? 0.3 : 0.05;
+  let age = 0;
+  for (let k = n - 1; k >= 0 && x.cs[k].t > x.at; k--) age++;
+  e += age <= 5 ? 0.2 : age > 30 ? -0.35 : 0;
+  const dist = x.atr > 0 ? (x.price - x.entry) / x.atr : 0;
+  e += x.execution === 'LIMIT' ? (dist >= 5 ? -1 : dist >= 2 ? 0.3 : 0.05) : -0.1;
+  const room = x.atr > 0 ? x.risk / x.atr : 1;
+  e += room < 0.6 ? -0.3 : room <= 3 ? 0.2 : -0.1;
+  e += x.tp1R <= 2.5 ? 0.15 : x.tp1R > 4 ? -0.2 : 0;
+  e += (x.setupQuality - 6) * 0.08 + Math.min(0.3, x.patterns * 0.1);
+  // Same expected-R to score curve as the general engine
+  const pts: Array<[number, number]> = [[-0.6, 30], [0.1, 45], [0.68, 58], [1.15, 68], [1.71, 78], [3.0, 95]];
+  let q = e <= pts[0][0] ? pts[0][1] : pts[pts.length - 1][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (e <= pts[i][0]) {
+      const [x0, y0] = pts[i - 1];
+      const [x1, y1] = pts[i];
+      q = y0 + ((e - x0) / (x1 - x0)) * (y1 - y0);
+      break;
+    }
+  }
+  return Math.round(Math.max(20, Math.min(95, q)));
+}
+
 export function runUserStrategy(
   candlesRaw: Candle[],
   rules: StrategyRules,
@@ -449,7 +489,13 @@ export function runUserStrategy(
     }
     checks.unshift(got.trigger);
     if (conf) checks.push(`confirmed on the ${lbl(opts.confirm!.ltfName)}`);
-    const score = Math.max(50, Math.min(95, Math.round(62 + got.quality * 2 + checks.length * 3 + Math.min(8, (rrFinal - 2) * 3) + (conf ? Math.min(6, conf.patterns.length * 2) : 0))));
+    // Setup quality (owner-specified: the score reflects real setup quality, as in the general engine): the traits that
+    // predicted results in MarketX's back-tests (trend, volatility, freshness, how far the entry is, stop room, how
+    // reachable TP1 is), plus how clean the trader's own setup printed
+    const score = ruleSetupQuality({
+      cs, atr, price, entry: entry.optimal, risk, tp1R: rrOf(tps[0].price), execution: got.execution, at: got.at,
+      setupQuality: got.quality, trendEma: ema(50), patterns: conf ? conf.patterns.length : 0,
+    });
     const back = (p: number) => r(long ? p : -p);
     const sig: UserSignal = {
       direction: dir,

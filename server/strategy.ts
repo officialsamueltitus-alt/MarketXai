@@ -104,6 +104,12 @@ export interface TradePlan {
   moved?: { kind: 'NEAR_TP' | 'NEAR_SL' | 'LEFT_ZONE'; text: string } | null;
   /** RSI(14) entry confirmation and EMA(50) crosscheck (set by buildMarketMap) */
   confirmation?: { ok: boolean; rsiOk: boolean; emaOk: boolean; divergence: boolean; note: string };
+  /** Setup quality 0-100, calibrated on MarketX's back-tests (set by buildMarketMap; see setupQuality) */
+  quality?: number;
+  /** The back-tested expectation behind the quality score (average R per trade of similar setups) */
+  expectR?: number;
+  /** A market entry that failed the stricter market-entry rules (fast market, or price deep in the zone) */
+  marketBlocked?: string;
 }
 
 export interface MarketMap {
@@ -130,6 +136,14 @@ export interface MarketMap {
   /** RSI(14) / EMA(50) read on the latest candle */
   indicators?: IndicatorRead;
   decimals: number;
+  /** Market the map was built for (when the caller passed it) */
+  symbol?: string;
+  /** A short heads-up on back-tested weaker markets/timeframes (shown above the write-up) */
+  edgeNote?: string;
+  /** Tight SL was asked for where it doesn't hold up (daily charts, crypto): Normal SL used instead, and why */
+  slNote?: string;
+  /** Where the latest ATR sits among the last 200 candles' ATRs (0 calm .. 1 hottest) */
+  volatilityPct?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +151,7 @@ export interface MarketMap {
 // ---------------------------------------------------------------------------
 export { timeframeMinutes, normalizeTimeframe, timeframeFromPrompt, SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 import { timeframeMinutes, normalizeTimeframe } from '../src/utils/timeframe';
+import { isCryptoSymbol, normalEdge, priorR, AVERAGE_R } from './edge';
 
 /** Merges candles into larger buckets (e.g. 1H → 4H), aligned to UTC. */
 export function aggregateCandles(candles: Candle[], bucketMinutes: number): Candle[] {
@@ -348,7 +363,16 @@ export function fvgOpenBefore(z: SDZone): boolean {
   return !!z.liveFirstTouch && z.touchStart !== undefined && z.fvg.filledAt !== undefined && z.fvg.filledAt >= z.touchStart;
 }
 
-export function detectZones(candles: Candle[], price: number): { demand: SDZone[]; supply: SDZone[]; atr: number; swings: Swing[] } {
+export function detectZones(
+  candles: Candle[],
+  price: number,
+  opts: { loose?: boolean } = {}
+): { demand: SDZone[]; supply: SDZone[]; atr: number; swings: Swing[] } {
+  // Daily forex (owner-specified): daily currency candles are calmer than intraday ones, so the leg-out and departure
+  // bars are set a little lower there, or no daily zone ever qualifies
+  const legBody = opts.loose ? 0.9 : 1.1;
+  const legVsTypical = opts.loose ? 1.5 : 1.8;
+  const minDeparture = opts.loose ? 1.2 : 1.5;
   const atrs = rollingAtr(candles);
   const atr = atrs[atrs.length - 1] || Math.abs(price) * 0.005;
   const swings = findSwings(candles);
@@ -371,7 +395,7 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     const a = atrs[i - 1] || atr;
     const typical = medianBody(i);
     // Explosive leg-out: clearly larger than normal candles (imbalance), or two strong candles in the same direction
-    const strongSingle = body(leg) >= a * 1.1 && body(leg) >= typical * 1.8 && body(leg) >= range(leg) * 0.55;
+    const strongSingle = body(leg) >= a * legBody && body(leg) >= typical * legVsTypical && body(leg) >= range(leg) * 0.55;
     const next = candles[i + 1];
     const strongPair =
       !strongSingle &&
@@ -428,7 +452,7 @@ export function detectZones(candles: Candle[], price: number): { demand: SDZone[
     // Departure: how far price travelled away within the next 6 candles
     const after = candles.slice(i, Math.min(n, i + 7));
     const departure = up ? (Math.max(...after.map(c => c.h)) - proximal) / a : (proximal - Math.min(...after.map(c => c.l))) / a;
-    if (departure < 1.5) continue;
+    if (departure < minDeparture) continue;
 
     // Break of structure: the move cleared the last swing on the other side
     const priorSwing = [...swings].reverse().find(s => s.i < base[0] && s.kind === (up ? 'H' : 'L'));
@@ -847,6 +871,55 @@ export function planForZone(
   };
 }
 
+/**
+ * Setup quality (owner-specified: the score must reflect real setup quality). Built from what actually separated winners
+ * from losers in MarketX's walk-forward back-tests on real history: the market/timeframe's own record, trading with the
+ * swing trend, a young zone, a 2-3 candle base, a normal-volatility market, a zone near price, a mid-width zone and a calm
+ * departure. Returns the expected R per trade of similar setups and a 0-100 grade (back-tested bands: the top fifth
+ * averaged about +2.5R per trade at a ~40% win rate, the bottom fifth about breakeven).
+ */
+export function setupQuality(
+  p: TradePlan,
+  ctx: { trend: MarketMap['trend']; atr: number; volatilityPct: number; symbol?: string; timeframe: string }
+): { quality: number; expectR: number } {
+  const z = p.zone;
+  const long = p.direction === 'LONG';
+  let e = 0.5 * priorR(ctx.symbol, ctx.timeframe) + 0.5 * AVERAGE_R;
+  e += (ctx.trend === 'BULLISH' && long) || (ctx.trend === 'BEARISH' && !long) ? 0.25 : ctx.trend === 'RANGING' ? 0 : -0.2;
+  e += z.ageBars < 20 ? 0.3 : z.ageBars >= 50 ? -0.45 : -0.05;
+  e += z.baseCandles === 1 ? -0.3 : z.baseCandles === 2 ? 0.5 : 0.15;
+  e += ctx.volatilityPct >= 0.67 ? -0.35 : ctx.volatilityPct >= 0.34 ? 0.3 : 0.05;
+  e += z.distanceAtr === 0 ? -0.5 : z.distanceAtr >= 5 ? -1.3 : z.distanceAtr >= 2 ? 0.35 : 0.05;
+  const width = ctx.atr > 0 ? (z.high - z.low) / ctx.atr : 1;
+  e += width < 0.6 ? -0.2 : width < 1.2 ? 0.25 : -0.35;
+  e += p.confluence === 'FIB_BAND_OVERLAP' ? -0.4 : p.confluence === 'LEG_ORIGIN' ? 0.2 : 0;
+  e += p.confirmation?.divergence ? -0.55 : 0;
+  e += z.departureAtr < 2.5 ? 0.5 : z.departureAtr < 4 ? 0.15 : z.departureAtr < 6 ? -0.5 : 0;
+  // Expected R → 0-100 (band edges from the back-test: 0.10 / 0.68 / 1.15 / 1.71)
+  const pts: Array<[number, number]> = [[-0.6, 30], [0.1, 45], [0.68, 58], [1.15, 68], [1.71, 78], [3.0, 95]];
+  let q = e <= pts[0][0] ? pts[0][1] : pts[pts.length - 1][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (e <= pts[i][0]) {
+      const [x0, y0] = pts[i - 1];
+      const [x1, y1] = pts[i];
+      q = y0 + ((e - x0) / (x1 - x0)) * (y1 - y0);
+      break;
+    }
+  }
+  return { quality: Math.round(Math.max(20, Math.min(95, q))), expectR: Number(e.toFixed(2)) };
+}
+/** Signals need at least this quality: below it, similar setups averaged about breakeven in the back-tests */
+const qualityFloor = Number(process.env.MIN_SIGNAL_QUALITY);
+export const MIN_SIGNAL_QUALITY = process.env.MIN_SIGNAL_QUALITY && Number.isFinite(qualityFloor) ? Math.max(0, Math.min(95, qualityFloor)) : 45;
+
+/** Where the latest ATR sits among the last 200 candles' ATRs (0 = calmest, 1 = hottest) */
+export function volatilityPercentile(candles: Candle[]): number {
+  const atrs = rollingAtr(candles);
+  const w = atrs.slice(-200).filter(v => Number.isFinite(v) && v > 0);
+  const now = atrs[atrs.length - 1];
+  return w.length ? w.filter(v => v <= now).length / w.length : 0.5;
+}
+
 export function buildMarketMap(
   candles: Candle[],
   opts: {
@@ -858,6 +931,10 @@ export function buildMarketMap(
     forex?: boolean;
     /** Live 24h high/low (checked for taps the candles may not show yet) */
     session?: SessionRange | null;
+    /** The market (for its back-tested record: switched-off combinations, heads-ups, the quality prior) */
+    symbol?: string;
+    /** 'crypto' / 'forex' / … (Tight SL is not used on crypto) */
+    assetType?: string;
   }
 ): MarketMap | null {
   const clean = candles.filter(c => [c.o, c.h, c.l, c.c].every(v => Number.isFinite(v) && v > 0) && c.h >= c.l);
@@ -865,8 +942,17 @@ export function buildMarketMap(
   const lastClose = clean[clean.length - 1].c;
   const price = opts.price && opts.price > 0 && Math.abs(opts.price - lastClose) / lastClose < 0.2 ? opts.price : lastClose;
   const dec = priceDecimals(price, opts.jpy, opts.forex);
-  const slMode = opts.slMode === 'tight' ? 'tight' : 'normal';
-  const { demand, supply, atr, swings } = detectZones(clean, price);
+  // Tight SL (owner-specified, from the back-tests): not used on daily/weekly charts or crypto, where normal swings stop it
+  // out too often; Normal SL is used instead and the result says so
+  let slMode: 'normal' | 'tight' = opts.slMode === 'tight' ? 'tight' : 'normal';
+  let slNote: string | undefined;
+  if (slMode === 'tight' && (opts.timeframe === '1D' || opts.timeframe === '1W' || isCryptoSymbol(opts.symbol, opts.assetType))) {
+    slMode = 'normal';
+    slNote = `Tight SL isn't used ${opts.timeframe === '1D' || opts.timeframe === '1W' ? `on the ${opts.timeframe} chart` : 'on crypto'}: in our back-tests its stop was hit by normal swings too often there, so this plan uses Normal SL.`;
+  }
+  const looseZones = !!opts.forex && (opts.timeframe === '1D' || opts.timeframe === '1W');
+  const { demand, supply, atr, swings } = detectZones(clean, price, { loose: looseZones });
+  const volatilityPct = volatilityPercentile(clean);
   const trend = trendFromSwings(swings);
   const lookback = clean.slice(-120);
   const swingHigh = Math.max(...lookback.map(c => c.h));
@@ -896,14 +982,29 @@ export function buildMarketMap(
     p.confirmation = confirmWithIndicators(p, indicators);
     // An RSI divergence in the trade's favour is the strongest leading confirmation
     if (p.confirmation.divergence) p.score = Math.min(100, p.score + 5);
+    Object.assign(p, setupQuality(p, { trend, atr, volatilityPct, symbol: opts.symbol, timeframe: opts.timeframe }));
+    // Stricter market entries (owner-specified, from the back-tests: market entries earned less than half of limit
+    // entries, worst in fast markets and deep inside the zone): enter at market only in a normal or calm market, with
+    // price still in the zone's outer half (the first touch, not a deep push into it)
+    if (p.execution === 'MARKET') {
+      const z = p.zone;
+      const w = z.high - z.low;
+      const outer = w > 0 ? (p.direction === 'LONG' ? (price - z.low) / w : (z.high - price) / w) : 1;
+      if (volatilityPct >= 0.67) p.marketBlocked = 'the market is moving too fast right now for a safe market entry';
+      else if (outer < 0.5) p.marketBlocked = 'price has already pushed deep into the zone, so the first-touch entry has passed';
+    }
   }
   // Only clean setups can become signals: fresh zone, entry / stop / targets never tapped for this setup, price still
-  // well away from TP1 and the stop, and the RSI / EMA crosscheck passed
-  const ready = (p: TradePlan) => p.mitigation.length === 0 && !p.moved && !!p.confirmation?.ok;
+  // well away from TP1 and the stop, the RSI / EMA crosscheck passed, a market entry passed its stricter rules, and the
+  // setup's back-tested quality clears the minimum
+  const ready = (p: TradePlan) =>
+    p.mitigation.length === 0 && !p.moved && !!p.confirmation?.ok && !p.marketBlocked && (p.quality ?? 100) >= MIN_SIGNAL_QUALITY;
   const longs = allLongs.filter(ready);
   const shorts = allShorts.filter(ready);
-  const bestLong = longs.sort((a, b) => b.score - a.score)[0] || null;
-  const bestShort = shorts.sort((a, b) => b.score - a.score)[0] || null;
+  // Ranked by quality (what the back-tests say pays), then the zone score
+  const rank = (a: TradePlan, b: TradePlan) => (b.quality ?? 0) - (a.quality ?? 0) || b.score - a.score;
+  const bestLong = longs.sort(rank)[0] || null;
+  const bestShort = shorts.sort(rank)[0] || null;
 
   // A signal needs a Fibonacci-confirmed entry, a strong zone within reach and at least 1:2.5 to the final target.
   // A deep retest of the leg's origin (Fib 100%) only counts when the zone is fresh and very strong.
@@ -926,7 +1027,7 @@ export function buildMarketMap(
     plan = preferred;
     alternate = preferred === bestLong ? (qualifies(bestShort) ? bestShort : null) : qualifies(bestLong) ? bestLong : null;
   } else {
-    const ranked = [bestLong, bestShort].filter(qualifies).sort((a, b) => b!.score - a!.score) as TradePlan[];
+    const ranked = ([bestLong, bestShort].filter(qualifies) as TradePlan[]).sort(rank);
     plan = ranked[0] || null;
     alternate = ranked[1] || null;
   }
@@ -941,6 +1042,11 @@ export function buildMarketMap(
     movedSetup = all.find(p => p.mitigation.length === 0 && p.moved && qualifiesIgnoringMitigation(p)) || null;
     unconfirmed = all.find(p => p.mitigation.length === 0 && !p.moved && !p.confirmation?.ok && qualifiesIgnoringMitigation(p)) || null;
   }
+  // A clean setup held back only by the stricter market-entry rules or by its quality: say so plainly
+  const heldBack =
+    !plan && !movedSetup && !unconfirmed
+      ? [...allLongs, ...allShorts].find(p => p.mitigation.length === 0 && !p.moved && !!p.confirmation?.ok && qualifiesIgnoringMitigation(p))
+      : undefined;
   // Setups whose levels are untouched (quality, not proximity or indicators, decides the reason below)
   const untouched = [...allLongs, ...allShorts].filter(p => p.mitigation.length === 0);
   if (!plan && !movedSetup && !unconfirmed) {
@@ -958,6 +1064,10 @@ export function buildMarketMap(
     const m = movedSetup;
     const label = m.moved!.kind === 'NEAR_SL' ? 'already moved, close to the stop loss' : 'already moved, close to TP';
     noSignalReason = `No signal, ${label}. The ${zoneText(m)} is valid, but ${m.moved!.text}, so it is no longer a fresh entry. Wait for a new, untouched zone.`;
+  } else if (!plan && heldBack?.marketBlocked) {
+    noSignalReason = `No signal. Price is on the first touch of the ${zoneText(heldBack)}, but ${heldBack.marketBlocked}. MarketX only enters at market in a calm market at the zone's edge; wait for the next clean setup.`;
+  } else if (!plan && heldBack && (heldBack.quality ?? 100) < MIN_SIGNAL_QUALITY) {
+    noSignalReason = `No signal. The ${zoneText(heldBack)} is valid, but its setup quality (${heldBack.quality}/100) is below what MarketX calls: setups like it have broken even at best in our back-tests. Wait for a stronger one.`;
   } else if (!plan && unconfirmed) {
     noSignalReason = `No signal. The ${zoneText(unconfirmed)} failed the indicator crosscheck: ${unconfirmed.confirmation!.note}. Stand aside until the indicators confirm a fresh zone.`;
   } else if (!plan && mitigatedSetup) {
@@ -977,7 +1087,23 @@ export function buildMarketMap(
     else noSignalReason = 'No signal. The fresh zones lack golden-pocket confluence, are too far from price, or do not pay at least 1:2.5, so there is no high-probability edge right now.';
   }
 
+  // Back-tested record of this market/timeframe (owner-specified): switched-off combinations give no signal, weaker
+  // ones carry a heads-up
+  const edge = normalEdge(opts.symbol, opts.timeframe);
+  let edgeNote: string | undefined;
+  if (edge.off) {
+    plan = null;
+    alternate = null;
+    movedSetup = null;
+    mitigatedSetup = null;
+    noSignalReason = edge.text;
+  } else edgeNote = (edge as { off: false; note?: string }).note;
+
   return {
+    ...(opts.symbol ? { symbol: opts.symbol } : {}),
+    ...(edgeNote && plan ? { edgeNote } : {}),
+    ...(slNote ? { slNote } : {}),
+    volatilityPct: Number(volatilityPct.toFixed(2)),
     timeframe: opts.timeframe,
     candles: clean.length,
     lastClose,
@@ -991,7 +1117,8 @@ export function buildMarketMap(
     supplyZones: supply.slice(0, 4),
     plan,
     alternate,
-    confidence: plan ? Math.max(55, Math.min(92, plan.score)) : 50,
+    // The confidence shown is the setup's back-tested quality (owner-specified), not the zone score
+    confidence: plan ? plan.quality ?? Math.max(55, Math.min(92, plan.score)) : 50,
     noSignalReason,
     mitigatedSetup,
     movedSetup,

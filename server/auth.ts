@@ -20,6 +20,7 @@ import {
   invalidateAuthCache,
 } from './account';
 import { bumpDaily, logActivity, touchUser } from './tracking';
+import { deleteLeaderboardData, inviteCodeValid, normalizeRefCode, recordReferral } from './leaderboard';
 import { cleanDisplayName, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import { IS_LEAD_WORKER } from './workers';
 import { readDeviceSignals, reserveSignup, releasePendingSignup, activateSignup, keysOf, signupMetaOf, canonicalEmail, type DeviceSignals } from './signupGuard';
@@ -106,6 +107,22 @@ const TERMS_REQUIRED = {
   message: 'Please tick the box to accept the MarketX Terms of Service and Privacy Policy to continue.',
 };
 const acceptedTerms = (req: Request) => req.body?.acceptTerms === true;
+// The invite code the sign-up came through (from the invite link), kept on the pending sign-up
+const referralOf = (req: Request): { referralCode?: string } => {
+  const code = normalizeRefCode(req.body?.ref);
+  return code ? { referralCode: code } : {};
+};
+const INVALID_INVITE = {
+  error: 'INVALID_INVITE',
+  message: "That invite code isn't valid. Check it with the trader who invited you, or leave it empty.",
+};
+/** The optional invite code typed at sign-up: empty is fine, anything else must be a real code */
+const inviteProblem = async (req: Request): Promise<boolean> => {
+  const raw = String(req.body?.ref ?? '').trim();
+  if (!raw) return false;
+  const code = normalizeRefCode(raw);
+  return !code || !(await inviteCodeValid(code));
+};
 
 const GOOGLE_NOT_REGISTERED = {
   error: 'GOOGLE_NOT_REGISTERED',
@@ -256,6 +273,7 @@ export async function deleteAccountData(uid: string, email: string): Promise<Use
   const tokens = await db().collection('authTokens').where('uid', '==', uid).get();
   await Promise.all(tokens.docs.map(d => d.ref.delete()));
   await deleteOwnedRecords(uid);
+  await deleteLeaderboardData(uid, (doc as any)?.referral?.code || null);
   return doc;
 }
 
@@ -283,6 +301,8 @@ async function deleteOwnedRecords(uid: string) {
       each(col, ref => ref.delete())
     ),
     ...['trackRecord', 'signalProofs'].map(col => each(col, ref => ref.update({ uid: null }))),
+    // Admin credit gifts stay as a record of what was given, without the account or email
+    each('adminGifts', ref => ref.update({ uid: null, email: null })),
     db().recursiveDelete(db().collection('supportThreads').doc(uid)).then(() => db().collection('supportThreads').doc(uid).delete()),
   ];
   const results = await Promise.allSettled(tasks);
@@ -365,6 +385,7 @@ export function registerAuthRoutes(app: Express) {
       return res.status(409).json({ error: 'EMAIL_TAKEN', message: 'An account with this email already exists. Sign in instead.' });
     }
     if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
+    if (await inviteProblem(req)) return res.status(400).json(INVALID_INVITE);
     const cleanUsername = String(username || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
     if ((cleanUsername && impersonates(cleanUsername)) || (displayName && impersonates(displayName))) {
       if (!isUnlimitedEmail(email)) return res.status(400).json({ error: 'RESERVED_NAME', message: RESERVED_NAME_MESSAGE });
@@ -384,6 +405,7 @@ export function registerAuthRoutes(app: Express) {
       username: cleanUsername || undefined,
       displayName,
       termsAcceptedAt: Date.now(),
+      ...referralOf(req),
       ...guard.extra,
     });
     if (reserved.status === 'full') {
@@ -425,7 +447,7 @@ export function registerAuthRoutes(app: Express) {
           // Their 48 hours ran out: retire the old code and reserve a fresh seat if one is free (same device rules)
           const guard = await guardSignup(req, res, email);
           if (!guard) return;
-          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName, ...guard.extra });
+          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName, ...(p.referralCode ? { referralCode: p.referralCode } : {}), ...guard.extra });
           if (again.status === 'full') {
             await releaseGuard(email, guard.signals);
             return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
@@ -486,6 +508,7 @@ export function registerAuthRoutes(app: Express) {
     // New Google users go through the same pass code gate (existing accounts and owner emails sign straight in)
     if (!existingCred.exists && !isUnlimitedEmail(email)) {
       if (await isBannedEmail(email)) return res.status(403).json(BANNED_SIGNUP);
+      if (await inviteProblem(req)) return res.status(400).json(INVALID_INVITE);
       const waiting = await pendingRef(email).get();
       const w = waiting.exists ? (waiting.data() as PendingSignup) : null;
       // A pending email/password sign-up can't be taken over or finished through Google
@@ -497,6 +520,7 @@ export function registerAuthRoutes(app: Express) {
         name: payload.name,
         picture: payload.picture,
         termsAcceptedAt: Date.now(),
+        ...referralOf(req),
         ...guard.extra,
       });
       if (reserved.status === 'full') {
@@ -711,6 +735,7 @@ export function registerAuthRoutes(app: Express) {
     const state = await signIn(res, uid);
     res.json({ success: true, accessGranted: true, ...state });
     logActivity(uid, { type: 'signup', title: 'Joined MarketX with a pass code', detail: `Batch ${pending.batch}` }, state?.profile?.username);
+    if (pending.referralCode) void recordReferral(uid, pending.referralCode, email);
     bumpDaily('signups');
     touchUser(uid);
 

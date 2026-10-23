@@ -15,6 +15,8 @@
 import {
   computeAtr,
   planForZone,
+  setupQuality,
+  MIN_SIGNAL_QUALITY,
   rsiSeries,
   type Candle,
   type MarketMap,
@@ -22,6 +24,7 @@ import {
   type TradePlan,
 } from './strategy';
 import { timeframeMinutes } from '../src/utils/timeframe';
+import { confirmEdge } from './edge';
 import type { AnalysisMode } from '../src/utils/preferences';
 export type { AnalysisMode };
 export type ConfirmState = 'CONFIRMED' | 'WAITING_PATTERN' | 'WAITING_TAP' | 'NONE';
@@ -73,6 +76,17 @@ export function confirmationTimeframe(tf: string): string {
 
 /** Score a confirmed setup needs (same floor as a normal signal) */
 export const CONFIRM_MIN_SCORE = 70;
+/**
+ * Owner-specified tuning, picked from a grid of walk-forward back-tests (Oct 2026):
+ * - minTp1R: TP1 sits at least this many R away (owner: about 2R-2.5R, like normal analysis); no structure target that
+ *   far = no trade.
+ * - minQuality: confirmed setups need this setup quality (same scale and floor as a normal signal); the best net R.
+ * - minRiskHtfAtr: extra stop room from the analysis timeframe's ATR. Tested (0.25, 0.4): no gain for buys or sells, so off.
+ * - measuredTp1R: a measured TP1 when no structure target is far enough. Tested: lower R, so off (0).
+ * Buys: their weak spell was the recent window plus gold, which is now off on 4H and above; over 2.5 years buys did
+ * better than sells.
+ */
+export const CONFIRM_TUNING = { minRiskHtfAtr: 0, minTp1R: 2, measuredTp1R: 0, minQuality: MIN_SIGNAL_QUALITY };
 
 const body = (c: Candle) => Math.abs(c.c - c.o);
 const range = (c: Candle) => Math.max(c.h - c.l, 1e-12);
@@ -226,7 +240,7 @@ export function applyConfirmation(
     map.mitigatedSetup = null;
     if (plan) {
       map.noSignalReason = undefined;
-      map.confidence = Math.max(55, Math.min(92, plan.score));
+      map.confidence = plan.quality ?? Math.max(55, Math.min(92, plan.score));
     } else {
       map.noSignalReason = reason || map.noSignalReason;
       map.confidence = 50;
@@ -239,6 +253,16 @@ export function applyConfirmation(
     return finish(null, read.text);
   }
 
+  // Back-tested record (owner-specified): gold on 4H and above is switched off in Confirmation; weaker pairs get a heads-up
+  const edge = confirmEdge(map.symbol, map.timeframe);
+  if (edge.off) {
+    read.text = edge.text;
+    return finish(null, read.text);
+  }
+  const edgeNote = (edge as { off: false; note?: string }).note;
+  // Confirmation always uses Normal SL (owner-specified: Tight SL tested worse here on every timeframe)
+  if (opts.slMode === 'tight') map.slNote = "Tight SL isn't used in Confirmation analysis (it tested worse there), so this plan uses Normal SL.";
+  const slMode: 'normal' = 'normal';
   const { window, freshBars } = confirmWindows(map.timeframe, ltfName);
   const atrH = map.atr;
   const rightSide = (z: SDZone) => (z.kind === 'DEMAND' ? z.territory === 'DISCOUNT' : z.territory === 'PREMIUM');
@@ -249,7 +273,7 @@ export function applyConfirmation(
   let waiting: { z: SDZone; reason?: string } | null = null;
   for (const z of zones) {
     const long = z.kind === 'DEMAND';
-    const base = planForZone(z, htf, price, atrH, long ? map.supplyZones : map.demandZones, opts.slMode, dec, null);
+    const base = planForZone(z, htf, price, atrH, long ? map.supplyZones : map.demandZones, slMode, dec, null);
     if (!base || base.confluence === 'ZONE_ONLY') continue;
     const L = long ? ltf : ltf.map(mirror);
     const top = long ? z.proximal : -z.proximal;
@@ -260,11 +284,12 @@ export function applyConfirmation(
 
     // Levels: market entry now, stop beyond the reaction's extreme wick, targets from the engine's ladder
     const atrL = computeAtr(L) || range(L[L.length - 1]);
-    const buffer = atrL * (opts.slMode === 'tight' ? 0.2 : 0.4);
+    const buffer = atrL * 0.4;
     const sgn = long ? 1 : -1;
     const ext = long ? rd.low : -rd.low;
     let stop = ext - sgn * buffer;
-    const minRisk = atrL * (opts.slMode === 'tight' ? 0.5 : 0.8);
+    // Room to breathe: past the reaction wick, and never closer than a share of the analysis timeframe's ATR
+    const minRisk = Math.max(atrL * 0.8, atrH * CONFIRM_TUNING.minRiskHtfAtr);
     if ((price - stop) * sgn < minRisk) stop = price - sgn * minRisk;
     const risk = (price - stop) * sgn;
     if (!(risk > 0)) continue;
@@ -274,12 +299,18 @@ export function applyConfirmation(
     for (const t of real) {
       const v = rr(t.price);
       const prev = targets[targets.length - 1];
-      if (!targets.length && v < 1) continue;
+      // TP1 at least about 2R (owner-specified): nearer structure targets are skipped
+      if (!targets.length && v < CONFIRM_TUNING.minTp1R) continue;
       if (prev && v - prev.rr < 0.5) continue;
       targets.push({ label: t.label, price: r(t.price), rr: Number(v.toFixed(2)) });
       if (targets.length === 3) break;
     }
-    if (!targets.length) continue; // no real target pays at least 1R from here
+    // (optional) no structure target that far: a measured TP1, the ladder continuing from there
+    if (!targets.length && real.length && CONFIRM_TUNING.measuredTp1R > 0) {
+      const p = price + sgn * risk * CONFIRM_TUNING.measuredTp1R;
+      targets.push({ label: `Measured ${CONFIRM_TUNING.measuredTp1R}R target`, price: r(p), rr: Number(rr(p).toFixed(2)) });
+    }
+    if (!targets.length) continue; // no real target ahead at all
     while (targets.length < 3) {
       const p = targets[targets.length - 1].price + sgn * risk * 1.5;
       targets.push({ label: 'Measured extension', price: r(p), rr: Number(rr(p).toFixed(2)) });
@@ -298,6 +329,10 @@ export function applyConfirmation(
 
     const score = Math.max(0, Math.min(100, Math.round(base.score + Math.min(15, rd.patterns.length * 5) + (rd.divergence ? 5 : 0) + (rd.swept ? 3 : 0))));
     if (score < CONFIRM_MIN_SCORE) continue;
+    // Quality (owner-specified, back-test calibrated): the zone's own quality; a confirmed entry at the zone is not the
+    // risky "deep in the zone at market" case, so the at-zone penalty doesn't apply
+    const sq = setupQuality({ ...base, zone: { ...z, distanceAtr: 0.5 } }, { trend: map.trend, atr: atrH, volatilityPct: map.volatilityPct ?? 0.5, symbol: map.symbol, timeframe: map.timeframe });
+    if (sq.quality < CONFIRM_TUNING.minQuality) continue;
     const named = long ? rd.patterns : rd.patterns.map(sellWords);
     const patterns = rd.divergence ? [...named, `RSI ${long ? 'bullish' : 'bearish'} divergence`] : named;
     const note =
@@ -312,6 +347,8 @@ export function applyConfirmation(
       targets,
       rrFinal: targets[targets.length - 1].rr,
       score,
+      quality: sq.quality,
+      expectR: sq.expectR,
       mitigation: [],
       moved: null,
       confirmation: { ok: true, rsiOk: true, emaOk: true, divergence: rd.divergence, note },
@@ -325,12 +362,13 @@ export function applyConfirmation(
         note,
       },
     };
-    if (!best || score > best.score) best = { plan, score };
+    if (!best || sq.quality > (best.plan.quality ?? 0) || (sq.quality === best.plan.quality && score > best.score)) best = { plan, score };
   }
 
   if (best) {
     const p = best.plan;
     Object.assign(read, { state: 'CONFIRMED', direction: p.direction, zone: { low: p.zone.low, high: p.zone.high, kind: p.zone.kind }, entry: p.confirmEntry, text: p.confirmEntry.note });
+    if (edgeNote) map.edgeNote = edgeNote;
     return finish(p);
   }
   if (waiting) {

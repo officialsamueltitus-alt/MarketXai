@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, Lock, Mic, MicOff, Play, Square, UserRound } from 'lucide-react';
-import { MattSpeaker, unlockedContext, type MattVoice } from './mattVoice';
+import { ArrowLeft, Check, Loader2, Lock, Mic, MicOff, Play, Save, Square, UserRound } from 'lucide-react';
+import { MattSpeaker, unlockedAudio, unlockSpeech, type MattVoice } from './mattVoice';
 
 // Matt settings (owner-specified): the trader's own choices for Matt, kept on this device: the mic in Matt on or off, and
 // Matt's voice (female or male) for Talk back. Opened from the gear at the top of the Matt page (or /matt?settings=1).
@@ -33,6 +33,18 @@ export const MattSettings: React.FC<{
   onClose: () => void;
 }> = ({ micOn, onMic, voice, onVoice, voiceAllowed, onClose }) => {
   const [preview, setPreview] = useState<{ id: MattVoice; state: 'loading' | 'playing' } | null>(null);
+  // The voice is picked first and kept only when Save is pressed (owner-specified)
+  const [draft, setDraft] = useState<MattVoice>(voice);
+  const [saved, setSaved] = useState(false);
+  const dirty = draft !== voice;
+  const pick = (v: MattVoice) => {
+    setDraft(v);
+    setSaved(false);
+  };
+  const save = () => {
+    onVoice(draft);
+    setSaved(true);
+  };
   const [note, setNote] = useState<string | null>(null);
   const speaker = useRef<MattSpeaker | null>(null);
   const run = useRef(0);
@@ -57,7 +69,10 @@ export const MattSettings: React.FC<{
     if (preview?.id === id) return stopPreview();
     stopPreview();
     setNote(null);
-    if (!speaker.current) speaker.current = new MattSpeaker(unlockedContext());
+    if (!speaker.current) {
+      unlockSpeech();
+      speaker.current = new MattSpeaker(null, unlockedAudio());
+    }
     const mine = ++run.current;
     setPreview({ id, state: 'loading' });
     try {
@@ -120,7 +135,7 @@ export const MattSettings: React.FC<{
             <p className="px-1 mb-3 text-[12.5px] text-slate-400 leading-relaxed">The voice Matt answers with when you choose Talk back.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="radiogroup" aria-label="Matt's voice">
               {VOICES.map(v => {
-                const on = voice === v.id;
+                const on = draft === v.id;
                 const p = preview?.id === v.id ? preview.state : null;
                 return (
                   <div
@@ -128,8 +143,8 @@ export const MattSettings: React.FC<{
                     role="radio"
                     aria-checked={on}
                     tabIndex={0}
-                    onClick={() => onVoice(v.id)}
-                    onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onVoice(v.id))}
+                    onClick={() => pick(v.id)}
+                    onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), pick(v.id))}
                     className={`mx-card p-3.5 flex items-center gap-3 cursor-pointer transition ${on ? 'ring-2 ring-violet-400/70' : 'hover:bg-white/[0.04]'}`}
                   >
                     <span className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${on ? 'bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white' : 'bg-white/[0.06] text-slate-400'}`}>
@@ -155,6 +170,27 @@ export const MattSettings: React.FC<{
                   </div>
                 );
               })}
+            </div>
+            <div className="mt-3 flex items-center gap-3 px-1">
+              <button
+                type="button"
+                onClick={save}
+                disabled={!dirty}
+                className="h-10 px-5 rounded-full bg-violet-500 hover:bg-violet-400 text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 disabled:hover:bg-violet-500 cursor-pointer disabled:cursor-default"
+              >
+                <Save className="w-4 h-4" /> Save
+              </button>
+              <span className="text-[12px] text-slate-400" aria-live="polite">
+                {dirty ? (
+                  `Not saved yet. Matt still uses the ${voice} voice.`
+                ) : saved ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                    <Check className="w-3.5 h-3.5" /> Saved. Matt now talks with the {voice} voice.
+                  </span>
+                ) : (
+                  `Matt talks with the ${voice} voice.`
+                )}
+              </span>
             </div>
             {note && (
               <p className="mt-3 px-1 text-[12px] text-amber-200 inline-flex items-center gap-1.5" role="alert">

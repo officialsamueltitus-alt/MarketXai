@@ -382,7 +382,8 @@ const SECTIONS: Section[] = [
           <B>Normal SL</B> (the default) places the stop a little past the point where the zone is proven wrong, with room for the usual wicks of that
           timeframe, so a quick spike through the zone edge does not stop you out. <B>Tight SL</B> works with each zone found on the timeframe you ask for and
           places the stop just past that zone, so the stop follows the zone itself. It improves reward to risk but is easier to hit. Switch the toggle on the
-          input box, or set your default in Preference Mode.
+          input box, or set your default in Preference Mode. Tight SL isn't used on daily and weekly charts, on crypto or in Confirmation analysis, where
+          it was stopped out too often in our tests: those plans use Normal SL and the write-up says so.
         </Note>
         <Note title="Tighten Stop Loss on a result (after you get a plan)">
           Press Tighten Stop Loss on the card. You keep the exact same setup: the same entry, zone and targets. Only the stop moves closer, to the nearest valid
@@ -607,6 +608,16 @@ const SECTIONS: Section[] = [
           With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.
           Preferences only change your view and starting values. MarketX finds and scores setups the same way for everyone.
         </Note>
+        <Note title="Secure half (optional)">
+          Switch on <B>Secure half</B> to manage every trade the same way: when price reaches <B>+1R</B> (one times your risk in profit), take half off and move
+          your stop to entry. Trade cards then show the +1R price, price alerts started while it is on tell you when to take half, and your journal and
+          results score the trade that way (half at +1R, the rest at the target or at entry). You win more often, but your big winners are smaller.
+        </Note>
+        <Note title="Setup quality and risk">
+          Every trade card shows a <B>Quality</B> score out of 100, graded from how similar setups played out in MarketX&apos;s tests on years of real
+          market history. Setups too weak to call get a clear No signal, and a few market and timeframe pairs that didn&apos;t hold up are not called at all,
+          or come with a heads-up. Even good setups lose often, so expect losing streaks and risk 0.5% of your account or less per trade.
+        </Note>
         <Note title="Price alerts: Auto or Manual">
           When you turn on price alerts you choose <B>Auto</B> (every trade MarketX gives you afterwards is watched by itself) or <B>Manual</B> (you tap Get
           price alert on the trades you want). Switch any time in the alerts panel or in Preference Mode.
@@ -707,7 +718,7 @@ const SECTIONS: Section[] = [
     shots: [{ src: '/guide/share-rewards.webp', alt: "The Rewards tab lists the campaigns where you can earn free credits.", w: 786, h: 1310 }, { src: '/guide/share-gift.webp', alt: "Gift credits to another trader with their username.", w: 786, h: 1240 }],
     title: 'Sharing and earning',
     icon: Share2,
-    lead: 'You can share any trade plan as an image, earn free credits by posting about MarketX on X, and send credits to friends.',
+    lead: 'You can share any trade plan as an image, earn free credits by posting about MarketX on X, invite traders with your own link, climb the leaderboard and send credits to friends.',
     body: (
       <Points
         items={[
@@ -723,6 +734,21 @@ const SECTIONS: Section[] = [
           <>
             <B>Earn credits on X.</B> Open the Campaign banner (in Profile, or from a notification) and press Start earning. Complete the steps in order and post;
             your credits unlock automatically 10 hours after you post, and a receipt is emailed to you.
+          </>,
+          <>
+            <B>Invite traders.</B> Open Profile: the Invite traders card has your own invite link. Copy it or press Share. Anyone who opens your link and
+            creates an account counts as your invite once they enter their pass code. Someone you told about MarketX can also type your invite code in the
+            optional Invite code box when they create their account. The card shows how many traders you have invited, how many this month,
+            and the credits your invites have earned. Invite rewards are switched on by the MarketX team: while they are on, every new invite earns the
+            credits shown on the card (used first, before your daily analyses).
+          </>,
+          <>
+            <B>Leaderboard.</B> Tap the trophy at the top of the side menu (or type /leaderboard). Switch between two boards: <B>Usage</B> ranks this month's
+            most active traders (points for analyses, Fundamental Analysis reads, market questions and Matt messages, plus a bonus for each active day; each
+            kind counts up to a daily limit, so steady use beats spam), with your rank, level (Rookie, Explorer, Analyst, Strategist, Market Pro, Legend), best
+            streak and top market. It resets to zero at the end of every month, with a live countdown, and last month's champions stay on show.{' '}
+            <B>Referrals</B> ranks the traders who invited the most people. Boards show only your name, username and picture, never your email; you can
+            hide yourself with the switch at the bottom.
           </>,
           <>
             <B>Gift credits.</B> Open Profile, Gift credits, enter the recipient's @username, choose an amount, add an optional message and send. The credits leave

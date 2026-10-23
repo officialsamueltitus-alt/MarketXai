@@ -70,6 +70,8 @@ export interface AutoInfo {
   tpsHit: number;
   endedReason: string | null;
   enteredAt: number | null;
+  /** Secure half: half was taken at +1R (scored as a win from then on) */
+  half?: boolean;
   /** Plain-English account of how the trade played out, written once when it ends */
   summary: string;
 }
@@ -213,13 +215,19 @@ export interface TrackRecordEntry {
   r?: number;
   /** Trade type of the signal (SCALP, DAY, SWING) */
   tradeStyle?: string;
+  /** Secure half: half was taken at +1R and the stop moved to entry (R scored that way) */
+  secureHalf?: boolean;
 }
 export interface AlertLike {
   id: string; uid: string; symbol: string; timeframe: string; direction: 'LONG' | 'SHORT'; tps: number[]; entered: boolean;
   hits: Array<{ kind: string; at: number; price?: number }>; createdAt: number; updatedAt?: number; active: boolean; endedReason?: string;
   entry?: { min: number; max: number; optimal: number }; stop?: number; execution?: 'LIMIT' | 'MARKET'; userStrategy?: string;
-  tradeStyle?: string; closeBy?: number;
+  tradeStyle?: string; closeBy?: number; secureHalf?: number;
 }
+/** Secure half reached: half was banked at +1R and the rest ran with the stop at entry */
+export const halfSecured = (a: { hits?: Array<{ kind: string }> }) => !!a.hits?.some(h => h.kind === 'HALF');
+/** R of a secure-half trade: half at +1R, the rest at the runner's own R (0 at entry) */
+const withHalf = (runnerR: number) => Number((0.5 + 0.5 * runnerR).toFixed(2));
 
 /**
  * The same signal (pair, timeframe, side and every level), however many times it was served or turned on. Used so a
@@ -239,15 +247,20 @@ export function outcomeR(a: Pick<AlertLike, 'direction' | 'entry' | 'stop' | 'tp
   if (!(Number(entry) > 0) || !(Number(a.stop) > 0) || entry === a.stop) return undefined;
   const risk = Math.abs((entry as number) - (a.stop as number));
   if (outcome === 'LOSS') return -1;
+  const half = halfSecured(a);
   if (outcome === 'ENDED') {
     const end = a.hits?.find(h => h.kind === 'END')?.price;
     if (!(Number(end) > 0)) return undefined;
-    return Number(((((end as number) - (entry as number)) * (a.direction === 'LONG' ? 1 : -1)) / risk).toFixed(2));
+    const r = Number(((((end as number) - (entry as number)) * (a.direction === 'LONG' ? 1 : -1)) / risk).toFixed(2));
+    return half ? withHalf(Math.max(0, r)) : r;
   }
-  if (outcome !== 'WIN' || tpsHit < 1) return undefined;
+  if (outcome !== 'WIN') return undefined;
+  // Secure half with no target yet: half at +1R, the rest closed at entry
+  if (tpsHit < 1) return half ? 0.5 : undefined;
   const tp = a.tps[Math.min(tpsHit, a.tps.length) - 1];
   if (!(Number(tp) > 0)) return undefined;
-  return Number((((tp - (entry as number)) * (a.direction === 'LONG' ? 1 : -1)) / risk).toFixed(2));
+  const r = Number((((tp - (entry as number)) * (a.direction === 'LONG' ? 1 : -1)) / risk).toFixed(2));
+  return half ? withHalf(r) : r;
 }
 
 /** Outcome of an alert: a win once a target is hit (also when the stop comes after it), a loss only when the stop
@@ -257,6 +270,8 @@ export function outcomeOf(a: AlertLike): { outcome: SignalOutcome; tpsHit: numbe
   if (tpsHit > 0) return { outcome: 'WIN', tpsHit };
   if (a.hits.some(h => h.kind === 'SL')) return { outcome: 'LOSS', tpsHit: 0 };
   if (a.hits.some(h => h.kind === 'MISSED')) return { outcome: 'MISSED', tpsHit: 0 };
+  // Secure half: half banked at +1R and the rest closed at entry (or the alert ended before a target) = +0.5R, a win
+  if (halfSecured(a) && (a.hits.some(h => h.kind === 'BE') || (!a.active && !a.hits.some(h => h.kind === 'END')))) return { outcome: 'WIN', tpsHit: 0 };
   // The trade type's close time came first: an open trade ended there; one never entered had no trade
   if (a.hits.some(h => h.kind === 'END')) return { outcome: a.entered ? 'ENDED' : 'NO_FILL', tpsHit: 0 };
   if (a.active) return { outcome: 'OPEN', tpsHit: 0 };
@@ -275,6 +290,7 @@ export async function archiveAlertOutcome(a: AlertLike): Promise<void> {
     tpsTotal: a.tps.length, createdAt: a.createdAt, closedAt: last, signalKey: signalKey(a),
     ...(a.userStrategy ? { userStrategy: a.userStrategy } : {}),
     ...(a.tradeStyle ? { tradeStyle: a.tradeStyle } : {}),
+    ...(halfSecured(a) ? { secureHalf: true } : {}),
   };
   const rMade = outcomeR(a, outcome, tpsHit);
   if (rMade !== undefined) entry.r = rMade;
@@ -346,6 +362,9 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
     const tpIdx = a.hits.reduce((m, h) => { const x = /^TP(\d)$/.exec(h.kind); return x ? Math.max(m, Number(x[1])) : m; }, 0);
     const slAt = at('SL');
     const endHit = a.hits.find(h => h.kind === 'END');
+    const half = halfSecured(a);
+    const halfAt = at('HALF');
+    const halfText = half ? ', half secured at +1R and the stop moved to entry' : '';
     const entryAt = at('ENTRY') ?? (a.execution === 'MARKET' || a.entered ? t.auto.enteredAt ?? a.createdAt : null);
     const styleName = a.tradeStyle === 'SWING' ? 'swing trade' : 'day trade';
     const reason = a.endedReason || (a.active ? null : 'EXPIRED');
@@ -359,16 +378,29 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
       const exit = win ? a.tps[tpIdx - 1] : (a.stop as number);
       const exitAt = win ? at(`TP${tpIdx}`) ?? now : slAt ?? now;
       const scored = scoreTrade({ direction: t.direction, entry: t.entry, stop: t.stop, exit, pnl: null });
+      if (win && half && scored.r !== null) scored.r = withHalf(scored.r);
       const held = entryAt ? ` after ${durationText(exitAt - entryAt)}` : '';
       const summary = win
-        ? `Entry ${p(t.entry)} filled, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}${held}${slAt && slAt > (at(`TP${tpIdx}`) ?? 0) ? ', then the stop was hit (scored at the furthest target reached)' : ''}. ${fmtR(scored.r)}.`
+        ? `Entry ${p(t.entry)} filled${halfText}, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}${held}${slAt && slAt > (at(`TP${tpIdx}`) ?? 0) ? ', then the stop was hit (scored at the furthest target reached)' : ''}. ${fmtR(scored.r)}.`
         : `Entry ${p(t.entry)} filled, the stop loss at ${p(exit)} was hit${held} before any target. ${fmtR(scored.r)}.`;
       update = { status: 'CLOSED', exit, result: win ? 'WIN' : 'LOSS', r: scored.r, closedAt: exitAt, openedAt: entryAt ?? t.openedAt, auto: { ...base, state: 'DONE', summary } };
+    } else if (half && !endHit) {
+      // Secure half, no target: the rest closed at entry (or the alert stopped): +0.5R banked
+      const beAt = at('BE');
+      const closedAt = beAt ?? halfAt ?? now;
+      const summary = beAt
+        ? `Entry ${p(t.entry)} filled${halfText}, then price came back to entry and closed the rest at break-even${entryAt ? ` after ${durationText(beAt - entryAt)}` : ''}. +0.50R.`
+        : `Entry ${p(t.entry)} filled${halfText}; the alert stopped before a target, so the rest is scored at entry. +0.50R.`;
+      update = { status: 'CLOSED', exit: t.entry, result: 'WIN', r: 0.5, closedAt, openedAt: entryAt ?? t.openedAt, auto: { ...base, state: 'DONE', half: true, summary } };
     } else if (endHit && entryAt && Number(endHit.price) > 0) {
       // Day / swing trade still open at its close time (9:00 PM WAT): closed there, in profit or in loss
       const exit = Number(endHit.price);
       const scored = scoreTrade({ direction: t.direction, entry: t.entry, stop: t.stop, exit, pnl: null });
-      const summary = `Entry ${p(t.entry)} filled, no target or stop before the ${styleName} close (9:00 PM WAT), so it ended there at ${p(exit)} after ${durationText(endHit.at - entryAt)}. ${fmtR(scored.r)}.`;
+      if (half && scored.r !== null) {
+        scored.r = withHalf(Math.max(0, scored.r));
+        scored.result = 'WIN';
+      }
+      const summary = `Entry ${p(t.entry)} filled${halfText}, no target or stop before the ${styleName} close (9:00 PM WAT), so it ended there at ${p(exit)} after ${durationText(endHit.at - entryAt)}. ${fmtR(scored.r)}.`;
       update = { status: 'CLOSED', exit, result: scored.result, r: scored.r, closedAt: endHit.at, openedAt: entryAt, auto: { ...base, state: 'DONE', summary } };
     } else if (!entryAt) {
       const why = endHit ? `The ${styleName} close (9:00 PM WAT) came before price reached the entry zone` : reason === 'MISSED' ? 'Price moved toward the targets without reaching the entry zone' : reason === 'TURNED_OFF' ? 'The alert was turned off before price reached the entry zone' : 'The setup expired before price reached the entry zone';
@@ -388,24 +420,37 @@ export async function closeAutoJournal(a: AlertLike): Promise<void> {
  */
 export async function progressAutoJournal(a: AlertLike): Promise<void> {
   const tpIdx = a.hits.reduce((m, h) => { const x = /^TP(\d)$/.exec(h.kind); return x ? Math.max(m, Number(x[1])) : m; }, 0);
-  if (tpIdx < 1) return;
+  const half = halfSecured(a);
+  if (tpIdx < 1 && !half) return;
   const ref = db().collection(TRADES).doc(autoJournalId(a.id));
   await db().runTransaction(async tx => {
     const snap = await tx.get(ref);
     if (!snap.exists) return;
     const t = snap.data() as JournalTrade;
-    if (t.uid !== a.uid || t.source !== 'AUTO' || t.auto?.state !== 'TRACKING' || (t.auto.tpsHit || 0) >= tpIdx) return;
+    if (t.uid !== a.uid || t.source !== 'AUTO' || t.auto?.state !== 'TRACKING') return;
+    if ((t.auto.tpsHit || 0) >= tpIdx && (tpIdx > 0 || t.auto.half)) return;
     const now = Date.now();
+    const entryAt = a.hits.find(h => h.kind === 'ENTRY')?.at ?? t.auto.enteredAt ?? (a.execution === 'MARKET' ? a.createdAt : null);
+    const p = (n: number) => formatMarketPrice(n, t.entry);
+    if (tpIdx < 1) {
+      // Secure half: +1R reached, half banked and the stop moved to entry; a win from here on (+0.5R at least)
+      const halfAt = a.hits.find(h => h.kind === 'HALF')?.at ?? now;
+      const summary = `Entry ${p(t.entry)} filled, half secured at +1R and the stop moved to entry. +0.50R so far, still tracking TP1.`;
+      tx.update(ref, {
+        status: 'CLOSED', exit: t.entry, result: 'WIN', r: 0.5, closedAt: halfAt, openedAt: entryAt ?? t.openedAt, updatedAt: now,
+        auto: { ...t.auto, half: true, enteredAt: entryAt, summary },
+      });
+      return;
+    }
     const exit = a.tps[tpIdx - 1];
     const tpAt = a.hits.find(h => h.kind === `TP${tpIdx}`)?.at ?? now;
-    const entryAt = a.hits.find(h => h.kind === 'ENTRY')?.at ?? t.auto.enteredAt ?? (a.execution === 'MARKET' ? a.createdAt : null);
     const scored = scoreTrade({ direction: t.direction, entry: t.entry, stop: t.stop, exit, pnl: null });
-    const p = (n: number) => formatMarketPrice(n, t.entry);
+    if (half && scored.r !== null) scored.r = withHalf(scored.r);
     const next = tpIdx < a.tps.length ? `, still tracking TP${tpIdx + 1}` : '';
-    const summary = `Entry ${p(t.entry)} filled, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}. ${fmtR(scored.r)} so far${next}. Scored as a win even if price comes back to the stop.`;
+    const summary = `Entry ${p(t.entry)} filled${half ? ', half secured at +1R' : ''}, TP${tpIdx} of ${a.tps.length} reached at ${p(exit)}. ${fmtR(scored.r)} so far${next}. Scored as a win even if price comes back to the stop.`;
     tx.update(ref, {
       status: 'CLOSED', exit, result: 'WIN', r: scored.r, closedAt: tpAt, openedAt: entryAt ?? t.openedAt, updatedAt: now,
-      auto: { ...t.auto, tpsHit: tpIdx, enteredAt: entryAt, summary },
+      auto: { ...t.auto, tpsHit: tpIdx, enteredAt: entryAt, ...(half ? { half: true } : {}), summary },
     });
   });
 }

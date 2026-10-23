@@ -47,6 +47,7 @@ const PriceAlertsPanel = lazyWithReload(() => import('./components/PriceAlertsPa
 const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel').then(m => ({ default: m.WatchlistPanel })));
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
+const LeaderboardPanel = lazyWithReload(() => import('./components/LeaderboardPanel').then(m => ({ default: m.LeaderboardPanel })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 const StrategyBuilderPanel = lazyWithReload(() => import('./components/StrategyBuilderPanel').then(m => ({ default: m.StrategyBuilderPanel })));
@@ -79,6 +80,7 @@ import { timeframeFromPrompt } from './utils/timeframe';
 import { playChime, primeSound } from './utils/notifySound';
 import { onPushMessages, syncPush, unlinkPush } from './utils/push';
 import { apiFetch, ApiError, formatMoney, loadPublicConfig, PaymentsPublicConfig } from './utils/apiClient';
+import { captureRefFromUrl, clearRefCode } from './utils/referral';
 import { STYLE_INFO } from './utils/tradeStyle';
 import { FUNDAMENTAL_EXAMPLES, fundamentalPrompt, fundamentalTopic, type FundamentalReport } from './utils/fundamental';
 import { extractAssetInfo } from './utils/localStrategyEngine';
@@ -187,6 +189,11 @@ export default function App() {
   const [activeStrategy, setActiveStrategy] = useState<{ id: string; name: string } | null>(null);
   const [calcSeed, setCalcSeed] = useState<CalcSeed | null>(null);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
+  // Leaderboard (usage this month / referrals), opened from the sidebar, /leaderboard, the profile and ?leaderboard=1
+  const [leaderboard, setLeaderboard] = useState<'usage' | 'referrals' | null>(null);
+  const leaderboardLinkRef = useRef<'usage' | 'referrals' | null>(null);
+  // Arrived through an invite link (?ref=CODE) while signed out: the sign-up form opens once we know
+  const inviteArrivalRef = useRef(false);
   const watchlistLinkRef = useRef(false);
   // The exact item a notification or email link points at, highlighted when its panel opens
   const [alertFocus, setAlertFocus] = useState<string | null>(null);
@@ -321,6 +328,9 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const params = new URLSearchParams(window.location.search);
+    // Invite link: the code is kept on this device until sign-up (removed from the address bar)
+    if (captureRefFromUrl()) inviteArrivalRef.current = true;
+    if (params.get('leaderboard') === '1') leaderboardLinkRef.current = params.get('board') === 'referrals' ? 'referrals' : 'usage';
     if (params.has('verified')) {
       setToastNotification({
         message: params.get('verified') === '1' ? '✅ Email verified. Thank you!' : 'That verification link is invalid or expired.',
@@ -358,7 +368,7 @@ export default function App() {
       newsLinkRef.current = { topic: newsTopic };
       setCurrentView('chat');
     } else if (params.get('news') === '1') newsLinkRef.current = { open: true };
-    if (params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('coupon') || params.has('chat') || params.has('focus')) {
+    if (params.has('leaderboard') || params.has('board') || params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('coupon') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -373,7 +383,13 @@ export default function App() {
         }
         return apiFetch<AccountPayload>('/api/account')
           .then(account => !cancelled && handleAuthenticated(account))
-          .catch(() => {}); // 401 = signed out
+          .catch(() => {
+            // 401 = signed out. An invite link opens the sign-up form straight away
+            if (!cancelled && inviteArrivalRef.current) {
+              setAuthModalMode('signup');
+              setIsAuthModalOpen(true);
+            }
+          });
       })
       .catch(() => {
         if (!cancelled) setAuthUnavailable('Could not reach the MarketX server. Please check your connection and refresh.');
@@ -1293,6 +1309,15 @@ export default function App() {
     const data = await apiFetch<{ preferences: Preferences }>('/api/preferences', { method: 'PUT', body: JSON.stringify(change) });
     setUserProfile(p => ({ ...p, preferences: data.preferences }));
   }, []);
+  const openLeaderboard = useCallback((board: 'usage' | 'referrals') => {
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsConnectorsOpen(false);
+    setIsSidebarOpen(false);
+    setLeaderboard(board);
+  }, [authUser]);
   const openToolPanel = useCallback((id: 'preference' | 'strategy' | 'fundamental') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
@@ -1351,6 +1376,17 @@ export default function App() {
     if (authUser && claimAfterSignInRef.current) {
       claimAfterSignInRef.current = false;
       setIsPricingModalOpen(true);
+    }
+  }, [authUser]);
+  // Signed in: an invite code kept on this device has done its job (the server recorded it at sign-up)
+  useEffect(() => {
+    if (authUser) clearRefCode();
+  }, [authUser]);
+  // A leaderboard link (?leaderboard=1&board=referrals) opens it once signed in
+  useEffect(() => {
+    if (authUser && leaderboardLinkRef.current) {
+      setLeaderboard(leaderboardLinkRef.current);
+      leaderboardLinkRef.current = null;
     }
   }, [authUser]);
   // A link from a watchlist email opens the watchlist once signed in
@@ -2656,6 +2692,9 @@ export default function App() {
           onToast={showToast}
         />
       </Deferred>
+      <Deferred when={!!leaderboard}>
+        <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />
+      </Deferred>
       <Deferred when={isConnectorsOpen}>
         <ConnectorsModal
           isOpen={isConnectorsOpen}
@@ -2810,6 +2849,7 @@ export default function App() {
         onOpenPlugin={openPluginPanel}
         onTogglePlugin={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
         onOpenConnectors={() => (authUser ? setIsConnectorsOpen(true) : setIsAuthModalOpen(true))}
+        onOpenLeaderboard={authUser ? openLeaderboard : undefined}
         onToast={(message, type) => setToastNotification({ message, type: type || 'success' })}
       />
 
@@ -2976,7 +3016,9 @@ export default function App() {
                     onCommand={id =>
                       PLUGIN_COMMAND[id]
                         ? (openPluginPanel(PLUGIN_COMMAND[id]), true)
-                        : id === 'preference' || id === 'strategy' || id === 'fundamental'
+                        : id === 'leaderboard'
+                          ? (openLeaderboard('usage'), true)
+                          : id === 'preference' || id === 'strategy' || id === 'fundamental'
                           ? (openToolPanel(id), true)
                           : false
                     }

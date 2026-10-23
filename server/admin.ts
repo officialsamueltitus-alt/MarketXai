@@ -275,7 +275,7 @@ async function findUser(target: string): Promise<UserDoc | null> {
   return snap.exists ? (snap.data() as UserDoc) : null;
 }
 
-function adminLog(action: string, detail: Record<string, any>) {
+export function adminLog(action: string, detail: Record<string, any>) {
   db()
     .collection('adminLog')
     .doc(`${Date.now()}-${crypto.randomBytes(3).toString('hex')}`)

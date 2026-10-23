@@ -2,8 +2,9 @@ import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { lazyWithReload } from '../utils/lazyReload';
 import { deviceSignals } from '../utils/device';
 import { createPortal } from 'react-dom';
-import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check } from 'lucide-react';
+import { X, Mail, Lock, AtSign, User as UserIcon, Loader2, ArrowLeft, Check, Gift } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
+import { cleanRefCode, storedRefCode } from '../utils/referral';
 import { MarketXText } from './MarketXText';
 import { MarketXIcon } from './MarketXIcon';
 import { TelegramIcon } from './SocialIcons';
@@ -68,10 +69,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
+  // Optional invite code (owner-specified): filled from an invite link, or typed by the trader
+  const [inviteCode, setInviteCode] = useState('');
+  const inviteRef = useRef('');
+  inviteRef.current = inviteCode;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [batchFull, setBatchFull] = useState<string | null>(null);
+  // Arrived through an invite link: who sent it (shown on the sign-up screen)
+  const [inviter, setInviter] = useState<{ displayName: string; username: string; avatarUrl: string | null } | null>(null);
+  useEffect(() => {
+    const code = isOpen ? storedRefCode() : null;
+    if (code) setInviteCode(c => c || code);
+    if (!code) return;
+    let live = true;
+    apiFetch<{ valid: boolean; inviter?: { displayName: string; username: string; avatarUrl: string | null } }>(`/api/referrals/code/${code}`)
+      .then(r => live && setInviter(r.valid && r.inviter ? r.inviter : null))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [isOpen]);
   // Terms & Privacy must be accepted before any sign-up, and before any Google sign-in
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [termsNudge, setTermsNudge] = useState(0);
@@ -132,7 +151,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             try {
               const account = await apiFetch('/api/auth/google', {
                 method: 'POST',
-                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals() }),
+                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals(), ref: inviteRef.current.trim() || undefined }),
               });
               finish(account);
             } catch (err: any) {
@@ -231,6 +250,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             displayName: displayName.trim() || cleanUsername,
             acceptTerms: true,
             device: await deviceSignals(),
+            ref: inviteCode.trim() || undefined,
           }),
         });
         finish(account);
@@ -291,6 +311,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
           {!batchFull && <h2 className="text-xl font-semibold text-white tracking-tight">{title}</h2>}
           {subtitle && !batchFull && <p className="text-sm text-zinc-400 mt-1">{subtitle}</p>}
+          {inviter && mode === 'signup' && !batchFull && (
+            <div className="mx-rise mt-3 mx-auto w-fit max-w-full inline-flex items-center gap-2 h-9 pl-1 pr-3 rounded-full bg-violet-500/10 border border-violet-400/25">
+              <span className="w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center text-[11px] font-semibold text-white shrink-0">
+                {inviter.avatarUrl ? <img src={inviter.avatarUrl} alt="" className="w-full h-full object-cover" /> : (inviter.displayName || inviter.username).slice(0, 1).toUpperCase()}
+              </span>
+              <span className="text-xs text-zinc-300 truncate">
+                Invited by <span className="font-semibold text-white">{inviter.displayName || `@${inviter.username}`}</span>
+              </span>
+            </div>
+          )}
         </div>
 
         {batchFull ? (
@@ -420,6 +450,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     />
                   </label>
                 </div>
+              )}
+              {mode === 'signup' && (
+                <label className="relative block">
+                  <Gift className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    className={`${inputClass} uppercase tracking-wider placeholder:normal-case placeholder:tracking-normal`}
+                    placeholder="Invite code (optional)"
+                    value={inviteCode}
+                    onChange={e => setInviteCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))}
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    aria-describedby="invite-hint"
+                  />
+                  {inviteCode && !cleanRefCode(inviteCode) && (
+                    <span id="invite-hint" className="block mt-1 text-[11px] text-amber-300 text-left">An invite code has 6 to 12 letters and numbers.</span>
+                  )}
+                </label>
               )}
               {mode !== 'reset' && (
                 <label className="relative block">

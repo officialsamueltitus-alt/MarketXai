@@ -22,7 +22,8 @@ import { createKeyedThrottle } from './security';
 import { MATT_KNOWLEDGE, type MattSection } from './mattKnowledge';
 import { fixPriceClaims } from './priceGuard';
 import { logMatt } from './siLogs';
-import { cleanTranscript, readWavBody, speakToken, speechParts, synthesize, transcribe, type MattVoice } from './voice';
+import { recordMonthly } from './usageMonthly';
+import { cleanTranscript, prespeak, readWavBody, speakToken, speechParts, transcribe, type MattVoice } from './voice';
 import { effectivePreferences, hasProFeatures, proGuard } from './proAccess';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
 import { rdmLabel, withDefaults } from '../src/utils/preferences';
@@ -415,6 +416,7 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     const replaced = LEAK.test(reply) || SECRET_LEAK.test(checked);
     if (replaced) reply = `${NOT_AVAILABLE} Ask me about MarketX features, your account or the markets.`;
     logMatt(uid, { question, reply, outcome: replaced ? 'REPLACED' : raw ? 'ANSWERED' : 'OFFLINE', pair: pair?.symbol || null, fromCard: !!context });
+    if (!replaced) void recordMonthly(uid, 'matt');
     return { status: 200, body: { reply, engine: !!raw } };
   };
   const readHistory = (messages: unknown) =>
@@ -458,10 +460,14 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     const history = [...readHistory(req.body?.messages), { role: 'user', text: heard }];
     const out = await answer(res, uid, history, clean(req.body?.context, 2500), true);
     if (out.status !== 200 || typeof out.body?.reply !== 'string') return res.status(out.status).json({ ...out.body, heard });
-    const parts = speechParts(out.body.reply).map(text => ({ text, token: speakToken(uid, text) }));
-    // The first sentence is spoken right away; the app fetches the rest while it plays
-    // (at most 6s: past that the app fetches it itself, so a slow voice never holds up the written answer)
-    const first = parts[0] ? await Promise.race([synthesize(parts[0].text, voice).catch(() => null), new Promise<null>(r => setTimeout(() => r(null), 6000))]) : null;
+    // Two parts at most (the first sentence, then the rest): fewer voice calls, so the answer keeps one steady voice
+    const split = speechParts(out.body.reply);
+    const texts = split.length > 2 ? [split[0], split.slice(1).join(' ')] : split;
+    const parts = texts.map(text => ({ text, token: speakToken(uid, text) }));
+    // Every part starts being voiced now, side by side; the first is sent with this answer, the app picks up the rest
+    // (already voiced or nearly) while the first plays. At most 6s here, so a slow voice never holds up the written answer.
+    const voicing = parts.map(p => prespeak(uid, p.text, voice));
+    const first = voicing[0] ? await Promise.race([voicing[0], new Promise<null>(r => setTimeout(() => r(null), 6000))]) : null;
     res.json({ ...out.body, heard, speak: speakToken(uid, out.body.reply), parts, audio: first ? first.toString('base64') : null });
   }));
 }

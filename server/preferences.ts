@@ -84,6 +84,10 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (body.analysisMode !== 'NORMAL' && body.analysisMode !== 'CONFIRMATION') return { error: 'Choose Normal or Confirmation analysis.' };
     next.analysisMode = body.analysisMode;
   }
+  if (has('secureHalf')) {
+    if (typeof body.secureHalf !== 'boolean') return { error: 'Secure half is on or off.' };
+    next.secureHalf = body.secureHalf;
+  }
   if (has('tradeStyle')) {
     if (!['ANY', 'SCALP', 'DAY', 'SWING'].includes(body.tradeStyle)) return { error: 'Choose a trade type from the list.' };
     next.tradeStyle = body.tradeStyle;

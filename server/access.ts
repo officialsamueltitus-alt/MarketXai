@@ -35,6 +35,8 @@ export interface PendingSignup {
   name?: string;
   picture?: string;
   termsAcceptedAt?: number;
+  /** Invite code from the link the trader signed up through (recorded as a referral when the pass code is redeemed) */
+  referralCode?: string;
   /** Where the sign-up came from (IP, user agent, device cookie id) */
   signupMeta?: { ip: string | null; userAgent: string; deviceId: string; at: number };
   /** Device/network guard keys bound to this sign-up (made permanent when the code is redeemed) */

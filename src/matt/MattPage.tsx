@@ -12,7 +12,7 @@ import { normalizeSpokenPrompt } from '../utils/voice';
 import { useVoiceInput, VoiceMicButton, VoiceStatus } from '../components/VoiceInput';
 import { applyTheme, readThemePref } from '../utils/theme';
 import { MattTalk, type TalkResult } from './MattTalk';
-import { readMattMic, readMattVoice, saveMattMic, saveMattVoice, unlockedContext, type MattVoice } from './mattVoice';
+import { readMattMic, readMattVoice, saveMattMic, saveMattVoice, unlockedAudio, unlockedContext, unlockSpeech, type MattVoice } from './mattVoice';
 import { MattSettings } from './MattSettings';
 
 interface Msg {
@@ -252,7 +252,7 @@ export default function MattPage() {
   };
   // The mic asks first (owner-specified): a direct question (speech to text, as before) or talk back (Matt answers out loud)
   const [micMenu, setMicMenu] = useState(false);
-  const [talk, setTalk] = useState<{ ctx: AudioContext | null } | null>(null);
+  const [talk, setTalk] = useState<{ ctx: AudioContext | null; audio: HTMLAudioElement | null } | null>(null);
   const [mattVoice, setMattVoice] = useState<MattVoice>(readMattVoice);
   // Matt settings (owner-specified): mic on/off and Matt's voice, from the gear at the top (or /matt?settings=1)
   const [micOn, setMicOn] = useState(readMattMic);
@@ -281,8 +281,10 @@ export default function MattPage() {
     setMicMenu(false);
     setVoiceError(null);
     talkChat.current = currentRef.current;
-    // Made inside this tap so phones let Matt's voice play
-    setTalk({ ctx: unlockedContext() });
+    // Made inside this tap so phones let Matt's voice play (iOS, Android, Safari): the audio element Matt speaks through,
+    // the device voice used if the server voice is busy, and the context the recorder measures the mic with
+    unlockSpeech();
+    setTalk({ ctx: unlockedContext(), audio: unlockedAudio() });
   };
   const pickVoice = (v: MattVoice) => {
     saveMattVoice(v);
@@ -471,6 +473,7 @@ export default function MattPage() {
       {talk && (
         <MattTalk
           ctx={talk.ctx}
+          audio={talk.audio}
           voice={mattVoice}
           talk={talkTurn}
           onClose={() => {

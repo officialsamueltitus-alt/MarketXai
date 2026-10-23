@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, X } from 'lucide-react';
 import { useVoiceInput } from '../components/VoiceInput';
 import { normalizeSpokenPrompt } from '../utils/voice';
-import { MattSpeaker, type MattVoice } from './mattVoice';
+import { MattSpeaker, setAudioSession, type MattVoice } from './mattVoice';
 
 // Talk back with Matt (owner-specified, Matt only): a full-screen voice conversation. Matt (a glossy orb with two eyes,
 // after the owner's reference) says hello, then listens, answers out loud and listens again, until the trader closes it.
@@ -39,11 +39,18 @@ const lineId = () => Math.random().toString(36).slice(2, 10);
 /** After this many silent turns in a row Matt stops listening and waits for a tap */
 const MAX_SILENT = 2;
 /** A conversation turn ends this long after the trader stops talking */
-const TALK_SILENCE_MS = 800;
+const TALK_SILENCE_MS = 700;
 const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
 
-async function speakPart(part: TalkPart, voice: MattVoice): Promise<string | null> {
+async function speakPart(part: TalkPart, voice: MattVoice, tries = 2): Promise<string | null> {
   if (!part.token) return null;
+  for (let i = 0; i < tries; i++) {
+    const a = await speakOnce(part, voice);
+    if (a) return a;
+  }
+  return null;
+}
+async function speakOnce(part: TalkPart, voice: MattVoice): Promise<string | null> {
   try {
     const r = await fetch('/api/matt/speak', {
       method: 'POST',
@@ -60,17 +67,19 @@ async function speakPart(part: TalkPart, voice: MattVoice): Promise<string | nul
 
 export const MattTalk: React.FC<{
   ctx: AudioContext | null;
+  /** The audio element unlocked in the tap that opened talk back (Matt's voice plays through it, phones included) */
+  audio?: HTMLAudioElement | null;
   /** Matt's voice, chosen in Matt settings */
   voice: MattVoice;
   /** One turn: the trader's words (text) or clip (audio) to Matt; saves both sides in the chat */
   talk: (input: { text?: string; audio?: string }) => Promise<TalkResult>;
   onClose: () => void;
-}> = ({ ctx, voice, talk, onClose }) => {
+}> = ({ ctx, audio, voice, talk, onClose }) => {
   const [phase, setPhase] = useState<Phase>('greeting');
   const [lines, setLines] = useState<Line[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const speaker = useRef<MattSpeaker | null>(null);
-  if (!speaker.current) speaker.current = new MattSpeaker(ctx);
+  if (!speaker.current) speaker.current = new MattSpeaker(ctx, audio);
   const alive = useRef(true);
   const phaseRef = useRef<Phase>('greeting');
   const voiceRef = useRef(voice);
@@ -122,6 +131,7 @@ export const MattTalk: React.FC<{
     turn.current++;
     setNote(null);
     set('listening');
+    setAudioSession('auto');
     voiceInRef.current.start({ ctx: speaker.current?.context || null });
   }, []);
   listenRef.current = listen;
@@ -131,19 +141,30 @@ export const MattTalk: React.FC<{
 
   // ---- speaking -----------------------------------------------------------------------------------------------
   /** Plays Matt's answer part by part: the first is already here, the others are fetched side by side while it plays */
+  // One voice per answer (owner-reported fix: Matt switched voice mid-reply): a part the server can't voice is asked again;
+  // if it still can't, the rest of that answer is read by the device's own voice of the SAME kind, never a mix of both.
   const playParts = useCallback(async (parts: TalkPart[], firstAudio: string | null | undefined, myTurn: number) => {
     const v = voiceRef.current;
     const audios = parts.map((p, i) => (i === 0 && firstAudio ? Promise.resolve(firstAudio) : speakPart(p, v)));
+    let device = false;
     for (let i = 0; i < parts.length; i++) {
       if (!alive.current || turn.current !== myTurn) return;
+      if (device) {
+        await speaker.current!.speakOnDevice(parts.slice(i).map(p => p.text).join(' '), v).catch(() => {});
+        return;
+      }
       const a = await audios[i];
       if (!alive.current || turn.current !== myTurn) return;
-      try {
-        if (a) await speaker.current!.playWav(a);
-        else await speaker.current!.speakOnDevice(parts[i].text, v);
-      } catch {
-        await speaker.current!.speakOnDevice(parts[i].text, v).catch(() => {});
+      if (a) {
+        try {
+          await speaker.current!.playWav(a);
+          continue;
+        } catch {
+          /* this browser couldn't play it: the device voice reads the rest */
+        }
       }
+      device = true;
+      i--;
     }
   }, []);
 

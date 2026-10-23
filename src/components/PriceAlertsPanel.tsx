@@ -75,6 +75,7 @@ function status(a: PriceAlertItem): { text: string; tone: string } {
   if (!a.active) {
     if (a.endedReason === 'SL' || has('SL')) return { text: 'Closed · stop loss hit', tone: 'text-rose-300' };
     if (a.endedReason === 'MISSED') return { text: 'Closed · moved before entry', tone: 'text-slate-400' };
+    if (a.endedReason === 'BE' || has('BE')) return { text: 'Closed · half secured at +1R, rest at entry (+0.50R)', tone: 'text-emerald-300' };
     if (a.endedReason === 'ENDED' || has('END')) {
       const end = a.hits.find(h => h.kind === 'END');
       const label = a.tradeStyle === 'SWING' ? 'Swing' : 'Day';
@@ -89,7 +90,8 @@ function status(a: PriceAlertItem): { text: string; tone: string } {
   const closeNote = a.closeBy ? ` · close by ${closeByText(a.closeBy).split(',')[0]}` : '';
   if (!a.entered) return { text: `Waiting for entry ${fmt(a.entry.min)} to ${fmt(a.entry.max)}${closeNote}`, tone: 'text-sky-300' };
   const next = a.tps.findIndex((_, i) => !has(`TP${i + 1}`));
-  return { text: `${next >= 0 ? `In play · next TP${next + 1} at ${fmt(a.tps[next])}` : 'In play'}${closeNote}`, tone: 'text-emerald-300' };
+  const halfNote = a.secureHalf ? (has('HALF') ? ' · half secured, stop at entry' : ` · secure half at ${fmt(a.secureHalf)}`) : '';
+  return { text: `${next >= 0 ? `In play · next TP${next + 1} at ${fmt(a.tps[next])}` : 'In play'}${halfNote}${closeNote}`, tone: 'text-emerald-300' };
 }
 
 /** Entry → TP1 → TP2 → TP3 rail, with the stop loss at the start; reached levels light up */
@@ -136,7 +138,7 @@ function livePosition(a: PriceAlertItem, price: number): { text: string; tone: s
   const pnl = ((price - a.entry.optimal) / a.entry.optimal) * 100 * (long ? 1 : -1);
   const parts = [`${pnl >= 0 ? '+' : ''}${f(pnl)}% from entry`];
   if (next >= 0) parts.push(`${f(pct(a.tps[next]))}% to TP${next + 1}`);
-  parts.push(`${f(pct(a.stop))}% to SL`);
+  parts.push(has('HALF') ? `${f(pct(a.entry.optimal))}% to entry (stop)` : `${f(pct(a.stop))}% to SL`);
   return { text: parts.join(' · '), tone: inProfit ? 'text-emerald-300' : 'text-amber-300' };
 }
 
