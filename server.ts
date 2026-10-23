@@ -215,7 +215,7 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
-const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe'];
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe', '/api/matt/talk'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });

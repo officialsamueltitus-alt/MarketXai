@@ -37,6 +37,7 @@ const isMobileDevice = () => {
   const ua = navigator.userAgent || '';
   return /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
 };
+const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
 /** After a network/service error the browser's recognition is skipped for the rest of the visit */
 let recognitionBroken = false;
 
@@ -48,6 +49,20 @@ interface Handlers {
   /** The words, once the trader stops */
   onFinal: (text: string) => void;
   onError?: (message: string) => void;
+  /**
+   * Talk back: the recorded clip (16 kHz WAV, base64) is handed over instead of being written down here, so the caller can send
+   * it with everything else in one request. The session ends as soon as the clip is ready.
+   */
+  onAudio?: (wavBase64: string) => void;
+}
+
+export interface VoiceOptions {
+  /** Silence after speech that ends a recording (default SILENCE_MS) */
+  silenceMs?: number;
+  /** Use the browser's own recognition on Android too (instant words; Talk back asks for the mic first) */
+  recognitionOnAndroid?: boolean;
+  /** Recognition language (default the browser's) */
+  lang?: string;
 }
 
 interface Session {
@@ -55,7 +70,9 @@ interface Session {
   cancel: () => void;
 }
 
-export function useVoiceInput(handlers: Handlers) {
+export function useVoiceInput(handlers: Handlers, options: VoiceOptions = {}) {
+  const opt = useRef(options);
+  opt.current = options;
   const h = useRef(handlers);
   h.current = handlers;
   const [state, setState] = useState<VoiceState>('idle');
@@ -172,6 +189,12 @@ export function useVoiceInput(handlers: Handlers) {
         if (session.current === me) setState('transcribing');
         try {
           const wav = await clipToWav(new Blob(chunks, { type: recorder?.mimeType || chunks[0]?.type || 'audio/webm' }));
+          if (h.current.onAudio) {
+            if (session.current !== me) return;
+            finishFor(me);
+            h.current.onAudio(toBase64(wav));
+            return;
+          }
           const r = await apiFetch<{ text: string }>('/api/voice/transcribe', {
             method: 'POST',
             body: JSON.stringify({ audio: toBase64(wav), mimeType: 'audio/wav' }),
@@ -291,7 +314,7 @@ export function useVoiceInput(handlers: Handlers) {
             }
             if (spoke && loud) lastLoud = now;
           }
-          if (now - startedAt > MAX_MS || (meterWorks && spoke && now - lastLoud > SILENCE_MS) || (meterWorks && !spoke && now - startedAt > NO_SPEECH_MS)) {
+          if (now - startedAt > MAX_MS || (meterWorks && spoke && now - lastLoud > (opt.current.silenceMs ?? SILENCE_MS)) || (meterWorks && !spoke && now - startedAt > NO_SPEECH_MS)) {
             me.stop();
             return;
           }
@@ -312,7 +335,7 @@ export function useVoiceInput(handlers: Handlers) {
       } catch {
         return startRecorder(null);
       }
-      rec.lang = navigator.language || 'en-US';
+      rec.lang = opt.current.lang || navigator.language || 'en-US';
       rec.interimResults = true;
       rec.continuous = false;
       rec.maxAlternatives = 1;
@@ -381,7 +404,9 @@ export function useVoiceInput(handlers: Handlers) {
       rec.onerror = (e: any) => {
         const err = String(e?.error || '');
         if (err === 'aborted') return;
-        if (['network', 'service-not-allowed', 'language-not-supported', 'bad-grammar'].includes(err) && canRecord() && !cancelled) {
+        // The browser's own recognition failed before hearing anything (service unreachable, mic busy, unsupported): record with
+        // the mic and let MarketX write it down instead, for the rest of the visit
+        if ((['network', 'service-not-allowed', 'language-not-supported', 'bad-grammar'].includes(err) || (err === 'audio-capture' && !finalText && !interim)) && canRecord() && !cancelled) {
           // The browser's speech service isn't reachable: record and let MarketX write it down instead
           recognitionBroken = true;
           fellBack = true;
@@ -451,7 +476,7 @@ export function useVoiceInput(handlers: Handlers) {
   const start = useCallback((opts?: { ctx?: AudioContext | null }) => {
     if (session.current) return;
     const Rec = recognitionCtor();
-    if (Rec && !recognitionBroken && !isMobileDevice()) return startRecognition(Rec);
+    if (Rec && !recognitionBroken && (!isMobileDevice() || (opt.current.recognitionOnAndroid && isAndroid()))) return startRecognition(Rec);
     if (opts?.ctx) {
       opts.ctx.resume?.().catch(() => {});
       return startRecorder(opts.ctx, true);

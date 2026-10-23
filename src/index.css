@@ -1129,15 +1129,18 @@ html.mx-blog-page body {
   box-shadow: inset 0 0 40px rgba(99, 102, 241, 0.04);
 }
 .mx-orb {
-  --lv: 0;
   position: relative; width: 168px; height: 168px; border-radius: 9999px; overflow: hidden;
   background: radial-gradient(circle at 32% 28%, #b9b2ff 0%, #7c6cff 38%, #4f3ff0 68%, #2c2bb8 100%);
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 255, 255, 0.55),
-    inset 0 -18px 40px rgba(30, 20, 120, 0.45),
-    0 0 calc(40px + var(--lv) * 70px) rgba(124, 108, 255, calc(0.35 + var(--lv) * 0.4));
-  transition: box-shadow 0.15s linear;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55), inset 0 -18px 40px rgba(30, 20, 120, 0.45);
   will-change: transform;
+  /* its own layer: the swirls inside never repaint the page */
+  transform: translateZ(0);
+}
+/* The glow behind Matt follows the voice with opacity and scale only (no repaints, cool phones) */
+.mx-orb-glow {
+  position: absolute; left: 50%; top: 50%; width: 260px; height: 260px; margin: -130px 0 0 -130px; border-radius: 9999px;
+  background: radial-gradient(circle, rgba(124, 108, 255, 0.55) 0%, rgba(124, 108, 255, 0.18) 45%, transparent 70%);
+  opacity: 0.35; will-change: transform, opacity; pointer-events: none;
 }
 /* Matt drops in from above (on the wrapper, so the orb itself can move with the voice) */
 .mx-orb-wrap { animation: mx-orb-drop 0.9s cubic-bezier(0.22, 1.25, 0.36, 1) both; }
@@ -1146,9 +1149,10 @@ html.mx-blog-page body {
   70% { transform: translateY(8px) scale(1.02); }
   100% { transform: translateY(0) scale(1); }
 }
-.mx-orb-swirl { position: absolute; border-radius: 9999px; filter: blur(18px); mix-blend-mode: screen; }
-.mx-orb-swirl.a { width: 70%; height: 70%; left: -10%; top: 30%; background: rgba(244, 114, 182, 0.75); animation: mx-orb-swirl-a 7s ease-in-out infinite alternate; }
-.mx-orb-swirl.b { width: 65%; height: 60%; right: -12%; top: 50%; background: rgba(56, 189, 248, 0.55); animation: mx-orb-swirl-b 9s ease-in-out infinite alternate; }
+/* Soft colour swirls: gradients that fade out on their own (no blur filter or blend mode, which heat up phones) */
+.mx-orb-swirl { position: absolute; border-radius: 9999px; will-change: transform; }
+.mx-orb-swirl.a { width: 80%; height: 80%; left: -15%; top: 25%; background: radial-gradient(circle, rgba(244, 114, 182, 0.75) 0%, rgba(244, 114, 182, 0.25) 45%, transparent 70%); animation: mx-orb-swirl-a 7s ease-in-out infinite alternate; }
+.mx-orb-swirl.b { width: 75%; height: 70%; right: -15%; top: 45%; background: radial-gradient(circle, rgba(56, 189, 248, 0.6) 0%, rgba(56, 189, 248, 0.2) 45%, transparent 70%); animation: mx-orb-swirl-b 9s ease-in-out infinite alternate; }
 @keyframes mx-orb-swirl-a { 0% { transform: translate(0, 0) scale(1); } 50% { transform: translate(40%, -30%) scale(0.8); } 100% { transform: translate(15%, 10%) scale(1.15); } }
 @keyframes mx-orb-swirl-b { 0% { transform: translate(0, 0) scale(0.9); } 50% { transform: translate(-45%, -20%) scale(1.1); } 100% { transform: translate(-10%, -50%) scale(0.85); } }
 .mx-orb-gloss {
