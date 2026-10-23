@@ -48,6 +48,7 @@ const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel'
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const LeaderboardPanel = lazyWithReload(() => import('./components/LeaderboardPanel').then(m => ({ default: m.LeaderboardPanel })));
+const TradingAgentPanel = lazyWithReload(() => import('./components/TradingAgentPanel').then(m => ({ default: m.TradingAgentPanel })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 const StrategyBuilderPanel = lazyWithReload(() => import('./components/StrategyBuilderPanel').then(m => ({ default: m.StrategyBuilderPanel })));
@@ -192,6 +193,10 @@ export default function App() {
   // Leaderboard (usage this month / referrals), opened from the sidebar, /leaderboard, the profile and ?leaderboard=1
   const [leaderboard, setLeaderboard] = useState<'usage' | 'referrals' | null>(null);
   const leaderboardLinkRef = useRef<'usage' | 'referrals' | null>(null);
+  // Trading agent (/trading-agent, ?agent=1&focus=at_…, agent notifications)
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [agentFocus, setAgentFocus] = useState<string | null>(null);
+  const agentLinkRef = useRef(false);
   // Arrived through an invite link (?ref=CODE) while signed out: the sign-up form opens once we know
   const inviteArrivalRef = useRef(false);
   const watchlistLinkRef = useRef(false);
@@ -331,6 +336,11 @@ export default function App() {
     // Invite link: the code is kept on this device until sign-up (removed from the address bar)
     if (captureRefFromUrl()) inviteArrivalRef.current = true;
     if (params.get('leaderboard') === '1') leaderboardLinkRef.current = params.get('board') === 'referrals' ? 'referrals' : 'usage';
+    if (params.get('agent') === '1') {
+      agentLinkRef.current = true;
+      const f = params.get('focus') || '';
+      if (/^at_[a-f0-9]{16}$/.test(f)) setAgentFocus(f);
+    }
     if (params.has('verified')) {
       setToastNotification({
         message: params.get('verified') === '1' ? '✅ Email verified. Thank you!' : 'That verification link is invalid or expired.',
@@ -368,7 +378,7 @@ export default function App() {
       newsLinkRef.current = { topic: newsTopic };
       setCurrentView('chat');
     } else if (params.get('news') === '1') newsLinkRef.current = { open: true };
-    if (params.has('leaderboard') || params.has('board') || params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('coupon') || params.has('chat') || params.has('focus')) {
+    if (params.has('agent') || params.has('leaderboard') || params.has('board') || params.has('fundamental') || params.has('news') || params.has('ask') || params.has('verified') || params.has('reset') || params.has('support') || params.has('alert') || params.has('alerts') || params.has('watchlist') || params.has('pricing') || params.has('coupon') || params.has('chat') || params.has('focus')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -1318,6 +1328,16 @@ export default function App() {
     setIsSidebarOpen(false);
     setLeaderboard(board);
   }, [authUser]);
+  const openAgent = useCallback((focus: string | null = null) => {
+    if (!authUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsConnectorsOpen(false);
+    setIsSidebarOpen(false);
+    setAgentFocus(focus);
+    setAgentOpen(true);
+  }, [authUser]);
   const openToolPanel = useCallback((id: 'preference' | 'strategy' | 'fundamental') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
@@ -1381,6 +1401,13 @@ export default function App() {
   // Signed in: an invite code kept on this device has done its job (the server recorded it at sign-up)
   useEffect(() => {
     if (authUser) clearRefCode();
+  }, [authUser]);
+  // A trading agent link (?agent=1, from its emails and push notifications) opens it once signed in
+  useEffect(() => {
+    if (authUser && agentLinkRef.current) {
+      agentLinkRef.current = false;
+      setAgentOpen(true);
+    }
   }, [authUser]);
   // A leaderboard link (?leaderboard=1&board=referrals) opens it once signed in
   useEffect(() => {
@@ -1486,6 +1513,8 @@ export default function App() {
       case 'open_watchlist':
         setWatchFocus(str(p.itemId) || null);
         return openPluginPanel('watchlist');
+      case 'open_agent':
+        return openAgent(str(p.tradeId) || null);
       case 'open_chat':
         if (openChatMessage(str(p.sessionId), str(p.messageId))) return;
         break;
@@ -2693,6 +2722,9 @@ export default function App() {
           onToast={showToast}
         />
       </Deferred>
+      <Deferred when={agentOpen}>
+        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} />
+      </Deferred>
       <Deferred when={!!leaderboard}>
         <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />
       </Deferred>
@@ -2704,7 +2736,7 @@ export default function App() {
           badge={commandBadge}
           onOpen={openPluginPanel}
           onToggle={(id, enabled) => setPluginEnabled(id, enabled).catch(() => {})}
-          onOpenTool={openToolPanel}
+          onOpenTool={id => (id === 'agent' ? openAgent() : openToolPanel(id))}
           active={[
             ...(fundamentalOn ? [{ id: 'fundamental', label: 'Fundamental Analysis', detail: 'Type /fundamental-analysis then a topic, e.g. CPI', dot: 'bg-sky-400', onOpen: () => openToolPanel('fundamental') }] : []),
             ...(activeStrategy ? [{ id: 'strategy', label: 'Strategy Builder', detail: `Your strategy "${activeStrategy.name}" finds your trades`, dot: 'bg-violet-400', onOpen: () => openToolPanel('strategy') }] : []),
@@ -2887,12 +2919,6 @@ export default function App() {
           }}
           currentView={currentView}
           onSwitchView={setCurrentView}
-          onNotifyComingSoon={(modelName) => {
-            setToastNotification({
-              message: `${modelName} is coming to MarketX soon. Multi-model routing is in private preview.`,
-              type: 'gift',
-            });
-          }}
           unreadNotificationsCount={notifications.filter(n => !n.read).length}
           onOpenNotifications={() => setIsNotificationCenterOpen(true)}
         />
@@ -3020,6 +3046,8 @@ export default function App() {
                         ? (openPluginPanel(PLUGIN_COMMAND[id]), true)
                         : id === 'leaderboard'
                           ? (openLeaderboard('usage'), true)
+                          : id === 'agent'
+                          ? (openAgent(), true)
                           : id === 'preference' || id === 'strategy' || id === 'fundamental'
                           ? (openToolPanel(id), true)
                           : false

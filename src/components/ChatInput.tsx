@@ -114,13 +114,13 @@ const SLASH_COMMANDS = [
   { id: 'preference', label: 'Preference Mode', description: 'Your defaults, risk per trade and how results look', icon: SlidersHorizontal },
   { id: 'leaderboard', label: 'Leaderboard', description: "This month's most active traders and the top inviters", icon: Crown },
   { id: 'safety', label: 'Token Safety', description: 'Check any Solana token before you buy: type its $ticker or address', icon: ShieldCheck },
-  { id: 'agent', label: 'Trading Agent', description: 'Autonomous agent that monitors your setups', icon: Bot },
+  { id: 'agent', label: 'Trading Agent', description: 'Switch on an agent that finds, places and manages trades for you', icon: Bot },
   { id: 'mt5', label: 'MT5 Connector', description: 'Link your MetaTrader 5 account', icon: Plug },
   { id: 'indicators', label: 'Indicators', description: 'Add your favourite indicators to every analysis', icon: Activity },
   { id: 'tradingview', label: 'Connect TradingView', description: 'Link TradingView and analyze straight from your charts', icon: LineChart },
 ] as const;
 // Commands that already work (the rest are in private testing)
-const LIVE_COMMANDS = new Set<string>(['matt', 'leaderboard', 'watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy', 'fundamental']);
+const LIVE_COMMANDS = new Set<string>(['matt', 'agent', 'leaderboard', 'watchlist', 'alerts', 'journal', 'trackrecord', 'preference', 'safety', 'strategy', 'fundamental']);
 
 interface ChatInputProps {
   onSendMessage: (

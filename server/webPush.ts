@@ -118,7 +118,7 @@ export function encryptPayload(payload: Buffer, p256dh: string, auth: string): B
 type Sub = { uid: string; endpoint: string; keys: { p256dh: string; auth: string }; createdAt: number; lastOkAt?: number };
 const subId = (endpoint: string) => crypto.createHash('sha256').update(endpoint).digest('hex').slice(0, 40);
 
-export type PushMessage = { title: string; body: string; url: string; tag?: string; kind?: 'watchlist' | 'alert' | 'test' };
+export type PushMessage = { title: string; body: string; url: string; tag?: string; kind?: 'watchlist' | 'alert' | 'agent' | 'test' };
 
 /** Sends a notification to every device the trader turned push on; never throws */
 export async function sendPush(uid: string, msg: PushMessage): Promise<number> {
