@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import type { Express, Request, Response } from 'express';
+import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebase';
 import { sendEmail } from './mailer';
 import { logActivity } from './tracking';
@@ -21,9 +22,20 @@ import { createKeyedThrottle } from './security';
 type ProPlan = 'monthly' | 'yearly';
 /** The Trading Agent's own subscription (owner-specified: $30 a month, yearly 18% off), separate from Pro */
 type AgentPlan = 'agent_monthly' | 'agent_yearly';
-type Plan = ProPlan | AgentPlan;
-const PLANS: Plan[] = ['monthly', 'yearly', 'agent_monthly', 'agent_yearly'];
+/** Credit packs: one-time purchases, added to the trader's bought credits */
+type PackPlan = 'pack_50' | 'pack_150' | 'pack_400' | 'pack_1000';
+type Plan = ProPlan | AgentPlan | PackPlan;
+/** Credits and USD price of each pack (bigger packs cost less per credit) */
+export const CREDIT_PACKS: Record<PackPlan, { credits: number; usd: number }> = {
+  pack_50: { credits: 50, usd: 5 },
+  pack_150: { credits: 150, usd: 12 },
+  pack_400: { credits: 400, usd: 28 },
+  pack_1000: { credits: 1000, usd: 60 },
+};
+const PACKS = Object.keys(CREDIT_PACKS) as PackPlan[];
+const PLANS: Plan[] = ['monthly', 'yearly', 'agent_monthly', 'agent_yearly', ...PACKS];
 export const isAgentPlan = (p: Plan): p is AgentPlan => p === 'agent_monthly' || p === 'agent_yearly';
+export const isPackPlan = (p: Plan): p is PackPlan => p in CREDIT_PACKS;
 const readPlan = (v: unknown): Plan => (PLANS.includes(v as Plan) ? (v as Plan) : 'monthly');
 
 const PLAN_DURATION_MS: Record<Plan, number> = {
@@ -31,8 +43,13 @@ const PLAN_DURATION_MS: Record<Plan, number> = {
   yearly: 365 * 24 * 60 * 60 * 1000,
   agent_monthly: 30 * 24 * 60 * 60 * 1000,
   agent_yearly: 365 * 24 * 60 * 60 * 1000,
+  pack_50: 0,
+  pack_150: 0,
+  pack_400: 0,
+  pack_1000: 0,
 };
-const planName = (p: Plan) => (isAgentPlan(p) ? `Trading Agent ${p === 'agent_yearly' ? 'Yearly' : 'Monthly'}` : `Pro ${p === 'yearly' ? 'Yearly' : 'Monthly'}`);
+const planName = (p: Plan) =>
+  isPackPlan(p) ? `${CREDIT_PACKS[p].credits} credit pack` : isAgentPlan(p) ? `Trading Agent ${p === 'agent_yearly' ? 'Yearly' : 'Monthly'}` : `Pro ${p === 'yearly' ? 'Yearly' : 'Monthly'}`;
 
 // Plans are priced in USD and charged in the currency the Paystack account supports
 // (NGN for Nigerian merchants, which also unlocks bank transfer and USSD).
@@ -48,7 +65,7 @@ function usdPrices() {
   const yearly = Math.round(monthly * 12 * (1 - YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
   const agent_monthly = AGENT_MONTHLY_USD;
   const agent_yearly = Math.round(AGENT_MONTHLY_USD * 12 * (1 - AGENT_YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
-  return { monthly, yearly, agent_monthly, agent_yearly } as Record<Plan, number>;
+  return { monthly, yearly, agent_monthly, agent_yearly, ...Object.fromEntries(PACKS.map(p => [p, CREDIT_PACKS[p].usd])) } as Record<Plan, number>;
 }
 
 function chargeCurrency(): string {
@@ -149,6 +166,8 @@ export function getPaymentsPublicConfig() {
     agentYearlyDiscountPct: AGENT_YEARLY_DISCOUNT_PCT,
     chargeAgentMonthlyAmount: pricing.agent_monthly != null ? pricing.agent_monthly / 100 : null,
     chargeAgentYearlyAmount: pricing.agent_yearly != null ? pricing.agent_yearly / 100 : null,
+    // Credit packs (one-time)
+    creditPacks: PACKS.map(p => ({ id: p, credits: CREDIT_PACKS[p].credits, usd: CREDIT_PACKS[p].usd, charge: pricing[p] != null ? (pricing[p] as number) / 100 : null })),
     // Plan benefits as enforced by the server, so the UI never over-promises
     benefits: {
       freeDailyAnalyses: FREE_DAILY_LIMIT,
@@ -201,6 +220,19 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
 
     const plan = payment.plan as Plan;
     const now = Date.now();
+    if (isPackPlan(plan)) {
+      // Credit pack: the credits go to the trader's bought credits (spendable, never giftable)
+      const n = CREDIT_PACKS[plan].credits;
+      t.update(loaded.ref, { 'credits.available': FieldValue.increment(n), 'credits.purchased': FieldValue.increment(n) });
+      t.update(paymentRef, { status: 'fulfilled', fulfilledAt: now, paidAt: tx.paid_at || null, channel: tx.channel || null, credits: n });
+      addNotificationInTx(t, payment.uid, {
+        type: 'credit',
+        title: `${n} credits added`,
+        message: `Payment confirmed. ${n} credits are in your balance: the trading agent uses them, and analyses do once your daily ones run out.`,
+        actionType: 'open_credits',
+      } as any);
+      return { granted: true, uid: payment.uid, plan, email: loaded.doc.email, charged: `${(Number(payment.amount) / 100).toLocaleString('en-US')} ${payment.currency}`, reference, coupon: null };
+    }
     if (isAgentPlan(plan)) {
       // Trading Agent subscription: its own expiry, renewals extend it (Pro and daily analyses are untouched)
       const cur = (loaded.doc as any).agentSub as { active?: boolean; expiresAt?: number; startDate?: number } | undefined;
@@ -255,9 +287,27 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
 
 function notifyPaymentEmail(result: FulfillResult) {
   if (!result.granted || !result.plan) return;
-  if (result.coupon?.code && !isAgentPlan(result.plan)) countCouponUse(result.coupon.code, result.plan);
+  if (result.coupon?.code && !isAgentPlan(result.plan) && !isPackPlan(result.plan)) countCouponUse(result.coupon.code, result.plan);
   if (result.uid) {
     logActivity(result.uid, { type: 'payment', title: `Paid for ${planName(result.plan)}`, detail: result.charged || '' });
+  }
+  if (isPackPlan(result.plan)) {
+    const n = CREDIT_PACKS[result.plan].credits;
+    sendEmail(
+      result.email,
+      `${n} MarketX credits added`,
+      ['Thank you for your payment. Your credits are in your balance.', 'The trading agent uses them for its trades, and analyses use them once your daily ones run out.'],
+      {
+        rows: [
+          ['Pack', `${n} credits`],
+          ['Amount paid', result.charged || '-'],
+          ['Reference', result.reference || '-'],
+        ],
+        cta: { label: 'See your credits', url: `${(process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '')}/` },
+        note: 'Keep this email as your receipt.',
+      }
+    );
+    return;
   }
   if (isAgentPlan(result.plan)) {
     sendEmail(
@@ -316,10 +366,10 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
       // refused, never silently charged at the full price.
       const rawCoupon = typeof req.body?.coupon === 'string' ? req.body.coupon.trim() : '';
       let coupon: { code: string; pct: number } | null = null;
-      if (rawCoupon && isAgentPlan(plan)) {
-        return res.status(400).json({ error: 'COUPON_NOT_FOR_PLAN', message: 'Coupons apply to Pro plans only, not the Trading Agent.' });
+      if (rawCoupon && (isAgentPlan(plan) || isPackPlan(plan))) {
+        return res.status(400).json({ error: 'COUPON_NOT_FOR_PLAN', message: 'Coupons apply to Pro plans only.' });
       }
-      if (rawCoupon && !isAgentPlan(plan)) {
+      if (rawCoupon && !isAgentPlan(plan) && !isPackPlan(plan)) {
         const c = await couponForCheckout(rawCoupon, plan);
         if ('error' in c) return res.status(400).json({ error: c.error, message: c.message });
         coupon = { code: c.coupon.code, pct: c.pct };
@@ -369,7 +419,7 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
   app.post('/api/payments/verify', limiter, requireAuth, async (req: Request, res: Response) => {
     try {
       const reference = String(req.body?.reference || '');
-      if (!/^mx_(monthly|yearly|agent_monthly|agent_yearly)_\d+_[a-f0-9]{10}$/.test(reference)) {
+      if (!/^mx_(monthly|yearly|agent_monthly|agent_yearly|pack_(?:50|150|400|1000))_\d+_[a-f0-9]{10}$/.test(reference)) {
         return res.status(400).json({ error: 'INVALID_REFERENCE' });
       }
       const user = getUser(res);

@@ -72,9 +72,14 @@ export function campaignCreditsLeft(state: CreditState): number {
   return Math.max(0, Math.min(state.campaignCredits ?? 0, state.availableCredits));
 }
 
-/** Prompts the user can still send before the next refill: today's analyses plus campaign credits. */
+/** Bought credits left (credit packs). */
+export function purchasedCreditsLeft(state: CreditState): number {
+  return Math.max(0, Math.min(state.purchasedCredits ?? 0, state.availableCredits - campaignCreditsLeft(state)));
+}
+
+/** Prompts the user can still send before the next refill: today's analyses, campaign credits and bought credits. */
 export function promptsLeft(state: CreditState): number {
-  return Math.max(0, state.dailyUsageRemaining) + campaignCreditsLeft(state);
+  return Math.max(0, state.dailyUsageRemaining) + campaignCreditsLeft(state) + purchasedCreditsLeft(state);
 }
 
 /** True when today's analyses and campaign credits are both used up (prompts pause until the refill). */

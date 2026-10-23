@@ -756,6 +756,11 @@ const SECTIONS: Section[] = [
           where available. Pro switches on as soon as the payment is confirmed, and you get a notification and an email receipt. Current prices are always shown
           in the Plans window.
         </Note>
+        <Note title="Credit packs" tone="emerald">
+          Need more? In Credits, under <B>Buy credits</B>, pick a pack: <B>50 credits for $5</B>, <B>150 for $12</B>, <B>400 for $28</B> or <B>1,000 for $60</B>,
+          paid through the same secure checkout. Bought credits never expire and are kept apart from your daily analyses: the Trading Agent uses them for
+          its trades, and your analyses use them only once the day's analyses run out (one per analysis). Bought credits can't be gifted.
+        </Note>
         <Note title="Coupon codes">
           Have a coupon code? Type it in the coupon box in Plans and tap Apply: the discounted price shows before you pay and is what you are charged. A
           code only works while its offer is running.

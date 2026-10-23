@@ -896,6 +896,13 @@ export default function App() {
     });
   };
 
+  // A credit pack was paid and verified by the server: the new balance comes back with the account
+  const handleCreditsBought = (account: AccountPayload, credits: number) => {
+    applyAccount(account);
+    refreshNotifications();
+    setToastNotification({ message: `⚡ ${credits} credits added. Payment verified by Paystack.`, type: 'success' });
+  };
+
   // Gift credits to another user (server moves the balance atomically)
   const handleSendGift = async (toUsername: string, amount: number, note?: string): Promise<string | null> => {
     try {
@@ -2723,7 +2730,7 @@ export default function App() {
         />
       </Deferred>
       <Deferred when={agentOpen}>
-        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} />
+        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} />
       </Deferred>
       <Deferred when={!!leaderboard}>
         <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />
@@ -2840,6 +2847,8 @@ export default function App() {
 
       {/* Sidebar Navigation: History, Credits, Profile */}
       <Sidebar
+        paymentsConfig={paymentsConfig}
+        onCreditsBought={authUser ? handleCreditsBought : undefined}
         onOpenAskSI={() => setCurrentView('chat')}
         sessions={sessions}
         savedAnalyses={savedAnalyses}

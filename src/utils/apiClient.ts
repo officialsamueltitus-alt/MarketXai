@@ -11,6 +11,8 @@ export interface PaymentsPublicConfig {
   chargeMonthlyAmount?: number | null;
   chargeYearlyAmount?: number | null;
   benefits?: PlanBenefits;
+  /** Credit packs (one-time purchases) */
+  creditPacks?: Array<{ id: string; credits: number; usd: number; charge: number | null }>;
 }
 
 export interface PlanBenefits {

@@ -109,7 +109,7 @@ function Row({ title, hint, children }: { title: string; hint?: string; children
   );
 }
 
-export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolean; onClose: () => void; focusId?: string | null }) {
+export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { isOpen: boolean; onClose: () => void; focusId?: string | null; onBuyCredits?: () => void }) {
   const [data, setData] = useState<AgentState | null>(null);
   const [draft, setDraft] = useState<AgentSettings>(DEFAULT_AGENT_SETTINGS);
   const [tab, setTab] = useState<Tab>('setup');
@@ -527,7 +527,12 @@ export function TradingAgentPanel({ isOpen, onClose, focusId }: { isOpen: boolea
                       </p>
                       {credits !== null && (
                         <p className={short ? 'text-amber-300' : ''}>
-                          You have {credits} credits.{short ? ` You need at least ${price.perTrade} to start.` : ''}
+                          You have {credits} credits.{short ? ` You need at least ${price.perTrade} to start.` : ''}{' '}
+                          {onBuyCredits && (
+                            <button type="button" onClick={onBuyCredits} className="underline underline-offset-2 cursor-pointer text-amber-200">
+                              Buy credits
+                            </button>
+                          )}
                         </p>
                       )}
                     </div>

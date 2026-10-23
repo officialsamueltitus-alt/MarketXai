@@ -3,7 +3,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendPush } from './webPush';
-import { campaignPool, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { campaignPool, purchasedPool, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
@@ -89,8 +89,9 @@ interface AgentTrade extends AgentTradeView {
   scanFrom: number;
   updatedAt: number;
   execution: 'TRACKED' | 'MT5';
-  /** Credits of this trade taken from the campaign pool (refunded there if the order never fills) */
+  /** Credits of this trade taken from the campaign pool / bought credits (refunded there if the order never fills) */
   campaignCharged?: number;
+  purchasedCharged?: number;
   /** The order on the trader's MT5 account (MetaApi), when linked */
   mt5?: { state: 'PLACED' | 'FAILED' | 'CANCELLED' | 'CLOSED'; symbol?: string; volume?: number; entry?: number; stop?: number; target?: number; orderId?: string; clientId?: string; error?: string };
 }
@@ -360,13 +361,19 @@ async function cancelPending(t: AgentTrade, note: string, extra: Record<string, 
     if (!cur || cur.state !== 'PENDING') return false;
     const back = Math.max(0, cur.credits || 0);
     const camp = Math.min(back, Math.max(0, cur.campaignCharged || 0));
+    const bought = Math.min(back - camp, Math.max(0, cur.purchasedCharged || 0));
     if (back) {
       const us = await tx.get(userRef(t.uid));
-      if (us.exists) tx.update(userRef(t.uid), { 'credits.available': FieldValue.increment(back), ...(camp ? { 'credits.campaign': FieldValue.increment(camp) } : {}) });
+      if (us.exists)
+        tx.update(userRef(t.uid), {
+          'credits.available': FieldValue.increment(back),
+          ...(camp ? { 'credits.campaign': FieldValue.increment(camp) } : {}),
+          ...(bought ? { 'credits.purchased': FieldValue.increment(bought) } : {}),
+        });
       const a = as.data() as AgentDoc | undefined;
       if (a?.run?.id === t.runId) tx.update(agentRef(t.uid), { 'run.creditsUsed': FieldValue.increment(-back), updatedAt: now() });
     }
-    tx.update(tradeRef(t.id), { state: 'CANCELLED', note, credits: 0, campaignCharged: 0, refunded: back, updatedAt: now(), ...extra });
+    tx.update(tradeRef(t.id), { state: 'CANCELLED', note, credits: 0, campaignCharged: 0, purchasedCharged: 0, refunded: back, updatedAt: now(), ...extra });
     return true;
   });
   if (ok) await mt5Cancel(t).catch(() => {});
@@ -625,17 +632,22 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     if (placedToday >= cur.run.settings.tradesPerDay) return false;
     const cost = free ? 0 : run.perTrade;
     if (cost > (u.credits?.available ?? 0)) return 'NO_CREDITS' as const;
+    // Campaign credits first, then the ordinary balance, then bought credits
     const campaign = campaignPool(u.credits);
+    const bought = purchasedPool(u.credits);
     const fromCampaign = Math.min(campaign, cost);
+    const ordinary = Math.max(0, (u.credits?.available ?? 0) - campaign - bought);
+    const fromPurchased = Math.min(bought, Math.max(0, cost - fromCampaign - ordinary));
     if (cost) {
       tx.update(userRef(a.uid), {
         'credits.available': FieldValue.increment(-cost),
         ...(fromCampaign ? { 'credits.campaign': campaign - fromCampaign } : {}),
+        ...(fromPurchased ? { 'credits.purchased': bought - fromPurchased } : {}),
         // The last campaign credit restarts the daily refill clock (same rule as an analysis)
         ...(fromCampaign && campaign - fromCampaign === 0 ? { 'credits.lastDailyReset': now() } : {}),
       });
     }
-    tx.set(tradeRef(trade.id), { ...trade, credits: cost, campaignCharged: fromCampaign });
+    tx.set(tradeRef(trade.id), { ...trade, credits: cost, campaignCharged: fromCampaign, purchasedCharged: fromPurchased });
     tx.update(agentRef(a.uid), {
       'run.day': today, 'run.placedToday': placedToday + 1, 'run.lastScanAt': t0, 'run.creditsUsed': FieldValue.increment(cost),
       seen: [pick.key, ...(cur.seen || [])].slice(0, SEEN_MAX), updatedAt: t0,
