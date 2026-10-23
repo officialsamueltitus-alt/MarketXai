@@ -7,6 +7,11 @@ import { campaignPool, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
+import { getPaymentsPublicConfig } from './payments';
+import {
+  Mt5Error, brokerLevels, createMt5Account, deleteMt5Account, lotSize, maskLogin, matchSymbol, mt5AccountInfo, mt5AccountState, mt5Configured, mt5Positions,
+  mt5Price, mt5Spec, mt5Symbols, mt5Trade, type Mt5Link,
+} from './mt5';
 import {
   AGENT_BACKTEST, AGENT_MARKETS, AGENT_MIN_QUALITY, AGENT_PRICING, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
   type AgentLogEntry, type AgentRunView, type AgentSettings, type AgentTradeResult, type AgentTradeState, type AgentTradeView,
@@ -25,13 +30,18 @@ import {
 //      cancelled after PENDING_CANDLES candles, or when price reaches TP1 without it);
 //   4. alerts the trader at every step (site notification, phone/desktop push, and email within the market budget).
 //
-// Credits (owner-specified, never below 5 a trade): charged when an order fills, inside a transaction, at the run's
-// rate (daily 7, weekly 6, monthly 5); orders that never fill cost nothing. Campaign credits are spent first.
+// Access (owner-specified): the agent has its own subscription ($30 a month, a year 18% off; users.agentSub, granted by
+// server/payments.ts after Paystack verification). Unlimited staff accounts need none.
+// Credits (owner-specified, never below 5 a trade): charged ONCE per trade, when the agent places it, inside the same
+// transaction, at the run's rate (daily 7, weekly 6, monthly 5), campaign credits first; an order that is cancelled
+// before it fills is refunded in full.
 //
-// Execution: every trade is TRACKED by MarketX on live prices. Placing them on the trader's own MT5 account needs an
-// execution link (a trade copier or MT5 bridge) that is not set up yet; MarketX never asks for or stores MT5 logins.
+// Execution: every trade is tracked by MarketX on live prices (the record for alerts and stats). With an MT5 account
+// linked (server/mt5.ts, MetaApi), each order is also placed on the trader's account, sized to their risk, with the stop
+// and target at the broker; MarketX never stores the MT5 password.
 //
 //   tradingAgents/{uid}  -> settings, the current/last run, the activity log, setups already used
+//   mt5Links/{uid}       -> the trader's MT5 link (MetaApi account id, masked login, server, matched symbols)
 //   agentTrades/{id}     -> one order/trade of a run, with its levels, state and result
 // ===========================================================================
 
@@ -78,7 +88,11 @@ interface AgentTrade extends AgentTradeView {
   holdMs: number;
   scanFrom: number;
   updatedAt: number;
-  execution: 'TRACKED';
+  execution: 'TRACKED' | 'MT5';
+  /** Credits of this trade taken from the campaign pool (refunded there if the order never fills) */
+  campaignCharged?: number;
+  /** The order on the trader's MT5 account (MetaApi), when linked */
+  mt5?: { state: 'PLACED' | 'FAILED' | 'CANCELLED' | 'CLOSED'; symbol?: string; volume?: number; entry?: number; stop?: number; target?: number; orderId?: string; clientId?: string; error?: string };
 }
 interface AgentRun extends Omit<AgentRunView, 'stats'> {
   day: string;
@@ -96,6 +110,30 @@ interface AgentDoc {
 
 const agentRef = (uid: string) => db().collection(AGENTS).doc(uid);
 const tradeRef = (tid: string) => db().collection(TRADES).doc(tid);
+const LINKS = 'mt5Links';
+const linkRef = (uid: string) => db().collection(LINKS).doc(uid);
+/** The trader's MT5 link (no password: MetaApi holds the credentials) */
+interface Mt5LinkDoc extends Mt5Link {
+  uid: string;
+  status: 'CONNECTING' | 'CONNECTED' | 'FAILED';
+  login: string;
+  server: string;
+  broker?: string;
+  currency?: string;
+  balance?: number;
+  symbols?: Record<string, string | null>;
+  message?: string;
+  linkedAt: number;
+  checkedAt?: number;
+}
+const linkOf = async (uid: string) => (await linkRef(uid).get()).data() as Mt5LinkDoc | undefined;
+
+/** The agent's subscription is live (or the account is unlimited staff) */
+export function agentSubActive(u: Pick<UserDoc, 'email' | 'emailVerified'> & { agentSub?: { active?: boolean; expiresAt?: number } } | undefined, at = Date.now()): boolean {
+  if (!u) return false;
+  if (u.emailVerified && isUnlimitedEmail(u.email)) return true;
+  return !!u.agentSub?.active && (u.agentSub.expiresAt || 0) > at;
+}
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -197,6 +235,8 @@ function toView(t: AgentTrade): AgentTradeView {
     ...(t.result ? { result: t.result } : {}), ...(typeof t.r === 'number' ? { r: t.r } : {}), ...(typeof t.pnlPct === 'number' ? { pnlPct: t.pnlPct } : {}),
     ...(t.filledAt ? { filledAt: t.filledAt } : {}), ...(t.closedAt ? { closedAt: t.closedAt } : {}), ...(finite(t.closePrice) ? { closePrice: t.closePrice } : {}),
     ...(t.note ? { note: t.note } : {}),
+    ...(t.mt5 ? { mt5: { state: t.mt5.state, ...(t.mt5.symbol ? { symbol: t.mt5.symbol } : {}), ...(t.mt5.volume ? { volume: t.mt5.volume } : {}), ...(t.mt5.error ? { error: t.mt5.error } : {}) } } : {}),
+    ...((t as any).refunded ? { refunded: (t as any).refunded } : {}),
   };
 }
 
@@ -247,12 +287,15 @@ async function endRun(uid: string, reason: NonNullable<AgentRunView['endedReason
   if (!ended) return null;
   const mine = (await tradesOf(uid)).filter(t => t.runId === ended.id);
   for (const t of mine.filter(t => t.state === 'PENDING')) {
-    await tradeRef(t.id).update({ state: 'CANCELLED', note: 'Cancelled: the run ended before the order filled.', updatedAt: now() }).catch(() => {});
+    await cancelPending(t, 'Cancelled: the run ended before the order filled.').catch(() => {});
   }
   if (opts.closeOpen) {
     for (const t of mine.filter(t => t.state === 'OPEN')) {
       const price = await opts.closeOpen(t).catch(() => null);
-      if (finite(price)) await closeTrade(t, { at: now(), price, kind: 'TIME' }, 'Closed when you stopped the agent.', false);
+      if (finite(price)) {
+        await mt5Close(t).catch(() => {});
+        await closeTrade(t, { at: now(), price, kind: 'TIME' }, 'Closed when you stopped the agent.', false);
+      }
     }
   }
   const stats = await runStats(uid, ended.id);
@@ -299,34 +342,145 @@ async function closeTrade(t: AgentTrade, c: NonNullable<StepResult['closed']>, n
   else if (s.lossLimitPct > 0 && stats.pnlPct <= -s.lossLimitPct) await endRun(t.uid, 'LOSS_LIMIT');
 }
 
-/** Charges the run's rate when an order fills (transaction): campaign credits first; staff accounts are free */
-async function fillTrade(t: AgentTrade, f: NonNullable<StepResult['filled']>): Promise<'OK' | 'NO_CREDITS' | 'GONE'> {
+/** The order filled: the trade is open (its credits were taken when it was placed) */
+async function fillTrade(t: AgentTrade, f: NonNullable<StepResult['filled']>): Promise<'OK' | 'GONE'> {
   return db().runTransaction(async tx => {
-    const [ts, us, as] = await Promise.all([tx.get(tradeRef(t.id)), tx.get(userRef(t.uid)), tx.get(agentRef(t.uid))]);
-    const cur = ts.data() as AgentTrade | undefined;
-    const u = us.data() as UserDoc | undefined;
-    if (!cur || cur.state !== 'PENDING' || !u || u.status === 'banned' || u.status === 'suspended') return 'GONE';
-    const free = !!u.emailVerified && isUnlimitedEmail(u.email);
-    const cost = free ? 0 : cur.credits;
-    if (cost > (u.credits?.available ?? 0)) {
-      tx.update(tradeRef(t.id), { state: 'CANCELLED', note: 'Cancelled: not enough credits when the order filled.', updatedAt: now() });
-      return 'NO_CREDITS';
-    }
-    if (cost) {
-      const campaign = campaignPool(u.credits);
-      const fromCampaign = Math.min(campaign, cost);
-      tx.update(userRef(t.uid), {
-        'credits.available': FieldValue.increment(-cost),
-        ...(fromCampaign ? { 'credits.campaign': campaign - fromCampaign } : {}),
-        // The last campaign credit restarts the daily refill clock (same rule as an analysis)
-        ...(fromCampaign && campaign - fromCampaign === 0 ? { 'credits.lastDailyReset': now() } : {}),
-      });
-    }
-    tx.update(tradeRef(t.id), { state: 'OPEN', filledAt: f.at, credits: cost, updatedAt: now() });
-    const a = as.data() as AgentDoc | undefined;
-    if (a?.run?.id === t.runId) tx.update(agentRef(t.uid), { 'run.creditsUsed': FieldValue.increment(cost), updatedAt: now() });
+    const cur = (await tx.get(tradeRef(t.id))).data() as AgentTrade | undefined;
+    if (!cur || cur.state !== 'PENDING') return 'GONE';
+    tx.update(tradeRef(t.id), { state: 'OPEN', filledAt: f.at, updatedAt: now() });
     return 'OK';
   });
+}
+
+/** Cancels an order that never filled, once (transaction): its credits go back where they came from */
+async function cancelPending(t: AgentTrade, note: string, extra: Record<string, unknown> = {}): Promise<boolean> {
+  const ok = await db().runTransaction(async tx => {
+    const [ts, as] = await Promise.all([tx.get(tradeRef(t.id)), tx.get(agentRef(t.uid))]);
+    const cur = ts.data() as AgentTrade | undefined;
+    if (!cur || cur.state !== 'PENDING') return false;
+    const back = Math.max(0, cur.credits || 0);
+    const camp = Math.min(back, Math.max(0, cur.campaignCharged || 0));
+    if (back) {
+      const us = await tx.get(userRef(t.uid));
+      if (us.exists) tx.update(userRef(t.uid), { 'credits.available': FieldValue.increment(back), ...(camp ? { 'credits.campaign': FieldValue.increment(camp) } : {}) });
+      const a = as.data() as AgentDoc | undefined;
+      if (a?.run?.id === t.runId) tx.update(agentRef(t.uid), { 'run.creditsUsed': FieldValue.increment(-back), updatedAt: now() });
+    }
+    tx.update(tradeRef(t.id), { state: 'CANCELLED', note, credits: 0, campaignCharged: 0, refunded: back, updatedAt: now(), ...extra });
+    return true;
+  });
+  if (ok) await mt5Cancel(t).catch(() => {});
+  return ok;
+}
+
+// ---------------------------------------------------------------------------
+// MT5 execution (MetaApi): the agent's order is placed on the trader's own account, sized to their risk
+// ---------------------------------------------------------------------------
+/** Places the agent's limit order on the linked MT5 account; the outcome is kept on the trade and told to the trader */
+async function mt5Open(t: AgentTrade, feedPrice: number): Promise<void> {
+  const link = await linkOf(t.uid);
+  if (!link || link.status !== 'CONNECTED' || !mt5Configured()) return;
+  const symbol = link.symbols?.[t.symbol];
+  const fail = async (error: string) => {
+    await tradeRef(t.id).update({ mt5: { state: 'FAILED', ...(symbol ? { symbol } : {}), error: error.slice(0, 200) }, updatedAt: now() }).catch(() => {});
+    await pushLog(t.uid, [logEntry('PAUSE', `MT5: the ${t.symbol} order was not placed on your account (${error}). MarketX keeps tracking it.`, t.id)]);
+    await tell(t.uid, `⚠️ MT5: ${t.symbol} order not placed`, `${error}. MarketX keeps tracking the trade; you can place it yourself: ${orderLine(t)}.`, { tradeId: t.id });
+  };
+  if (!symbol) return fail(`your broker has no symbol matching ${t.symbol}`);
+  try {
+    const [info, spec, px] = await Promise.all([mt5AccountInfo(link), mt5Spec(link, symbol), mt5Price(link, symbol)]);
+    if (!info.tradeAllowed) return fail('trading is not allowed with this login (an investor password is read only)');
+    const lv = brokerLevels({ entry: t.entry, stop: t.stop, target: t.target }, feedPrice, (px.bid + px.ask) / 2, spec.digits);
+    if (!lv) return fail(`your broker's ${symbol} price is too far from the market price MarketX reads`);
+    const long = t.direction === 'LONG';
+    if (long ? !(lv.entry < px.ask) : !(lv.entry > px.bid)) return fail('price is already at the entry on your broker');
+    const volume = lotSize({ balance: info.balance, riskPct: t.riskPct, entry: lv.entry, stop: lv.stop, tickSize: spec.tickSize, lossTickValue: px.lossTickValue, minVolume: spec.minVolume, maxVolume: spec.maxVolume, volumeStep: spec.volumeStep });
+    if (!volume) return fail(`${t.riskPct}% of your balance is below the smallest lot your broker allows for this stop`);
+    const clientId = `MX${t.id.slice(3, 13)}`;
+    const base = { actionType: long ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_SELL_LIMIT', symbol, volume, openPrice: lv.entry, stopLoss: lv.stop, takeProfit: lv.target, comment: 'MarketX agent', clientId };
+    let res;
+    try {
+      res = await mt5Trade(link, { ...base, expiration: { type: 'ORDER_TIME_SPECIFIED', time: new Date(t.expiresAt).toISOString() } });
+    } catch (err) {
+      // Some brokers refuse timed orders: place it good-till-cancelled (MarketX cancels it when it expires)
+      if (err instanceof Mt5Error && /EXPIRATION/i.test(err.code)) res = await mt5Trade(link, base);
+      else throw err;
+    }
+    await tradeRef(t.id).update({ execution: 'MT5', mt5: { state: 'PLACED', symbol, volume, entry: lv.entry, stop: lv.stop, target: lv.target, clientId, ...(res.orderId ? { orderId: res.orderId } : {}) }, updatedAt: now() });
+    const text = `🔗 On your MT5: ${long ? 'BUY LIMIT' : 'SELL LIMIT'} ${symbol} ${volume} lots at ${fmtPrice(lv.entry)}, stop ${fmtPrice(lv.stop)}, target ${fmtPrice(lv.target)}.`;
+    await pushLog(t.uid, [logEntry('ORDER', text, t.id)]);
+    await tell(t.uid, `🔗 Agent order placed on your MT5 (${symbol})`, text, { tradeId: t.id, mail: true, rows: [['Order', `${long ? 'BUY LIMIT' : 'SELL LIMIT'} ${symbol}`], ['Lots', String(volume)], ['Stop / target', `${fmtPrice(lv.stop)} / ${fmtPrice(lv.target)}`]] });
+  } catch (err: any) {
+    return fail(err instanceof Mt5Error ? err.message : 'the MT5 connection failed');
+  }
+}
+
+/** Cancels the agent's unfilled order on MT5 (if it already filled at the broker, its stop and target manage it) */
+async function mt5Cancel(t: AgentTrade): Promise<void> {
+  if (t.mt5?.state !== 'PLACED' || !t.mt5.orderId) return;
+  const link = await linkOf(t.uid);
+  if (!link || !mt5Configured()) return;
+  try {
+    await mt5Trade(link, { actionType: 'ORDER_CANCEL', orderId: t.mt5.orderId });
+    await tradeRef(t.id).update({ 'mt5.state': 'CANCELLED' }).catch(() => {});
+  } catch {
+    await pushLog(t.uid, [logEntry('PAUSE', `MT5: the ${t.mt5.symbol} order could not be cancelled (it may have filled at your broker). Check MT5: its stop and target are set.`, t.id)]);
+  }
+}
+
+/** Closes the agent's open position on MT5 now (Stop and close) */
+async function mt5Close(t: AgentTrade): Promise<void> {
+  if (t.mt5?.state !== 'PLACED' || !t.mt5.clientId) return;
+  const link = await linkOf(t.uid);
+  if (!link || !mt5Configured()) return;
+  try {
+    const pos = (await mt5Positions(link)).find(p => p.clientId === t.mt5!.clientId);
+    if (pos) await mt5Trade(link, { actionType: 'POSITION_CLOSE_ID', positionId: pos.id });
+    else if (t.mt5.orderId) await mt5Trade(link, { actionType: 'ORDER_CANCEL', orderId: t.mt5.orderId }).catch(() => {});
+    await tradeRef(t.id).update({ 'mt5.state': 'CLOSED' }).catch(() => {});
+  } catch {
+    await pushLog(t.uid, [logEntry('PAUSE', `MT5: the ${t.symbol} position could not be closed. Close it in MT5 yourself.`, t.id)]);
+  }
+}
+
+/** Follows a new link until MetaApi has connected it to the broker, then reads the balance and matches the symbols */
+async function finishLink(uid: string, tries = 18): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    const link = await linkOf(uid);
+    if (!link || link.status !== 'CONNECTING') return;
+    try {
+      const st = await mt5AccountState(link);
+      if (st.state === 'DEPLOY_FAILED' || st.connection === 'DISCONNECTED_FROM_BROKER') {
+        await deleteMt5Account(link).catch(() => {});
+        await linkRef(uid).update({ status: 'FAILED', message: 'MT5 could not sign in. Check the login, the master (trading) password and the server name.', checkedAt: now() });
+        await tell(uid, '⚠️ MT5 not linked', 'MT5 could not sign in with those details. Check the login, the master (trading) password and the server name, then try again.');
+        return;
+      }
+      if (st.state === 'DEPLOYED' && st.connection === 'CONNECTED') {
+        const [info, list] = await Promise.all([mt5AccountInfo(link), mt5Symbols(link)]);
+        const symbols = Object.fromEntries(AGENT_MARKETS.map(m => [m.symbol, matchSymbol(m.symbol, list)]));
+        await linkRef(uid).update({ status: 'CONNECTED', broker: info.broker, currency: info.currency, balance: info.balance, symbols, message: '', checkedAt: now() });
+        await tell(uid, '🔗 MT5 linked', `Your MT5 account ${link.login} (${link.server}) is linked. The agent now places its trades there, sized to your risk per trade.`);
+        return;
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 10_000));
+  }
+  await linkRef(uid).update({ status: 'FAILED', message: 'MT5 took too long to connect. Try again in a few minutes.', checkedAt: now() }).catch(() => {});
+}
+
+/** Removes the trader's MT5 link (account deletion, Disconnect): deleted at MetaApi first, then here */
+export async function unlinkMt5(uid: string, opts: { force?: boolean } = {}): Promise<void> {
+  const link = await linkOf(uid);
+  if (!link) return;
+  try {
+    if (mt5Configured()) await deleteMt5Account(link);
+  } catch (err) {
+    // Account deletion still removes the link here (the MetaApi account is logged so it can be removed by hand)
+    if (!opts.force) throw err;
+    console.warn('[MarketX Agent] MetaApi account could not be removed on account deletion; remove it in the MetaApi dashboard.');
+  }
+  await linkRef(uid).delete();
 }
 
 // ---------------------------------------------------------------------------
@@ -346,26 +500,16 @@ async function manageTrades(deps: AgentDeps) {
       const step = stepTrade(t, bars || []);
       if (step.cancelled) {
         const note = step.cancelled === 'MISSED' ? 'Cancelled: price reached TP1 before the order filled.' : 'Cancelled: the order did not fill in time.';
-        const ok = await db().runTransaction(async tx => {
-          const cur = (await tx.get(tradeRef(t.id))).data() as AgentTrade | undefined;
-          if (!cur || cur.state !== 'PENDING') return false;
-          tx.update(tradeRef(t.id), { state: 'CANCELLED', note, scanFrom: step.scanFrom, updatedAt: now() });
-          return true;
-        });
-        if (ok) await pushLog(t.uid, [logEntry('CANCEL', `${t.symbol} ${t.timeframe}: ${note.replace('Cancelled: ', 'order cancelled, ').replace(/\.$/, '')}. No credits used.`, t.id)]);
+        const ok = await cancelPending(t, note, { scanFrom: step.scanFrom });
+        if (ok) await pushLog(t.uid, [logEntry('CANCEL', `${t.symbol} ${t.timeframe}: ${note.replace('Cancelled: ', 'order cancelled, ').replace(/\.$/, '')}.${t.credits ? ` ${t.credits} credits refunded.` : ''}`, t.id)]);
         continue;
       }
       let cur = t;
       if (step.filled) {
         const res = await fillTrade(t, step.filled);
-        if (res === 'NO_CREDITS') {
-          await pushLog(t.uid, [logEntry('PAUSE', `${t.symbol}: order cancelled at the fill, not enough credits.`, t.id)]);
-          await endRun(t.uid, 'NO_CREDITS');
-          continue;
-        }
         if (res !== 'OK') continue;
         cur = { ...t, state: 'OPEN', filledAt: step.filled.at };
-        const text = `🎯 ${t.symbol} order filled: ${sideText(t).replace(' LIMIT', '')} at ${fmtPrice(t.entry)}, stop ${fmtPrice(t.stop)}, target ${fmtPrice(t.target)}. ${t.credits} credits used.`;
+        const text = `🎯 ${t.symbol} order filled: ${sideText(t).replace(' LIMIT', '')} at ${fmtPrice(t.entry)}, stop ${fmtPrice(t.stop)}, target ${fmtPrice(t.target)}.`;
         await pushLog(t.uid, [logEntry('FILL', text, t.id)]);
         await tell(t.uid, `🎯 Agent trade opened on ${t.symbol}`, text, { tradeId: t.id, mail: true, rows: [['Trade', `${sideText(t).replace(' LIMIT', '')} ${mt5Name(t.symbol)} · ${t.timeframe}`], ['Stop', fmtPrice(t.stop)], ['Target', fmtPrice(t.target)]] });
       }
@@ -390,6 +534,12 @@ async function runAgents(deps: AgentDeps, onlyUid?: string) {
     if (!a.run) continue;
     if (t >= a.run.endsAt) {
       await endRun(a.uid, 'TIME_UP');
+      continue;
+    }
+    // The agent's subscription ended (not renewed): the run stops, open trades keep their stop and target
+    const u = (await userRef(a.uid).get()).data() as UserDoc | undefined;
+    if (!agentSubActive(u as any, t)) {
+      await endRun(a.uid, 'SUB_ENDED');
       continue;
     }
     if (onlyUid || t - (a.run.lastScanAt || 0) >= SCAN_GAP_MS) due.push(a);
@@ -437,7 +587,7 @@ async function runAgents(deps: AgentDeps, onlyUid?: string) {
   }
 }
 
-/** Places one order for an agent (credits are checked now and charged at the fill) */
+/** Places one order for an agent: its credits are charged in the same transaction (refunded if it never fills) */
 async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickSetup>>, today: string) {
   const run = a.run!;
   const s = pick.setup;
@@ -466,22 +616,41 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     createdAt: t0, updatedAt: t0, expiresAt: t0 + PENDING_CANDLES * tfMs, holdMs: MAX_CANDLES * tfMs, scanFrom: Math.floor(t0 / 60e3) * 60e3, execution: 'TRACKED',
   };
   const placed = await db().runTransaction(async tx => {
-    const cur = (await tx.get(agentRef(a.uid))).data() as AgentDoc | undefined;
-    if (!cur?.run || cur.run.state !== 'RUNNING' || cur.run.id !== run.id) return false;
+    const [as, us] = await Promise.all([tx.get(agentRef(a.uid)), tx.get(userRef(a.uid))]);
+    const cur = as.data() as AgentDoc | undefined;
+    const u = us.data() as UserDoc | undefined;
+    if (!cur?.run || cur.run.state !== 'RUNNING' || cur.run.id !== run.id || !u) return false;
     if ((cur.seen || []).includes(pick.key)) return false;
     const placedToday = cur.run.day === today ? cur.run.placedToday : 0;
     if (placedToday >= cur.run.settings.tradesPerDay) return false;
-    tx.set(tradeRef(trade.id), trade);
+    const cost = free ? 0 : run.perTrade;
+    if (cost > (u.credits?.available ?? 0)) return 'NO_CREDITS' as const;
+    const campaign = campaignPool(u.credits);
+    const fromCampaign = Math.min(campaign, cost);
+    if (cost) {
+      tx.update(userRef(a.uid), {
+        'credits.available': FieldValue.increment(-cost),
+        ...(fromCampaign ? { 'credits.campaign': campaign - fromCampaign } : {}),
+        // The last campaign credit restarts the daily refill clock (same rule as an analysis)
+        ...(fromCampaign && campaign - fromCampaign === 0 ? { 'credits.lastDailyReset': now() } : {}),
+      });
+    }
+    tx.set(tradeRef(trade.id), { ...trade, credits: cost, campaignCharged: fromCampaign });
     tx.update(agentRef(a.uid), {
-      'run.day': today, 'run.placedToday': placedToday + 1, 'run.lastScanAt': t0,
+      'run.day': today, 'run.placedToday': placedToday + 1, 'run.lastScanAt': t0, 'run.creditsUsed': FieldValue.increment(cost),
       seen: [pick.key, ...(cur.seen || [])].slice(0, SEEN_MAX), updatedAt: t0,
     });
     return true;
   });
+  if (placed === 'NO_CREDITS') {
+    await endRun(a.uid, 'NO_CREDITS');
+    return;
+  }
   if (!placed) return;
-  const text = `📝 Order placed: ${orderLine(trade)}. Quality ${trade.quality}/100, ${trade.rr}R to the target. Credits are used only if it fills.`;
+  const text = `📝 Order placed: ${orderLine(trade)}. Quality ${trade.quality}/100, ${trade.rr}R to the target. ${trade.credits ? `${trade.credits} credits used (refunded if it doesn't fill).` : ''}`.trim();
   await pushLog(a.uid, [logEntry('ORDER', text, trade.id)]);
   await tell(a.uid, `📝 Agent order on ${trade.symbol}`, text, { tradeId: trade.id });
+  await mt5Open(trade, s.price).catch(err => console.warn('[MarketX Agent] MT5 order failed:', err?.message || err));
 }
 
 async function tick(deps: AgentDeps) {
@@ -530,10 +699,12 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
   };
 
   const state = async (uid: string) => {
-    const [snap, trades, user] = await Promise.all([agentRef(uid).get(), tradesOf(uid), userRef(uid).get()]);
+    const [snap, trades, user, link] = await Promise.all([agentRef(uid).get(), tradesOf(uid), userRef(uid).get(), linkOf(uid)]);
     const a = snap.data() as AgentDoc | undefined;
     const u = user.data() as UserDoc | undefined;
     const free = !!u?.emailVerified && isUnlimitedEmail(u?.email || '');
+    const sub = (u as any)?.agentSub as { active?: boolean; plan?: string; expiresAt?: number } | undefined;
+    const pay = getPaymentsPublicConfig();
     return {
       settings: a?.settings || DEFAULT_AGENT_SETTINGS,
       run: runView(a?.run || null, trades),
@@ -545,7 +716,24 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       minQuality: AGENT_MIN_QUALITY,
       backtest: AGENT_BACKTEST,
       credits: free ? null : Math.max(0, u?.credits?.available ?? 0),
-      execution: { mode: 'TRACKED' as const, mt5: 'NOT_CONNECTED' as const },
+      // The agent's own subscription ($30 a month, yearly 18% off); staff accounts don't need one
+      subscription: {
+        active: agentSubActive(u as any),
+        staff: free,
+        plan: sub?.plan || null,
+        expiresAt: sub?.expiresAt || null,
+        monthlyUsd: pay.agentMonthlyAmount,
+        yearlyUsd: pay.agentYearlyAmount,
+        yearlyDiscountPct: pay.agentYearlyDiscountPct,
+        payments: pay.enabled,
+      },
+      // MT5 link: never the password or MetaApi's account id
+      mt5: {
+        available: mt5Configured(),
+        link: link
+          ? { status: link.status, login: link.login, server: link.server, broker: link.broker || null, currency: link.currency || null, balance: link.balance ?? null, symbols: link.symbols || {}, message: link.message || '', linkedAt: link.linkedAt }
+          : null,
+      },
     };
   };
 
@@ -579,21 +767,80 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       const a = as.data() as AgentDoc | undefined;
       const u = us.data() as UserDoc | undefined;
       if (!u) return 'NO_ACCOUNT';
+      if (!agentSubActive(u as any)) return 'NO_SUB';
       if (a?.run?.state === 'RUNNING') return 'RUNNING';
       const free = !!u.emailVerified && isUnlimitedEmail(u.email);
       if (!free && (u.credits?.available ?? 0) < price.perTrade) return 'NO_CREDITS';
       tx.set(agentRef(uid), { uid, settings: s, run, log: a?.log || [], seen: a?.seen || [], updatedAt: t });
       return 'OK';
     });
+    if (result === 'NO_SUB') return res.status(402).json({ error: 'AGENT_SUB_REQUIRED', message: 'The Trading Agent needs its subscription. Subscribe to switch it on.' });
     if (result === 'RUNNING') return res.status(409).json({ error: 'AGENT_RUNNING', message: 'The agent is already running.' });
     if (result === 'NO_CREDITS') return res.status(402).json({ error: 'NO_CREDITS', message: `You need at least ${price.perTrade} credits (one trade) to start a ${price.label.toLowerCase()} run.` });
     if (result !== 'OK') return res.status(409).json({ error: 'NO_ACCOUNT', message: 'Account not initialised. Please sign in again.' });
     const ends = new Date(run.endsAt).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const text = `${price.label} run started: ${s.markets.join(', ')} on ${s.timeframes.join(' and ')}, risk ${s.riskPct}% a trade, up to ${s.tradesPerDay} trade${s.tradesPerDay === 1 ? '' : 's'} a day. Runs until ${ends} WAT. ${price.perTrade} credits a trade, only when an order fills.`;
+    const text = `${price.label} run started: ${s.markets.join(', ')} on ${s.timeframes.join(' and ')}, risk ${s.riskPct}% a trade, up to ${s.tradesPerDay} trade${s.tradesPerDay === 1 ? '' : 's'} a day. Runs until ${ends} WAT. ${price.perTrade} credits a trade, taken when the agent places it and refunded if it never fills.`;
     await pushLog(uid, [logEntry('START', text)]);
     tell(uid, '🤖 Trading agent is on', text, { mail: true, rows: [['Run', price.label], ['Risk a trade', `${s.riskPct}%`], ['Most it can cost', `${run.maxCredits} credits`]] }).catch(() => {});
     // First look straight away on the lead worker (others: within the next cycle)
     if (IS_LEAD_WORKER) runAgents(deps, uid).catch(err => console.warn('[MarketX Agent] first scan failed:', err?.message || err));
+    res.json(await state(uid));
+  }));
+
+  // ---- MT5 link (MetaApi). The password is only passed through to MetaApi: never stored, logged or returned.
+  const linkThrottle = createKeyedThrottle({ windowMs: 60 * 60_000, max: 6 });
+  app.post('/api/agent/mt5/connect', limiter, requireAuth, ready, guard, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    if (!mt5Configured()) return res.status(503).json({ error: 'MT5_NOT_CONFIGURED', message: 'MT5 linking is not available yet.' });
+    const u = (await userRef(uid).get()).data() as UserDoc | undefined;
+    if (!agentSubActive(u as any)) return res.status(402).json({ error: 'AGENT_SUB_REQUIRED', message: 'Linking MT5 needs the Trading Agent subscription.' });
+    if (linkThrottle.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many link attempts. Please try again later.' });
+    const login = String(req.body?.login ?? '').trim();
+    const server = String(req.body?.server ?? '').trim();
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!/^\d{3,20}$/.test(login)) return res.status(400).json({ error: 'BAD_LOGIN', message: 'Your MT5 login is the account number (digits only).' });
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._()\-]{2,79}$/.test(server)) return res.status(400).json({ error: 'BAD_SERVER', message: 'Type the broker server exactly as MT5 shows it, e.g. Exness-MT5Real8.' });
+    if (password.length < 4 || password.length > 64 || /[\u0000-\u001F]/.test(password)) return res.status(400).json({ error: 'BAD_PASSWORD', message: 'Type your MT5 master (trading) password.' });
+    if (req.body?.consent !== true) return res.status(400).json({ error: 'CONSENT_REQUIRED', message: 'Tick the box to let the agent place trades on this account.' });
+    const existing = await linkOf(uid);
+    if (existing && existing.status !== 'FAILED') return res.status(409).json({ error: 'MT5_LINKED', message: 'An MT5 account is already linked. Disconnect it first.' });
+    if (existing) await unlinkMt5(uid).catch(() => {});
+    let created: Mt5Link;
+    try {
+      created = await createMt5Account({ login, password, server, name: `MarketX ${uid.slice(0, 8)}` });
+    } catch (err) {
+      const msg = err instanceof Mt5Error ? err.message : 'Could not reach MT5. Please try again.';
+      return res.status(err instanceof Mt5Error && err.code === 'MT5_ERROR' ? 400 : 502).json({ error: 'MT5_LINK_FAILED', message: msg });
+    }
+    const doc: Mt5LinkDoc = { uid, ...created, status: 'CONNECTING', login: maskLogin(login), server, linkedAt: now() };
+    await linkRef(uid).set(doc);
+    finishLink(uid).catch(err => console.warn('[MarketX Agent] MT5 link check failed:', err?.message || err));
+    res.json(await state(uid));
+  }));
+
+  const refreshThrottle = createKeyedThrottle({ windowMs: 60_000, max: 3 });
+  app.post('/api/agent/mt5/refresh', limiter, requireAuth, ready, guard, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    const link = await linkOf(uid);
+    if (!link) return res.status(404).json({ error: 'NOT_LINKED', message: 'No MT5 account is linked.' });
+    if (refreshThrottle.hit(uid)) return res.status(429).json({ error: 'TOO_SOON', message: 'Checked a moment ago. Try again in a minute.' });
+    if (link.status === 'CONNECTING') await finishLink(uid, 1).catch(() => {});
+    else if (link.status === 'CONNECTED' && mt5Configured()) {
+      try {
+        const [info, list] = await Promise.all([mt5AccountInfo(link), mt5Symbols(link)]);
+        await linkRef(uid).update({ balance: info.balance, currency: info.currency, broker: info.broker, symbols: Object.fromEntries(AGENT_MARKETS.map(m => [m.symbol, matchSymbol(m.symbol, list)])), checkedAt: now() });
+      } catch {}
+    }
+    res.json(await state(uid));
+  }));
+
+  app.delete('/api/agent/mt5', limiter, requireAuth, ready, guard, wrap(async (req, res) => {
+    const { uid } = getUser(res);
+    try {
+      await unlinkMt5(uid);
+    } catch {
+      return res.status(502).json({ error: 'MT5_UNLINK_FAILED', message: 'Could not disconnect right now. Please try again.' });
+    }
     res.json(await state(uid));
   }));
 

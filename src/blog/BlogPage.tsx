@@ -513,9 +513,10 @@ const SECTIONS: Section[] = [
               how many <B>trades per day</B> it may open, a <B>profit target</B> and a <B>loss limit</B> for the run.
             </>,
             <>
-              <B>Choose how long it runs:</B> a day, a week or a month. Each trade the agent takes costs credits: <B>7 a trade</B> on a daily run, <B>6</B> on
-              a weekly run and <B>5</B> on a monthly run. Credits are only used when an order fills; an order that never fills costs nothing. The setup shows
-              the most a run can cost before you start.
+              <B>Subscribe and choose how long it runs.</B> The agent has its own plan: <B>$30 a month</B>, or <B>$295.20 a year</B> (18% off). Then pick a
+              day, a week or a month for each run. Each trade the agent takes costs credits once, when it places the trade: <B>7 a trade</B> on a daily run,
+              <B>6</B> on a weekly run and <B>5</B> on a monthly run. An order that never fills is refunded in full. The setup shows the most a run can cost
+              before you start.
             </>,
             <>
               <B>Start the agent.</B> From then on it works on its own with Steady mode: it waits for a clean, high quality setup on your markets, places a
@@ -529,9 +530,13 @@ const SECTIONS: Section[] = [
             </>,
           ]}
         />
-        <Note title="Your MT5 account" tone="amber">
-          Direct execution on your MT5 account is coming. Until it is live, MarketX tracks every agent trade on live prices and alerts you with the exact
-          order to place (MT5 symbol, entry, stop and target). MarketX never asks for your MT5 password.
+        <Note title="Link your MT5 account" tone="amber">
+          In the agent, under <B>MT5</B>, type your MT5 login (the account number), your broker's server exactly as MT5 shows it (for example
+          Exness-MT5Real8) and your <B>master (trading) password</B>, tick the box and tap <B>Link MT5</B>. An investor password is read only and can't place
+          trades. Your password goes straight to the secure MT5 connection: MarketX never stores or shows it. Once linked, the agent places each trade on
+          your account, sized to your risk per trade, with its stop and target set at your broker, and tells you the symbol and lot size. If a trade can't
+          be placed (for example your balance is below the smallest lot for that stop), MarketX tells you and keeps tracking it. <B>Disconnect</B> any time.
+          Try it on a demo account first.
         </Note>
         <Note title="What to expect">
           The agent only takes high quality setups, so some days it takes none. In MarketX's tests on years of real prices, about a third of its trades
@@ -642,7 +647,7 @@ const SECTIONS: Section[] = [
           any trade card to open it already filled with that trade.
         </Note>
         <Note title="Buyers vs Sellers">
-          Every analysis card shows who is in control of the market right now: the share of buying against selling pressure from the last hour of
+          Switch on <B>Buyers vs Sellers</B> in Preference Mode (it is off by default) and every analysis card shows who is in control of the market right now: the share of buying against selling pressure from the last hour of
           one-minute candles (for coins, the volume bought and sold at market too), whether buyers or sellers are gaining in the last 15 minutes,
           and a note when the market is quiet or closed. It updates live while the card is on your screen. It is for information only: it never
           changes the signal, the levels or the analysis.

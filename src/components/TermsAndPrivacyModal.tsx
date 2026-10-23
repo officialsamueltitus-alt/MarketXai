@@ -66,6 +66,10 @@ const DOCS: Record<Tab, Doc> = {
         body: 'When you use the mic, your words are written down on your device by your browser, or, where the browser cannot do it, a short recording is sent once to MarketX to be written down. Recordings are never stored or kept; only the words you send are used, exactly like a typed message. When you talk with Matt, his replies are turned into speech on our servers and played straight back to you; the audio is not stored. Your browser asks your permission before the mic is used, and you can turn it off at any time in its settings.',
       },
       {
+        title: 'Trading agent and MT5',
+        body: 'If you link an MT5 account to the Trading Agent, your MT5 login, master password and broker server are passed once, over an encrypted connection, to our MetaTrader connection provider, which keeps them to place, manage and close the agent’s trades on your account. MarketX never stores, logs or shows your MT5 password; it keeps only the provider’s account reference, a masked login, the server name and your broker’s symbol names. The agent only trades as you set it up, and you can stop it or disconnect MT5 at any time; disconnecting (or deleting your MarketX account) removes the account from the provider too. Trading carries risk of loss.',
+      },
+      {
         title: 'Leaderboard and invites',
         body: 'The leaderboard shows your display name, username, profile photo and badge with your points or invite count; never your email or account details. You can hide yourself from it at any time. If you sign up through someone’s invite link, they see that a trader joined with their invite (your username), and the MarketX team can see who invited whom. Your invite link carries a random code, not your account id.',
       },
