@@ -22,7 +22,13 @@
   the daily limit is a hard stop (402 `DAILY_LIMIT`) until that refill. Campaign credits (owner-specified, `credits.campaign`, part of
   `available`, `campaignPool`; Free and Pro alike) are spent FIRST: while any are left the daily analyses are paused (not spent, and
   `normalizeUser` skips the 3:00 AM refill); the last campaign credit sets `lastDailyReset` to now, so the daily analyses left carry on
-  and the next refill is the following 3:00 AM. Campaign credits can't be gifted (only `available - campaign` is giftable).
+  and the next refill is the following 3:00 AM. Campaign credits can't be gifted (only `available - campaign - purchased` is giftable).
+  Credit packs (owner-requested): one-time Paystack plans `pack_50` / `pack_150` / `pack_400` / `pack_1000` (50 credits $5, 150 $12, 400 $28,
+  1,000 $60, `CREDIT_PACKS` in `server/payments.ts`, coupons refused), granted after verification into `credits.available` + `credits.purchased`
+  (`purchasedPool`). Bought credits are never drained by daily analyses (a daily analysis only takes from `available - purchased`), are used by
+  analyses AFTER the day's analyses run out (`chargeAnalysisCredit`: campaign → daily → bought; refunded on failure), by the trading agent
+  (campaign → ordinary → bought, `purchasedCharged`, refunded on cancel) and are never giftable. UI: `BuyCreditsCard.tsx` in the Credits tab,
+  "Buy credits" link in the agent panel; `CreditState.purchasedCredits`, `promptsLeft` counts them.
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a

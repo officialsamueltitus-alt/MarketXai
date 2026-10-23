@@ -72,6 +72,9 @@ interface SidebarProps {
   userProfile: UserProfile;
   creditState: CreditState;
   onOpenPricing: () => void;
+  /** Credit packs in the Credits tab */
+  paymentsConfig?: import('../utils/apiClient').PaymentsPublicConfig | null;
+  onCreditsBought?: (account: any, credits: number) => void;
   onOpenGiftModal: () => void;
   onUpdateUsername?: (newUsername: string) => void;
   onUpdateProfile: (updated: { displayName: string; username: string; avatarUrl?: string }) => Promise<string | null>;
@@ -124,6 +127,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   creditState,
   onOpenPricing,
   onOpenGiftModal,
+  paymentsConfig,
+  onCreditsBought,
   onUpdateUsername,
   onUpdateProfile,
   xShareReward,
@@ -964,6 +969,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     creditState={creditState}
                     onOpenPricing={onOpenPricing}
                     onOpenGiftModal={onOpenGiftModal}
+                    paymentsConfig={paymentsConfig}
+                    onCreditsBought={onCreditsBought}
                   />
                 ) : (
                   <ProfileView

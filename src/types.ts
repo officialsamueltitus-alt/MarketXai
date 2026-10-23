@@ -386,6 +386,8 @@ export interface CreditState {
   resetTimeZone?: string;
   /** Credits earned from the X campaign: still usable after the daily limit, until used up */
   campaignCredits?: number;
+  /** Credits bought in packs: used by the trading agent and for analyses once the day's analyses run out */
+  purchasedCredits?: number;
 }
 
 export interface CreditGift {

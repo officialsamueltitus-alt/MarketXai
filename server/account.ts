@@ -69,6 +69,9 @@ export interface UserDoc {
     lastDailyReset: number;
     /** Credits earned from the X campaign (part of `available`): the one exemption, usable after the daily limit */
     campaign?: number;
+    /** Credits bought in packs (part of `available`): never drained by the daily analyses, used by the trading agent and
+     *  for analyses once the day's analyses run out; never giftable */
+    purchased?: number;
   };
   xShareReward: XShareReward | null;
   emailVerified?: boolean;
@@ -134,6 +137,9 @@ export function sanitizeUsername(raw: string): string {
 
 /** Campaign credits still usable (never more than the balance they are part of) */
 export const campaignPool = (c: Pick<UserDoc['credits'], 'campaign' | 'available'>) => Math.max(0, Math.min(c.campaign ?? 0, c.available));
+/** Bought credits still usable (never more than the balance left after the campaign pool) */
+export const purchasedPool = (c: Pick<UserDoc['credits'], 'campaign' | 'available' | 'purchased'>) =>
+  Math.max(0, Math.min(c.purchased ?? 0, c.available - campaignPool(c)));
 
 // Apply subscription expiry and the daily quota refill at 3:00 AM (site time zone), no rollover
 function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: boolean } {
@@ -152,6 +158,10 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
   }
   if ((next.credits.campaign ?? 0) > next.credits.available) {
     next.credits.campaign = Math.max(0, next.credits.available);
+    changed = true;
+  }
+  if ((next.credits.purchased ?? 0) > purchasedPool(next.credits)) {
+    next.credits.purchased = purchasedPool(next.credits);
     changed = true;
   }
 
@@ -215,6 +225,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
         nextDailyResetAt: nextDailyReset(),
         resetTimeZone: CREDIT_RESET_TZ,
         campaignCredits: Math.max(0, doc.credits.campaign ?? 0),
+        purchasedCredits: purchasedPool(doc.credits),
       };
   return { profile, credits, xShareReward: doc.xShareReward || null, unlimited: vip };
 }
@@ -814,15 +825,22 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       // kept as they are and not refilled at 3:00 AM (normalizeUser). Then the daily analyses carry on, and the daily
       // limit is a hard stop until the 3:00 AM refill. Same for Free and Pro.
       const campaign = campaignPool(c);
+      const purchased = purchasedPool(c);
       let dailyDelta = 0;
       let availableDelta = 0;
       let campaignDelta = 0;
+      let purchasedDelta = 0;
       if (campaign > 0) {
         campaignDelta = 1;
         availableDelta = 1;
       } else if (c.dailyRemaining > 0) {
         dailyDelta = 1;
-        availableDelta = c.available > 0 ? 1 : 0;
+        // A daily analysis never eats into bought credits
+        availableDelta = c.available - purchased > 0 ? 1 : 0;
+      } else if (purchased > 0) {
+        // The day's analyses are used up: bought credits carry on, one per analysis
+        purchasedDelta = 1;
+        availableDelta = 1;
       } else {
         return { ok: false as const, reason: 'DAILY_LIMIT' };
       }
@@ -832,6 +850,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
         'credits.available': c.available - availableDelta,
         'credits.campaign': campaignLeft,
+        ...(purchasedDelta ? { 'credits.purchased': purchased - purchasedDelta } : {}),
         // The pause ends: the refill clock restarts now, so the daily analyses left carry on and refill the following 3:00 AM
         ...(lastCampaignCredit ? { 'credits.lastDailyReset': Date.now() } : {}),
       });
@@ -840,6 +859,8 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         dailyDelta,
         availableDelta,
         campaignDelta,
+        purchasedDelta,
+        purchasedLeft: purchased - purchasedDelta,
         campaignLeft,
         chargedAt: Date.now(),
         remaining: c.dailyRemaining - dailyDelta,
@@ -876,8 +897,10 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
           notifyActivity(user.uid, {
             type: 'system',
             title: `You've used today's ${charged.limit} analyses`,
-            message: `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day.`,
-            actionType: 'open_pricing',
+            message: charged.purchasedLeft > 0
+              ? `Your bought credits take over: ${charged.purchasedLeft} left, one per analysis. Your daily analyses refill at ${CREDIT_RESET_LABEL}.`
+              : `New prompts are paused until your analyses refill automatically at ${CREDIT_RESET_LABEL}. Pro gives you more each day, or buy a credit pack.`,
+            actionType: charged.purchasedLeft > 0 ? 'open_credits' : 'open_pricing',
           });
         }
         return;
@@ -895,6 +918,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
             'credits.dailyRemaining': daily,
             'credits.available': FieldValue.increment(charged.availableDelta),
             'credits.campaign': FieldValue.increment(charged.campaignDelta),
+            ...(charged.purchasedDelta ? { 'credits.purchased': FieldValue.increment(charged.purchasedDelta) } : {}),
           });
         })
         .catch(err => console.warn('[MarketX Credits] Refund failed:', err?.message || err));
@@ -1211,14 +1235,20 @@ export function registerAccountRoutes(app: Express, limiter: any) {
       if (toUid === user.uid) return { error: 'INVALID', message: 'You cannot gift credits to yourself.' };
       const recipient = await loadUserInTx(tx, toUid);
       if (!recipient) return { error: 'NOT_FOUND', message: `No MarketX user named @${toUsername}.` };
-      // Campaign credits are a personal reward: they can be used but never gifted
-      const giftable = Math.max(0, sender.doc.credits.available - campaignPool(sender.doc.credits));
+      // Campaign credits are a personal reward and bought credits stay with the buyer: both can be used but never gifted
+      const giftable = Math.max(0, sender.doc.credits.available - campaignPool(sender.doc.credits) - purchasedPool(sender.doc.credits));
       if (!vip && giftable < amount) {
         return {
           error: 'INSUFFICIENT',
           message: giftable === sender.doc.credits.available
             ? `Insufficient balance. You have ${giftable} credits.`
-            : `Insufficient balance. You can gift ${giftable} credit${giftable === 1 ? '' : 's'}; campaign credits can't be gifted.`,
+            : `Insufficient balance. You can gift ${giftable} credit${giftable === 1 ? '' : 's'}; ${
+                campaignPool(sender.doc.credits) && purchasedPool(sender.doc.credits)
+                  ? 'campaign and bought credits'
+                  : purchasedPool(sender.doc.credits)
+                    ? 'bought credits'
+                    : 'campaign credits'
+              } can't be gifted.`,
         };
       }
 

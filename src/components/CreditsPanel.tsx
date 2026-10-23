@@ -5,12 +5,17 @@ import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { TOKEN_RANGE_TEXT } from '../utils/tokens';
+import { BuyCreditsCard } from './BuyCreditsCard';
+import type { PaymentsPublicConfig } from '../utils/apiClient';
 
 interface CreditsPanelProps {
   userProfile: UserProfile;
   creditState: CreditState;
   onOpenPricing: () => void;
   onOpenGiftModal: () => void;
+  /** Credit packs (Paystack config) and what to do once a pack is paid and verified */
+  paymentsConfig?: PaymentsPublicConfig | null;
+  onCreditsBought?: (account: any, credits: number) => void;
 }
 
 // Circular meter for today's remaining analyses
@@ -49,7 +54,7 @@ const QuotaRing: React.FC<{ value: number; max: number; unlimited: boolean }> = 
   );
 };
 
-export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditState, onOpenPricing, onOpenGiftModal }) => {
+export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditState, onOpenPricing, onOpenGiftModal, paymentsConfig, onCreditsBought }) => {
   const unlimited = isUnlimitedUser(userProfile.email) || creditState.availableCredits >= 99999;
   const isPremium = userProfile.subscription.active;
   const [reset, setReset] = useState(() => getDailyResetCountdown(creditState));
@@ -135,6 +140,14 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
           </div>
         </section>
       )}
+
+      {!unlimited && (creditState.purchasedCredits ?? 0) > 0 && (
+        <section className="rounded-3xl border border-amber-400/15 bg-amber-500/[0.05] p-4 text-xs text-slate-400">
+          <span className="text-sm font-medium text-white">{creditState.purchasedCredits} bought credits</span> in your balance: used by the Trading Agent, and for
+          analyses once your daily ones run out.
+        </section>
+      )}
+      {!unlimited && onCreditsBought && <BuyCreditsCard paymentsConfig={paymentsConfig || null} onPurchased={onCreditsBought} />}
 
       {/* Actions */}
       {!unlimited && (
