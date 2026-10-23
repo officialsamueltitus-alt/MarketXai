@@ -45,7 +45,7 @@ import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
 import { registerCouponRoutes, startCoupons } from './server/coupons';
 import { registerPressureRoutes } from './server/pressure';
-import { registerVoiceRoutes, useVoiceEngine } from './server/voice';
+import { registerSpeakRoutes, registerVoiceRoutes, useVoiceEngine } from './server/voice';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -2104,6 +2104,7 @@ registerAdminRoutes(app);
 registerCouponRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many coupon tries. Please wait a minute.' }));
 // Voice input (free): speech to text for browsers without on-device recognition, 20 clips a minute per trader
 registerVoiceRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many voice messages. Please wait a minute.' }));
+registerSpeakRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 30, message: 'Matt is talking a lot. Please wait a minute.' }));
 // Campaigns: users submit their X post; an admin reviews and approves the reward
 registerCampaignRoutes(app, generalApiRateLimiter);
 // Price alerts (/price-alerts): the server watches approved setups and notifies at the entry zone, stop and targets

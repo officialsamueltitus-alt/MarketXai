@@ -887,3 +887,66 @@ html.mx-blog-page body {
 .prose th, .prose td { border: 1px solid var(--mx-border-strong); padding: 0.4em 0.6em; text-align: left; }
 .prose th { background: var(--mx-surface-2); font-weight: 600; }
 :root[data-theme='light'] .prose a { color: #6d28d9; }
+
+/* ---- Talk with Matt (owner-specified): the orb with eyes, after the owner's reference ---------------------------- */
+.mx-talk {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(30, 58, 138, 0.45) 0%, transparent 55%),
+    radial-gradient(90% 70% at 100% 100%, rgba(13, 148, 136, 0.18) 0%, transparent 60%),
+    #03040a;
+  animation: mx-talk-in 0.35s ease-out both;
+}
+@keyframes mx-talk-in { from { opacity: 0; } to { opacity: 1; } }
+.mx-talk-rings { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.mx-talk-rings span {
+  position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%);
+  border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 40px rgba(99, 102, 241, 0.04);
+}
+.mx-orb {
+  --lv: 0;
+  position: relative; width: 168px; height: 168px; border-radius: 9999px; overflow: hidden;
+  background: radial-gradient(circle at 32% 28%, #b9b2ff 0%, #7c6cff 38%, #4f3ff0 68%, #2c2bb8 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.55),
+    inset 0 -18px 40px rgba(30, 20, 120, 0.45),
+    0 0 calc(40px + var(--lv) * 70px) rgba(124, 108, 255, calc(0.35 + var(--lv) * 0.4));
+  transition: box-shadow 0.15s linear;
+  will-change: transform;
+}
+/* Matt drops in from above (on the wrapper, so the orb itself can move with the voice) */
+.mx-orb-wrap { animation: mx-orb-drop 0.9s cubic-bezier(0.22, 1.25, 0.36, 1) both; }
+@keyframes mx-orb-drop {
+  0% { transform: translateY(-60vh) scale(0.9); }
+  70% { transform: translateY(8px) scale(1.02); }
+  100% { transform: translateY(0) scale(1); }
+}
+.mx-orb-swirl { position: absolute; border-radius: 9999px; filter: blur(18px); mix-blend-mode: screen; }
+.mx-orb-swirl.a { width: 70%; height: 70%; left: -10%; top: 30%; background: rgba(244, 114, 182, 0.75); animation: mx-orb-swirl-a 7s ease-in-out infinite alternate; }
+.mx-orb-swirl.b { width: 65%; height: 60%; right: -12%; top: 50%; background: rgba(56, 189, 248, 0.55); animation: mx-orb-swirl-b 9s ease-in-out infinite alternate; }
+@keyframes mx-orb-swirl-a { 0% { transform: translate(0, 0) scale(1); } 50% { transform: translate(40%, -30%) scale(0.8); } 100% { transform: translate(15%, 10%) scale(1.15); } }
+@keyframes mx-orb-swirl-b { 0% { transform: translate(0, 0) scale(0.9); } 50% { transform: translate(-45%, -20%) scale(1.1); } 100% { transform: translate(-10%, -50%) scale(0.85); } }
+.mx-orb-gloss {
+  position: absolute; inset: 0; border-radius: 9999px;
+  background: radial-gradient(60% 35% at 40% 12%, rgba(255, 255, 255, 0.55), transparent 70%), radial-gradient(40% 25% at 70% 92%, rgba(255, 255, 255, 0.18), transparent 70%);
+}
+.mx-orb-eyes { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); display: flex; gap: 30px; }
+.mx-orb-eyes i {
+  display: block; width: 15px; height: 30px; border-radius: 9999px; background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
+  transform-origin: 50% 60%;
+  animation: mx-orb-blink 4.2s ease-in-out infinite;
+  transition: height 0.25s ease, width 0.25s ease, transform 0.25s ease;
+}
+@keyframes mx-orb-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.12); } }
+/* listening: eyes wide open, looking at you */
+.mx-orb.is-listening .mx-orb-eyes i { height: 34px; }
+/* thinking: eyes glance side to side */
+.mx-orb.is-thinking .mx-orb-eyes, .mx-orb.is-hearing .mx-orb-eyes { animation: mx-orb-look 1.6s ease-in-out infinite; }
+@keyframes mx-orb-look { 0%, 100% { transform: translateX(-50%); } 30% { transform: translateX(calc(-50% - 12px)); } 70% { transform: translateX(calc(-50% + 12px)); } }
+/* speaking: a happy squint */
+.mx-orb.is-speaking .mx-orb-eyes i { height: 20px; }
+.mx-orb.is-idle { filter: saturate(0.85); }
+@media (prefers-reduced-motion: reduce) {
+  .mx-orb-wrap, .mx-orb-swirl, .mx-orb-eyes, .mx-orb-eyes i { animation: none !important; }
+}

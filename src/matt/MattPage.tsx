@@ -3,7 +3,7 @@
 // by the server). Conversations stay on this device only, tagged with their trader (another account on the same device never
 // sees them); History lists the past chats to reopen or delete.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowUp, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertCircle, ArrowUp, AudioLines, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Mic, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
 import { LazyMarkdown, preloadMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
 import { ModeSwitch } from '../components/ModeSwitch';
@@ -11,6 +11,8 @@ import { takeMattAsk } from '../utils/matt';
 import { normalizeSpokenPrompt } from '../utils/voice';
 import { useVoiceInput, VoiceMicButton, VoiceStatus } from '../components/VoiceInput';
 import { applyTheme, readThemePref } from '../utils/theme';
+import { MattTalk, type TalkReply } from './MattTalk';
+import { readMattVoice, saveMattVoice, unlockedContext, type MattVoice } from './mattVoice';
 
 interface Msg {
   id: string;
@@ -247,6 +249,72 @@ export default function MattPage() {
     }
     voice.toggle();
   };
+  // The mic asks first (owner-specified): a direct question (speech to text, as before) or talk back (Matt answers out loud)
+  const [micMenu, setMicMenu] = useState(false);
+  const [talk, setTalk] = useState<{ ctx: AudioContext | null } | null>(null);
+  const [mattVoice, setMattVoice] = useState<MattVoice>(readMattVoice);
+  const talkChat = useRef<string | null>(null);
+  const onMic = () => {
+    if (voiceOn) return toggleVoice();
+    if (!voiceAllowed) return setVoiceUpsell(true);
+    setMicMenu(v => !v);
+  };
+  const startTalk = () => {
+    setMicMenu(false);
+    setVoiceError(null);
+    talkChat.current = currentRef.current;
+    // Made inside this tap so phones let Matt's voice play
+    setTalk({ ctx: unlockedContext() });
+  };
+  const pickVoice = (v: MattVoice) => {
+    saveMattVoice(v);
+    setMattVoice(v);
+  };
+  useEffect(() => {
+    if (!micMenu) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMicMenu(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [micMenu]);
+
+  /** One spoken turn: saved in the chat like a typed one, and Matt's reply comes back signed so it can be spoken */
+  const talkAsk = useCallback(async (text: string): Promise<TalkReply> => {
+    const q = text.trim().slice(0, 1500);
+    const chatId = talkChat.current || newId('c');
+    talkChat.current = chatId;
+    const existing = chatsRef.current.find(c => c.id === chatId);
+    const user: Msg = { id: newId(), role: 'user', text: q, at: Date.now() };
+    const history = [...(existing?.msgs || []).filter(m => !m.error), user];
+    addTo(chatId, [user]);
+    setCurrentId(chatId);
+    const reply = (m: Partial<Msg>) => addTo(chatId, [{ id: newId(), role: 'matt', text: '', at: Date.now(), ...m }]);
+    try {
+      const res = await fetch('/api/matt/chat', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history.slice(-10).map(m => ({ role: m.role, text: m.text })), context: existing?.context, spoken: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 401) {
+        setSignedOut(true);
+        return { error: 'Sign in to MarketX to talk with Matt.' };
+      }
+      if (res.status === 403 && data?.pausedUntil) {
+        setPausedUntil(data.pausedUntil);
+        reply({ text: data.message || 'Matt is paused for your account.', private: true });
+        return { error: data.message || 'Matt is paused for your account.' };
+      }
+      if (!res.ok || !data?.reply) return { error: data?.message || 'Matt hit a snag. Please try again.' };
+      if (data.pausedUntil) setPausedUntil(data.pausedUntil);
+      reply({ text: String(data.reply), private: !!data.private });
+      return { reply: String(data.reply), speak: data.speak || null, private: !!data.private };
+    } catch {
+      return { error: 'Connection lost. Check your internet and try again.' };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!voiceError) return;
     const t = setTimeout(() => setVoiceError(null), 4500);
@@ -353,6 +421,19 @@ export default function MattPage() {
           <Plus className="w-4 h-4" /> <span className="hidden sm:inline">New chat</span>
         </button>
       </header>
+
+      {talk && (
+        <MattTalk
+          ctx={talk.ctx}
+          voice={mattVoice}
+          onVoice={setMattVoice}
+          ask={talkAsk}
+          onClose={() => {
+            setTalk(null);
+            talkChat.current = null;
+          }}
+        />
+      )}
 
       {/* Chat history */}
       {historyOpen && (
@@ -569,7 +650,61 @@ export default function MattPage() {
                   </span>
                 )}
                 <div className="flex items-center gap-1 shrink-0">
-                {!busy && voice.supported && <VoiceMicButton state={voice.state} onClick={toggleVoice} locked={!voiceAllowed && !voiceOn} />}
+                {!busy && voice.supported && (
+                  <div className="relative">
+                    <VoiceMicButton state={voice.state} onClick={onMic} locked={!voiceAllowed && !voiceOn} />
+                    {micMenu && (
+                      <>
+                        <button type="button" aria-label="Close" onClick={() => setMicMenu(false)} className="fixed inset-0 z-40 cursor-default" />
+                        <div className="absolute right-0 bottom-11 z-50 w-[min(18rem,calc(100vw-2rem))] p-1.5 rounded-2xl bg-[var(--mx-surface)] border border-white/[0.1] shadow-2xl mx-rise" role="menu" aria-label="Talk to Matt">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMicMenu(false);
+                              toggleVoice();
+                            }}
+                            className="w-full flex items-start gap-3 p-2.5 rounded-xl text-left hover:bg-white/[0.06] cursor-pointer"
+                          >
+                            <span className="w-9 h-9 rounded-xl bg-violet-500/15 text-violet-200 flex items-center justify-center shrink-0">
+                              <Mic className="w-[18px] h-[18px]" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-slate-100">Direct question</span>
+                              <span className="block text-[12px] text-slate-400 leading-snug">Say it, Matt writes it down and answers in the chat.</span>
+                            </span>
+                          </button>
+                          <button type="button" role="menuitem" onClick={startTalk} className="w-full flex items-start gap-3 p-2.5 rounded-xl text-left hover:bg-white/[0.06] cursor-pointer">
+                            <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white flex items-center justify-center shrink-0">
+                              <AudioLines className="w-[18px] h-[18px]" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-slate-100">Talk back</span>
+                              <span className="block text-[12px] text-slate-400 leading-snug">A voice conversation: Matt answers out loud, and it's all written down too.</span>
+                            </span>
+                          </button>
+                          <div className="flex items-center justify-between gap-2 px-2.5 pt-2 pb-1.5 mt-1 border-t border-white/[0.06]">
+                            <span className="text-[11.5px] text-slate-400">Matt's voice</span>
+                            <div className="inline-flex p-0.5 rounded-full bg-white/[0.05] border border-white/[0.08]" role="radiogroup" aria-label="Matt's voice">
+                              {(['female', 'male'] as MattVoice[]).map(v => (
+                                <button
+                                  key={v}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={mattVoice === v}
+                                  onClick={() => pickVoice(v)}
+                                  className={`h-6 px-2.5 rounded-full text-[11.5px] font-medium cursor-pointer ${mattVoice === v ? 'bg-white text-slate-950' : 'text-slate-300 hover:text-white'}`}
+                                >
+                                  {v === 'female' ? 'Female' : 'Male'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 {voiceOn ? null : busy ? (
                   <button type="button" onClick={() => abortRef.current?.abort()} aria-label="Stop" title="Stop" className="h-9 w-9 rounded-full flex items-center justify-center bg-white text-slate-950 hover:bg-slate-200 cursor-pointer">
                     <Square className="w-3.5 h-3.5" fill="currentColor" />
