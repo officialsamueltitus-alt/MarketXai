@@ -492,6 +492,19 @@
   prompt (same credit rules); `voiceCommand` ("open my watchlist", price alerts, journal, track record, Strategy Builder, Preference Mode,
   Fundamental Analysis, Matt) opens the tool instead. `Permissions-Policy` allows `microphone=(self)` only. Noted in the guide, Matt's
   knowledge and Privacy ("Voice input").
+  Talk back with Matt (owner-specified, Matt only): Matt's mic opens a menu (`MattPage.tsx`): Direct question (the speech-to-text above) or
+  Talk back. Matt settings (owner-specified, `MattSettings.tsx`, the gear next to History, or `/matt?settings=1`; kept on the device):
+  Mic in Matt on/off (`mx.matt.mic`; off hides Matt's mic) and Matt's voice Female/Male with "Hear it" samples (`mx.matt.voice`,
+  `src/matt/mattVoice.ts`); the voice is chosen ONLY there, never in the mic menu or on the talk screen. Talk back = `MattTalk.tsx`, a full-screen voice conversation styled on
+  the owner's reference (dark page, faint rings, glossy violet-blue orb with two white pill eyes that blink, look around while thinking, squint
+  while talking; it drops in and moves with the voice; `.mx-orb*` in `index.css`): Matt greets the trader by first name, listens (the same
+  recorder, sharing the AudioContext made in the tap so iOS plays and measures sound), sends the words to `/api/matt/chat` with `spoken: true`
+  (Matt's prompt asks for 2-4 short spoken sentences; the reply comes back with `speak`, an HMAC of the reply for this trader), speaks it via
+  `POST /api/matt/speak` (`registerSpeakRoutes` in `server/voice.ts`: Pro-gated like voice, 30/min + 400/day, only a signed Matt reply or the
+  greeting, Markdown stripped (`speakableText`, 900 chars), voices Aoede (female) / Charon (male) on the TTS models, PCM wrapped as WAV,
+  nothing stored; 503 = the device's own speech voice reads it instead), then listens again until End. Tap Matt to interrupt; two silent
+  turns stop listening until a tap. Every turn is written on the talk screen and saved in the Matt chat. Noted in the guide, Matt's knowledge
+  and Privacy.
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside

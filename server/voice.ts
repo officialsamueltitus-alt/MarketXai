@@ -12,6 +12,9 @@ import type { GoogleGenAI } from '@google/genai';
 import { requireAuth, getUser } from './account';
 import { createKeyedThrottle } from './security';
 import { proGuard } from './proAccess';
+import { createHash, timingSafeEqual } from 'crypto';
+import { signWithServerSecret } from './session';
+import { userRef } from './account';
 
 // The lightest model first: writing down a few seconds of speech needs speed, not reasoning
 const MODELS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
@@ -139,6 +142,177 @@ export function registerVoiceRoutes(app: Express, limiter: any) {
     } catch (err: any) {
       console.error('[MarketX Voice] transcribe failed:', err?.message || err);
       res.status(503).json({ error: 'VOICE_UNAVAILABLE', message: 'Voice input is busy right now. Please type your message or try again.' });
+    }
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Matt talks back (owner-specified, Matt only): his replies spoken aloud in a female or male voice. Only words Matt
+// himself wrote are spoken: each spoken reply carries a signature the chat route made (`speakToken`), and the greeting is
+// written here. Nothing is stored; the audio goes straight back to the app.
+// ---------------------------------------------------------------------------
+export type MattVoice = 'female' | 'male';
+const TTS_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'];
+const TTS_VOICES: Record<MattVoice, string> = { female: 'Aoede', male: 'Charon' };
+const TTS_TIMEOUT_MS = 15_000;
+const TTS_HEDGE_MS = 4_000;
+const SPEAK_MAX = 900;
+
+/** Test hook: replaces the speech call (returns raw 16-bit PCM and its rate) */
+let ttsOverride: ((req: { text: string; voice: string }) => Promise<{ pcm: Buffer; rate: number } | null>) | null = null;
+export function __setSpeechModel(fn: typeof ttsOverride) {
+  ttsOverride = fn;
+}
+
+/** Text as it is read aloud: no Markdown, links, lists or symbols, cut at a sentence end */
+export function speakableText(raw: string): string {
+  let t = String(raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/[*_`~|#>]/g, '')
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u2028-\u202E\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (t.length > SPEAK_MAX) {
+    const cut = t.slice(0, SPEAK_MAX);
+    const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+    t = end > 200 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, '')}…`;
+  }
+  return t;
+}
+
+const digest = (text: string) => createHash('sha256').update(speakableText(text)).digest('hex');
+/** Signature for a reply Matt wrote to this trader, so only Matt's own words can be spoken */
+export function speakToken(uid: string, text: string): string | null {
+  return signWithServerSecret(`matt-speak:${uid}:${digest(text)}`);
+}
+function tokenOk(uid: string, text: string, token: unknown): boolean {
+  const want = speakToken(uid, text);
+  if (!want || typeof token !== 'string' || token.length !== want.length) return false;
+  return timingSafeEqual(Buffer.from(want), Buffer.from(token));
+}
+
+export function mattGreeting(name?: string | null): string {
+  const first = String(name || '').trim().split(/\s+/)[0]?.replace(/[^\p{L}\p{N}'-]/gu, '').slice(0, 20);
+  return `Hi${first ? ` ${first}` : ''}! I'm Matt, your MarketX guide. Ask me anything about MarketX, your account or the markets, and I'll talk you through it.`;
+}
+
+/** 16-bit mono PCM in a WAV file the browser can play */
+function pcmToWav(pcm: Buffer, rate: number): Buffer {
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0);
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write('WAVE', 8);
+  h.write('fmt ', 12);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write('data', 36);
+  h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
+async function synthesize(text: string, voice: MattVoice): Promise<Buffer | null> {
+  const voiceName = TTS_VOICES[voice];
+  if (ttsOverride) {
+    const r = await ttsOverride({ text, voice: voiceName });
+    return r ? pcmToWav(r.pcm, r.rate) : null;
+  }
+  const ai = engine ? engine() : null;
+  if (!ai) return null;
+  const errors: string[] = [];
+  const one = async (model: string): Promise<Buffer | null> => {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const res: any = await Promise.race([
+        ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: `Say in a warm, clear, friendly voice: ${text}` }] }],
+          config: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } } as any,
+        }),
+        new Promise((_, rej) => (timer = setTimeout(() => rej(new Error('timeout')), TTS_TIMEOUT_MS))),
+      ]);
+      const part = res?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data);
+      if (!part) {
+        errors.push(`${model}: no audio`);
+        return null;
+      }
+      const mime = String(part.inlineData.mimeType || '');
+      const rate = Number(/rate=(\d+)/.exec(mime)?.[1]) || 24000;
+      const pcm = Buffer.from(part.inlineData.data, 'base64');
+      // A WAV already? pass it through
+      return pcm.toString('ascii', 0, 4) === 'RIFF' ? pcm : pcmToWav(pcm, rate);
+    } catch (err: any) {
+      errors.push(`${model}: ${`${err?.status || err?.code || ''} ${String(err?.message || err)}`.trim().replace(/key=[^&\s]+/gi, 'key=…').slice(0, 140)}`);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  // Both voices start one after another; a slow one gets the next started beside it
+  const out = await new Promise<Buffer | null>(resolve => {
+    let next = 0;
+    let running = 0;
+    let done = false;
+    let hedge: NodeJS.Timeout | undefined;
+    const finish = (b: Buffer | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(hedge);
+      resolve(b);
+    };
+    const launch = () => {
+      if (done || next >= TTS_MODELS.length) return;
+      const model = TTS_MODELS[next++];
+      running++;
+      clearTimeout(hedge);
+      hedge = setTimeout(launch, TTS_HEDGE_MS);
+      one(model).then(b => {
+        running--;
+        if (b) return finish(b);
+        if (next < TTS_MODELS.length) launch();
+        else if (!running) finish(null);
+      });
+    };
+    launch();
+  });
+  if (!out) console.warn('[MarketX Voice] no speech:', errors.join(' | '));
+  return out;
+}
+
+export function registerSpeakRoutes(app: Express, limiter: any) {
+  const perDay = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 400 });
+  const voicePro = proGuard('Talking with Matt is a Pro feature. Type your message, or upgrade to Pro to talk to Matt.');
+  // POST {greeting: true, voice} for Matt's hello, or {text, token, voice} for a reply Matt wrote (token from /api/matt/chat)
+  app.post('/api/matt/speak', limiter, requireAuth, voicePro, async (req: Request, res: Response) => {
+    const { uid } = getUser(res);
+    if (perDay.hit(uid)) return res.status(429).json({ error: 'VOICE_DAILY_LIMIT', message: "Matt's voice is resting for today. His replies still show in writing." });
+    const voice: MattVoice = req.body?.voice === 'male' ? 'male' : 'female';
+    let text: string;
+    if (req.body?.greeting === true) {
+      const u = (await userRef(uid).get().catch(() => null))?.data() as any;
+      text = mattGreeting(u?.displayName);
+    } else {
+      text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 8000) : '';
+      if (!text || !tokenOk(uid, text, req.body?.token)) return res.status(400).json({ error: 'BAD_TEXT', message: 'Only Matt\'s own replies can be spoken.' });
+    }
+    const spoken = speakableText(text);
+    if (!spoken) return res.status(400).json({ error: 'BAD_TEXT', message: 'Nothing to say.' });
+    try {
+      const wav = await synthesize(spoken, voice);
+      if (!wav) return res.status(503).json({ error: 'VOICE_UNAVAILABLE', message: "Matt's voice is busy right now; his reply is written below.", text: spoken });
+      res.json({ audio: wav.toString('base64'), mimeType: 'audio/wav', text, spoken });
+    } catch (err: any) {
+      console.error('[MarketX Voice] speak failed:', err?.message || err);
+      res.status(503).json({ error: 'VOICE_UNAVAILABLE', message: "Matt's voice is busy right now; his reply is written below.", text: spoken });
     }
   });
 }

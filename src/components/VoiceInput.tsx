@@ -96,9 +96,9 @@ export function useVoiceInput(handlers: Handlers) {
    * (iOS only lets audio run when it starts from a tap).
    */
   const startRecorder = useCallback(
-    (ctx: AudioContext | null) => {
+    (ctx: AudioContext | null, keepCtx = false) => {
       if (!canRecord()) {
-        ctx?.close().catch(() => {});
+        if (!keepCtx) ctx?.close().catch(() => {});
         h.current.onError?.("Voice input isn't available in this browser. Please type your message.");
         return;
       }
@@ -114,11 +114,19 @@ export function useVoiceInput(handlers: Handlers) {
       let meterWorks = false;
       let startedAt = 0;
       const chunks: Blob[] = [];
+      let micNode: MediaStreamAudioSourceNode | null = null;
       const cleanup = () => {
         cancelAnimationFrame(raf);
+        try {
+          micNode?.disconnect();
+        } catch {
+          /* already gone */
+        }
+        micNode = null;
         clearTimeout(graceTimer);
         stream?.getTracks().forEach(t => t.stop());
-        ctx?.close().catch(() => {});
+        // A context lent by the caller (Matt's talk back, unlocked in a tap) stays open for the next turn
+        if (!keepCtx) ctx?.close().catch(() => {});
         stream = null;
         ctx = null;
       };
@@ -215,7 +223,8 @@ export function useVoiceInput(handlers: Handlers) {
             ctx.resume?.().catch(() => {});
             analyser = ctx.createAnalyser();
             analyser.fftSize = 1024;
-            ctx.createMediaStreamSource(stream).connect(analyser);
+            micNode = ctx.createMediaStreamSource(stream);
+            micNode.connect(analyser);
           }
         } catch {
           analyser = null;
@@ -438,10 +447,15 @@ export function useVoiceInput(handlers: Handlers) {
     [finishFor, startRecorder]
   );
 
-  const start = useCallback(() => {
+  /** `ctx`: an audio context the caller already unlocked in a tap (kept open); otherwise one is made here */
+  const start = useCallback((opts?: { ctx?: AudioContext | null }) => {
     if (session.current) return;
     const Rec = recognitionCtor();
     if (Rec && !recognitionBroken && !isMobileDevice()) return startRecognition(Rec);
+    if (opts?.ctx) {
+      opts.ctx.resume?.().catch(() => {});
+      return startRecorder(opts.ctx, true);
+    }
     // Created and resumed right here, inside the tap, so iOS lets it hear the microphone
     let ctx: AudioContext | null = null;
     try {

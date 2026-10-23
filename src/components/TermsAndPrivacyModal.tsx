@@ -63,7 +63,7 @@ const DOCS: Record<Tab, Doc> = {
       },
       {
         title: 'Voice input',
-        body: 'When you use the mic, your words are written down on your device by your browser, or, where the browser cannot do it, a short recording is sent once to MarketX to be written down. Recordings are never stored or kept; only the words you send are used, exactly like a typed message. Your browser asks your permission before the mic is used, and you can turn it off at any time in its settings.',
+        body: 'When you use the mic, your words are written down on your device by your browser, or, where the browser cannot do it, a short recording is sent once to MarketX to be written down. Recordings are never stored or kept; only the words you send are used, exactly like a typed message. When you talk with Matt, his replies are turned into speech on our servers and played straight back to you; the audio is not stored. Your browser asks your permission before the mic is used, and you can turn it off at any time in its settings.',
       },
       {
         title: 'Cookies',

@@ -804,6 +804,12 @@ const SECTIONS: Section[] = [
           give financial advice; for a trade plan use Ask SI. Questions about how MarketX is built or run are private and get "Not available"; asking them
           repeatedly pauses Matt for your account for a while.
         </Note>
+        <Note title="Talk with Matt" tone="emerald">
+          Tap the mic in Matt's input box and choose: <B>Direct question</B> to say your question and get Matt's written answer, or <B>Talk back</B> for a
+          voice conversation. Talk back opens Matt's own screen: Matt says hello, listens, answers out loud, then listens again, so you can keep talking
+          until you tap <B>End</B>. Tap Matt to interrupt him. Every word, yours and his, is written down on screen and saved in your Matt chat. Open <B>Matt settings</B>{' '}
+          (the gear at the top of the Matt page) to pick a <B>Female</B> or <B>Male</B> voice, hear each one, or switch the mic in Matt off and on. Talking with Matt is free until 1 November 2026, then part of Pro.
+        </Note>
         <Note title="Email">You can also write to help.marketx@gmail.com.</Note>
         <Note title="Quick fixes">
           <B>"Please slow down" or "Too many requests":</B> wait a minute and try again; it clears on its own. <B>A page looks broken after an update:</B>{' '}
