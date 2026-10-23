@@ -3,6 +3,7 @@
 // reads the words instead, so the conversation never stops.
 
 export type MattVoice = 'female' | 'male';
+// Matt settings are kept on this device
 const VOICE_KEY = 'mx.matt.voice';
 
 export function readMattVoice(): MattVoice {
@@ -15,6 +16,23 @@ export function readMattVoice(): MattVoice {
 export function saveMattVoice(v: MattVoice) {
   try {
     localStorage.setItem(VOICE_KEY, v);
+  } catch {
+    /* private mode: the choice lasts for this visit */
+  }
+}
+
+/** Matt settings: the mic in Matt on or off (on unless the trader switched it off) */
+const MIC_KEY = 'mx.matt.mic';
+export function readMattMic(): boolean {
+  try {
+    return localStorage.getItem(MIC_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+export function saveMattMic(on: boolean) {
+  try {
+    localStorage.setItem(MIC_KEY, on ? 'on' : 'off');
   } catch {
     /* private mode: the choice lasts for this visit */
   }

@@ -3,7 +3,7 @@
 // by the server). Conversations stay on this device only, tagged with their trader (another account on the same device never
 // sees them); History lists the past chats to reopen or delete.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowUp, AudioLines, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Mic, Plus, Search, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertCircle, ArrowUp, AudioLines, BookOpen, Coins, Gift, History, Loader2, Lock, MessageSquare, Mic, Plus, Search, Settings, Sparkles, Square, Trash2, UserRound, X } from 'lucide-react';
 import { LazyMarkdown, preloadMarkdown } from '../components/LazyMarkdown';
 import { MattMark } from '../components/AskMattButton';
 import { ModeSwitch } from '../components/ModeSwitch';
@@ -12,7 +12,8 @@ import { normalizeSpokenPrompt } from '../utils/voice';
 import { useVoiceInput, VoiceMicButton, VoiceStatus } from '../components/VoiceInput';
 import { applyTheme, readThemePref } from '../utils/theme';
 import { MattTalk, type TalkReply } from './MattTalk';
-import { readMattVoice, saveMattVoice, unlockedContext, type MattVoice } from './mattVoice';
+import { readMattMic, readMattVoice, saveMattMic, saveMattVoice, unlockedContext, type MattVoice } from './mattVoice';
+import { MattSettings } from './MattSettings';
 
 interface Msg {
   id: string;
@@ -253,6 +254,23 @@ export default function MattPage() {
   const [micMenu, setMicMenu] = useState(false);
   const [talk, setTalk] = useState<{ ctx: AudioContext | null } | null>(null);
   const [mattVoice, setMattVoice] = useState<MattVoice>(readMattVoice);
+  // Matt settings (owner-specified): mic on/off and Matt's voice, from the gear at the top (or /matt?settings=1)
+  const [micOn, setMicOn] = useState(readMattMic);
+  const [settingsOpen, setSettingsOpen] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('settings') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const switchMic = (on: boolean) => {
+    saveMattMic(on);
+    setMicOn(on);
+    if (!on) {
+      setMicMenu(false);
+      voice.cancel();
+    }
+  };
   const talkChat = useRef<string | null>(null);
   const onMic = () => {
     if (voiceOn) return toggleVoice();
@@ -412,6 +430,17 @@ export default function MattPage() {
               {chatCount > 0 && <span className="absolute top-1 right-1.5 w-1.5 h-1.5 rounded-full bg-violet-400" aria-hidden="true" />}
             </button>
           )}
+          {!signedOut && (
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Matt settings"
+              title="Matt settings"
+              className="h-8 w-9 flex items-center justify-center text-slate-500 hover:text-white transition-colors cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2 min-w-0">
           <MattMark className="w-7 h-7" />
@@ -426,11 +455,32 @@ export default function MattPage() {
         <MattTalk
           ctx={talk.ctx}
           voice={mattVoice}
-          onVoice={setMattVoice}
           ask={talkAsk}
           onClose={() => {
             setTalk(null);
             talkChat.current = null;
+          }}
+        />
+      )}
+
+      {settingsOpen && (
+        <MattSettings
+          micOn={micOn}
+          onMic={switchMic}
+          voice={mattVoice}
+          onVoice={pickVoice}
+          voiceAllowed={voiceAllowed}
+          onClose={() => {
+            setSettingsOpen(false);
+            try {
+              const u = new URL(window.location.href);
+              if (u.searchParams.has('settings')) {
+                u.searchParams.delete('settings');
+                window.history.replaceState(null, '', `${u.pathname}${u.search}${u.hash}`);
+              }
+            } catch {
+              /* ignore */
+            }
           }}
         />
       )}
@@ -650,7 +700,7 @@ export default function MattPage() {
                   </span>
                 )}
                 <div className="flex items-center gap-1 shrink-0">
-                {!busy && voice.supported && (
+                {!busy && voice.supported && micOn && (
                   <div className="relative">
                     <VoiceMicButton state={voice.state} onClick={onMic} locked={!voiceAllowed && !voiceOn} />
                     {micMenu && (
@@ -683,23 +733,6 @@ export default function MattPage() {
                               <span className="block text-[12px] text-slate-400 leading-snug">A voice conversation: Matt answers out loud, and it's all written down too.</span>
                             </span>
                           </button>
-                          <div className="flex items-center justify-between gap-2 px-2.5 pt-2 pb-1.5 mt-1 border-t border-white/[0.06]">
-                            <span className="text-[11.5px] text-slate-400">Matt's voice</span>
-                            <div className="inline-flex p-0.5 rounded-full bg-white/[0.05] border border-white/[0.08]" role="radiogroup" aria-label="Matt's voice">
-                              {(['female', 'male'] as MattVoice[]).map(v => (
-                                <button
-                                  key={v}
-                                  type="button"
-                                  role="radio"
-                                  aria-checked={mattVoice === v}
-                                  onClick={() => pickVoice(v)}
-                                  className={`h-6 px-2.5 rounded-full text-[11.5px] font-medium cursor-pointer ${mattVoice === v ? 'bg-white text-slate-950' : 'text-slate-300 hover:text-white'}`}
-                                >
-                                  {v === 'female' ? 'Female' : 'Male'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
                         </div>
                       </>
                     )}

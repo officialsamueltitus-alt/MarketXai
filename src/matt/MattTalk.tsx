@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, X } from 'lucide-react';
 import { useVoiceInput } from '../components/VoiceInput';
 import { normalizeSpokenPrompt } from '../utils/voice';
-import { MattSpeaker, saveMattVoice, type MattVoice } from './mattVoice';
+import { MattSpeaker, type MattVoice } from './mattVoice';
 
 // Talk back with Matt (owner-specified, Matt only): a full-screen voice conversation. Matt (a glossy orb with two eyes,
 // after the owner's reference) says hello, then listens, answers out loud and listens again, until the trader closes it.
@@ -30,12 +30,12 @@ const MAX_SILENT = 2;
 
 export const MattTalk: React.FC<{
   ctx: AudioContext | null;
+  /** Matt's voice, chosen in Matt settings */
   voice: MattVoice;
-  onVoice: (v: MattVoice) => void;
   /** Sends the trader's words to Matt (and saves both sides in the chat) */
   ask: (text: string) => Promise<TalkReply>;
   onClose: () => void;
-}> = ({ ctx, voice, onVoice, ask, onClose }) => {
+}> = ({ ctx, voice, ask, onClose }) => {
   const [phase, setPhase] = useState<Phase>('greeting');
   const [lines, setLines] = useState<Line[]>([]);
   const [note, setNote] = useState<string | null>(null);
@@ -220,11 +220,6 @@ export const MattTalk: React.FC<{
       listen();
     }
   };
-  const pickVoice = (v: MattVoice) => {
-    if (v === voiceRef.current) return;
-    saveMattVoice(v);
-    onVoice(v);
-  };
 
   const status =
     phase === 'greeting'
@@ -250,20 +245,7 @@ export const MattTalk: React.FC<{
       </div>
 
       <header className="relative shrink-0 h-14 mt-[env(safe-area-inset-top)] px-4 flex items-center justify-between">
-        <div className="inline-flex p-0.5 rounded-full bg-white/[0.06] border border-white/[0.08]" role="radiogroup" aria-label="Matt's voice">
-          {(['female', 'male'] as MattVoice[]).map(v => (
-            <button
-              key={v}
-              type="button"
-              role="radio"
-              aria-checked={voice === v}
-              onClick={() => pickVoice(v)}
-              className={`h-7 px-3 rounded-full text-[12px] font-medium transition cursor-pointer ${voice === v ? 'bg-white text-slate-950' : 'text-slate-300 hover:text-white'}`}
-            >
-              {v === 'female' ? 'Female' : 'Male'}
-            </button>
-          ))}
-        </div>
+        <span className="w-9" aria-hidden="true" />
         <span className="text-[13px] font-semibold tracking-wide text-slate-300">Talk with Matt</span>
         <button type="button" onClick={onClose} aria-label="End the conversation" title="End" className="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center cursor-pointer">
           <X className="w-4 h-4" />
