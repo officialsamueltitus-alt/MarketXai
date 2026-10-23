@@ -9,6 +9,7 @@ import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
 import { TraderIdCard } from './TraderIdCard';
+import { InviteCard } from './InviteCard';
 import { RewardEmailNotificationModal } from './RewardEmailNotificationModal';
 import { getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import {
@@ -45,6 +46,8 @@ interface ProfileViewProps {
   onRegisterShareReward?: () => Promise<string | null>;
   onDismissRewardNotice?: () => void;
   onSignOut?: () => void;
+  /** Opens the leaderboard (the referrals board from the invite card) */
+  onOpenLeaderboard?: (board: 'usage' | 'referrals') => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -59,6 +62,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onRegisterShareReward,
   onDismissRewardNotice,
   onSignOut,
+  onOpenLeaderboard,
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -173,6 +177,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       {/* MarketX ID: the trader's own Solana address listing every trade and result */}
       <TraderIdCard />
+
+      {/* Invite link: traders invited so far and the rewards earned */}
+      <InviteCard onOpenBoard={onOpenLeaderboard ? () => onOpenLeaderboard('referrals') : undefined} />
 
       {/* Credited reward notice */}
       {xShareReward && xShareReward.status === 'credited' && xShareReward.notifiedOnSite && (

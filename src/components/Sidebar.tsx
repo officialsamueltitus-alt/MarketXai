@@ -41,7 +41,8 @@ import {
   MessageCircle,
   FileText,
   LayoutGrid,
-  Maximize2
+  Maximize2,
+  Trophy,
 } from 'lucide-react';
 import { TelegramIcon, YouTubeIcon, XLogoIcon } from './SocialIcons';
 import { MARKETX_TELEGRAM_URL, MARKETX_X_URL, MARKETX_YOUTUBE_URL } from '../utils/campaign';
@@ -95,6 +96,8 @@ interface SidebarProps {
   onTogglePlugin?: (id: PluginId, enabled: boolean) => Promise<void>;
   /** Opens the full Connectors / Plugins popup */
   onOpenConnectors?: () => void;
+  /** Opens the leaderboard (usage or referrals board) */
+  onOpenLeaderboard?: (board: 'usage' | 'referrals') => void;
   /** Short confirmation messages (Settings → Notifications) */
   onToast?: (message: string, type?: 'success' | 'info') => void;
 }
@@ -140,6 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenPlugin,
   onTogglePlugin,
   onOpenConnectors,
+  onOpenLeaderboard,
   onToast,
 }) => {
   const [historySubTab, setHistorySubTab] = useState<'trades' | 'fundamentals' | 'chats'>('trades');
@@ -236,6 +240,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="w-7 h-7 rounded-lg bg-white text-slate-950 flex items-center justify-center"><Plus className="w-4 h-4" /></span>
               <span>New chat</span>
             </button>
+
+            {/* Leaderboard: this month's most active traders and the top inviters */}
+            {onOpenLeaderboard && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenLeaderboard('usage');
+                  if (window.innerWidth < 1024) onCloseMobile();
+                }}
+                className="w-10 h-10 rounded-full text-amber-300 hover:text-amber-200 hover:bg-white/[0.06] transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                title="Leaderboard"
+                aria-label="Open the leaderboard"
+              >
+                <Trophy className="w-[18px] h-[18px]" />
+              </button>
+            )}
 
             {/* Notification Center button in Side Menu (Mobile / Tablet) */}
             {onOpenNotifications && (
@@ -958,6 +978,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onRegisterShareReward={onRegisterShareReward}
                     onDismissRewardNotice={onDismissRewardNotice}
                     onSignOut={onSignOut}
+                    onOpenLeaderboard={onOpenLeaderboard}
                   />
                 )}
               </div>

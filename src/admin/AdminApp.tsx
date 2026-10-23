@@ -19,6 +19,8 @@ import {
   Bot,
   Landmark,
   Ticket,
+  Trophy,
+  UserPlus,
 } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { MarketXIcon } from '../components/MarketXIcon';
@@ -32,14 +34,17 @@ import { CouponsSection } from './Coupons';
 import { BroadcastSection } from './Broadcast';
 import { SupportSection } from './Support';
 import { FundamentalAdminSection, MattAdminSection } from './SiTools';
+import { InviteRewardsSection, LeaderboardAdminSection } from './Leaderboard';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'usage' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'campaign' | 'support' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'usage' | 'leaderboard' | 'invites' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'campaign' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'usage', label: 'Usage', icon: BarChart3 },
+  { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
+  { id: 'invites', label: 'Invite rewards', icon: UserPlus },
   { id: 'matt', label: 'Matt', icon: Bot },
   { id: 'fundamental', label: 'Fundamentals', icon: Landmark },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
@@ -439,6 +444,8 @@ export default function AdminApp() {
               />
             )}
             {section === 'usage' && <UsageSection />}
+            {section === 'leaderboard' && <LeaderboardAdminSection />}
+            {section === 'invites' && <InviteRewardsSection />}
             {section === 'matt' && <MattAdminSection />}
             {section === 'fundamental' && <FundamentalAdminSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}

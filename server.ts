@@ -52,6 +52,7 @@ import { registerFxRoutes } from './server/fx';
 import { registerTokenSafetyRoutes, safetyAnswer, startTokenSafety, tokenSafetyMiddleware } from './server/tokenSafety';
 import { registerSignalProofRoutes, signalProofMiddleware } from './server/signalProof';
 import { registerTraderIdRoutes } from './server/traderId';
+import { registerLeaderboardRoutes } from './server/leaderboard';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
 import { registerPluginRoutes } from './server/plugins';
@@ -2276,6 +2277,7 @@ registerTokenSafetyRoutes(app, { resolve: mint => resolveAssetInfo(mint, mint) }
 registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, tf) => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), tf) });
 // MarketX ID: each trader's own Solana address, listing their trade records on Solscan
 registerTraderIdRoutes(app, generalApiRateLimiter);
+registerLeaderboardRoutes(app, generalApiRateLimiter);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)

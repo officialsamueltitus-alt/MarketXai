@@ -201,6 +201,22 @@
   users submit an X post link; credits are NEVER automatic. An admin approves (+50 campaign credits, notification + email)
   or declines with a reason in Admin, Campaign. One reward per person (email hash). It is listed only as a card in the
   notification Rewards tab (next to the 10 credit Share on X card); nobody is notified about the campaign itself.
+- Leaderboard + invites (owner-specified, `server/leaderboard.ts`, `server/usageMonthly.ts`, panel `LeaderboardPanel.tsx`, card `InviteCard.tsx`,
+  admin `src/admin/Leaderboard.tsx`): ONE panel with an animated two-way switch (Usage / Referrals), opened from the sidebar trophy, `/leaderboard`,
+  the profile invite card and `/?leaderboard=1&board=referrals`. Usage = this month's points (`leaderboards/{YYYY-MM}/entries/{uid}`, month in
+  `CREDIT_RESET_TZ`, so it resets at 00:00 on the 1st with nothing to sweep): `recordMonthly` from `analysisAlert` (analysis 10 / question 4),
+  `fundamentalAlert` (8) and Matt answers (2), +5 for a day's first scored action, each kind capped per day (`USAGE_DAILY_CAP`); levels `TIERS`,
+  best streak, active days, top market, live countdown, last month's top 3. Referrals = all-time `users.referral.invited` (+ this month). Public rows
+  carry display name, username, picture, badge only (never email, uid or other traders' earned credits); unlimited staff, hidden
+  (`users.leaderboardHidden`, `POST /api/leaderboard/visibility`), banned and suspended accounts are left off; boards cached 30s per worker.
+  Invites: random code `referralCodes/{CODE}` (`GET /api/referrals/me`), link `/?ref=CODE` kept on the device 30 days (`src/utils/referral.ts`,
+  removed from the address bar, signed-out visitors land on Create account with "Invited by"), sent as `ref` with email and Google sign-up, stored on
+  the pending sign-up (`referralCode`) and recorded ONLY when `/api/access/redeem` creates the account (`recordReferral`, one transaction: one
+  per person ever via `referralClaims/{sha256(canonical email)}`, no self-invites, inviter not banned/suspended). Invite rewards (owner-specified):
+  OFF by default, `adminConfig/inviteRewards {enabled, credits 1-500, maxPerMonth}` set only in Admin → Invite rewards (`PUT
+  /api/admin/invite-rewards`); while on, the inviter gets that many credits into the campaign pool, inside the same transaction, never retroactively.
+  Profile shows invited / this month / credits earned. Admin → Leaderboard lists both boards with emails, month picker and the latest invited
+  sign-ups. Account deletion removes the trader's rows, code and referral record.
 - Every coin and meme (owner-specified): `server/cryptoUniverse.ts` loads the USDT spot lists of Binance, Bybit and MEXC (every 6h,
   per worker) and resolves on-chain tokens by ticker or contract address via DexScreener (most liquid pool, `MIN_DEX_LIQUIDITY_USD`
   default $20k) with GeckoTerminal candles (series shared across timeframes, 60s cache). `detectCryptoTicker` in

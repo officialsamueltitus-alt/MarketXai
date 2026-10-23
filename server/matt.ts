@@ -22,6 +22,7 @@ import { createKeyedThrottle } from './security';
 import { MATT_KNOWLEDGE, type MattSection } from './mattKnowledge';
 import { fixPriceClaims } from './priceGuard';
 import { logMatt } from './siLogs';
+import { recordMonthly } from './usageMonthly';
 import { cleanTranscript, readWavBody, speakToken, speechParts, synthesize, transcribe, type MattVoice } from './voice';
 import { effectivePreferences, hasProFeatures, proGuard } from './proAccess';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
@@ -415,6 +416,7 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     const replaced = LEAK.test(reply) || SECRET_LEAK.test(checked);
     if (replaced) reply = `${NOT_AVAILABLE} Ask me about MarketX features, your account or the markets.`;
     logMatt(uid, { question, reply, outcome: replaced ? 'REPLACED' : raw ? 'ANSWERED' : 'OFFLINE', pair: pair?.symbol || null, fromCard: !!context });
+    if (!replaced) void recordMonthly(uid, 'matt');
     return { status: 200, body: { reply, engine: !!raw } };
   };
   const readHistory = (messages: unknown) =>

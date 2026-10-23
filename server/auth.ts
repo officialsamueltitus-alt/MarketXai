@@ -20,6 +20,7 @@ import {
   invalidateAuthCache,
 } from './account';
 import { bumpDaily, logActivity, touchUser } from './tracking';
+import { deleteLeaderboardData, normalizeRefCode, recordReferral } from './leaderboard';
 import { cleanDisplayName, impersonates, RESERVED_NAME_MESSAGE } from './trust';
 import { IS_LEAD_WORKER } from './workers';
 import { readDeviceSignals, reserveSignup, releasePendingSignup, activateSignup, keysOf, signupMetaOf, canonicalEmail, type DeviceSignals } from './signupGuard';
@@ -106,6 +107,11 @@ const TERMS_REQUIRED = {
   message: 'Please tick the box to accept the MarketX Terms of Service and Privacy Policy to continue.',
 };
 const acceptedTerms = (req: Request) => req.body?.acceptTerms === true;
+// The invite code the sign-up came through (from the invite link), kept on the pending sign-up
+const referralOf = (req: Request): { referralCode?: string } => {
+  const code = normalizeRefCode(req.body?.ref);
+  return code ? { referralCode: code } : {};
+};
 
 const GOOGLE_NOT_REGISTERED = {
   error: 'GOOGLE_NOT_REGISTERED',
@@ -256,6 +262,7 @@ export async function deleteAccountData(uid: string, email: string): Promise<Use
   const tokens = await db().collection('authTokens').where('uid', '==', uid).get();
   await Promise.all(tokens.docs.map(d => d.ref.delete()));
   await deleteOwnedRecords(uid);
+  await deleteLeaderboardData(uid, (doc as any)?.referral?.code || null);
   return doc;
 }
 
@@ -384,6 +391,7 @@ export function registerAuthRoutes(app: Express) {
       username: cleanUsername || undefined,
       displayName,
       termsAcceptedAt: Date.now(),
+      ...referralOf(req),
       ...guard.extra,
     });
     if (reserved.status === 'full') {
@@ -425,7 +433,7 @@ export function registerAuthRoutes(app: Express) {
           // Their 48 hours ran out: retire the old code and reserve a fresh seat if one is free (same device rules)
           const guard = await guardSignup(req, res, email);
           if (!guard) return;
-          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName, ...guard.extra });
+          const again = await createPendingSignup(email, { passwordHash: p.passwordHash, username: p.username, displayName: p.displayName, ...(p.referralCode ? { referralCode: p.referralCode } : {}), ...guard.extra });
           if (again.status === 'full') {
             await releaseGuard(email, guard.signals);
             return res.status(403).json({ error: 'BATCH_FULL', message: batchFullMessage() });
@@ -497,6 +505,7 @@ export function registerAuthRoutes(app: Express) {
         name: payload.name,
         picture: payload.picture,
         termsAcceptedAt: Date.now(),
+        ...referralOf(req),
         ...guard.extra,
       });
       if (reserved.status === 'full') {
@@ -711,6 +720,7 @@ export function registerAuthRoutes(app: Express) {
     const state = await signIn(res, uid);
     res.json({ success: true, accessGranted: true, ...state });
     logActivity(uid, { type: 'signup', title: 'Joined MarketX with a pass code', detail: `Batch ${pending.batch}` }, state?.profile?.username);
+    if (pending.referralCode) void recordReferral(uid, pending.referralCode, email);
     bumpDaily('signups');
     touchUser(uid);
 

@@ -707,7 +707,7 @@ const SECTIONS: Section[] = [
     shots: [{ src: '/guide/share-rewards.webp', alt: "The Rewards tab lists the campaigns where you can earn free credits.", w: 786, h: 1310 }, { src: '/guide/share-gift.webp', alt: "Gift credits to another trader with their username.", w: 786, h: 1240 }],
     title: 'Sharing and earning',
     icon: Share2,
-    lead: 'You can share any trade plan as an image, earn free credits by posting about MarketX on X, and send credits to friends.',
+    lead: 'You can share any trade plan as an image, earn free credits by posting about MarketX on X, invite traders with your own link, climb the leaderboard and send credits to friends.',
     body: (
       <Points
         items={[
@@ -723,6 +723,20 @@ const SECTIONS: Section[] = [
           <>
             <B>Earn credits on X.</B> Open the Campaign banner (in Profile, or from a notification) and press Start earning. Complete the steps in order and post;
             your credits unlock automatically 10 hours after you post, and a receipt is emailed to you.
+          </>,
+          <>
+            <B>Invite traders.</B> Open Profile: the Invite traders card has your own invite link. Copy it or press Share. Anyone who opens your link and
+            creates an account counts as your invite once they enter their pass code. The card shows how many traders you have invited, how many this month,
+            and the credits your invites have earned. Invite rewards are switched on by the MarketX team: while they are on, every new invite earns the
+            credits shown on the card (used first, before your daily analyses).
+          </>,
+          <>
+            <B>Leaderboard.</B> Tap the trophy at the top of the side menu (or type /leaderboard). Switch between two boards: <B>Usage</B> ranks this month's
+            most active traders (points for analyses, Fundamental Analysis reads, market questions and Matt messages, plus a bonus for each active day; each
+            kind counts up to a daily limit, so steady use beats spam), with your rank, level (Rookie, Explorer, Analyst, Strategist, Market Pro, Legend), best
+            streak and top market. It resets to zero at the end of every month, with a live countdown, and last month's champions stay on show.{' '}
+            <B>Referrals</B> ranks the traders who invited the most people. Boards show only your name, username and picture, never your email; you can
+            hide yourself with the switch at the bottom.
           </>,
           <>
             <B>Gift credits.</B> Open Profile, Gift credits, enter the recipient's @username, choose an amount, add an optional message and send. The credits leave
