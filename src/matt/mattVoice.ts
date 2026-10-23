@@ -60,13 +60,14 @@ export function unlockedContext(): AudioContext | null {
   }
 }
 
-const FEMALE = /female|samantha|victoria|karen|moira|tessa|zira|susan|serena|fiona|allison|ava|joanna|kate|libby|sonia|aria|jenny|google us english/i;
-const MALE = /\bmale\b|daniel|alex\b|fred|david|mark|george|rishi|aaron|arthur|guy|ryan|thomas|oliver|google uk english male/i;
+// American English voices only (owner-specified: a US accent, never British)
+const FEMALE = /female|samantha|allison|ava|susan|zira|joanna|jenny|aria|michelle|emma|salli|kimberly|nicole|google us english/i;
+const MALE = /\bmale\b|alex\b|aaron|fred|tom\b|david|mark|guy|ryan|matthew|joey|justin|eric|christopher|steffan/i;
 
 function deviceVoice(kind: MattVoice): SpeechSynthesisVoice | null {
   const all = typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices() : [];
-  const en = all.filter(v => /^en/i.test(v.lang));
-  const pool = en.length ? en : all;
+  const us = all.filter(v => /^en[-_]US/i.test(v.lang));
+  const pool = us.length ? us : all.filter(v => /^en/i.test(v.lang) && !/GB|AU|IE|IN|ZA|NZ/i.test(v.lang));
   const want = kind === 'male' ? MALE : FEMALE;
   const avoid = kind === 'male' ? /female/i : /\bmale\b/i;
   return pool.find(v => want.test(v.name) && !avoid.test(v.name)) || pool.find(v => !avoid.test(v.name)) || pool[0] || null;
@@ -150,7 +151,8 @@ export class MattSpeaker {
       const u = new SpeechSynthesisUtterance(text);
       const v = deviceVoice(kind);
       if (v) u.voice = v;
-      u.lang = v?.lang || 'en-US';
+      // Always US English, even when the device has no US voice of that kind
+      u.lang = 'en-US';
       u.rate = 1.02;
       u.pitch = kind === 'male' ? 0.9 : 1.08;
       let finished = false;

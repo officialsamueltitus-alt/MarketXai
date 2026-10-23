@@ -446,7 +446,7 @@
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
 - Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
   fundamental, Recheck, save/share, daily news alerts), Preference Mode (incl. confirmation, trade types, RDM timeframe choice, calculator/Lot size)
-  chart screenshot analysis and voice input; free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
+  chart screenshot analysis, voice input and Talk back with Matt (`/api/matt/talk`, `/api/matt/speak`; listed on the Plans window); free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
   staff). FREE for everyone, always (owner-specified): price alerts (Auto and Manual), the track record and the RDM timeframe. After the gate: Pro
   routes return 402 `PRO_REQUIRED` before any credit is charged (turning off and deleting still work; `chartProGate` on `/api/market/analyze`, the
   fundamental `ready` check, `PUT /api/preferences`); a free account's stored preferences are ignored, not deleted (`effectivePreferences`:
@@ -505,6 +505,17 @@
   nothing stored; 503 = the device's own speech voice reads it instead), then listens again until End. Tap Matt to interrupt; two silent
   turns stop listening until a tap. Every turn is written on the talk screen and saved in the Matt chat. Noted in the guide, Matt's knowledge
   and Privacy.
+  Talk back speed (owner-requested: Matt answers about 2s after the trader stops): ONE request per turn, `POST /api/matt/talk` (in
+  `server/matt.ts`, Pro-gated, Matt's own throttles; body = on-device `text` or a WAV `audio` clip, written down there with `transcribe`;
+  the same `answer()` as the chat route, so private questions, pauses, scrubbing and logs are identical) returns {heard, reply, parts:
+  [{text, token}], audio}: `speechParts` splits the reply (first sentence alone, then ~240-char groups), each part signed, and the first part
+  is spoken in the same response (`synthesize`, at most 6s). The app plays it at once and fetches the other parts side by side while it plays.
+  Spoken answers use `askEngine(…, fast)`: the light model first, the next started after 1.5s, 12s cap. A turn ends 0.8s after the trader
+  stops (`silenceMs`); on Android the browser's own recognition is used (instant words, the mic permission asked first; any failure before
+  words falls back to recording); iPhone/iPad record. American English only (owner-specified): TTS `languageCode: 'en-US'` + "American
+  English accent", spoken prompts ask for American English, the device fallback voice is en-US. Phones stay cool: the orb has no blur filters
+  or blend modes (gradient blobs), its glow is a separate opacity/scale layer, and the voice-follow loop runs ~30fps, writes only on change
+  and stops while the tab is hidden.
 - Tools (owner-specified name, everywhere users see it: never "Connectors", "Plugins" or "commands"; code names `plugins` / `ConnectorsModal`
   stay). `server/plugins.ts`, `src/utils/plugins.ts`: alerts, watchlist, journal, trackRecord. Every tool turned on is listed in Settings, Tools
   (2 shown, expand icon opens the Tools sheet `ConnectorsModal`) with open and switch-off; `POST /api/plugins/:id` uses the same helpers as inside

@@ -450,7 +450,7 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Free and Pro">
           Price alerts, the track record and the <B>RDM</B> timeframe are free for everyone. The watchlist, trade journal, Strategy Builder, Fundamental
-          Analysis, Preference Mode, chart screenshot analysis and voice input are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
+          Analysis, Preference Mode, chart screenshot analysis, voice input and Talk back with Matt are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.

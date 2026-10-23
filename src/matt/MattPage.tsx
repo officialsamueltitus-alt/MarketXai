@@ -11,7 +11,7 @@ import { takeMattAsk } from '../utils/matt';
 import { normalizeSpokenPrompt } from '../utils/voice';
 import { useVoiceInput, VoiceMicButton, VoiceStatus } from '../components/VoiceInput';
 import { applyTheme, readThemePref } from '../utils/theme';
-import { MattTalk, type TalkReply } from './MattTalk';
+import { MattTalk, type TalkResult } from './MattTalk';
 import { readMattMic, readMattVoice, saveMattMic, saveMattVoice, unlockedContext, type MattVoice } from './mattVoice';
 import { MattSettings } from './MattSettings';
 
@@ -295,40 +295,57 @@ export default function MattPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [micMenu]);
 
-  /** One spoken turn: saved in the chat like a typed one, and Matt's reply comes back signed so it can be spoken */
-  const talkAsk = useCallback(async (text: string): Promise<TalkReply> => {
-    const q = text.trim().slice(0, 1500);
+  /**
+   * One spoken turn in one request (/api/matt/talk): the trader's words (text, or a clip written down on the server), Matt's
+   * answer, its parts signed for speaking and the first part already spoken. Both sides are saved in the chat like typed ones.
+   */
+  const talkTurn = useCallback(async (input: { text?: string; audio?: string }): Promise<TalkResult> => {
     const chatId = talkChat.current || newId('c');
     talkChat.current = chatId;
     const existing = chatsRef.current.find(c => c.id === chatId);
-    const user: Msg = { id: newId(), role: 'user', text: q, at: Date.now() };
-    const history = [...(existing?.msgs || []).filter(m => !m.error), user];
-    addTo(chatId, [user]);
-    setCurrentId(chatId);
-    const reply = (m: Partial<Msg>) => addTo(chatId, [{ id: newId(), role: 'matt', text: '', at: Date.now(), ...m }]);
+    const prior = (existing?.msgs || []).filter(m => !m.error).slice(-9).map(m => ({ role: m.role, text: m.text }));
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 25_000);
     try {
-      const res = await fetch('/api/matt/chat', {
+      const res = await fetch('/api/matt/talk', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history.slice(-10).map(m => ({ role: m.role, text: m.text })), context: existing?.context, spoken: true }),
+        body: JSON.stringify({
+          messages: prior,
+          context: existing?.context,
+          voice: readMattVoice(),
+          ...(input.audio ? { audio: input.audio, mimeType: 'audio/wav' } : { text: (input.text || '').slice(0, 1500) }),
+        }),
+        signal: ctrl.signal,
       });
       const data = await res.json().catch(() => null);
+      if (res.status === 422) return { noSpeech: true };
+      const heard = String(data?.heard || input.text || '').trim();
+      const save = (m: Partial<Msg>) => {
+        const add: Msg[] = [];
+        if (heard) add.push({ id: newId(), role: 'user', text: heard.slice(0, 1500), at: Date.now() });
+        add.push({ id: newId(), role: 'matt', text: '', at: Date.now(), ...m });
+        addTo(chatId, add);
+        setCurrentId(chatId);
+      };
       if (res.status === 401) {
         setSignedOut(true);
-        return { error: 'Sign in to MarketX to talk with Matt.' };
+        return { heard, error: 'Sign in to MarketX to talk with Matt.' };
       }
       if (res.status === 403 && data?.pausedUntil) {
         setPausedUntil(data.pausedUntil);
-        reply({ text: data.message || 'Matt is paused for your account.', private: true });
-        return { error: data.message || 'Matt is paused for your account.' };
+        save({ text: data.message || 'Matt is paused for your account.', private: true });
+        return { heard, error: data.message || 'Matt is paused for your account.' };
       }
-      if (!res.ok || !data?.reply) return { error: data?.message || 'Matt hit a snag. Please try again.' };
+      if (!res.ok || !data?.reply) return { heard, error: data?.message || 'Matt hit a snag. Please try again.' };
       if (data.pausedUntil) setPausedUntil(data.pausedUntil);
-      reply({ text: String(data.reply), private: !!data.private });
-      return { reply: String(data.reply), speak: data.speak || null, private: !!data.private };
+      save({ text: String(data.reply), private: !!data.private });
+      return { heard, reply: String(data.reply), parts: Array.isArray(data.parts) ? data.parts : undefined, audio: data.audio || null };
     } catch {
       return { error: 'Connection lost. Check your internet and try again.' };
+    } finally {
+      clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -455,7 +472,7 @@ export default function MattPage() {
         <MattTalk
           ctx={talk.ctx}
           voice={mattVoice}
-          ask={talkAsk}
+          talk={talkTurn}
           onClose={() => {
             setTalk(null);
             talkChat.current = null;
