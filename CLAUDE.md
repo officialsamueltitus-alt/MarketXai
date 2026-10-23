@@ -118,6 +118,27 @@
   daily candles are built from 60m bars (`FOREX_DAILY_PLAN`, Sundays folded into Monday): the daily feed was flat. Confirmation tuning
   `CONFIRM_TUNING` (back-test grid: TP1 ≥ 2R, quality ≥ 45; extra stop room and a measured TP1 tested worse, so off). Strategy Builder signals use
   `ruleSetupQuality` (same 20-95 scale). Every LONG/SHORT card carries the risk note "Expect losing streaks… Risk 0.5% … or less".
+- Volume confluence (owner-requested, Oct 2026, back-tested): candles carry `v` (traded volume) when the feed has a real one
+  (Binance/Bybit/MEXC/GeckoTerminal `r[5]`, Yahoo `volume`; never spot forex or Deriv), summed by `aggregateCandles` / `foldSundays`.
+  `volumeProfile` (point of control + 70% value area of the last 120 candles, only when 60%+ of them have volume) and `volumeFlow`
+  (volume-weighted close location, who has been in charge) in `server/strategy.ts`; the map carries `volume` {poc, valueLow,
+  valueHigh, flow6, flow24} and the write-up a "**Volume profile:**" line (the flow part says "information only": it did NOT hold
+  up in the back-tests). The POC distance feeds `setupQuality` (`poc`) and, on charts up to 2H only, is a gate: a buy's entry must
+  sit at least `VOLUME_POC_MIN_R` (1R) below the POC, a sell above it (`volumeBlocked`, "No signal… where most volume traded");
+  on 4H and above it tested worse, so there it is information only. Back-test (BTC, ETH, gold, Nasdaq 1H): 31.0% → 32.9% won,
+  +1.54R → +1.68R, max drawdown 64R → 55R. The Buyers vs Sellers meter (`server/pressure.ts`) stays information only.
+- Institutional zone rules (owner-requested review, Oct 2026): zones are leg-in → base (1-3 basing candles, or the last opposite candle)
+  → explosive leg-out (RBR/DBR/RBD/DBD), with FVG, break of structure and freshness, entered with the Fibonacci band inside the zone.
+  Stricter textbook variants were back-tested via `ZONE_RULES` in `server/strategy.ts` (strictBase, minLegIn, legOutCandles, entry BASE)
+  and all did worse (e.g. all strict together 21.0% won / +1.09R vs 30.7% / +1.34R), so they stay OFF; change them only with a new back-test.
+- Steady mode (owner-specified option C, Preference Mode `users.preferences.steadyMode`, off by default, Normal analysis only; a switch under
+  the Analysis mode cards, a lime dot on the composer's Tools button, Tools sheet "Active now", a note in the watchlist): internally the engine
+  mode `STEADY` (`EngineMode` / `engineModeOf` in `src/utils/preferences.ts`; watch items store it in `analysisMode`, the client sees NORMAL +
+  `steady`). `applySteady` in `server/strategy.ts` (after `buildMarketMap`, inside `buildStructureMap`): limit entries only, 1H/4H only
+  (`STEADY_FRAMES`; the handler moves the timeframe to the nearest with `steadyTimeframe`, inside the trade type's timeframes, RDM scans only
+  them; none allowed = a Normal analysis saying so), no hot market (ATR percentile ≥ 0.67), stop moved to `STEADY_STOP_MULT` 3 × its normal
+  distance (same entry and price targets, R recomputed) and untouched since the zone formed; else "No signal (Steady mode)…". Results carry
+  `strategy.steadyMode` and a "> **Stop loss:** Steady mode…" note. Strategy Builder and Confirmation ignore it.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle

@@ -27,6 +27,8 @@ interface WatchlistPanelProps {
   onRdmTimeframesChange: (next: string[]) => Promise<void>;
   /** Confirmation analysis is on (Preference Mode): ready means confirmed at the zone */
   confirmationMode?: boolean;
+  /** Steady mode is on (Preference Mode, Normal analysis): pairs scan on 1H/4H with Steady mode's rules */
+  steadyMode?: boolean;
   /** Trade type from Preference Mode: pairs scan only its timeframes */
   tradeStyle?: 'ANY' | 'SCALP' | 'DAY' | 'SWING';
   styleFrames?: string[];
@@ -119,7 +121,7 @@ const TimeframeEditor: React.FC<{
   );
 };
 
-export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode, tradeStyle, styleFrames }) => {
+export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose, enabled, onSetEnabled, onAnalyze, onToast, focusId, rdmTimeframes, onRdmTimeframesChange, confirmationMode, steadyMode, tradeStyle, styleFrames }) => {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [max, setMax] = useState(12);
   const [loading, setLoading] = useState(false);
@@ -340,6 +342,12 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
         <p className="mt-2 px-3 py-2 rounded-xl bg-emerald-500/[0.06] border border-emerald-400/20 text-[11px] leading-snug text-emerald-200/90">
           <span className="font-semibold">Confirmation analysis is on.</span> A pair is ready only once price reaches its zone and confirms it on a lower
           timeframe. Until then it shows "waiting for confirmation". Change it in Preference Mode.
+        </p>
+      )}
+      {steadyMode && !confirmationMode && (
+        <p className="mt-2 px-3 py-2 rounded-xl bg-lime-500/[0.06] border border-lime-400/20 text-[11px] leading-snug text-lime-200/90">
+          <span className="font-semibold">Steady mode is on.</span> Pairs are read on the 1H and 4H charts, and a setup is ready only as a limit entry in a
+          calm market, with Steady mode's wider stop. Change it in Preference Mode.
         </p>
       )}
       <button

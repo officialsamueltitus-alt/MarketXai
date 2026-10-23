@@ -299,7 +299,7 @@ export async function fetchVenueCandles(l: CryptoListing, tf: string): Promise<C
     const raw = await cached(`bybit|${l.pair}|${interval}`, CEX_CANDLE_TTL_MS, async () => {
       const d = await getJson(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${encodeURIComponent(l.pair!)}&interval=${interval}&limit=${agg ? 1000 : 300}`, 5000);
       const list = d?.result?.list;
-      return Array.isArray(list) ? clean(list.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }))) : null;
+      return Array.isArray(list) ? clean(list.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) || 0 }))) : null;
     });
     return finish(raw, tf, agg ? 240 : timeframeMinutes(tf));
   }
@@ -309,7 +309,7 @@ export async function fetchVenueCandles(l: CryptoListing, tf: string): Promise<C
     const [interval, baseMin] = plan;
     const raw = await cached(`mexc|${l.pair}|${interval}`, CEX_CANDLE_TTL_MS, async () => {
       const d = await getJson(`https://api.mexc.com/api/v3/klines?symbol=${encodeURIComponent(l.pair!)}&interval=${interval}&limit=1000`, 5000);
-      return Array.isArray(d) ? clean(d.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }))) : null;
+      return Array.isArray(d) ? clean(d.map((r: any[]) => ({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) || 0 }))) : null;
     });
     return finish(raw, tf, baseMin);
   }
@@ -325,7 +325,7 @@ export async function fetchVenueCandles(l: CryptoListing, tf: string): Promise<C
         7000
       );
       const list = d?.data?.attributes?.ohlcv_list;
-      return Array.isArray(list) ? clean(list.map((r: any[]) => ({ t: Number(r[0]) * 1000, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]) }))) : null;
+      return Array.isArray(list) ? clean(list.map((r: any[]) => ({ t: Number(r[0]) * 1000, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) || 0 }))) : null;
     });
     return finish(raw, tf, baseMin);
   }

@@ -104,8 +104,8 @@ const TradeNotes: React.FC<{ strategy: StrategyResult; prefs: Preferences }> = R
         <p className="flex items-start gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/[0.07] border border-emerald-500/20 text-emerald-200">
           <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400" />
           <span>
-            <b className="font-semibold">Secure half:</b> at +1R (${formatMarketPrice(half, strategy.currentPrice)}) take half off and move your stop to entry (
-            ${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)}). The rest runs to the targets.
+            <b className="font-semibold">Secure half:</b> at +1R (${formatMarketPrice(half, strategy.currentPrice)}) take half off and move your stop to entry
+            {` ($${formatMarketPrice(strategy.entryZone.optimal, strategy.currentPrice)})`}. The rest runs to the targets.
           </span>
         </p>
       )}

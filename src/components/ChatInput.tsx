@@ -147,6 +147,8 @@ interface ChatInputProps {
   onRdmTimeframesChange?: (next: string[]) => Promise<void>;
   /** Confirmation analysis is on (Preference Mode): a chip says so and opens Preference Mode */
   confirmationMode?: boolean;
+  /** Steady mode is on (Preference Mode, Normal analysis only): a lime dot on the Tools button */
+  steadyMode?: boolean;
   /** Trade type from Preference Mode (Scalp, Day, Swing; ANY shows nothing) */
   tradeStyle?: 'ANY' | 'SCALP' | 'DAY' | 'SWING';
   /** The timeframes kept for that trade type (Preference Mode; [] = all of the type's) */
@@ -190,6 +192,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   rdmTimeframes,
   onRdmTimeframesChange,
   confirmationMode,
+  steadyMode,
   tradeStyle,
   styleFrames,
   onOpenPreference,
@@ -326,6 +329,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     fundamentalOn ? { id: 'fundamental', label: 'Fundamental Analysis', dot: 'bg-sky-400' } : null,
     strategyName ? { id: 'strategy', label: `Strategy Builder (${strategyName})`, dot: 'bg-violet-400' } : null,
     confirmationMode && !strategyName ? { id: 'confirmation', label: 'Confirmation analysis', dot: 'bg-emerald-400' } : null,
+    steadyMode && !confirmationMode && !strategyName ? { id: 'steady', label: 'Steady mode', dot: 'bg-lime-400' } : null,
     tradeStyle && tradeStyle !== 'ANY'
       ? { id: 'style', label: `${STYLE_INFO[tradeStyle].label}s only`, dot: tradeStyle === 'SCALP' ? 'bg-cyan-400' : tradeStyle === 'DAY' ? 'bg-amber-400' : 'bg-fuchsia-400' }
       : null,

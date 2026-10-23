@@ -24,7 +24,7 @@ import { createKeyedThrottle } from './security';
 import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
 import { normalizeStyleFrames } from '../src/utils/tradeStyle';
-import { DEFAULT_PREFERENCES, normalizeNewsImpacts, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
+import { DEFAULT_PREFERENCES, engineModeOf, normalizeNewsImpacts, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
 import { effectivePreferences, hasProFeatures, PRO_REQUIRED } from './proAccess';
 import { syncWatchPrefs } from './watchlist';
 export { DEFAULT_PREFERENCES };
@@ -83,6 +83,10 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
   if (has('analysisMode')) {
     if (body.analysisMode !== 'NORMAL' && body.analysisMode !== 'CONFIRMATION') return { error: 'Choose Normal or Confirmation analysis.' };
     next.analysisMode = body.analysisMode;
+  }
+  if (has('steadyMode')) {
+    if (typeof body.steadyMode !== 'boolean') return { error: 'Steady mode is on or off.' };
+    next.steadyMode = body.steadyMode;
   }
   if (has('secureHalf')) {
     if (typeof body.secureHalf !== 'boolean') return { error: 'Secure half is on or off.' };
@@ -165,8 +169,8 @@ export function registerPreferenceRoutes(app: Express, limiter: (req: Request, r
     // The watchlist scans the way an analysis does: same RDM timeframes, analysis mode and trade type
     const old = readPreferences(doc);
     const styleTfs = (p: Preferences) => (p.tradeStyle === 'ANY' ? '' : p.styleTimeframes[p.tradeStyle].join(','));
-    if (old.rdmTimeframes.join(',') !== prefs.rdmTimeframes.join(',') || old.analysisMode !== prefs.analysisMode || old.tradeStyle !== prefs.tradeStyle || styleTfs(old) !== styleTfs(prefs))
-      await syncWatchPrefs(uid, { rdmFrames: prefs.rdmTimeframes, mode: prefs.analysisMode, style: prefs.tradeStyle, styleFrames: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle] }).catch(err => console.warn('[MarketX Preferences] watchlist sync failed:', err?.message || err));
+    if (old.rdmTimeframes.join(',') !== prefs.rdmTimeframes.join(',') || engineModeOf(old) !== engineModeOf(prefs) || old.tradeStyle !== prefs.tradeStyle || styleTfs(old) !== styleTfs(prefs))
+      await syncWatchPrefs(uid, { rdmFrames: prefs.rdmTimeframes, mode: engineModeOf(prefs), style: prefs.tradeStyle, styleFrames: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle] }).catch(err => console.warn('[MarketX Preferences] watchlist sync failed:', err?.message || err));
     res.json({ preferences: prefs });
   }));
 }

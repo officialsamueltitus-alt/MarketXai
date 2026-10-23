@@ -608,6 +608,11 @@ const SECTIONS: Section[] = [
           With an account size set, every trade card shows what you risk if the stop is hit and what each target pays, worked out from your risk per trade.
           Preferences only change your view and starting values. MarketX finds and scores setups the same way for everyone.
         </Note>
+        <Note title="Steady mode (optional)">
+          Switch on <B>Steady mode</B> (with Normal analysis) for calmer trading: the stop sits 3× further from the entry with the same targets, MarketX
+          only gives limit entries on the 1H and 4H charts, and none while the market is moving too fast. More of your trades end in profit and the drops
+          are much smaller, but each win pays less, so use a smaller lot to risk the same money. A request on another chart moves to the nearest of 1H and 4H.
+        </Note>
         <Note title="Secure half (optional)">
           Switch on <B>Secure half</B> to manage every trade the same way: when price reaches <B>+1R</B> (one times your risk in profit), take half off and move
           your stop to entry. Trade cards then show the +1R price, price alerts started while it is on tell you when to take half, and your journal and
@@ -616,7 +621,9 @@ const SECTIONS: Section[] = [
         <Note title="Setup quality and risk">
           Every trade card shows a <B>Quality</B> score out of 100, graded from how similar setups played out in MarketX&apos;s tests on years of real
           market history. Setups too weak to call get a clear No signal, and a few market and timeframe pairs that didn&apos;t hold up are not called at all,
-          or come with a heads-up. Even good setups lose often, so expect losing streaks and risk 0.5% of your account or less per trade.
+          or come with a heads-up. On markets with real traded volume (crypto, gold, indices and stocks), MarketX also reads where most of the
+          volume traded and, on charts up to 2H, only calls a buy below that level (a sell above it). Even good setups lose often, so expect losing
+          streaks and risk 0.5% of your account or less per trade.
         </Note>
         <Note title="Price alerts: Auto or Manual">
           When you turn on price alerts you choose <B>Auto</B> (every trade MarketX gives you afterwards is watched by itself) or <B>Manual</B> (you tap Get
