@@ -446,7 +446,7 @@
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
 - Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
   fundamental, Recheck, save/share, daily news alerts), Preference Mode (incl. confirmation, trade types, RDM timeframe choice, calculator/Lot size)
-  chart screenshot analysis and voice input; free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
+  chart screenshot analysis, voice input and Talk back with Matt (`/api/matt/talk`, `/api/matt/speak`; listed on the Plans window); free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
   staff). FREE for everyone, always (owner-specified): price alerts (Auto and Manual), the track record and the RDM timeframe. After the gate: Pro
   routes return 402 `PRO_REQUIRED` before any credit is charged (turning off and deleting still work; `chartProGate` on `/api/market/analyze`, the
   fundamental `ready` check, `PUT /api/preferences`); a free account's stored preferences are ignored, not deleted (`effectivePreferences`:
