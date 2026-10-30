@@ -37,7 +37,15 @@ export class Mt5Error extends Error {
 }
 
 /** One MetaApi call: JSON in/out, 15s cap, 202 "still working" retried with the same transaction id (account creation) */
-async function call(url: string, init: { method?: string; body?: unknown; txId?: string; timeoutMs?: number; tries?: number } = {}): Promise<any> {
+async function call(
+  url: string,
+  init: {
+    method?: string; body?: unknown; txId?: string; timeoutMs?: number; tries?: number;
+    /** Keep retrying 202 "still working" answers until this time (account creation), reporting MetaApi's words each time */
+    pendingUntil?: number;
+    onPending?: (message: string) => void;
+  } = {}
+): Promise<any> {
   if (!token()) throw new Mt5Error('MT5_NOT_CONFIGURED', 'MT5 execution is not set up on MarketX yet.');
   const tries = init.tries ?? 1;
   for (let i = 0; i < tries; i++) {
@@ -57,6 +65,17 @@ async function call(url: string, init: { method?: string; body?: unknown; txId?:
     } catch (err: any) {
       if (i < tries - 1) continue;
       throw new Mt5Error('MT5_UNREACHABLE', 'The MT5 connection did not answer. Please try again.');
+    }
+    if (res.status === 202 && init.pendingUntil) {
+      const body: any = await res.json().catch(() => null);
+      const wait = Math.min(60, Math.max(2, Number(res.headers.get('retry-after')) || 5)) * 1000;
+      if (Date.now() + wait < init.pendingUntil) {
+        init.onPending?.(String(body?.message || '').replace(/[\r\n]+/g, ' ').replace(/\s*\([0-9a-f]{16,}\)/gi, '').trim().slice(0, 200));
+        await new Promise(r => setTimeout(r, wait));
+        i--; // a "still working" answer is not a failed try
+        continue;
+      }
+      throw new Mt5Error('MT5_PENDING', 'The MT5 connection is still checking your broker server after several minutes. Check the server name, then try again.');
     }
     if (res.status === 202 && i < tries - 1) {
       const wait = Math.min(15, Math.max(1, Number(res.headers.get('retry-after')) || 3));
@@ -95,13 +114,19 @@ export interface Mt5Link {
 }
 
 /** Adds the trader's MT5 account at MetaApi (the password goes straight through, nothing is kept) */
-export async function createMt5Account(input: { login: string; password: string; server: string; name: string }): Promise<Mt5Link> {
+export async function createMt5Account(
+  input: { login: string; password: string; server: string; name: string },
+  opts: { pendingUntil?: number; onPending?: (message: string) => void } = {}
+): Promise<Mt5Link> {
   const region = defaultRegion();
   const data = await call(`${PROVISIONING}/users/current/accounts`, {
     method: 'POST',
+    // One transaction id for every retry, so MetaApi never creates the account twice
     txId: crypto.randomBytes(16).toString('hex'),
-    tries: 8,
+    tries: 3,
     timeoutMs: 30_000,
+    pendingUntil: opts.pendingUntil ?? Date.now() + 60_000,
+    onPending: opts.onPending,
     body: {
       name: input.name.slice(0, 60),
       type: 'cloud-g2',

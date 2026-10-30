@@ -107,7 +107,7 @@ interface AgentState {
   access: { allowed: boolean; staff: boolean; freeUntil: number | null };
   mt5: {
     available: boolean;
-    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; asleep?: boolean; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
+    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; stage?: 'CREATING' | 'DEPLOYING' | 'SIGNING_IN' | null; asleep?: boolean; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
   };
 }
 type Tab = 'setup' | 'trades' | 'activity';
@@ -226,12 +226,20 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUp
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, load]);
-  // While the agent runs, the panel follows it (every 20s while the tab is visible)
+  // While the agent runs, the panel follows it (every 20s while the tab is visible); while MT5 is linking, every 4s so
+  // each step (or the reason it failed) shows at once
+  const linking = data?.mt5?.link?.status === 'CONNECTING';
   useEffect(() => {
-    if (!isOpen || !(running || data?.mt5?.link?.status === 'CONNECTING')) return;
-    const id = setInterval(() => document.visibilityState === 'visible' && load(true), 20_000);
+    if (!isOpen || !(running || linking)) return;
+    const id = setInterval(() => document.visibilityState === 'visible' && load(true), linking ? 4_000 : 20_000);
     return () => clearInterval(id);
-  }, [isOpen, running, data?.mt5?.link?.status, load]);
+  }, [isOpen, running, linking, load]);
+  const [linkClock, setLinkClock] = useState(0);
+  useEffect(() => {
+    if (!linking) return;
+    const id = setInterval(() => setLinkClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [linking]);
   // A notification's trade: open the Trades tab and ring it
   useEffect(() => {
     if (!isOpen || !focusId || !data) return;
@@ -280,7 +288,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUp
     setBusy(true);
     setError('');
     try {
-      setData(await apiFetch<AgentState>('/api/agent/mt5/connect', { method: 'POST', body: JSON.stringify(mt5Form), timeoutMs: 90_000 }));
+      setData(await apiFetch<AgentState>('/api/agent/mt5/connect', { method: 'POST', body: JSON.stringify(mt5Form), timeoutMs: 30_000 }));
       setMt5Form(f => ({ ...f, password: '' }));
     } catch (e: any) {
       setError(e?.message || 'Could not link MT5.');
@@ -424,13 +432,13 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUp
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-white">
-                      {link?.status === 'CONNECTED' ? `MT5 linked · ${link.login}` : link?.status === 'CONNECTING' ? 'Linking your MT5…' : 'MT5: not linked'}
+                      {link?.status === 'CONNECTED' ? `MT5 linked · ${link.login}` : link?.status === 'CONNECTING' ? 'Linking your MT5…' : link?.status === 'FAILED' ? `MT5 not linked · ${link.server}` : 'MT5: not linked'}
                     </p>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                    <p className={`mt-0.5 text-[11px] leading-relaxed ${link?.status === 'FAILED' ? 'text-rose-300' : 'text-slate-400'}`} role={link?.status === 'FAILED' ? 'alert' : undefined}>
                       {link?.status === 'CONNECTED'
                         ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.${link.asleep ? ' Resting while the agent is off: it reconnects by itself when you start a run.' : ''}`
                         : link?.status === 'CONNECTING'
-                          ? 'Signing in to your broker. This takes up to a minute or two.'
+                          ? link.message || 'Signing in to your broker…'
                           : link?.status === 'FAILED'
                             ? link.message || 'Linking failed. Check your details and try again.'
                             : data.mt5.available
@@ -448,6 +456,27 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUp
                     ))}
                   </div>
                 )}
+                {link?.status === 'CONNECTING' && (
+                  <div className="mt-2.5">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
+                      <span>
+                        Step {link.stage === 'SIGNING_IN' ? 3 : link.stage === 'DEPLOYING' ? 2 : 1} of 3:{' '}
+                        {link.stage === 'SIGNING_IN' ? 'signing in to your broker' : link.stage === 'DEPLOYING' ? 'starting the MT5 connection' : 'checking your details'}
+                      </span>
+                      <span className="ml-auto tabular-nums text-slate-500">
+                        {(() => {
+                          const s = Math.max(0, Math.floor(((linkClock || Date.now()) - link.linkedAt) / 1000));
+                          return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+                        })()}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-400/70 transition-all duration-700" style={{ width: `${link.stage === 'SIGNING_IN' ? 80 : link.stage === 'DEPLOYING' ? 50 : 20}%` }} />
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-slate-500">Usually under 2 minutes; a broker server MT5 hasn't seen before can take up to 5. If it can't link, the reason shows here.</p>
+                  </div>
+                )}
                 {link && (
                   <div className="mt-2.5 flex gap-2">
                     {link.status !== 'FAILED' && (
@@ -456,7 +485,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUp
                       </button>
                     )}
                     <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5', 'DELETE')} className="px-3 h-8 rounded-full bg-white/[0.06] text-xs text-slate-300 hover:bg-white/[0.1] cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
-                      <Unlink className="w-3 h-3" /> {link.status === 'FAILED' ? 'Clear' : 'Disconnect'}
+                      <Unlink className="w-3 h-3" /> {link.status === 'FAILED' ? 'Clear' : link.status === 'CONNECTING' ? 'Cancel' : 'Disconnect'}
                     </button>
                   </div>
                 )}
