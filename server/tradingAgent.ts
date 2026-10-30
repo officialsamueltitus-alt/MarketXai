@@ -8,9 +8,10 @@ import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
 import { hasFeature, proGateActive, PRO_GATE_AT } from './proAccess';
+import { suggestMt5Servers } from '../src/utils/mt5Servers';
 import {
   Mt5Error, brokerLevels, createMt5Account, deleteMt5Account, lotSize, maskLogin, matchSymbol, mt5AccountInfo, mt5AccountState, mt5Configured, mt5Positions,
-  mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
+  mt5KnownServers, mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
 } from './mt5';
 import {
   AGENT_BACKTEST, AGENT_MARKETS, AGENT_MIN_QUALITY, AGENT_PRICING, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
@@ -894,6 +895,29 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     await linkRef(uid).set(doc);
     finishLink(uid).catch(err => console.warn('[MarketX Agent] MT5 link check failed:', err?.message || err));
     res.json(await state(uid));
+  }));
+
+  // Server suggestions for the link form: the built-in list of common brokers (src/utils/mt5Servers.ts) plus MetaApi's
+  // live directory of known servers, each query cached 10 minutes
+  const serverThrottle = createKeyedThrottle({ windowMs: 60_000, max: 40 });
+  const serverCache = new Map<string, { at: number; names: string[] }>();
+  app.get('/api/agent/mt5/servers', limiter, requireAuth, wrap(async (req, res) => {
+    const q = String(req.query.q || '').trim().slice(0, 40);
+    const list = suggestMt5Servers(q, 12);
+    let live: string[] = [];
+    if (q.length >= 2 && mt5Configured() && !serverThrottle.hit(getUser(res).uid)) {
+      const key = q.toLowerCase();
+      const hit = serverCache.get(key);
+      if (hit && Date.now() - hit.at < 10 * 60_000) live = hit.names;
+      else {
+        live = await mt5KnownServers(q);
+        if (serverCache.size > 500) serverCache.clear();
+        serverCache.set(key, { at: Date.now(), names: live });
+      }
+    }
+    const seen = new Set(list.map(x => x.server.toLowerCase()));
+    const servers = [...list, ...live.filter(n => !seen.has(n.toLowerCase())).map(server => ({ broker: '', server }))].slice(0, 20);
+    res.json({ servers });
   }));
 
   const refreshThrottle = createKeyedThrottle({ windowMs: 60_000, max: 3 });

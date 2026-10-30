@@ -172,7 +172,7 @@
   `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
   MT5 execution (owner-specified: MetaApi only, no copy-trade platform; the old "MT5 Connector" Soon command is removed; `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
   (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
-  login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id) and are NEVER stored,
+  login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id; never `manualTrades`, which MetaApi refuses with a magic number; its errors are reworded by `friendlyMt5Message` with request ids stripped). Server box (owner-requested) = `Mt5ServerInput`: suggestions from `src/utils/mt5Servers.ts` (common brokers) + `GET /api/agent/mt5/servers?q=` (that list + MetaApi's `known-mt-servers/5/search`, cached 10 min) and are NEVER stored,
   logged or returned; `mt5Links/{uid}` keeps MetaApi's account id + region (server only), masked login, server, broker, currency, balance and the
   broker symbols matched per market (`matchSymbol`: exact, else a short suffix like XAUUSDm/XAUUSD.r; NAS100 = US100/USTEC…); `finishLink` polls until
   DEPLOYED + CONNECTED (bad details = FAILED, the MetaApi account deleted). With a CONNECTED link, `mt5Open` places each agent order on the account:
