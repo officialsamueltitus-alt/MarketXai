@@ -653,7 +653,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
 
         <h1 className="mx-rise mt-5 text-[2rem] leading-[1.1] sm:text-5xl font-semibold tracking-tight text-white" style={{ animationDelay: '60ms' }}>
-          Market intelligence,
+          Your trading co-pilot,
           <br />
           <span className="bg-gradient-to-r from-indigo-300 via-indigo-400 to-cyan-300 bg-clip-text text-transparent">one prompt away.</span>
         </h1>

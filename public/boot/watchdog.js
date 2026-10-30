@@ -11,6 +11,8 @@
     var root = document.getElementById('root');
     if (shown || !root || root.children.length > 0) return;
     shown = true;
+    var boot = document.getElementById('mx-boot');
+    if (boot) boot.remove();
     var wrap = el('div', 'min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#09090b;color:#e2e8f0;font-family:system-ui,sans-serif;text-align:center');
     var box = el('div', 'max-width:420px');
     box.appendChild(el('h1', 'font-size:20px;font-weight:700;margin:0 0 8px', 'MarketX could not load'));

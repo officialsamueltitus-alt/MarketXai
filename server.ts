@@ -56,6 +56,7 @@ import { registerSignalProofRoutes, signalProofMiddleware } from './server/signa
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerLeaderboardRoutes } from './server/leaderboard';
 import { registerAdminCreditRoutes } from './server/adminCredits';
+import { indexFor, registerSeoRoutes } from './server/seo';
 import { aiUsageContext, installAiUsageMeter, registerAiUsageAdminRoutes } from './server/aiUsage';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
@@ -3783,9 +3784,9 @@ In institutional trading, surviving drawdowns and compounding gains is entirely 
   }
 
   if (p.includes('who are you') || p.includes('what are you') || p.includes('what can you do') || /^\s*help\b/.test(p)) {
-    return `### 👋 Welcome to MarketX, your Institutional Quant & Trading Mentor
+    return `### 👋 Welcome to MarketX, your Trading Co-Pilot
 
-I am **MarketX SI**, a Super Intelligence market assistant built for quantitative traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
+I am **MarketX SI**, your trading co-pilot, built for traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
 
 #### What I Can Help You With:
 - 🎯 **Institutional Supply & Demand Zones**: Locate live accumulation and distribution order blocks.
@@ -5037,7 +5038,17 @@ async function startServer() {
       }
       next();
     });
+    // Search engines: robots.txt, sitemap.xml, Google's verification file; the app page per path (title, canonical, ownership tags)
+    registerSeoRoutes(app);
+    let indexHtml: string | null = null;
+    const sendIndex = (req: Request, res: Response) => {
+      if (indexHtml === null) indexHtml = fs.readFileSync(path.join(distPath, 'index.html'), 'utf8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(indexFor(indexHtml, req.path));
+    };
+    app.get(['/', '/index.html'], sendIndex);
     app.use(express.static(distPath, {
+      index: false,
       maxAge: '1y',
       immutable: true,
       setHeaders: (res, filePath) => {
@@ -5058,8 +5069,7 @@ async function startServer() {
         res.setHeader('Cache-Control', 'no-store');
         return res.status(404).type('text/plain').send('Not found');
       }
-      res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(path.join(distPath, 'index.html'));
+      sendIndex(req, res);
     });
   }
 

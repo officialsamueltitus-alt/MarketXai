@@ -155,7 +155,7 @@ export function promoMail(c: Coupon, name: string) {
   const lines = christmas
     ? [
         `Hello ${name},`,
-        "Christmas came early on MarketX. 🎄 For a limited time, MarketX Pro is yours for less, so you can walk into the new year with the full power of the Super Intelligence system for every market.",
+        "Christmas came early on MarketX. 🎄 For a limited time, MarketX Pro is yours for less, so you can walk into the new year with MarketX, your trading co-pilot, at full power.",
         'Unwrap more analyses every day, your verified trader badge and every Pro tool: the watchlist that hunts setups for you, your trade journal, the Strategy Builder, Fundamental Analysis, Preference Mode and chart screenshot analysis.',
         'Open Plans on MarketX, enter the code below at checkout, and the discount is applied before you pay.',
       ]

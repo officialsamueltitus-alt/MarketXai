@@ -937,7 +937,7 @@ export default function BlogPage() {
 
   useEffect(() => {
     const prev = document.title;
-    document.title = 'MarketX Site Guide';
+    document.title = 'MarketX Guide · How to use your trading co-pilot';
     return () => {
       document.title = prev;
     };
@@ -1025,7 +1025,7 @@ export default function BlogPage() {
           <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-indigo-300">MarketX Blog · Guide</p>
           <h1 className="mt-3 text-3xl sm:text-5xl font-semibold text-white tracking-tight max-w-3xl leading-[1.1]">MarketX Site Guide</h1>
           <p className="mt-4 text-base sm:text-lg text-slate-400 max-w-2xl leading-relaxed">
-            MarketX turns a one line prompt into a full trade plan built from live market data: entry, stop loss and three targets, or a clear No signal when there is
+            MarketX is your trading co-pilot. It turns a one line prompt into a full trade plan built from live market data: entry, stop loss and three targets, or a clear No signal when there is
             no clean setup. This guide shows where everything is and how to use it.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-2 text-[13px] text-slate-400">

@@ -8,10 +8,10 @@
     <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
     
     <!-- Primary SEO Metadata -->
-    <title>MarketX</title>
-    <meta name="title" content="MarketX" />
-    <meta name="description" content="Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans with entries, stop losses and targets with optimal entries, stop loss, and take profits." />
-    <meta name="keywords" content="MarketX, SI trading, Super Intelligence, crypto analysis, stock market predictions, forex signals, gold, synthetic indices, trade plans, real-time market data" />
+    <title>MarketX · Your Trading Co-Pilot</title>
+    <meta name="title" content="MarketX · Your Trading Co-Pilot" />
+    <meta name="description" content="MarketX, your trading co-pilot. Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices and stocks." />
+    <meta name="keywords" content="MarketX, Market X, trading co-pilot, trading, trading app, trading assistant, trade signals, trade plans, forex trading, crypto trading, gold trading, stock trading, trading agent, MT5, price alerts, supply and demand, Fibonacci, SI trading" />
     <meta name="author" content="SpiriTech Labs" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <link rel="canonical" href="https://marketx.world" />
@@ -19,16 +19,16 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://marketx.world" />
-    <meta property="og:title" content="MarketX" />
-    <meta property="og:description" content="Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans with entries, stop losses and targets with optimal entries, stop loss, and take profits." />
+    <meta property="og:title" content="MarketX · Your Trading Co-Pilot" />
+    <meta property="og:description" content="MarketX, your trading co-pilot. Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices and stocks." />
     <meta property="og:site_name" content="MarketX" />
     <meta property="og:locale" content="en_US" />
 
     <!-- Twitter Card Metadata -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://marketx.world" />
-    <meta name="twitter:title" content="MarketX" />
-    <meta name="twitter:description" content="Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans with entries, stop losses and targets with optimal entries, stop loss, and take profits." />
+    <meta name="twitter:title" content="MarketX · Your Trading Co-Pilot" />
+    <meta name="twitter:description" content="MarketX, your trading co-pilot. Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices and stocks." />
     <meta name="twitter:site" content="@_MarketX" />
     <meta name="twitter:creator" content="@_MarketX" />
     <meta name="twitter:image" content="https://marketx.world/brand/marketx-share-si.jpg" />
@@ -77,6 +77,9 @@
           "@type": "Organization",
           "@id": "https://marketx.world/#organization",
           "name": "MarketX",
+          "alternateName": ["Market X", "MarketX SI", "MarketX Trading"],
+          "slogan": "Your Trading Co-Pilot",
+          "description": "MarketX is your trading co-pilot: trade plans from live prices, a trading agent, price alerts and on-chain proof of every signal.",
           "url": "https://marketx.world",
           "logo": {
             "@type": "ImageObject",
@@ -98,17 +101,23 @@
           "@type": "WebSite",
           "@id": "https://marketx.world/#website",
           "name": "MarketX",
+          "alternateName": ["Market X", "MarketX · Your Trading Co-Pilot"],
           "url": "https://marketx.world",
+          "description": "MarketX, your trading co-pilot. Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices and stocks.",
+          "inLanguage": "en",
           "publisher": { "@id": "https://marketx.world/#organization" }
         },
         {
-          "@type": "SoftwareApplication",
+          "@type": "WebApplication",
           "name": "MarketX",
+          "alternateName": "MarketX · Your Trading Co-Pilot",
+          "browserRequirements": "Requires JavaScript",
+          "featureList": ["Trade plans with entry, stop loss and take profits from live prices", "Trading agent that places and manages trades on MT5", "Price alerts and watchlist", "Trade journal and track record", "Fundamental analysis of economic releases", "Every signal sealed on Solana"],
           "applicationCategory": "FinanceApplication",
           "operatingSystem": "Web",
           "url": "https://marketx.world",
           "image": "https://marketx.world/brand/marketx-logo-512.png?v=3",
-          "description": "Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans.",
+          "description": "MarketX, your trading co-pilot. Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices and stocks.",
           "publisher": { "@id": "https://marketx.world/#organization" },
           "creator": { "@id": "https://marketx.world/#spiritech" },
           "offers": {
@@ -123,6 +132,15 @@
 
   </head>
   <body class="bg-black bg-[#000000] text-slate-100 antialiased overflow-hidden select-none">
+    <!-- Readable before the app loads (and by search engines); the app removes it once it starts (src/main.tsx) -->
+    <main id="mx-boot" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#09090b;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center">
+      <div style="max-width:560px">
+        <img src="/brand/marketx-logo-128.png?v=3" alt="MarketX logo" width="64" height="64" style="display:block;margin:0 auto 16px" />
+        <h1 style="font-size:28px;font-weight:700;margin:0 0 10px;color:#fff">MarketX &middot; Your Trading Co-Pilot</h1>
+        <p style="font-size:15px;line-height:1.6;color:#94a3b8;margin:0 0 14px">Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices, stocks and memes. A trading agent that places and manages trades on MT5, price alerts, a watchlist, a trade journal, fundamental analysis and every signal sealed on Solana.</p>
+        <p style="font-size:13px;color:#64748b;margin:0"><a href="/blog" style="color:#a5b4fc">How MarketX works</a> &middot; <a href="https://x.com/_MarketX" style="color:#a5b4fc" rel="noopener">@_MarketX on X</a></p>
+      </div>
+    </main>
     <div id="root"></div>
     <!-- Boot watchdog: if the app script fails to load or run (old browser, network, crash), show a message instead of a blank page -->
     <script src="/boot/watchdog.js"></script>

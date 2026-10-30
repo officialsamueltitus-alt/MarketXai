@@ -1,7 +1,7 @@
 {
-  "name": "MarketX",
+  "name": "MarketX · Your Trading Co-Pilot",
   "short_name": "MarketX",
-  "description": "Super Intelligence (SI) powered real-time market analyst that turns live prices into clear trade plans.",
+  "description": "MarketX, your trading co-pilot. Ask any market and get a clear trade plan from live prices: entry, stop loss and take profits for forex, gold, crypto, indices and stocks.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
