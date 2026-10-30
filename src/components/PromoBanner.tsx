@@ -125,7 +125,7 @@ export const PromoBanner: React.FC<{ onClaim: (code: string) => void }> = ({ onC
       () => {}
     );
   };
-  const offers = [promo.monthlyPct > 0 && { pct: promo.monthlyPct, plan: 'Monthly' }, promo.yearlyPct > 0 && { pct: promo.yearlyPct, plan: 'Yearly' }].filter(Boolean) as {
+  const offers = [promo.monthlyPct > 0 && { pct: promo.monthlyPct, plan: '3 months' }, promo.yearlyPct > 0 && { pct: promo.yearlyPct, plan: 'Yearly' }].filter(Boolean) as {
     pct: number;
     plan: string;
   }[];

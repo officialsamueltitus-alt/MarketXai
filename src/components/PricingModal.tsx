@@ -111,12 +111,13 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   // Prices come from the server (PAYSTACK_* env vars); the browser never decides the amount
   const currency = paymentsConfig?.currency || 'USD';
-  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 20;
-  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 220.8;
+  // Pro is sold for 3 months (the `monthly` plan id) or a year (owner-specified: $30 / 3 months, $200 less 12% a year)
+  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 30;
+  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 176;
+  const yearlyBase = paymentsConfig?.yearlyBaseAmount ?? 200;
   const monthlyPrice = formatMoney(monthlyAmount, currency, true);
   const yearlyDiscountedPrice = formatMoney(yearlyAmount, currency);
-  const yearlyMonthlyEquivalent = formatMoney(yearlyAmount / 12, currency);
-  const discountPct = Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
+  const discountPct = Math.max(0, Math.round(paymentsConfig?.yearlyDiscountPct ?? (1 - yearlyAmount / yearlyBase) * 100));
   const paymentsEnabled = !!paymentsConfig?.enabled;
   const benefits = paymentsConfig?.benefits || DEFAULT_BENEFITS;
   // What Paystack charges (e.g. the NGN equivalent), shown next to the USD price
@@ -193,7 +194,6 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const yearly = billingPeriod === 'yearly';
   const shownMonthly = couponPrice && !yearly ? formatMoney(couponPrice.usd, currency, true) : monthlyPrice;
   const shownYearly = couponPrice && yearly ? formatMoney(couponPrice.usd, currency) : yearlyDiscountedPrice;
-  const shownYearlyMonthly = couponPrice && yearly ? formatMoney(couponPrice.usd / 12, currency) : yearlyMonthlyEquivalent;
   const payLabel = yearly ? chargeLabel || shownYearly : chargeLabel || shownMonthly;
   const couponEnds = coupon?.endsAt
     ? new Date(coupon.endsAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })
@@ -287,7 +287,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                     billingPeriod === p ? 'text-slate-950' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  {p === 'monthly' ? 'Monthly' : 'Yearly'}
+                  {p === 'monthly' ? '3 months' : 'Yearly'}
                   {p === 'yearly' && discountPct > 0 && (
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${billingPeriod === p ? 'bg-emerald-500/15 text-emerald-700' : 'bg-emerald-500/15 text-emerald-300'}`}>
                       −{discountPct}%
@@ -330,9 +330,9 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                   <div key={billingPeriod} className="mx-fade-in">
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-[44px] leading-none font-semibold tracking-tight text-white tabular-nums">
-                        {yearly ? shownYearlyMonthly : shownMonthly}
+                        {yearly ? shownYearly : shownMonthly}
                       </span>
-                      <span className="text-sm text-slate-400">/ month</span>
+                      <span className="text-sm text-slate-400">{yearly ? '/ year' : '/ 3 months'}</span>
                       {couponPrice && (
                         <span className="ml-1 h-6 px-2 rounded-full bg-emerald-500/15 text-emerald-300 text-[11px] font-semibold inline-flex items-center">−{couponPrice.pct}%</span>
                       )}
@@ -340,15 +340,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                     <p className="mt-2 text-xs text-slate-400">
                       {yearly ? (
                         <>
-                          <span className="text-slate-200 font-medium">{shownYearly}</span> billed yearly ·{' '}
-                          <span className="line-through text-slate-500">{formatMoney(couponPrice ? yearlyAmount : monthlyAmount * 12, currency)}</span>
+                          Billed yearly · 365 days of Pro ·{' '}
+                          <span className="line-through text-slate-500">{formatMoney(couponPrice ? yearlyAmount : yearlyBase, currency)}</span>
                         </>
                       ) : couponPrice ? (
                         <>
-                          Billed monthly · <span className="line-through text-slate-500">{monthlyPrice}</span> with your coupon
+                          Billed every 3 months · <span className="line-through text-slate-500">{monthlyPrice}</span> with your coupon
                         </>
                       ) : (
-                        <>Billed monthly · 30 days of Pro per payment</>
+                        <>Billed every 3 months · 90 days of Pro per payment</>
                       )}
                     </p>
                   </div>
@@ -376,7 +376,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                         <span className="min-w-0 flex-1">
                           <span className="block font-mono text-[13px] font-semibold tracking-[0.14em] text-white truncate">{coupon.code}</span>
                           <span className="block text-[11px] leading-snug text-slate-400">
-                            {[coupon.monthlyPct > 0 && `${coupon.monthlyPct}% off Monthly`, coupon.yearlyPct > 0 && `${coupon.yearlyPct}% off Yearly`].filter(Boolean).join(' · ')}
+                            {[coupon.monthlyPct > 0 && `${coupon.monthlyPct}% off 3 months`, coupon.yearlyPct > 0 && `${coupon.yearlyPct}% off Yearly`].filter(Boolean).join(' · ')}
                             {couponEnds ? ` · ends ${couponEnds}` : ''}
                           </span>
                         </span>
@@ -428,7 +428,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                   )}
                   {coupon && !couponPrice && (
                     <p className="mt-2 text-[11px] text-amber-300 px-1">
-                      This code doesn't apply to the {yearly ? 'Yearly' : 'Monthly'} plan. Switch to {yearly ? 'Monthly' : 'Yearly'} to use it.
+                      This code doesn't apply to the {yearly ? 'Yearly' : '3-month'} plan. Switch to {yearly ? '3 months' : 'Yearly'} to use it.
                     </p>
                   )}
                 </div>

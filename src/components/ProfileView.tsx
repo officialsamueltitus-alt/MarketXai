@@ -112,7 +112,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     : isPremium
     ? userProfile.subscription.plan === 'yearly'
       ? 'Pro · Yearly'
-      : 'Pro · Monthly'
+      : 'Pro · 3 months'
     : 'Free';
   const dailyLeft = isUnlimited ? '∞' : String(creditState.dailyUsageRemaining);
 

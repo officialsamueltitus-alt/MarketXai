@@ -564,7 +564,9 @@
   news alerts and Strategy Builder of free or lapsed accounts and tells them once (alerts keep running). Data is kept. Client (shared list
   `src/utils/proFeatures.ts`): `profile.proAccess`/`proFreeUntil`, "Pro" / "Free until 1 Nov" badges in the slash menu and Tools sheet, attach
   locked (attach, paste, drop), every entry point (`lockedPro` in `App.tsx`, card buttons via `onProLocked`) opens pricing.
-- Pro price (owner-specified): $30 a month (`PRO_MONTHLY_PRICE_USD` default 30), yearly = 12 months less `PRO_YEARLY_DISCOUNT_PERCENT` (default 8% = $331.20).
+- Pro price (owner-specified): $30 for 3 months and $200 less 12% ($176) a year (`PRO_QUARTER_PRICE_USD`, `PRO_YEARLY_BASE_USD`,
+  `PRO_YEARLY_OFF_PERCENT`; the old monthly env names are ignored). The plan id `monthly` IS the 3-month plan (kept for stored payments, coupons and
+  subscriptions; `PLAN_DURATION_MS.monthly` = 90 days); everything traders see says "3 months" (`proPlanName`). Coupons' "Monthly" percent applies to it.
 - Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
   with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
   A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it

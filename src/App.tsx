@@ -891,7 +891,7 @@ export default function App() {
     applyAccount(account);
     refreshNotifications();
     setToastNotification({
-      message: `🎉 Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated. Payment verified by Paystack.`,
+      message: `🎉 Pro ${plan === 'yearly' ? 'Yearly' : '3 months'} activated. Payment verified by Paystack.`,
       type: 'success',
     });
   };
@@ -3040,7 +3040,7 @@ export default function App() {
                     creditState={creditState}
                     tickers={tickers}
                     tickersLive={tickersLive}
-                    monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 20, paymentsConfig?.currency || 'USD', true)}
+                    monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 30, paymentsConfig?.currency || 'USD', true)}
                     onOpenPricing={() => setIsPricingModalOpen(true)}
                     onOpenCampaign={() => setIsShareModalOpen(true)}
                     onSignIn={() => setIsAuthModalOpen(true)}

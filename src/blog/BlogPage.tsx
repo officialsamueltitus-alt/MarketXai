@@ -744,7 +744,7 @@ const SECTIONS: Section[] = [
             ['Starter credits', '5 on joining', '5 on joining'],
             ['Full trade plans, live prices', 'Included', 'Included'],
             ['Verified trader badge', 'No', 'Yes'],
-            ['Billing', 'None', 'Monthly or yearly'],
+            ['Billing', 'None', 'Every 3 months or yearly'],
           ]}
         />
         <Note title="Check your balance">
@@ -752,7 +752,7 @@ const SECTIONS: Section[] = [
           refill. Daily analyses refill every day at 3:00 AM Lagos time (the site shows it in your own time), with no rollover.
         </Note>
         <Note title="Upgrade or refill">
-          In Credits choose Upgrade to Pro (or Refill or change plan), pick Monthly or Yearly, and pay through the secure checkout by card, bank transfer or USSD
+          In Credits choose Upgrade to Pro (or Refill or change plan), pick 3 months or Yearly, and pay through the secure checkout by card, bank transfer or USSD
           where available. Pro switches on as soon as the payment is confirmed, and you get a notification and an email receipt. Current prices are always shown
           in the Plans window.
         </Note>
