@@ -2581,6 +2581,7 @@ export default function App() {
           >
           <LandingPage
             notice={authUnavailable}
+            tickers={tickers}
             onSignUp={() => {
               setAuthModalMode('signup');
               setIsAuthModalOpen(true);
