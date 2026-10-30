@@ -16,6 +16,8 @@ interface Post {
   automatedBy?: string;
   text: string;
   time?: string;
+  /** The post on X (tracking parameters removed); never shown, the card opens it */
+  url: string;
 }
 
 const POSTS: Post[] = [
@@ -23,6 +25,7 @@ const POSTS: Post[] = [
     id: 'dyce',
     name: 'DYÇÊ.XÏ',
     handle: 'DominatorDyce',
+    url: 'https://x.com/DominatorDyce/status/2115672674252788026',
     avatar: '/landing/x/dyce.webp',
     verified: true,
     text: 'Have you always wanted to trade or become an actual profitable trader.\n\nEven without knowing any Technical or fundamental analysis?\n\nWell, @_MarketX just opened up it\'s community for traders to be profitable using it\'s system for free',
@@ -31,6 +34,7 @@ const POSTS: Post[] = [
     id: 'williamz',
     name: 'WILLIAMZ 💫 (🇦🇷)',
     handle: 'Williamz_ThaGr8',
+    url: 'https://x.com/Williamz_ThaGr8/status/2115691435789873296',
     avatar: '/landing/x/williamz.webp',
     verified: true,
     automatedBy: '0xWilliamz_',
@@ -41,6 +45,7 @@ const POSTS: Post[] = [
     id: 'grace',
     name: 'Sufficient Grace',
     handle: 'Sufficient_G_',
+    url: 'https://x.com/Sufficient_G_/status/2115691058071826443',
     avatar: '/landing/x/grace.webp',
     verified: true,
     text: 'Traders need this',
@@ -50,6 +55,7 @@ const POSTS: Post[] = [
     id: 'willie',
     name: 'WILLIE*WEB3 ⚛',
     handle: 'Willie_web3',
+    url: 'https://x.com/Willie_web3/status/2115706865023877422',
     avatar: '/landing/x/willie.webp',
     text: 'Learning while exploring new tools is the perfect way for beginners to learn.',
     time: '8:26 AM · Oct 29, 2026',
@@ -58,10 +64,21 @@ const POSTS: Post[] = [
     id: 'pleasure',
     name: 'Pleasure B',
     handle: 'RealPleasureB',
+    url: 'https://x.com/RealPleasureB/status/2115690132326003143',
     avatar: '/landing/x/pleasure.webp',
     verified: true,
     text: 'Interesting perspective. More people should be paying attention to developments like this.',
     time: '7:20 AM · Oct 29, 2026',
+  },
+  {
+    id: 'blx',
+    name: 'BLX 🔥',
+    handle: 'Bashir_LX',
+    url: 'https://x.com/Bashir_LX/status/2115698756490244360',
+    avatar: '/landing/x/blx.webp',
+    verified: true,
+    text: 'MarketX is for everyone to trade and win.',
+    time: '7:54 AM · Oct 29, 2026',
   },
 ];
 
@@ -77,6 +94,8 @@ const Verified: React.FC = () => (
   </svg>
 );
 
+const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
 /** Post text with @mentions (and the founder's links) in X's blue */
 function richText(text: string) {
   const parts = text.split(/(@[A-Za-z0-9_]+|marketx\.world\/checker|[1-9A-HJ-NP-Za-km-z]{43,44})/g);
@@ -84,20 +103,20 @@ function richText(text: string) {
     if (!p) return null;
     if (p === '@_MarketX')
       return (
-        <a key={i} href="https://x.com/_MarketX" target="_blank" rel="noopener noreferrer" className="text-[#1D9BF0] hover:underline">
+        <a key={i} href="https://x.com/_MarketX" target="_blank" rel="noopener noreferrer" onClick={stop} className="text-[#1D9BF0] hover:underline">
           {p}
         </a>
       );
     if (p.startsWith('@')) return <span key={i} className="text-[#1D9BF0]">{p}</span>;
     if (p === 'marketx.world/checker')
       return (
-        <a key={i} href="/checker" className="text-[#1D9BF0] hover:underline">
+        <a key={i} href="/checker" onClick={stop} className="text-[#1D9BF0] hover:underline">
           {p}
         </a>
       );
     if (p === PROOF_ADDRESS)
       return (
-        <a key={i} href={`https://solscan.io/account/${p}`} target="_blank" rel="noopener noreferrer" className="text-[#1D9BF0] hover:underline break-all">
+        <a key={i} href={`https://solscan.io/account/${p}`} target="_blank" rel="noopener noreferrer" onClick={stop} className="text-[#1D9BF0] hover:underline break-all">
           {p}
         </a>
       );
@@ -105,8 +124,27 @@ function richText(text: string) {
   });
 }
 
+/** Opens a post on X in a new tab (only x.com post addresses) */
+function openPost(url: string) {
+  if (!/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{5,25}$/.test(url)) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 const PostCard: React.FC<{ post: Post; className?: string; children?: React.ReactNode; tag?: string; hidden?: boolean }> = ({ post, className = '', children, tag, hidden }) => (
-  <article className={`lx-post ${className}`} aria-hidden={hidden || undefined}>
+  <article
+    className={`lx-post lx-post-link ${className}`}
+    aria-hidden={hidden || undefined}
+    role="link"
+    tabIndex={hidden ? -1 : 0}
+    aria-label={`Open ${post.name}'s post on X`}
+    onClick={() => openPost(post.url)}
+    onKeyDown={e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openPost(post.url);
+      }
+    }}
+  >
     <header className="flex items-start gap-3">
       <img src={post.avatar} alt="" width={44} height={44} loading="lazy" className="w-11 h-11 rounded-full object-cover bg-[#e7e7ee] shrink-0" />
       <div className="min-w-0 flex-1">
@@ -134,13 +172,14 @@ const FOUNDER: Post = {
   id: 'saamie',
   name: 'Alive',
   handle: '_saamie',
+  url: 'https://x.com/_saamie/status/2116117454607069460',
   avatar: '/landing/x/saamie.webp',
   text: `Y'all asking for proves, here you go.\ncheck out this address on @solana to verify this results yourself.\n\n${PROOF_ADDRESS}\n\nclick on each transactions to read their memo and see proves.\n\nwant to see it compiled, visit: marketx.world/checker`,
 };
 
 // Each row holds every post (different order), shown twice back to back so the glide loops without a seam
-const ROW_A = [POSTS[0], POSTS[1], POSTS[2], POSTS[3], POSTS[4]];
-const ROW_B = [POSTS[4], POSTS[3], POSTS[0], POSTS[2], POSTS[1]];
+const ROW_A = [POSTS[0], POSTS[1], POSTS[5], POSTS[2], POSTS[3], POSTS[4]];
+const ROW_B = [POSTS[4], POSTS[5], POSTS[3], POSTS[0], POSTS[2], POSTS[1]];
 
 const Row: React.FC<{ posts: Post[]; reverse?: boolean }> = ({ posts, reverse }) => (
   <div className={`lx-slide-row ${reverse ? 'reverse' : ''}`}>

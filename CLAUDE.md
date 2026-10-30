@@ -377,7 +377,8 @@
   white post cards (styled on the owner's sample post; pictures cropped from the owner's screenshots in `public/landing/x/`), every label kept as X
   shows it (verified badge, "Automated by"); the founder's post (@_saamie, "Founder" tag, the Solana address → Solscan, marketx.world/checker →
   /checker, the Solscan memo picture) is featured, the others glide in two opposite rows (pause on hover, only while on screen, a plain scroll with
-  reduced motion). Add a post only from a real post, word for word.
+  reduced motion). Each card opens its post on X in a new tab (`url`, tracking parameters removed, never shown as text; `openPost` only opens
+  x.com post addresses; links inside a card open only themselves). Add a post only from a real post, word for word, with its link.
   No server notice on the landing page (owner-specified; an auth problem still shows inside the sign-in window). Every feature CTA opens
   Create account / Sign in; only `/checker` and `/blog` open directly. No internals, providers or settings in its copy; keep the prices in step
   with `server/payments.ts`.
