@@ -768,8 +768,8 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Daily limit reached?" tone="amber">
           Campaign credits are always used before your daily analyses, so the limit only shows once they are gone; the credit pill shows how many are left.
-          When both are used up the input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro gives you
-          10 analyses a day instead of 3.
+          When both are used up the input box shows Refills at 3:00 AM and new prompts are paused. Your analyses come back automatically at 3:00 AM, no refresh needed. Pro adds
+          1,000 credits for 3 months (3,500 for a year) to your balance, used up to 50 a day.
         </Note>
       </>
     ),

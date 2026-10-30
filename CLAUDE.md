@@ -29,6 +29,15 @@
   analyses AFTER the day's analyses run out (`chargeAnalysisCredit`: campaign → daily → bought; refunded on failure), by the trading agent
   (campaign → ordinary → bought, `purchasedCharged`, refunded on cancel) and are never giftable. UI: `BuyCreditsCard.tsx` in the Credits tab,
   "Buy credits" link in the agent panel; `CreditState.purchasedCredits`, `promptsLeft` counts them.
+- Pro credits (owner-specified, Oct 2026): every Pro payment adds `PLAN_CREDITS` to the general balance (`credits.available`): 3 months
+  1,000, yearly 3,500 (`fulfillPayment`, `subscription.creditsGranted`; plans bought before get theirs once in `normalizeUser`). Pro's daily
+  allowance is `PRO_DAILY_LIMIT` 50 a day on both plans and is a CAP on that balance, not free analyses (`splitCharge(..., needsBalance)`:
+  a daily slot needs a general credit; `CreditState.dailyNeedsBalance`, `dailyLeft` in `creditManager.ts`); balance used up = 402 `NO_CREDITS`
+  ("You've used your plan's credits"). Analyses, Fundamental Analysis and the trading agent all count toward the 50; bought credits carry on
+  after the cap or the balance runs out. Free keeps 3 free analyses a day. Plan credits stay in the balance when Pro ends.
+  Trading agent credits (owner-specified, no separate agent credit): `chargeAgentInTx` (same pools and order as an analysis: campaign → the
+  day's allowance from the general balance → bought), `refundAgentInTx` on an unfilled cancel (`agentTrades.charge` keeps the split),
+  `agentSpendable` = what the agent page shows and the start/placement check.
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a

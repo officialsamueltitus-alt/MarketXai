@@ -114,7 +114,7 @@ export const ChatUpdatesBar: React.FC<ChatUpdatesBarProps> = props => {
         tone: 'violet',
         icon: Sparkles,
         label: 'MarketX Pro',
-        text: `${B.proDailyAnalyses} analyses a day + verified badge · ${p.monthlyPriceLabel} for 3 months`,
+        text: `${(B.proPlanCredits?.monthly ?? 1000).toLocaleString('en-US')} credits + verified badge · ${p.monthlyPriceLabel} for 3 months`,
         cta: 'Go Pro',
         onAction: p.onOpenPricing,
       });

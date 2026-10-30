@@ -382,7 +382,7 @@ export interface AlertLiveQuote {
 
 export interface CreditState {
   availableCredits: number;
-  dailyUsageLimit: number; // 10 per day for subscribers
+  dailyUsageLimit: number; // 50 a day on Pro (a cap on the plan's credits), 3 on Free
   dailyUsageRemaining: number;
   lastDailyResetTime: number; // when the daily analyses last refilled
   /** Next automatic refill (3:00 AM in the site's time zone), set by the server */
@@ -392,6 +392,8 @@ export interface CreditState {
   campaignCredits?: number;
   /** Credits bought in packs: used by the trading agent and for analyses once the day's analyses run out */
   purchasedCredits?: number;
+  /** Pro: the day's allowance is a cap on the general balance (plan credits), not free analyses */
+  dailyNeedsBalance?: boolean;
 }
 
 export interface CreditGift {

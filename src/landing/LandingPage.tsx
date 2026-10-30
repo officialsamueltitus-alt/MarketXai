@@ -814,7 +814,7 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
                   </p>
                   <div ref={s8more} className="overflow-hidden" style={{ maxHeight: 0, opacity: 0 }}>
                     <ul className="mt-4 space-y-2 text-[12.5px] text-[#b9bac6]">
-                      {['10 SI analyses every day', 'Trading Agent on your MT5', 'Fundamental Analysis, Watchlist, Strategy Builder', 'Talk back with Matt'].map(t => (
+                      {['1,000 credits, up to 50 a day', 'Trading Agent on your MT5', 'Fundamental Analysis, Watchlist, Strategy Builder', 'Talk back with Matt'].map(t => (
                         <li key={t} className="flex gap-2">
                           <Flame className="w-3.5 h-3.5 mt-0.5 text-orange-300 shrink-0" /> {t}
                         </li>

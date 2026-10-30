@@ -22,6 +22,8 @@ export interface PaymentsPublicConfig {
 export interface PlanBenefits {
   freeDailyAnalyses: number;
   proDailyAnalyses: number;
+  /** Credits each Pro plan adds to the balance */
+  proPlanCredits?: { monthly: number; yearly: number };
   startingCredits: number;
 }
 
@@ -40,10 +42,17 @@ export function formatMoney(amount: number, currency: string, compact = false): 
   }
 }
 
+/** "1,000 credits (3 months) or 3,500 (yearly)" */
+export function proCreditsLine(b: PlanBenefits): string {
+  const c = b.proPlanCredits || { monthly: 1000, yearly: 3500 };
+  return `${c.monthly.toLocaleString('en-US')} credits for 3 months, ${c.yearly.toLocaleString('en-US')} for a year`;
+}
+
 // Mirrors the server's plan rules (used until /api/public-config loads)
 export const DEFAULT_BENEFITS: PlanBenefits = {
   freeDailyAnalyses: 3,
-  proDailyAnalyses: 10,
+  proDailyAnalyses: 50,
+  proPlanCredits: { monthly: 1000, yearly: 3500 },
   startingCredits: 5,
 };
 

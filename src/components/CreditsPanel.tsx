@@ -3,7 +3,7 @@ import { CreditState, UserProfile } from '../types';
 import { campaignCreditsLeft, formatDailyResetTime, getDailyResetCountdown, isUnlimitedUser } from '../utils/creditManager';
 import { Zap, Gift, ArrowRight, Check, Clock, Sparkles } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
-import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
+import { DEFAULT_BENEFITS as B, proCreditsLine } from '../utils/apiClient';
 import { TOKEN_RANGE_TEXT } from '../utils/tokens';
 import { BuyCreditsCard } from './BuyCreditsCard';
 import type { PaymentsPublicConfig } from '../utils/apiClient';
@@ -103,15 +103,19 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
       <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-4 flex items-center gap-4">
         <QuotaRing value={creditState.dailyUsageRemaining} max={creditState.dailyUsageLimit} unlimited={unlimited} />
         <div className="min-w-0">
-          <div className="text-sm font-medium text-white">Today's analyses</div>
+          <div className="text-sm font-medium text-white">{creditState.dailyNeedsBalance ? "Today's credits" : "Today's analyses"}</div>
           <p className="text-xs text-slate-500 mt-0.5">
             {unlimited
               ? 'No daily limit on your account.'
               : campaignLeft > 0
                 ? `Paused while your campaign credits are used. ${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} kept for after they run out; no refill until then.`
-                : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} analyses left · ${
-                  creditState.dailyUsageLimit - creditState.dailyUsageRemaining
-                } used. Each one uses ${TOKEN_RANGE_TEXT}. Refills every day at ${resetAt}, no rollover.`}
+                : creditState.dailyNeedsBalance
+                  ? `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} left today · ${
+                      creditState.dailyUsageLimit - creditState.dailyUsageRemaining
+                    } used. Pro spends your plan's credits, up to ${creditState.dailyUsageLimit} a day (analyses and the Trading Agent). The limit resets every day at ${resetAt}.`
+                  : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} analyses left · ${
+                      creditState.dailyUsageLimit - creditState.dailyUsageRemaining
+                    } used. Each one uses ${TOKEN_RANGE_TEXT}. Refills every day at ${resetAt}, no rollover.`}
           </p>
           {!unlimited && campaignLeft > 0 && (
             <span className="mt-2 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full bg-cyan-500/10 text-[11px] text-cyan-200">
@@ -144,7 +148,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
       {!unlimited && (creditState.purchasedCredits ?? 0) > 0 && (
         <section className="rounded-3xl border border-amber-400/15 bg-amber-500/[0.05] p-4 text-xs text-slate-400">
           <span className="text-sm font-medium text-white">{creditState.purchasedCredits} bought credits</span> in your balance: used by the Trading Agent, and for
-          analyses once your daily ones run out.
+          analyses once your daily ones run out. The Trading Agent uses your general credits first, then these.
         </section>
       )}
       {!unlimited && onCreditsBought && <BuyCreditsCard paymentsConfig={paymentsConfig || null} onPurchased={onCreditsBought} />}
@@ -174,7 +178,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
             <Sparkles className="w-4 h-4 text-indigo-300" /> What you get with Pro
           </div>
           <ul className="mt-3 space-y-2 text-[13px] text-slate-300">
-            {[`${B.proDailyAnalyses} analyses every day (vs ${B.freeDailyAnalyses} on Free)`, 'Verified trader badge', 'Secure Paystack billing'].map(perk => (
+            {[proCreditsLine(B), `Up to ${B.proDailyAnalyses} credits a day (Free: ${B.freeDailyAnalyses} analyses a day)`, 'Verified trader badge', 'Secure Paystack billing'].map(perk => (
               <li key={perk} className="flex items-center gap-2">
                 <span className="w-4 h-4 rounded-full bg-indigo-400/20 text-indigo-200 flex items-center justify-center">
                   <Check className="w-2.5 h-2.5" />

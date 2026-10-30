@@ -13,6 +13,7 @@ import {
   readAccountState,
   addNotificationInTx,
   PRO_DAILY_LIMIT,
+  PLAN_CREDITS,
   FREE_DAILY_LIMIT,
   STARTING_CREDITS,
 } from './account';
@@ -182,6 +183,7 @@ export function getPaymentsPublicConfig() {
     benefits: {
       freeDailyAnalyses: FREE_DAILY_LIMIT,
       proDailyAnalyses: PRO_DAILY_LIMIT,
+      proPlanCredits: PLAN_CREDITS,
       startingCredits: STARTING_CREDITS,
     },
   };
@@ -263,6 +265,8 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
     const sub = loaded.doc.subscription;
     // Renewals extend from the current expiry instead of resetting it
     const base = sub.active && sub.expiresAt > now ? sub.expiresAt : now;
+    // Every plan payment adds its credits to the general balance (spent at most PRO_DAILY_LIMIT a day)
+    const planCredits = PLAN_CREDITS[plan as 'monthly' | 'yearly'] || 0;
     t.update(loaded.ref, {
       subscription: {
         plan,
@@ -271,7 +275,9 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
         expiresAt: base + PLAN_DURATION_MS[plan],
         price: Number(payment.usdAmount) || Number(payment.amount) / 100,
         paystackRef: reference,
+        creditsGranted: true,
       },
+      'credits.available': FieldValue.increment(planCredits),
       'credits.dailyLimit': PRO_DAILY_LIMIT,
       'credits.dailyRemaining': PRO_DAILY_LIMIT,
       'credits.lastDailyReset': now,
@@ -280,7 +286,7 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
     addNotificationInTx(t, payment.uid, {
       type: 'credit',
       title: `MarketX ${proPlanName(plan)} activated`,
-      message: `Payment confirmed. ${PRO_DAILY_LIMIT} daily analyses and your verified badge are now active.`,
+      message: `Payment confirmed. ${planCredits.toLocaleString('en-US')} credits are in your balance (up to ${PRO_DAILY_LIMIT} a day) and your verified badge is active.`,
     });
     return {
       granted: true,
@@ -340,7 +346,10 @@ function notifyPaymentEmail(result: FulfillResult) {
   sendEmail(
     result.email,
     `Your MarketX Pro ${result.plan} plan is active`,
-    ['Thank you for your payment. Your Pro plan is now active.', `You now get ${PRO_DAILY_LIMIT} analyses every day and a verified trader badge.`],
+    [
+      'Thank you for your payment. Your Pro plan is now active.',
+      `${(PLAN_CREDITS[result.plan as 'monthly' | 'yearly'] || 0).toLocaleString('en-US')} credits are in your balance, for analyses and the trading agent, up to ${PRO_DAILY_LIMIT} a day. You also have a verified trader badge.`,
+    ],
     {
       rows: [
         ['Plan', proPlanName(result.plan)],

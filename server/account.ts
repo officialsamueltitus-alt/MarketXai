@@ -26,7 +26,10 @@ import type {
 // Credit & plan rules (server is the single source of truth)
 // ---------------------------------------------------------------------------
 export const FREE_DAILY_LIMIT = 3;
-export const PRO_DAILY_LIMIT = 10;
+// Pro (owner-specified): each plan payment adds its credits to the trader's general balance, and at most PRO_DAILY_LIMIT
+// of them are spent a day (analyses, Fundamental Analysis, the trading agent), whichever plan
+export const PRO_DAILY_LIMIT = 50;
+export const PLAN_CREDITS: Record<'monthly' | 'yearly', number> = { monthly: 1000, yearly: 3500 };
 export const STARTING_CREDITS = 5;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const X_SHARE_WAIT_MS = 10 * 60 * 60 * 1000;
@@ -165,6 +168,14 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
     changed = true;
   }
 
+  // Pro plans bought before plan credits existed get their plan's credits once (renewals add them at payment)
+  if (next.subscription.active && !(next.subscription as any).creditsGranted) {
+    const add = PLAN_CREDITS[next.subscription.plan as 'monthly' | 'yearly'] || 0;
+    next.subscription = { ...next.subscription, creditsGranted: true } as any;
+    next.credits.available += add;
+    changed = true;
+  }
+
   const targetLimit = next.subscription.active ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
   // Campaign credits are spent first. While any are left the trader's own daily analyses are paused: not spent and
   // not refilled at 3:00 AM. When the last campaign credit is used (chargeAnalysisCredit) the refill clock restarts,
@@ -230,6 +241,7 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
         resetTimeZone: CREDIT_RESET_TZ,
         campaignCredits: Math.max(0, doc.credits.campaign ?? 0),
         purchasedCredits: purchasedPool(doc.credits),
+        dailyNeedsBalance: !!doc.subscription.active,
       };
   return { profile, credits, xShareReward: doc.xShareReward || null, unlimited: vip };
 }
@@ -772,14 +784,14 @@ async function readAccountState(user: AuthedUser) {
       {
         type: 'credit',
         title: `Your Pro plan ends in ${days} day${days === 1 ? '' : 's'}`,
-        message: 'Renew now to keep 10 daily analyses and your verified badge.',
+        message: `Renew now to add ${PLAN_CREDITS.monthly.toLocaleString('en-US')} credits (3 months) or ${PLAN_CREDITS.yearly.toLocaleString('en-US')} (a year) and keep your verified badge.`,
         actionType: 'open_pricing',
       },
       {
         subject: `Your MarketX Pro plan ends in ${days} day${days === 1 ? '' : 's'}`,
         lines: [
           `Your Pro plan ends on ${new Date(doc.subscription.expiresAt).toDateString()}.`,
-          'Renew to keep your 10 daily analyses and verified trader badge. Renewing early adds the time on top of what you have left.',
+          `Renew to add ${PLAN_CREDITS.monthly.toLocaleString('en-US')} credits (3 months) or ${PLAN_CREDITS.yearly.toLocaleString('en-US')} (a year), up to ${PRO_DAILY_LIMIT} a day, and keep your verified trader badge. Renewing early adds the time on top of what you have left.`,
         ],
         options: { cta: { label: 'Renew Pro', url: siteLink('/') } },
         security: true,
@@ -798,7 +810,7 @@ async function readAccountState(user: AuthedUser) {
         subject: 'Your MarketX Pro plan has ended',
         lines: [
           `Your Pro plan ended on ${new Date(doc.subscription.expiresAt).toDateString()}, so your account is back on the Free plan (${FREE_DAILY_LIMIT} analyses a day).`,
-          'Upgrade again whenever you like to get 10 daily analyses and your verified badge back.',
+          'Upgrade again whenever you like to get plan credits and your verified badge back. Credits you still have stay in your balance.',
         ],
         options: { cta: { label: 'Get Pro again', url: siteLink('/') } },
         security: true,
@@ -830,8 +842,10 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
 /**
  * Where `cost` credits come from, one at a time, each from the first pool that has one: campaign, then the day's
  * analyses (never touching bought credits), then bought credits. Null if they don't cover the whole cost.
+ * `needsBalance` (Pro and the trading agent): a daily slot also needs a general credit to spend, so the day's
+ * allowance is a cap on the balance, not free credits; the Free plan's 3 a day stay free.
  */
-export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRemaining' | 'campaign' | 'purchased'>, cost: number) {
+export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRemaining' | 'campaign' | 'purchased'>, cost: number, needsBalance = false) {
   const campaign = campaignPool(c);
   const purchased = purchasedPool(c);
   let dailyDelta = 0;
@@ -842,7 +856,7 @@ export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRema
     if (campaign - campaignDelta > 0) {
       campaignDelta += 1;
       availableDelta += 1;
-    } else if (c.dailyRemaining - dailyDelta > 0) {
+    } else if (c.dailyRemaining - dailyDelta > 0 && (!needsBalance || c.available - availableDelta - purchased > 0)) {
       dailyDelta += 1;
       // A daily analysis never eats into bought credits
       if (c.available - availableDelta - purchased > 0) availableDelta += 1;
@@ -855,6 +869,60 @@ export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRema
     }
   }
   return { dailyDelta, availableDelta, campaignDelta, purchasedDelta };
+}
+
+/**
+ * The trading agent's charge for one trade, inside the caller's transaction (owner-specified: the trader's general credits
+ * first, bought credits only when those can't pay; never a separate agent credit). Same pools and order as an analysis
+ * (campaign, then the day's allowance from the general balance, then bought credits), so the agent counts toward the Pro
+ * daily cap. Null = can't pay, nothing written. Reads the account, so call it before the transaction's other writes.
+ */
+export async function chargeAgentInTx(tx: Transaction, uid: string, cost: number) {
+  const loaded = await loadUserInTx(tx, uid);
+  if (!loaded) return null;
+  const c = loaded.doc.credits;
+  const split = splitCharge(c, cost, true);
+  if (!split) return null;
+  saveNormalized(tx, loaded);
+  const campaign = campaignPool(c);
+  const purchased = purchasedPool(c);
+  const campaignLeft = campaign - split.campaignDelta;
+  const at = Date.now();
+  tx.update(loaded.ref, {
+    'credits.dailyRemaining': c.dailyRemaining - split.dailyDelta,
+    'credits.available': c.available - split.availableDelta,
+    'credits.campaign': campaignLeft,
+    ...(split.purchasedDelta ? { 'credits.purchased': purchased - split.purchasedDelta } : {}),
+    ...(split.campaignDelta && campaignLeft === 0 ? { 'credits.lastDailyReset': at } : {}),
+  });
+  return { ...split, chargedAt: at };
+}
+
+/** Gives an agent charge back (order cancelled unfilled): a daily slot only if no 3:00 AM refill happened since */
+export function refundAgentInTx(
+  tx: Transaction,
+  uid: string,
+  cur: UserDoc | undefined,
+  r: { availableDelta: number; campaignDelta: number; purchasedDelta: number; dailyDelta: number; chargedAt: number }
+) {
+  if (!cur) return;
+  const refilledSince = (cur.credits?.lastDailyReset || 0) > r.chargedAt;
+  tx.update(userRef(uid), {
+    'credits.available': FieldValue.increment(r.availableDelta),
+    ...(r.campaignDelta ? { 'credits.campaign': FieldValue.increment(r.campaignDelta) } : {}),
+    ...(r.purchasedDelta ? { 'credits.purchased': FieldValue.increment(r.purchasedDelta) } : {}),
+    ...(r.dailyDelta && !refilledSince ? { 'credits.dailyRemaining': Math.min(cur.credits.dailyLimit, cur.credits.dailyRemaining + r.dailyDelta) } : {}),
+  });
+}
+
+/** Credits the agent can spend right now: campaign + the day's allowance the general balance covers + bought */
+export function agentSpendable(raw: UserDoc | undefined): number {
+  if (!raw?.credits) return 0;
+  const c = normalizeUser(raw, Date.now()).doc.credits;
+  const campaign = campaignPool(c);
+  const purchased = purchasedPool(c);
+  const general = Math.max(0, c.available - campaign - purchased);
+  return campaign + Math.min(Math.max(0, c.dailyRemaining), general) + purchased;
 }
 
 async function chargeCreditsFor(cost: number, req: Request, res: Response, next: NextFunction) {
@@ -874,8 +942,10 @@ async function chargeCreditsFor(cost: number, req: Request, res: Response, next:
       // limit is a hard stop until the 3:00 AM refill. Same for Free and Pro.
       const campaign = campaignPool(c);
       const purchased = purchasedPool(c);
-      const split = splitCharge(c, cost);
-      if (!split) return { ok: false as const, reason: 'DAILY_LIMIT' };
+      const pro = !!loaded.doc.subscription.active;
+      const split = splitCharge(c, cost, pro);
+      // Pro with the day's allowance left but no general credits: the plan's credits are used up
+      if (!split) return { ok: false as const, reason: pro && c.dailyRemaining > 0 ? 'NO_CREDITS' : 'DAILY_LIMIT' };
       const { dailyDelta, availableDelta, campaignDelta, purchasedDelta } = split;
       const campaignLeft = campaign - campaignDelta;
       const lastCampaignCredit = campaignDelta > 0 && campaignLeft === 0;
@@ -903,13 +973,19 @@ async function chargeCreditsFor(cost: number, req: Request, res: Response, next:
 
     if (!charged.ok) {
       const limitReached = charged.reason === 'DAILY_LIMIT';
+      if (charged.reason === 'NO_CREDITS') {
+        return res.status(402).json({
+          error: 'NO_CREDITS',
+          message: "You've used your plan's credits. Buy a credit pack or renew Pro to carry on.",
+        });
+      }
       return res.status(limitReached ? 402 : 409).json({
         error: charged.reason,
         nextDailyResetAt: limitReached ? nextDailyReset() : undefined,
         message: limitReached
           ? cost > 1
-            ? `This uses ${cost} credits and you don't have enough left today. Your analyses refill automatically at ${CREDIT_RESET_LABEL}, or buy a credit pack.`
-            : `You've reached today's analysis limit. Your analyses refill automatically at ${CREDIT_RESET_LABEL}.`
+            ? `This uses ${cost} credits and you don't have enough left today. Your daily credits refill automatically at ${CREDIT_RESET_LABEL}, or buy a credit pack.`
+            : `You've reached today's limit. Your daily credits refill automatically at ${CREDIT_RESET_LABEL}.`
           : 'Account not initialised. Please sign in again.',
       });
     }

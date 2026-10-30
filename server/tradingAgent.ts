@@ -3,7 +3,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendPush } from './webPush';
-import { campaignPool, purchasedPool, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { agentSpendable, chargeAgentInTx, refundAgentInTx, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
@@ -37,8 +37,9 @@ import {
 // plan or unlimited staff). The separate agent subscription is gone; a `users.agentSub` bought before that is honoured
 // until it expires.
 // Credits (owner-specified, never below 5 a trade): charged ONCE per trade, when the agent places it, inside the same
-// transaction, at the run's rate (daily 7, weekly 6, monthly 5), campaign credits first; an order that is cancelled
-// before it fills is refunded in full.
+// transaction, at the run's rate (daily 7, weekly 6, monthly 5), from the trader's general credits (the same pools and
+// order as an analysis, so it counts toward the Pro daily cap: chargeAgentInTx), bought credits only when those can't pay;
+// an order that is cancelled before it fills is refunded in full.
 //
 // Execution: every trade is tracked by MarketX on live prices (the record for alerts and stats). With an MT5 account
 // linked (server/mt5.ts, MetaApi), each order is also placed on the trader's account, sized to their risk, with the stop
@@ -106,6 +107,8 @@ interface AgentTrade extends AgentTradeView {
   /** Credits of this trade taken from the campaign pool / bought credits (refunded there if the order never fills) */
   campaignCharged?: number;
   purchasedCharged?: number;
+  /** How the charge split (the same pools as an analysis), so a refund goes back where it came from */
+  charge?: { availableDelta: number; campaignDelta: number; purchasedDelta: number; dailyDelta: number; chargedAt: number };
   /** The order on the trader's MT5 account (MetaApi), when linked */
   mt5?: { state: 'PLACED' | 'FAILED' | 'CANCELLED' | 'CLOSED'; symbol?: string; volume?: number; entry?: number; stop?: number; target?: number; orderId?: string; clientId?: string; error?: string };
 }
@@ -394,12 +397,9 @@ async function cancelPending(t: AgentTrade, note: string, extra: Record<string, 
     const bought = Math.min(back - camp, Math.max(0, cur.purchasedCharged || 0));
     if (back) {
       const us = await tx.get(userRef(t.uid));
-      if (us.exists)
-        tx.update(userRef(t.uid), {
-          'credits.available': FieldValue.increment(back),
-          ...(camp ? { 'credits.campaign': FieldValue.increment(camp) } : {}),
-          ...(bought ? { 'credits.purchased': FieldValue.increment(bought) } : {}),
-        });
+      // Orders placed before the charge split was kept: everything goes back to the balance it came from
+      const split = cur.charge || { availableDelta: back, campaignDelta: camp, purchasedDelta: bought, dailyDelta: 0, chargedAt: cur.createdAt };
+      if (us.exists) refundAgentInTx(tx, t.uid, us.data() as UserDoc, split);
       const a = as.data() as AgentDoc | undefined;
       if (a?.run?.id === t.runId) tx.update(agentRef(t.uid), { 'run.creditsUsed': FieldValue.increment(-back), updatedAt: now() });
     }
@@ -774,7 +774,7 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     return;
   }
   const free = !!user.emailVerified && isUnlimitedEmail(user.email);
-  if (!free && (user.credits?.available ?? 0) < run.perTrade) {
+  if (!free && agentSpendable(user) < run.perTrade) {
     await endRun(a.uid, 'NO_CREDITS');
     return;
   }
@@ -793,31 +793,21 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     createdAt: t0, updatedAt: t0, expiresAt: t0 + PENDING_CANDLES * tfMs, holdMs: MAX_CANDLES * tfMs, scanFrom: Math.floor(t0 / 60e3) * 60e3, execution: 'TRACKED',
   };
   const placed = await db().runTransaction(async tx => {
-    const [as, us] = await Promise.all([tx.get(agentRef(a.uid)), tx.get(userRef(a.uid))]);
+    const as = await tx.get(agentRef(a.uid));
     const cur = as.data() as AgentDoc | undefined;
-    const u = us.data() as UserDoc | undefined;
-    if (!cur?.run || cur.run.state !== 'RUNNING' || cur.run.id !== run.id || !u) return false;
+    if (!cur?.run || cur.run.state !== 'RUNNING' || cur.run.id !== run.id) return false;
     if ((cur.seen || []).includes(pick.key)) return false;
     const placedToday = cur.run.day === today ? cur.run.placedToday : 0;
     if (placedToday >= cur.run.settings.tradesPerDay) return false;
     const cost = free ? 0 : run.perTrade;
-    if (cost > (u.credits?.available ?? 0)) return 'NO_CREDITS' as const;
-    // Campaign credits first, then the ordinary balance, then bought credits
-    const campaign = campaignPool(u.credits);
-    const bought = purchasedPool(u.credits);
-    const fromCampaign = Math.min(campaign, cost);
-    const ordinary = Math.max(0, (u.credits?.available ?? 0) - campaign - bought);
-    const fromPurchased = Math.min(bought, Math.max(0, cost - fromCampaign - ordinary));
-    if (cost) {
-      tx.update(userRef(a.uid), {
-        'credits.available': FieldValue.increment(-cost),
-        ...(fromCampaign ? { 'credits.campaign': campaign - fromCampaign } : {}),
-        ...(fromPurchased ? { 'credits.purchased': bought - fromPurchased } : {}),
-        // The last campaign credit restarts the daily refill clock (same rule as an analysis)
-        ...(fromCampaign && campaign - fromCampaign === 0 ? { 'credits.lastDailyReset': now() } : {}),
-      });
-    }
-    tx.set(tradeRef(trade.id), { ...trade, credits: cost, campaignCharged: fromCampaign, purchasedCharged: fromPurchased });
+    // The trader's general credits (campaign first, then the day's allowance), bought credits only after: the same
+    // pools as an analysis, so the agent counts toward the daily cap. Can't pay = nothing placed.
+    const charge = cost ? await chargeAgentInTx(tx, a.uid, cost) : null;
+    if (cost && !charge) return 'NO_CREDITS' as const;
+    tx.set(tradeRef(trade.id), {
+      ...trade, credits: cost, campaignCharged: charge?.campaignDelta || 0, purchasedCharged: charge?.purchasedDelta || 0,
+      ...(charge ? { charge: { availableDelta: charge.availableDelta, campaignDelta: charge.campaignDelta, purchasedDelta: charge.purchasedDelta, dailyDelta: charge.dailyDelta, chargedAt: charge.chargedAt } } : {}),
+    });
     tx.update(agentRef(a.uid), {
       'run.day': today, 'run.placedToday': placedToday + 1, 'run.lastScanAt': t0, 'run.creditsUsed': FieldValue.increment(cost),
       seen: [pick.key, ...(cur.seen || [])].slice(0, SEEN_MAX), updatedAt: t0,
@@ -906,7 +896,8 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       // The trader's own strategies the agent can trade with (its own choice, separate from the normal page's Strategy Builder)
       strategies: (await listOwn(uid).catch(() => [])).map(x => ({ id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules?.setup as keyof typeof SETUPS]?.short || '' })),
       backtest: AGENT_BACKTEST,
-      credits: free ? null : Math.max(0, u?.credits?.available ?? 0),
+      // What the agent can spend now: general credits (within today's allowance) + bought credits
+      credits: free ? null : agentSpendable(u),
       // Pro gives the agent (free for everyone until the Pro date); staff always
       access: { allowed: agentAccess(u), staff: free, freeUntil: proGateActive() ? null : PRO_GATE_AT },
       // MT5 link: never the password or MetaApi's account id
@@ -955,7 +946,7 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       if (!agentAccess(u)) return 'NO_SUB';
       if (a?.run?.state === 'RUNNING') return 'RUNNING';
       const free = !!u.emailVerified && isUnlimitedEmail(u.email);
-      if (!free && (u.credits?.available ?? 0) < price.perTrade) return 'NO_CREDITS';
+      if (!free && agentSpendable(u) < price.perTrade) return 'NO_CREDITS';
       tx.set(agentRef(uid), { uid, settings: s, run, log: a?.log || [], seen: a?.seen || [], updatedAt: t });
       tx.set(userRef(uid), { agentLive: true }, { merge: true });
       return 'OK';

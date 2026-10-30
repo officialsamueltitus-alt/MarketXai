@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { UserProfile } from '../types';
 import { isUnlimitedUser } from '../utils/creditManager';
-import { formatMoney, apiFetch, ApiError, PaymentsPublicConfig, DEFAULT_BENEFITS } from '../utils/apiClient';
+import { formatMoney, apiFetch, ApiError, PaymentsPublicConfig, DEFAULT_BENEFITS, proCreditsLine } from '../utils/apiClient';
 import { loadPaystack } from '../utils/paystack';
 import {
   X,
@@ -251,7 +251,8 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     [`Trading Agent${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
   ];
   const proFeatures: string[] = [
-    `${benefits.proDailyAnalyses} SI analyses every day`,
+    proCreditsLine(benefits),
+    `Up to ${benefits.proDailyAnalyses} credits a day`,
     'Full trade plans: entry, stop & targets',
     'Live market prices',
     'Gift credits & X rewards',
@@ -265,7 +266,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     'Chart screenshot analysis',
     'Voice input',
     'Talk back with Matt',
-    'Trading Agent (credits per trade)',
+    'Trading Agent (uses your credits)',
   ];
 
   return (
@@ -371,7 +372,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                     <p className="mt-2 text-xs text-slate-400">
                       {yearly ? (
                         <>
-                          Billed yearly · 365 days of Pro ·{' '}
+                          Billed yearly · {(benefits.proPlanCredits?.yearly ?? 3500).toLocaleString('en-US')} credits · 365 days ·{' '}
                           <span className="line-through text-slate-500">{formatMoney(couponPrice ? yearlyAmount : yearlyBase, currency)}</span>
                         </>
                       ) : couponPrice ? (
@@ -379,7 +380,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                           Billed every 3 months · <span className="line-through text-slate-500">{monthlyPrice}</span> with your coupon
                         </>
                       ) : (
-                        <>Billed every 3 months · 90 days of Pro per payment</>
+                        <>Billed every 3 months · {(benefits.proPlanCredits?.monthly ?? 1000).toLocaleString('en-US')} credits · 90 days</>
                       )}
                     </p>
                   </div>
@@ -566,7 +567,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             </span>
           </div>
           <p className="mt-3 text-center text-[11px] text-slate-600 inline-flex w-full items-center justify-center gap-1.5">
-            <RotateCcw className="w-3 h-3" /> Daily analyses refill every day at 3:00 AM, with no rollover. Pro lasts {yearly ? '365' : '90'} days per payment.
+            <RotateCcw className="w-3 h-3" /> Each payment adds {(yearly ? benefits.proPlanCredits?.yearly ?? 3500 : benefits.proPlanCredits?.monthly ?? 1000).toLocaleString('en-US')} credits, spent up to {benefits.proDailyAnalyses} a day (resets at 3:00 AM). Pro lasts {yearly ? '365' : '90'} days per payment.
           </p>
         </div>
       </div>
