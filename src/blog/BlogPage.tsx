@@ -282,7 +282,7 @@ const SECTIONS: Section[] = [
         <Note title="Tools">
           Tap <B>Tools</B> under the input box, or type / in the input, to see every tool. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
           Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below), <B>/strategy-builder</B> (see Strategy Builder below), <B>/fundamental-analysis</B> (see Fundamental Analysis below) and <B>/trading-agent</B> (see Trading Agent below). Still
-          in private testing and marked Soon: MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          in private testing and marked Soon: <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -451,7 +451,7 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Free and Pro">
           Price alerts, the track record and the <B>RDM</B> timeframe are free for everyone. The watchlist, trade journal, Strategy Builder, Fundamental
-          Analysis, Preference Mode, chart screenshot analysis, voice input and Talk back with Matt are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
+          Analysis, Preference Mode, chart screenshot analysis, voice input, Talk back with Matt and the Trading Agent are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
@@ -513,7 +513,7 @@ const SECTIONS: Section[] = [
               how many <B>trades per day</B> it may open, a <B>profit target</B> and a <B>loss limit</B> for the run.
             </>,
             <>
-              <B>Subscribe and choose how long it runs.</B> The agent has its own plan: <B>$30 a month</B>, or <B>$295.20 a year</B> (18% off). Then pick a
+              <B>Choose how long it runs.</B> The agent is part of <B>Pro</B> (free for everyone until 1 November 2026). Pick a
               day, a week or a month for each run. Each trade the agent takes costs credits once, when it places the trade: <B>7 a trade</B> on a daily run,
               <B>6</B> on a weekly run and <B>5</B> on a monthly run. An order that never fills is refunded in full. The setup shows the most a run can cost
               before you start.

@@ -2730,7 +2730,7 @@ export default function App() {
         />
       </Deferred>
       <Deferred when={agentOpen}>
-        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} />
+        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} onUpgrade={() => (setAgentOpen(false), setIsPricingModalOpen(true))} />
       </Deferred>
       <Deferred when={!!leaderboard}>
         <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />

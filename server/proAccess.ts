@@ -6,7 +6,7 @@ import { DEFAULT_PREFERENCES, withDefaults, type Preferences } from '../src/util
 // Pro features (owner-specified): open to everyone until 1 November 2026 (Africa/Lagos midnight), then Pro only:
 //   Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check fundamental, Recheck and the daily
 //   news alerts), Preference Mode (incl. confirmation mode, trade types, the RDM timeframe choice and the calculator)
-//   and chart screenshot analyses.
+//   chart screenshot analyses and the Trading Agent (server/tradingAgent.ts `agentAccess`; credits still per trade).
 // Free for everyone, always: price alerts (Auto and Manual), the track record and the RDM timeframe.
 // Free accounts can't open, turn on or use the Pro ones (every route checks, before any credit is used), their saved
 // preferences are ignored (defaults apply), and a sweep switches off what they still have running. Their data is kept

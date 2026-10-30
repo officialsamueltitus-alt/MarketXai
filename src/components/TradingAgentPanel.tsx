@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Info, Link2, Loader2, Lock, Minus, Plug, Plus, Power, RefreshCw, ShieldAlert, Square, Target, Unlink, X, XCircle } from 'lucide-react';
 import { apiFetch, formatMoney } from '../utils/apiClient';
-import { loadPaystack } from '../utils/paystack';
 import { exactPrice } from '../utils/formatPrice';
 import {
   AGENT_FRAMES, AGENT_LIMITS, AGENT_PRICING, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, agentMaxCost, normalizeAgentSettings,
@@ -23,7 +22,8 @@ interface AgentState {
   minQuality: number;
   backtest: { won: number; avgR: number; profitFactor: number; maxDrawdownR: number; worstRun: number; tradesPerMonth: number };
   credits: number | null;
-  subscription: { active: boolean; staff: boolean; plan: string | null; expiresAt: number | null; monthlyUsd: number; yearlyUsd: number; yearlyDiscountPct: number; payments: boolean };
+  /** Pro gives the agent (free for everyone until the Pro date); credits are still used per trade */
+  access: { allowed: boolean; staff: boolean; freeUntil: number | null };
   mt5: {
     available: boolean;
     link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; asleep?: boolean; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
@@ -109,7 +109,7 @@ function Row({ title, hint, children }: { title: string; hint?: string; children
   );
 }
 
-export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { isOpen: boolean; onClose: () => void; focusId?: string | null; onBuyCredits?: () => void }) {
+export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUpgrade }: { isOpen: boolean; onClose: () => void; focusId?: string | null; onBuyCredits?: () => void; onUpgrade?: () => void }) {
   const [data, setData] = useState<AgentState | null>(null);
   const [draft, setDraft] = useState<AgentSettings>(DEFAULT_AGENT_SETTINGS);
   const [tab, setTab] = useState<Tab>('setup');
@@ -119,7 +119,6 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
   const [confirmStop, setConfirmStop] = useState(false);
   const [showBacktest, setShowBacktest] = useState(false);
   const [mt5Form, setMt5Form] = useState({ login: '', server: '', password: '', consent: false });
-  const [subPlan, setSubPlan] = useState<'agent_monthly' | 'agent_yearly'>('agent_monthly');
   const listRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -220,42 +219,10 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
       setBusy(false);
     }
   };
-  // The agent's subscription: Paystack checkout; only the server's verification switches it on
-  const subscribe = async () => {
-    setError('');
-    if (!window.PaystackPop) await loadPaystack().catch(() => {});
-    if (!window.PaystackPop) return setError('Checkout could not load. Disable any ad or script blocker and try again.');
-    setBusy(true);
-    try {
-      const init = await apiFetch<{ reference: string; amount: number; currency: string; channels?: string[]; email: string; publicKey: string }>('/api/payments/initialize', {
-        method: 'POST',
-        body: JSON.stringify({ plan: subPlan }),
-      });
-      window.PaystackPop.setup({
-        key: init.publicKey,
-        email: init.email,
-        amount: init.amount,
-        currency: init.currency,
-        ref: init.reference,
-        channels: init.channels,
-        callback: r => {
-          apiFetch('/api/payments/verify', { method: 'POST', body: JSON.stringify({ reference: r.reference || init.reference }) })
-            .then(() => load())
-            .catch(err => setError(err?.message || 'Payment could not be verified.'))
-            .finally(() => setBusy(false));
-        },
-        onClose: () => setBusy(false),
-      }).openIframe();
-    } catch (e: any) {
-      setError(e?.message || 'Could not start checkout.');
-      setBusy(false);
-    }
-  };
-
   if (!isOpen) return null;
   const run = data?.run || null;
-  const sub = data?.subscription;
-  const subscribed = !!sub?.active;
+  const access = data?.access;
+  const allowed = !!access?.allowed;
   const link = data?.mt5?.link || null;
   const rs = run?.stats;
   const openTrades = (data?.trades || []).filter(t => t.state === 'OPEN' || t.state === 'PENDING');
@@ -346,37 +313,25 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                   ))}
               </div>
 
-              {/* Subscription: the agent has its own plan */}
-              {sub && !subscribed && (
+              {/* Pro: the agent is part of Pro (free for everyone until the Pro date); credits are used per trade */}
+              {access && !allowed && (
                 <div className="rounded-3xl border border-violet-400/30 bg-gradient-to-br from-violet-500/[0.12] to-fuchsia-500/[0.06] p-4">
                   <div className="flex items-center gap-2">
                     <Crown className="w-4 h-4 text-violet-300" />
-                    <p className="text-sm font-semibold text-white">Unlock the Trading Agent</p>
+                    <p className="text-sm font-semibold text-white">The Trading Agent is part of Pro</p>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">Its own subscription, separate from Pro. Credits are still used per trade the agent takes.</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        ['agent_monthly', 'Monthly', `${formatMoney(sub.monthlyUsd, 'USD', true)}`, 'a month'],
-                        ['agent_yearly', 'Yearly', `${formatMoney(sub.yearlyUsd, 'USD')}`, `a year · save ${sub.yearlyDiscountPct}%`],
-                      ] as const
-                    ).map(([id, label, price, per]) => (
-                      <button key={id} type="button" onClick={() => setSubPlan(id)} className={`rounded-2xl border px-3 py-2.5 text-left cursor-pointer transition ${subPlan === id ? 'border-violet-400/50 bg-violet-500/15' : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]'}`}>
-                        <span className="block text-xs font-semibold text-white">{label}</span>
-                        <span className="block text-base font-bold text-white tabular-nums">{price}</span>
-                        <span className="block text-[10px] text-slate-400">{per}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <button type="button" onClick={subscribe} disabled={busy || !sub.payments} className="mt-3 w-full h-10 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />} {sub.payments ? 'Subscribe' : 'Payments are not available yet'}
-                  </button>
+                  <p className="mt-1 text-[11px] text-slate-400">Upgrade to Pro to switch it on. Credits are used per trade the agent takes.</p>
+                  {onUpgrade && (
+                    <button type="button" onClick={onUpgrade} className="mt-3 w-full h-10 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-sm font-semibold text-white hover:brightness-110 cursor-pointer flex items-center justify-center gap-2">
+                      <Lock className="w-4 h-4" /> Upgrade to Pro
+                    </button>
+                  )}
                 </div>
               )}
-              {sub && subscribed && !sub.staff && sub.expiresAt && (
+              {access && allowed && !access.staff && access.freeUntil && (
                 <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                  <Crown className="w-3.5 h-3.5 text-violet-300" /> Trading Agent {sub.plan === 'agent_yearly' ? 'Yearly' : 'Monthly'} · active until{' '}
-                  {new Date(sub.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                  <Crown className="w-3.5 h-3.5 text-violet-300" /> Free for everyone until{' '}
+                  {new Date(access.freeUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, then part of Pro.
                 </p>
               )}
 
@@ -424,7 +379,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                     </button>
                   </div>
                 )}
-                {(!link || link.status === 'FAILED') && data.mt5.available && subscribed && (
+                {(!link || link.status === 'FAILED') && data.mt5.available && allowed && (
                   <form
                     className="mt-3 space-y-2"
                     onSubmit={e => {
@@ -556,7 +511,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                   )}
 
                   {!running && (
-                    <button type="button" onClick={start} disabled={busy || !check.ok || short || !subscribed} className="mt-4 w-full h-11 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.8)] hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
+                    <button type="button" onClick={start} disabled={busy || !check.ok || short || !allowed} className="mt-4 w-full h-11 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.8)] hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
                       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />} Start the agent
                     </button>
                   )}

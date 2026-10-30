@@ -163,14 +163,14 @@
   start/end also email within the market budget. Panel: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
   (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account.
   Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
-  Subscription (owner-specified): the agent has its OWN plan, $30 a month, a year = 12 months less 18% ($295.20): `agent_monthly` / `agent_yearly`
-  in `server/payments.ts` (same Paystack initialize/verify/webhook, references `mx_agent_*`, granted only after verification into `users.agentSub`
-  {active, plan, expiresAt}, renewals extend; coupons refused `COUPON_NOT_FOR_PLAN`; Pro is untouched); `agentSubActive` gates start and MT5 linking
-  (402 `AGENT_SUB_REQUIRED`), a lapsed plan ends the run `SUB_ENDED`; unlimited staff need none; the panel shows the plan cards + Paystack checkout
-  (`src/utils/paystack.ts`, shared with `PricingModal`). Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
+  Access (owner-specified, supersedes the old $30 agent plan): the agent is part of Pro: free for everyone until `PRO_GATE_AT`, then a live Pro plan or
+  unlimited staff (`agentAccess` = `hasProFeatures`, or an old `users.agentSub` still running, honoured until it expires); start and MT5 linking return
+  402 `PRO_REQUIRED` otherwise, and a run without access ends `SUB_ENDED` ("Pro plan needed"). `agent_monthly` / `agent_yearly` are no longer sold
+  (`/api/payments/initialize` 400 `PLAN_RETIRED`), kept only to verify checkouts started before. The panel shows an "Upgrade to Pro" card (`onUpgrade`
+  → Plans) instead of plan cards. Credits stay per trade. Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
   PLACES it (same transaction as the order, campaign first, `campaignCharged`), refunded in full when the order is cancelled unfilled (`cancelPending`,
   `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
-  MT5 execution (owner-specified, `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
+  MT5 execution (owner-specified: MetaApi only, no copy-trade platform; the old "MT5 Connector" Soon command is removed; `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
   (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
   login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id) and are NEVER stored,
   logged or returned; `mt5Links/{uid}` keeps MetaApi's account id + region (server only), masked login, server, broker, currency, balance and the
@@ -553,7 +553,7 @@
   from candles before the signal; stop + target in one candle = stop; nothing counts after the stop; TP1 first = TP reached (a win) even if
   price returns to the stop later; the 24h-range stop check applies only while no TP was hit and the range lies inside the trade. The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
-- Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
+- Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Trading Agent, Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
   fundamental, Recheck, save/share, daily news alerts), Preference Mode (incl. confirmation, trade types, RDM timeframe choice, calculator/Lot size)
   chart screenshot analysis, voice input and Talk back with Matt (`/api/matt/talk`, `/api/matt/speak`; listed on the Plans window); free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
   staff). FREE for everyone, always (owner-specified): price alerts (Auto and Manual), the track record and the RDM timeframe. After the gate: Pro
@@ -564,6 +564,7 @@
   news alerts and Strategy Builder of free or lapsed accounts and tells them once (alerts keep running). Data is kept. Client (shared list
   `src/utils/proFeatures.ts`): `profile.proAccess`/`proFreeUntil`, "Pro" / "Free until 1 Nov" badges in the slash menu and Tools sheet, attach
   locked (attach, paste, drop), every entry point (`lockedPro` in `App.tsx`, card buttons via `onProLocked`) opens pricing.
+- Pro price (owner-specified): $30 a month (`PRO_MONTHLY_PRICE_USD` default 30), yearly = 12 months less `PRO_YEARLY_DISCOUNT_PERCENT` (default 8% = $331.20).
 - Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
   with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
   A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it

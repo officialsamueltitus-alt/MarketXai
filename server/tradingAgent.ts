@@ -7,7 +7,7 @@ import { campaignPool, purchasedPool, claimMarketMail, getUser, isUnlimitedEmail
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
-import { getPaymentsPublicConfig } from './payments';
+import { hasProFeatures, proGateActive, PRO_GATE_AT } from './proAccess';
 import {
   Mt5Error, brokerLevels, createMt5Account, deleteMt5Account, lotSize, maskLogin, matchSymbol, mt5AccountInfo, mt5AccountState, mt5Configured, mt5Positions,
   mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
@@ -30,8 +30,9 @@ import {
 //      cancelled after PENDING_CANDLES candles, or when price reaches TP1 without it);
 //   4. alerts the trader at every step (site notification, phone/desktop push, and email within the market budget).
 //
-// Access (owner-specified): the agent has its own subscription ($30 a month, a year 18% off; users.agentSub, granted by
-// server/payments.ts after Paystack verification). Unlimited staff accounts need none.
+// Access (owner-specified): the agent is part of Pro (free for everyone until PRO_GATE_AT, 1 Nov 2026, then a live Pro
+// plan or unlimited staff). The separate agent subscription is gone; a `users.agentSub` bought before that is honoured
+// until it expires.
 // Credits (owner-specified, never below 5 a trade): charged ONCE per trade, when the agent places it, inside the same
 // transaction, at the run's rate (daily 7, weekly 6, monthly 5), campaign credits first; an order that is cancelled
 // before it fills is refunded in full.
@@ -140,12 +141,14 @@ interface Mt5LinkDoc extends Mt5Link {
 }
 const linkOf = async (uid: string) => (await linkRef(uid).get()).data() as Mt5LinkDoc | undefined;
 
-/** The agent's subscription is live (or the account is unlimited staff) */
-export function agentSubActive(u: Pick<UserDoc, 'email' | 'emailVerified'> & { agentSub?: { active?: boolean; expiresAt?: number } } | undefined, at = Date.now()): boolean {
+/** May use the agent: Pro features (everyone before the Pro date, then Pro or unlimited staff), or an old agent plan still running */
+export function agentAccess(u: UserDoc | undefined, at = Date.now()): boolean {
   if (!u) return false;
-  if (u.emailVerified && isUnlimitedEmail(u.email)) return true;
-  return !!u.agentSub?.active && (u.agentSub.expiresAt || 0) > at;
+  if (hasProFeatures(u, at)) return true;
+  const legacy = (u as any).agentSub as { active?: boolean; expiresAt?: number } | undefined;
+  return !!legacy?.active && (legacy.expiresAt || 0) > at;
 }
+const PRO_NEEDED = { error: 'PRO_REQUIRED', message: 'The Trading Agent is part of Pro. Upgrade to Pro to switch it on.' };
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -615,9 +618,9 @@ async function runAgents(deps: AgentDeps, onlyUid?: string) {
       await endRun(a.uid, 'TIME_UP');
       continue;
     }
-    // The agent's subscription ended (not renewed): the run stops, open trades keep their stop and target
+    // No Pro any more (plan ended, or the free period is over): the run stops, open trades keep their stop and target
     const u = (await userRef(a.uid).get()).data() as UserDoc | undefined;
-    if (!agentSubActive(u as any, t)) {
+    if (!agentAccess(u, t)) {
       await endRun(a.uid, 'SUB_ENDED');
       continue;
     }
@@ -788,8 +791,6 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     const a = snap.data() as AgentDoc | undefined;
     const u = user.data() as UserDoc | undefined;
     const free = !!u?.emailVerified && isUnlimitedEmail(u?.email || '');
-    const sub = (u as any)?.agentSub as { active?: boolean; plan?: string; expiresAt?: number } | undefined;
-    const pay = getPaymentsPublicConfig();
     return {
       settings: a?.settings || DEFAULT_AGENT_SETTINGS,
       run: runView(a?.run || null, trades),
@@ -801,17 +802,8 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       minQuality: AGENT_MIN_QUALITY,
       backtest: AGENT_BACKTEST,
       credits: free ? null : Math.max(0, u?.credits?.available ?? 0),
-      // The agent's own subscription ($30 a month, yearly 18% off); staff accounts don't need one
-      subscription: {
-        active: agentSubActive(u as any),
-        staff: free,
-        plan: sub?.plan || null,
-        expiresAt: sub?.expiresAt || null,
-        monthlyUsd: pay.agentMonthlyAmount,
-        yearlyUsd: pay.agentYearlyAmount,
-        yearlyDiscountPct: pay.agentYearlyDiscountPct,
-        payments: pay.enabled,
-      },
+      // Pro gives the agent (free for everyone until the Pro date); staff always
+      access: { allowed: agentAccess(u), staff: free, freeUntil: proGateActive() ? null : PRO_GATE_AT },
       // MT5 link: never the password or MetaApi's account id
       mt5: {
         available: mt5Configured(),
@@ -852,14 +844,14 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       const a = as.data() as AgentDoc | undefined;
       const u = us.data() as UserDoc | undefined;
       if (!u) return 'NO_ACCOUNT';
-      if (!agentSubActive(u as any)) return 'NO_SUB';
+      if (!agentAccess(u)) return 'NO_SUB';
       if (a?.run?.state === 'RUNNING') return 'RUNNING';
       const free = !!u.emailVerified && isUnlimitedEmail(u.email);
       if (!free && (u.credits?.available ?? 0) < price.perTrade) return 'NO_CREDITS';
       tx.set(agentRef(uid), { uid, settings: s, run, log: a?.log || [], seen: a?.seen || [], updatedAt: t });
       return 'OK';
     });
-    if (result === 'NO_SUB') return res.status(402).json({ error: 'AGENT_SUB_REQUIRED', message: 'The Trading Agent needs its subscription. Subscribe to switch it on.' });
+    if (result === 'NO_SUB') return res.status(402).json(PRO_NEEDED);
     if (result === 'RUNNING') return res.status(409).json({ error: 'AGENT_RUNNING', message: 'The agent is already running.' });
     if (result === 'NO_CREDITS') return res.status(402).json({ error: 'NO_CREDITS', message: `You need at least ${price.perTrade} credits (one trade) to start a ${price.label.toLowerCase()} run.` });
     if (result !== 'OK') return res.status(409).json({ error: 'NO_ACCOUNT', message: 'Account not initialised. Please sign in again.' });
@@ -879,7 +871,7 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     const { uid } = getUser(res);
     if (!mt5Configured()) return res.status(503).json({ error: 'MT5_NOT_CONFIGURED', message: 'MT5 linking is not available yet.' });
     const u = (await userRef(uid).get()).data() as UserDoc | undefined;
-    if (!agentSubActive(u as any)) return res.status(402).json({ error: 'AGENT_SUB_REQUIRED', message: 'Linking MT5 needs the Trading Agent subscription.' });
+    if (!agentAccess(u)) return res.status(402).json({ error: 'PRO_REQUIRED', message: 'Linking MT5 to the Trading Agent is part of Pro. Upgrade to Pro to link it.' });
     if (linkThrottle.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many link attempts. Please try again later.' });
     const login = String(req.body?.login ?? '').trim();
     const server = String(req.body?.server ?? '').trim();
