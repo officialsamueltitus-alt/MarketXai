@@ -173,7 +173,7 @@ const safeReport = (x: any): FundamentalReport | null => {
 export const FundamentalCard: React.FC<{
   report: FundamentalReport;
   markdown?: string;
-  /** Reads the same question again now and compares it with this read (one analysis credit) */
+  /** Reads the same question again now and compares it with this read (two analysis credits) */
   onRecheck?: () => void;
   rechecking?: boolean;
   /** Shown on the saved / shared picture */
@@ -273,7 +273,7 @@ export const FundamentalCard: React.FC<{
             type="button"
             onClick={() => (locked ? onLocked?.() : onRecheck())}
             disabled={rechecking}
-            title="Check again now: has it been released, is the forecast the same, does this read still hold? Uses 1 analysis credit."
+            title="Check again now: has it been released, is the forecast the same, does this read still hold? Uses 2 analysis credits."
             className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-sky-400/30 bg-sky-500/[0.1] text-[12px] font-semibold text-sky-100 hover:bg-sky-500/[0.18] disabled:opacity-70 disabled:cursor-wait cursor-pointer transition-colors"
           >
             {rechecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}

@@ -9,6 +9,8 @@ import crypto from 'crypto';
 //   Linking (trader): MT5 login, MASTER (trading) password and broker server are passed straight to MetaApi to add the
 //   account; MarketX never stores, logs or returns the password. MarketX keeps only MetaApi's account id, the region,
 //   a masked login, the server name and the broker symbols it matched. Unlinking deletes the account at MetaApi.
+//   Cost: MetaApi bills per connected hour, so a linked account is connected (deployed) only while the agent runs or
+//   still manages an order/position on it, and disconnected (undeployed) otherwise (`setMt5Power`).
 //
 //   Hosts: provisioning  https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai
 //          trading       https://mt-client-api-v1.<region>.agiliumtrade.ai
@@ -69,13 +71,22 @@ async function call(url: string, init: { method?: string; body?: unknown; txId?:
     if (res.status === 202) throw new Mt5Error('MT5_PENDING', 'Your MT5 account is still being connected. Try again in a minute.');
     if (!res.ok) {
       // MetaApi's own message (validation, wrong login, unknown server); never echo anything we sent
-      const msg = String(data?.message || '').replace(/[\r\n]+/g, ' ').slice(0, 200);
+      // (MetaApi's request ids in brackets are dropped: they mean nothing to a trader)
+      const msg = friendlyMt5Message(String(data?.message || '').replace(/[\r\n]+/g, ' ').replace(/\s*\([0-9a-f]{16,}\)/gi, '').trim()).slice(0, 200);
       const code = res.status === 401 || res.status === 403 ? 'MT5_AUTH' : res.status === 404 ? 'MT5_NOT_FOUND' : res.status === 429 ? 'MT5_BUSY' : 'MT5_ERROR';
       throw new Mt5Error(code, msg || `MT5 request failed (${res.status}).`);
     }
     return data;
   }
   throw new Mt5Error('MT5_PENDING', 'Your MT5 account is still being connected. Try again in a minute.');
+}
+
+/** MetaApi's wording for the usual linking mistakes, in a trader's words */
+export function friendlyMt5Message(m: string): string {
+  if (/server.*(not found|unknown|invalid)|no such server|E_SRV_NOT_FOUND/i.test(m)) return "MT5 doesn't know that server. Pick it from the list or type it exactly as MT5 shows it (File, Login to Trade Account).";
+  if (/E_AUTH|invalid account|authori[sz]ation failed|wrong password|invalid password/i.test(m)) return 'MT5 could not sign in. Check the login, the master (trading) password and the server.';
+  if (/already exists|duplicate/i.test(m)) return 'This MT5 account is already linked. Disconnect it first, or try again in a minute.';
+  return m;
 }
 
 export interface Mt5Link {
@@ -101,12 +112,30 @@ export async function createMt5Account(input: { login: string; password: string;
       magic: MAGIC,
       region,
       reliability: 'regular',
-      manualTrades: true,
+      // No `manualTrades`: MetaApi refuses it together with a magic number ("magic value must be 0"), and the magic
+      // number is what tags the agent's own orders on the trader's account
     },
   });
   const id = String(data?.id || '');
   if (!safeId(id)) throw new Mt5Error('MT5_ERROR', 'MT5 did not return an account. Check the login, password and server.');
   return { accountId: id, region };
+}
+
+/**
+ * MT5 server names from MetaApi's directory of known broker servers (e.g. "exness" -> Exness-MT5Real8, …), for the
+ * link form's suggestions. Read only; nothing about the trader is sent. Empty on any error.
+ */
+export async function mt5KnownServers(query: string): Promise<string[]> {
+  const q = query.replace(/[^A-Za-z0-9 ._()-]/g, '').trim().slice(0, 40);
+  if (q.length < 2 || !token()) return [];
+  try {
+    const d = await call(`${PROVISIONING}/known-mt-servers/5/search?query=${encodeURIComponent(q)}`, { timeoutMs: 6000 });
+    // { "Broker name": ["Server-1", "Server-2"], … } (or a plain list)
+    const names: unknown[] = Array.isArray(d) ? d : d && typeof d === 'object' ? Object.values(d).flat() : [];
+    return [...new Set(names.map(n => String(n || '').trim()).filter(n => /^[A-Za-z0-9][A-Za-z0-9 ._()\-]{2,79}$/.test(n)))].slice(0, 30);
+  } catch {
+    return [];
+  }
 }
 
 export async function mt5AccountState(link: Mt5Link): Promise<{ state: string; connection: string }> {
@@ -124,6 +153,16 @@ export async function deleteMt5Account(link: Mt5Link): Promise<void> {
     if (err instanceof Mt5Error && (err.code === 'MT5_NOT_FOUND' || err.code === 'MT5_PENDING')) return;
     throw err;
   }
+}
+
+/**
+ * Connects (deploy) or disconnects (undeploy) the account's cloud terminal. MetaApi bills per connected hour, so the
+ * agent keeps an account connected only while it needs it (a run, or orders/positions it still manages); the
+ * credentials stay at MetaApi either way, so waking it needs nothing from the trader.
+ */
+export async function setMt5Power(link: Mt5Link, on: boolean): Promise<void> {
+  if (!safeId(link.accountId)) throw new Mt5Error('MT5_ERROR', 'Unknown MT5 account.');
+  await call(`${PROVISIONING}/users/current/accounts/${link.accountId}/${on ? 'deploy' : 'undeploy'}`, { method: 'POST', tries: 3 });
 }
 
 const acct = (link: Mt5Link) => {

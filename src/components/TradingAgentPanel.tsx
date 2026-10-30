@@ -1,12 +1,92 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Info, Link2, Loader2, Lock, Minus, Plug, Plus, Power, RefreshCw, ShieldAlert, Square, Target, Unlink, X, XCircle } from 'lucide-react';
 import { apiFetch, formatMoney } from '../utils/apiClient';
-import { loadPaystack } from '../utils/paystack';
 import { exactPrice } from '../utils/formatPrice';
 import {
   AGENT_FRAMES, AGENT_LIMITS, AGENT_PRICING, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, agentMaxCost, normalizeAgentSettings,
   type AgentDuration, type AgentLogEntry, type AgentRunView, type AgentSettings, type AgentStats, type AgentStyle, type AgentTradeView,
 } from '../utils/tradingAgent';
+import { MT5_BROKER_SERVERS, suggestMt5Servers } from '../utils/mt5Servers';
+
+/** MT5 server box with suggestions: common brokers' servers at once, then the live server directory as the trader types */
+const Mt5ServerInput: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [live, setLive] = useState<Array<{ broker: string; server: string }>>([]);
+  const [active, setActive] = useState(-1);
+  const local = useMemo(
+    () => (value.trim() ? suggestMt5Servers(value, 12) : MT5_BROKER_SERVERS.slice(0, 10).map(b => ({ broker: b.broker, server: b.servers[0] }))),
+    [value]
+  );
+  useEffect(() => {
+    const q = value.trim();
+    if (q.length < 2) return setLive([]);
+    const t = setTimeout(() => {
+      apiFetch<{ servers: Array<{ broker: string; server: string }> }>(`/api/agent/mt5/servers?q=${encodeURIComponent(q)}`)
+        .then(r => setLive(r.servers || []))
+        .catch(() => setLive([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [value]);
+  const items = useMemo(() => {
+    const seen = new Set<string>();
+    return [...local, ...live].filter(x => {
+      const k = x.server.toLowerCase();
+      if (seen.has(k) || k === value.trim().toLowerCase()) return false;
+      seen.add(k);
+      return true;
+    }).slice(0, 12);
+  }, [local, live, value]);
+  const pick = (server: string) => {
+    onChange(server);
+    setOpen(false);
+    setActive(-1);
+  };
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={e => {
+          onChange(e.target.value.slice(0, 80));
+          setOpen(true);
+          setActive(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={e => {
+          if (!open || !items.length) return;
+          if (e.key === 'ArrowDown') (e.preventDefault(), setActive(i => Math.min(items.length - 1, i + 1)));
+          else if (e.key === 'ArrowUp') (e.preventDefault(), setActive(i => Math.max(0, i - 1)));
+          else if (e.key === 'Enter' && active >= 0) (e.preventDefault(), pick(items[active].server));
+          else if (e.key === 'Escape') setOpen(false);
+        }}
+        placeholder="Server, e.g. Exness-MT5Real8"
+        aria-label="MT5 server"
+        role="combobox"
+        aria-expanded={open && items.length > 0}
+        aria-autocomplete="list"
+        className="w-full h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40"
+      />
+      {open && items.length > 0 && (
+        <ul role="listbox" className="absolute z-30 left-0 right-0 sm:right-auto sm:min-w-[260px] mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/[0.1] bg-[var(--mx-surface-2,#141821)] shadow-xl py-1">
+          {!value.trim() && <li className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-500">Popular brokers · type to search</li>}
+          {items.map((x, i) => (
+            <li key={x.server} role="option" aria-selected={i === active}>
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => pick(x.server)}
+                className={`w-full text-left px-3 py-1.5 flex items-center justify-between gap-3 cursor-pointer ${i === active ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'}`}
+              >
+                <span className="text-[13px] text-white truncate">{x.server}</span>
+                {x.broker && <span className="text-[10px] text-slate-500 shrink-0">{x.broker}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
 
 // Trading agent (/trading-agent, owner-specified): its own interface. The trader sets it up (trade type, timeframes,
 // markets, risk per trade, profit target, loss limit, trades per day, run length with its credit cost) and switches it
@@ -23,10 +103,11 @@ interface AgentState {
   minQuality: number;
   backtest: { won: number; avgR: number; profitFactor: number; maxDrawdownR: number; worstRun: number; tradesPerMonth: number };
   credits: number | null;
-  subscription: { active: boolean; staff: boolean; plan: string | null; expiresAt: number | null; monthlyUsd: number; yearlyUsd: number; yearlyDiscountPct: number; payments: boolean };
+  /** Pro gives the agent (free for everyone until the Pro date); credits are still used per trade */
+  access: { allowed: boolean; staff: boolean; freeUntil: number | null };
   mt5: {
     available: boolean;
-    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
+    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; asleep?: boolean; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
   };
 }
 type Tab = 'setup' | 'trades' | 'activity';
@@ -109,7 +190,7 @@ function Row({ title, hint, children }: { title: string; hint?: string; children
   );
 }
 
-export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { isOpen: boolean; onClose: () => void; focusId?: string | null; onBuyCredits?: () => void }) {
+export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits, onUpgrade }: { isOpen: boolean; onClose: () => void; focusId?: string | null; onBuyCredits?: () => void; onUpgrade?: () => void }) {
   const [data, setData] = useState<AgentState | null>(null);
   const [draft, setDraft] = useState<AgentSettings>(DEFAULT_AGENT_SETTINGS);
   const [tab, setTab] = useState<Tab>('setup');
@@ -119,7 +200,6 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
   const [confirmStop, setConfirmStop] = useState(false);
   const [showBacktest, setShowBacktest] = useState(false);
   const [mt5Form, setMt5Form] = useState({ login: '', server: '', password: '', consent: false });
-  const [subPlan, setSubPlan] = useState<'agent_monthly' | 'agent_yearly'>('agent_monthly');
   const listRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -220,42 +300,10 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
       setBusy(false);
     }
   };
-  // The agent's subscription: Paystack checkout; only the server's verification switches it on
-  const subscribe = async () => {
-    setError('');
-    if (!window.PaystackPop) await loadPaystack().catch(() => {});
-    if (!window.PaystackPop) return setError('Checkout could not load. Disable any ad or script blocker and try again.');
-    setBusy(true);
-    try {
-      const init = await apiFetch<{ reference: string; amount: number; currency: string; channels?: string[]; email: string; publicKey: string }>('/api/payments/initialize', {
-        method: 'POST',
-        body: JSON.stringify({ plan: subPlan }),
-      });
-      window.PaystackPop.setup({
-        key: init.publicKey,
-        email: init.email,
-        amount: init.amount,
-        currency: init.currency,
-        ref: init.reference,
-        channels: init.channels,
-        callback: r => {
-          apiFetch('/api/payments/verify', { method: 'POST', body: JSON.stringify({ reference: r.reference || init.reference }) })
-            .then(() => load())
-            .catch(err => setError(err?.message || 'Payment could not be verified.'))
-            .finally(() => setBusy(false));
-        },
-        onClose: () => setBusy(false),
-      }).openIframe();
-    } catch (e: any) {
-      setError(e?.message || 'Could not start checkout.');
-      setBusy(false);
-    }
-  };
-
   if (!isOpen) return null;
   const run = data?.run || null;
-  const sub = data?.subscription;
-  const subscribed = !!sub?.active;
+  const access = data?.access;
+  const allowed = !!access?.allowed;
   const link = data?.mt5?.link || null;
   const rs = run?.stats;
   const openTrades = (data?.trades || []).filter(t => t.state === 'OPEN' || t.state === 'PENDING');
@@ -346,37 +394,25 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                   ))}
               </div>
 
-              {/* Subscription: the agent has its own plan */}
-              {sub && !subscribed && (
+              {/* Pro: the agent is part of Pro (free for everyone until the Pro date); credits are used per trade */}
+              {access && !allowed && (
                 <div className="rounded-3xl border border-violet-400/30 bg-gradient-to-br from-violet-500/[0.12] to-fuchsia-500/[0.06] p-4">
                   <div className="flex items-center gap-2">
                     <Crown className="w-4 h-4 text-violet-300" />
-                    <p className="text-sm font-semibold text-white">Unlock the Trading Agent</p>
+                    <p className="text-sm font-semibold text-white">The Trading Agent is part of Pro</p>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">Its own subscription, separate from Pro. Credits are still used per trade the agent takes.</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        ['agent_monthly', 'Monthly', `${formatMoney(sub.monthlyUsd, 'USD', true)}`, 'a month'],
-                        ['agent_yearly', 'Yearly', `${formatMoney(sub.yearlyUsd, 'USD')}`, `a year · save ${sub.yearlyDiscountPct}%`],
-                      ] as const
-                    ).map(([id, label, price, per]) => (
-                      <button key={id} type="button" onClick={() => setSubPlan(id)} className={`rounded-2xl border px-3 py-2.5 text-left cursor-pointer transition ${subPlan === id ? 'border-violet-400/50 bg-violet-500/15' : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]'}`}>
-                        <span className="block text-xs font-semibold text-white">{label}</span>
-                        <span className="block text-base font-bold text-white tabular-nums">{price}</span>
-                        <span className="block text-[10px] text-slate-400">{per}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <button type="button" onClick={subscribe} disabled={busy || !sub.payments} className="mt-3 w-full h-10 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />} {sub.payments ? 'Subscribe' : 'Payments are not available yet'}
-                  </button>
+                  <p className="mt-1 text-[11px] text-slate-400">Upgrade to Pro to switch it on. Credits are used per trade the agent takes.</p>
+                  {onUpgrade && (
+                    <button type="button" onClick={onUpgrade} className="mt-3 w-full h-10 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-sm font-semibold text-white hover:brightness-110 cursor-pointer flex items-center justify-center gap-2">
+                      <Lock className="w-4 h-4" /> Upgrade to Pro
+                    </button>
+                  )}
                 </div>
               )}
-              {sub && subscribed && !sub.staff && sub.expiresAt && (
+              {access && allowed && !access.staff && access.freeUntil && (
                 <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                  <Crown className="w-3.5 h-3.5 text-violet-300" /> Trading Agent {sub.plan === 'agent_yearly' ? 'Yearly' : 'Monthly'} · active until{' '}
-                  {new Date(sub.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                  <Crown className="w-3.5 h-3.5 text-violet-300" /> Free for everyone until{' '}
+                  {new Date(access.freeUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, then part of Pro.
                 </p>
               )}
 
@@ -392,7 +428,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                     </p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
                       {link?.status === 'CONNECTED'
-                        ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.`
+                        ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.${link.asleep ? ' Resting while the agent is off: it reconnects by itself when you start a run.' : ''}`
                         : link?.status === 'CONNECTING'
                           ? 'Signing in to your broker. This takes up to a minute or two.'
                           : link?.status === 'FAILED'
@@ -424,7 +460,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                     </button>
                   </div>
                 )}
-                {(!link || link.status === 'FAILED') && data.mt5.available && subscribed && (
+                {(!link || link.status === 'FAILED') && data.mt5.available && allowed && (
                   <form
                     className="mt-3 space-y-2"
                     onSubmit={e => {
@@ -435,7 +471,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                   >
                     <div className="grid grid-cols-2 gap-2">
                       <input value={mt5Form.login} onChange={e => setMt5Form(f => ({ ...f, login: e.target.value.replace(/\D/g, '').slice(0, 20) }))} inputMode="numeric" placeholder="MT5 login" aria-label="MT5 login" className="h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40" />
-                      <input value={mt5Form.server} onChange={e => setMt5Form(f => ({ ...f, server: e.target.value.slice(0, 80) }))} placeholder="Server, e.g. Exness-MT5Real8" aria-label="MT5 server" className="h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40" />
+                      <Mt5ServerInput value={mt5Form.server} onChange={v => setMt5Form(f => ({ ...f, server: v }))} />
                     </div>
                     <input type="password" value={mt5Form.password} onChange={e => setMt5Form(f => ({ ...f, password: e.target.value.slice(0, 64) }))} placeholder="Master (trading) password" aria-label="MT5 master password" autoComplete="new-password" className="w-full h-9 px-3 rounded-xl bg-black/25 border border-white/[0.08] text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/40" />
                     <label className="flex items-start gap-2 text-[11px] text-slate-400 cursor-pointer">
@@ -556,7 +592,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                   )}
 
                   {!running && (
-                    <button type="button" onClick={start} disabled={busy || !check.ok || short || !subscribed} className="mt-4 w-full h-11 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.8)] hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
+                    <button type="button" onClick={start} disabled={busy || !check.ok || short || !allowed} className="mt-4 w-full h-11 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.8)] hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
                       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />} Start the agent
                     </button>
                   )}

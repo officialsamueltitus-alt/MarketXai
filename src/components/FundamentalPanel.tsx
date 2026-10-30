@@ -114,7 +114,7 @@ export const FundamentalPanel: React.FC<Props> = ({ isOpen, onClose, enabled, on
               )}
             </button>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2.5">Uses one analysis credit per read. A question that isn't about fundamentals is refunded.</p>
+          <p className="text-[11px] text-slate-500 mt-2.5">Uses two analysis credits per read (it searches the web live). A question that isn't about fundamentals is refunded.</p>
         </div>
 
         {/* How it works */}

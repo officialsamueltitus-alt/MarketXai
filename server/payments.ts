@@ -20,7 +20,10 @@ import { couponForCheckout, countCouponUse } from './coupons';
 import { createKeyedThrottle } from './security';
 
 type ProPlan = 'monthly' | 'yearly';
-/** The Trading Agent's own subscription (owner-specified: $30 a month, yearly 18% off), separate from Pro */
+/**
+ * Retired (owner-specified): the Trading Agent is part of Pro now. These plans are no longer sold; they stay here only
+ * so a checkout started before the change is still verified and honoured until it expires.
+ */
 type AgentPlan = 'agent_monthly' | 'agent_yearly';
 /** Credit packs: one-time purchases, added to the trader's bought credits */
 type PackPlan = 'pack_50' | 'pack_150' | 'pack_400' | 'pack_1000';
@@ -34,12 +37,15 @@ export const CREDIT_PACKS: Record<PackPlan, { credits: number; usd: number }> = 
 };
 const PACKS = Object.keys(CREDIT_PACKS) as PackPlan[];
 const PLANS: Plan[] = ['monthly', 'yearly', 'agent_monthly', 'agent_yearly', ...PACKS];
+/** Plans a new checkout can buy */
+const ON_SALE = (p: Plan) => !isAgentPlan(p);
 export const isAgentPlan = (p: Plan): p is AgentPlan => p === 'agent_monthly' || p === 'agent_yearly';
 export const isPackPlan = (p: Plan): p is PackPlan => p in CREDIT_PACKS;
 const readPlan = (v: unknown): Plan => (PLANS.includes(v as Plan) ? (v as Plan) : 'monthly');
 
 const PLAN_DURATION_MS: Record<Plan, number> = {
-  monthly: 30 * 24 * 60 * 60 * 1000,
+  // The `monthly` id is the 3-month Pro plan (owner-specified); the id is kept for stored payments, coupons and subscriptions
+  monthly: 90 * 24 * 60 * 60 * 1000,
   yearly: 365 * 24 * 60 * 60 * 1000,
   agent_monthly: 30 * 24 * 60 * 60 * 1000,
   agent_yearly: 365 * 24 * 60 * 60 * 1000,
@@ -49,20 +55,26 @@ const PLAN_DURATION_MS: Record<Plan, number> = {
   pack_1000: 0,
 };
 const planName = (p: Plan) =>
-  isPackPlan(p) ? `${CREDIT_PACKS[p].credits} credit pack` : isAgentPlan(p) ? `Trading Agent ${p === 'agent_yearly' ? 'Yearly' : 'Monthly'}` : `Pro ${p === 'yearly' ? 'Yearly' : 'Monthly'}`;
+  isPackPlan(p) ? `${CREDIT_PACKS[p].credits} credit pack` : isAgentPlan(p) ? `Trading Agent ${p === 'agent_yearly' ? 'Yearly' : 'Monthly'}` : proPlanName(p);
+/** "Pro 3 months" / "Pro Yearly" */
+export const proPlanName = (p: string) => `Pro ${p === 'yearly' ? 'Yearly' : '3 months'}`;
 
 // Plans are priced in USD and charged in the currency the Paystack account supports
 // (NGN for Nigerian merchants, which also unlocks bank transfer and USSD).
-const YEARLY_DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.PRO_YEARLY_DISCOUNT_PERCENT) || 8));
+// Pro (owner-specified): $30 for 3 months; a year is $200 less 12% ($176). New setting names, so an old monthly price set
+// in the environment can't override them.
+const PRO_QUARTER_USD = Number(process.env.PRO_QUARTER_PRICE_USD) || 30;
+const PRO_YEARLY_BASE_USD = Number(process.env.PRO_YEARLY_BASE_USD) || 200;
+const YEARLY_DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.PRO_YEARLY_OFF_PERCENT) || 12));
 const PAYMENT_CHANNELS = ['card', 'bank_transfer', 'ussd', 'bank', 'qr', 'mobile_money'];
 
-/** Trading Agent: $30 a month; a year costs 12 months less 18% ($295.20) */
+/** Retired Trading Agent plan prices (only for checkouts started before it joined Pro) */
 const AGENT_MONTHLY_USD = 30;
 const AGENT_YEARLY_DISCOUNT_PCT = 18;
 
 function usdPrices() {
-  const monthly = Number(process.env.PRO_MONTHLY_PRICE_USD) || 20;
-  const yearly = Math.round(monthly * 12 * (1 - YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
+  const monthly = PRO_QUARTER_USD;
+  const yearly = Math.round(PRO_YEARLY_BASE_USD * (1 - YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
   const agent_monthly = AGENT_MONTHLY_USD;
   const agent_yearly = Math.round(AGENT_MONTHLY_USD * 12 * (1 - AGENT_YEARLY_DISCOUNT_PCT / 100) * 100) / 100;
   return { monthly, yearly, agent_monthly, agent_yearly, ...Object.fromEntries(PACKS.map(p => [p, CREDIT_PACKS[p].usd])) } as Record<Plan, number>;
@@ -155,17 +167,15 @@ export function getPaymentsPublicConfig() {
     publicKey: enabled ? publicKey : '',
     // Display prices (USD) and what Paystack will actually charge
     currency: 'USD',
+    // `monthly` = the 3-month plan
     monthlyAmount: pricing.usd.monthly,
+    periodMonths: 3,
+    yearlyBaseAmount: PRO_YEARLY_BASE_USD,
+    yearlyDiscountPct: YEARLY_DISCOUNT_PCT,
     yearlyAmount: pricing.usd.yearly,
     chargeCurrency: pricing.currency,
     chargeMonthlyAmount: pricing.monthly != null ? pricing.monthly / 100 : null,
     chargeYearlyAmount: pricing.yearly != null ? pricing.yearly / 100 : null,
-    // Trading Agent subscription
-    agentMonthlyAmount: pricing.usd.agent_monthly,
-    agentYearlyAmount: pricing.usd.agent_yearly,
-    agentYearlyDiscountPct: AGENT_YEARLY_DISCOUNT_PCT,
-    chargeAgentMonthlyAmount: pricing.agent_monthly != null ? pricing.agent_monthly / 100 : null,
-    chargeAgentYearlyAmount: pricing.agent_yearly != null ? pricing.agent_yearly / 100 : null,
     // Credit packs (one-time)
     creditPacks: PACKS.map(p => ({ id: p, credits: CREDIT_PACKS[p].credits, usd: CREDIT_PACKS[p].usd, charge: pricing[p] != null ? (pricing[p] as number) / 100 : null })),
     // Plan benefits as enforced by the server, so the UI never over-promises
@@ -269,7 +279,7 @@ async function fulfillPayment(reference: string, tx: any): Promise<FulfillResult
     t.update(paymentRef, { status: 'fulfilled', fulfilledAt: now, paidAt: tx.paid_at || null, channel: tx.channel || null });
     addNotificationInTx(t, payment.uid, {
       type: 'credit',
-      title: `MarketX Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated`,
+      title: `MarketX ${proPlanName(plan)} activated`,
       message: `Payment confirmed. ${PRO_DAILY_LIMIT} daily analyses and your verified badge are now active.`,
     });
     return {
@@ -333,7 +343,7 @@ function notifyPaymentEmail(result: FulfillResult) {
     ['Thank you for your payment. Your Pro plan is now active.', `You now get ${PRO_DAILY_LIMIT} analyses every day and a verified trader badge.`],
     {
       rows: [
-        ['Plan', `Pro ${result.plan === 'yearly' ? 'Yearly' : 'Monthly'}`],
+        ['Plan', proPlanName(result.plan)],
         ['Amount paid', result.charged || '-'],
         ...(result.coupon?.code ? ([['Coupon', `${result.coupon.code} (${result.coupon.pct}% off)`]] as [string, string][]) : []),
         ['Active until', result.expiresAt ? new Date(result.expiresAt).toDateString() : '-'],
@@ -362,6 +372,9 @@ export function registerPaymentRoutes(app: Express, limiter: any) {
         return res.status(503).json({ error: 'PAYMENTS_DISABLED', message: 'Payments are not available yet.' });
       }
       const plan: Plan = readPlan(req.body?.plan);
+      if (!ON_SALE(plan)) {
+        return res.status(400).json({ error: 'PLAN_RETIRED', message: 'The Trading Agent is part of Pro now. Choose a Pro plan to use it.' });
+      }
       // Coupon (optional): priced here on the server, and only while the code is live. A code that doesn't work is
       // refused, never silently charged at the full price.
       const rawCoupon = typeof req.body?.coupon === 'string' ? req.body.coupon.trim() : '';

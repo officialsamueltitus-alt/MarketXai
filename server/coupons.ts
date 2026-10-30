@@ -17,6 +17,7 @@ import { sendEmail, isMailerConfigured } from './mailer';
 import { IS_LEAD_WORKER } from './workers';
 import { requireAdmin } from './admin';
 import { planPrice } from './payments';
+import { featureCodeView, liveFeatureCode } from './featureCodes';
 
 export type CouponPlan = 'monthly' | 'yearly';
 export type CouponState = 'LIVE' | 'OFF' | 'SCHEDULED' | 'EXPIRED';
@@ -96,7 +97,7 @@ export async function couponForCheckout(raw: unknown, plan: CouponPlan, now = Da
   if (state === 'SCHEDULED') return { error: 'COUPON_INVALID', message: "That coupon code isn't valid." };
   if (state === 'EXPIRED') return { error: 'COUPON_EXPIRED', message: 'This coupon code has expired.' };
   const pct = couponPct(c, plan);
-  if (pct <= 0) return { error: 'COUPON_PLAN', message: `This code doesn't apply to the ${plan === 'yearly' ? 'Yearly' : 'Monthly'} plan.` };
+  if (pct <= 0) return { error: 'COUPON_PLAN', message: `This code doesn't apply to the ${plan === 'yearly' ? 'Yearly' : '3-month'} plan.` };
   return { coupon: c, pct };
 }
 
@@ -109,7 +110,7 @@ export function countCouponUse(code: string, plan: CouponPlan) {
 }
 
 // ---------------------------------------------------------------------------
-// The Christmas promo (owner-specified): 30% off Monthly, 25% off Yearly, 10 Nov to 20 Dec 2026 (Lagos time), banner
+// The Christmas promo (owner-specified): 30% off the 3-month plan, 25% off Yearly, 10 Nov to 20 Dec 2026 (Lagos time), banner
 // on the site while it runs, and one email to every trader on 10 Nov.
 // ---------------------------------------------------------------------------
 export const CHRISTMAS_CODE = 'MKXCMAS01';
@@ -122,7 +123,7 @@ export const CHRISTMAS: Omit<Coupon, 'createdAt' | 'updatedAt'> = {
   startsAt: LAGOS('2026-11-10T00:00:00'),
   endsAt: LAGOS('2026-12-20T23:59:59'),
   title: 'The MarketX Christmas Promo is live',
-  text: 'Unwrap MarketX Pro for less: 30% off Monthly and 25% off Yearly. Your edge for the new year starts now.',
+  text: 'Unwrap MarketX Pro for less: 30% off 3 months and 25% off Yearly. Your edge for the new year starts now.',
   banner: true,
   mailAt: LAGOS('2026-11-10T09:00:00'),
 };
@@ -146,7 +147,7 @@ const LEASE_MS = 10 * 60_000;
 
 export function promoMail(c: Coupon, name: string) {
   const offers: [string, string][] = [];
-  if (c.monthlyPct > 0) offers.push(['Pro Monthly', `${c.monthlyPct}% off`]);
+  if (c.monthlyPct > 0) offers.push(['Pro 3 months', `${c.monthlyPct}% off`]);
   if (c.yearlyPct > 0) offers.push(['Pro Yearly', `${c.yearlyPct}% off`]);
   if (c.endsAt) offers.push(['Offer ends', dateText(c.endsAt)]);
   const christmas = c.code === CHRISTMAS_CODE;
@@ -261,6 +262,9 @@ export function registerCouponRoutes(app: Express, checkLimiter: any) {
   app.post('/api/coupons/check', checkLimiter, wrap(async (req, res) => {
     const code = normalizeCode(req.body?.code);
     if (!isValidCode(code)) return res.status(400).json({ error: 'COUPON_INVALID', message: "That coupon code isn't valid." });
+    // A feature code (server/featureCodes.ts) unlocks one feature instead of a discount: the box offers to redeem it
+    const fc = await liveFeatureCode(code);
+    if (fc) return res.json({ valid: true, kind: 'feature', feature: featureCodeView(fc) });
     const [m, y] = await Promise.all([couponForCheckout(code, 'monthly'), couponForCheckout(code, 'yearly')]);
     if ('error' in m && 'error' in y) {
       const e = m.error === 'COUPON_PLAN' ? y : m;
@@ -310,11 +314,12 @@ export function registerCouponRoutes(app: Express, checkLimiter: any) {
     if (!input.monthlyPct && !input.yearlyPct) return res.status(400).json({ error: 'INVALID', message: `Give at least one plan a discount (1 to ${MAX_PCT}%).` });
     const now = Date.now();
     const created = await db().runTransaction(async t => {
-      if ((await t.get(couponRef(code))).exists) return false;
+      const [mine, feature] = await Promise.all([t.get(couponRef(code)), t.get(db().collection('featureCodes').doc(code))]);
+      if (mine.exists || feature.exists) return false;
       t.set(couponRef(code), { code, ...input, mailAt: null, uses: { monthly: 0, yearly: 0 }, createdAt: now, updatedAt: now });
       return true;
     });
-    if (!created) return res.status(409).json({ error: 'EXISTS', message: 'That code already exists.' });
+    if (!created) return res.status(409).json({ error: 'EXISTS', message: 'That code is already used by a coupon or feature code.' });
     promoCache = null;
     res.json({ success: true });
   }));

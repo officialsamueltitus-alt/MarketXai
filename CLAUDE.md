@@ -163,24 +163,28 @@
   start/end also email within the market budget. Panel: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
   (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account.
   Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
-  Subscription (owner-specified): the agent has its OWN plan, $30 a month, a year = 12 months less 18% ($295.20): `agent_monthly` / `agent_yearly`
-  in `server/payments.ts` (same Paystack initialize/verify/webhook, references `mx_agent_*`, granted only after verification into `users.agentSub`
-  {active, plan, expiresAt}, renewals extend; coupons refused `COUPON_NOT_FOR_PLAN`; Pro is untouched); `agentSubActive` gates start and MT5 linking
-  (402 `AGENT_SUB_REQUIRED`), a lapsed plan ends the run `SUB_ENDED`; unlimited staff need none; the panel shows the plan cards + Paystack checkout
-  (`src/utils/paystack.ts`, shared with `PricingModal`). Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
+  Access (owner-specified, supersedes the old $30 agent plan): the agent is part of Pro: free for everyone until `PRO_GATE_AT`, then a live Pro plan or
+  unlimited staff (`agentAccess` = `hasProFeatures`, or an old `users.agentSub` still running, honoured until it expires); start and MT5 linking return
+  402 `PRO_REQUIRED` otherwise, and a run without access ends `SUB_ENDED` ("Pro plan needed"). `agent_monthly` / `agent_yearly` are no longer sold
+  (`/api/payments/initialize` 400 `PLAN_RETIRED`), kept only to verify checkouts started before. The panel shows an "Upgrade to Pro" card (`onUpgrade`
+  → Plans) instead of plan cards. Credits stay per trade. Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
   PLACES it (same transaction as the order, campaign first, `campaignCharged`), refunded in full when the order is cancelled unfilled (`cancelPending`,
   `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
-  MT5 execution (owner-specified, `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
+  MT5 execution (owner-specified: MetaApi only, no copy-trade platform; the old "MT5 Connector" Soon command is removed; `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
   (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
-  login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id) and are NEVER stored,
+  login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id; never `manualTrades`, which MetaApi refuses with a magic number; its errors are reworded by `friendlyMt5Message` with request ids stripped). Server box (owner-requested) = `Mt5ServerInput`: suggestions from `src/utils/mt5Servers.ts` (common brokers) + `GET /api/agent/mt5/servers?q=` (that list + MetaApi's `known-mt-servers/5/search`, cached 10 min) and are NEVER stored,
   logged or returned; `mt5Links/{uid}` keeps MetaApi's account id + region (server only), masked login, server, broker, currency, balance and the
   broker symbols matched per market (`matchSymbol`: exact, else a short suffix like XAUUSDm/XAUUSD.r; NAS100 = US100/USTEC…); `finishLink` polls until
   DEPLOYED + CONNECTED (bad details = FAILED, the MetaApi account deleted). With a CONNECTED link, `mt5Open` places each agent order on the account:
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
   (`lotSize`: stop/tickSize x lossTickValue, rounded DOWN to the volume step; under the minimum = not placed), BUY/SELL LIMIT with stop, final target,
   comment "MarketX agent" + clientId `MX…` (≤ 26 chars), timed expiry (GTC fallback); FAILED placements stay tracked and the trader is told. Cancels
-  (`mt5Cancel`, ORDER_CANCEL) follow MarketX's cancels; Stop and close uses POSITION_CLOSE_ID (`mt5Close`); the broker's own stop/target close filled
-  trades. MarketX's candle tracking stays the record (alerts, stats). Unlink and account deletion delete the MetaApi account first (`unlinkMt5`).
+  (`mt5Cancel`, ORDER_CANCEL) follow MarketX's cancels; Stop and close (and the 500-candle timeout) use POSITION_CLOSE_ID (`mt5Close`); the broker's own
+  stop/target close filled trades. MarketX's candle tracking stays the record (alerts, stats). Unlink and account deletion delete the MetaApi account first (`unlinkMt5`).
+  Connected only when needed (owner-approved, MetaApi bills per connected hour): `mt5Links.power` ON / WAKING / OFF (missing = ON). `sleepIdleLinks`
+  (agent tick, every 5 min) undeploys a link (`setMt5Power`) when its run isn't RUNNING and it has no PENDING/OPEN trade with an MT5 order PLACED (10 min
+  grace after linking/waking); `wakeLink` deploys and waits for CONNECTED (45s) before any order/cancel/close; a run start wakes it in the background
+  (`wakeSoon`). The panel says "Resting" while asleep; refresh doesn't wake it.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
@@ -256,15 +260,16 @@
   read and must search the latest information (released figure into `data.actual` + status RELEASED, else actual empty; `whatsNew` = "Update: …"
   line), the live calendar's released figure (`actual` in `getFullCalendar`) is given to it and fills a missing actual when exactly one matching
   line is out, and headlines since the earlier read ride on `recheck.news`. Card: Actual = the figure (sky tile, "just out", above/below/in line with
-  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; one credit, refunded on failure. Save / share (owner-specified, `src/utils/fundamentalShare.ts`, buttons on the card):
+  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; two credits, refunded on failure. Save / share (owner-specified, `src/utils/fundamentalShare.ts`, buttons on the card):
   "Save image" draws the card picture (canvas 1080x1350 @2x: forecast, or the result once `data.actual` is in, username, marketx.world; drawn ahead on
   hover/touch, `prepareFundamentalCard`) and downloads it (iPhone: share sheet → Save Image to Photos); "Share" sends picture + brief text via the share
   sheet (else copies the text and saves the picture); "Post on X" opens `openXPost(buildFundamentalShareText)`: key points only, ≤ 280. Every read is kept (owner-specified):
   the sidebar History has a Fundamentals tab (`fundamentalReads` in `Sidebar.tsx`, from the chats' `fundamental` messages, opens the read via
   `openChatMessage`), and each read or recheck sends its own notification + email (`fundamentalAlert` in `server/account.ts`: release, most likely
   with odds, effect, actual/forecast/previous, pairs for/against, confidence, recheck result; button = `/?chat=&msg=` of that read; `important`
-  = sent at once, never paced out, still only with activity emails on). The analysis engine and `/api/market/analyze` are untouched. One credit
-  (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
+  = sent at once, never paced out, still only with activity emails on). The analysis engine and `/api/market/analyze` are untouched. Two credits
+  (owner-approved, web search makes it the dearest call: `chargeCredits(FUNDAMENTAL_CREDITS)` in `server/account.ts`, all or nothing across pools via
+  `splitCharge`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and
   labelled untrusted. Context: this week's matching calendar lines (`calendarMatches`, exact titles, figures given to the engine, release time kept),
@@ -548,7 +553,7 @@
   from candles before the signal; stop + target in one candle = stop; nothing counts after the stop; TP1 first = TP reached (a win) even if
   price returns to the stop later; the 24h-range stop check applies only while no TP was hit and the range lies inside the trade. The auto journal is scored live at each TP (`progressAutoJournal`, called by the alert monitor:
   status CLOSED, result WIN, still TRACKING until the alert ends), and `revealResult` writes the R in the Solana result text.
-- Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
+- Pro gate (owner-specified, `server/proAccess.ts`, strict): Pro list = Trading Agent, Watchlist, Trade Journal, Strategy Builder, Fundamental Analysis (incl. Check
   fundamental, Recheck, save/share, daily news alerts), Preference Mode (incl. confirmation, trade types, RDM timeframe choice, calculator/Lot size)
   chart screenshot analysis, voice input and Talk back with Matt (`/api/matt/talk`, `/api/matt/speak`; listed on the Plans window); free for everyone until 1 Nov 2026 00:00 Lagos (`PRO_GATE_AT`), then Pro only (paid plan not expired, or unlimited
   staff). FREE for everyone, always (owner-specified): price alerts (Auto and Manual), the track record and the RDM timeframe. After the gate: Pro
@@ -559,6 +564,20 @@
   news alerts and Strategy Builder of free or lapsed accounts and tells them once (alerts keep running). Data is kept. Client (shared list
   `src/utils/proFeatures.ts`): `profile.proAccess`/`proFreeUntil`, "Pro" / "Free until 1 Nov" badges in the slash menu and Tools sheet, attach
   locked (attach, paste, drop), every entry point (`lockedPro` in `App.tsx`, card buttons via `onProLocked`) opens pricing.
+- Pro price (owner-specified): $30 for 3 months and $200 less 12% ($176) a year (`PRO_QUARTER_PRICE_USD`, `PRO_YEARLY_BASE_USD`,
+  `PRO_YEARLY_OFF_PERCENT`; the old monthly env names are ignored). The plan id `monthly` IS the 3-month plan (kept for stored payments, coupons and
+  subscriptions; `PLAN_DURATION_MS.monthly` = 90 days); everything traders see says "3 months" (`proPlanName`). Coupons' "Monthly" percent applies to it.
+- Feature codes (owner-specified, `server/featureCodes.ts`, Admin → Coupons → Feature codes `src/admin/FeatureCodes.tsx`): a code that unlocks ONE Pro
+  feature (`PRO_FEATURES` id) free for N days (1-365), nothing else; optional max uses, start/end, on/off; one use per person (`featureCodes/{CODE}/claims/
+  {sha256(email)}`), refused for Pro/staff (`ALREADY_PRO`). Redeem = `users.featurePasses.{feature}` = max(now, current) + days (transaction). Access
+  everywhere goes through `hasFeature(doc, feature)` / `requireFeature(f)` / `proGuard(msg, f)` in `server/proAccess.ts` (routes, `sweepFreeAccounts` per
+  feature, `effectivePreferences`, `agentAccess`), and the app reads `profile.featurePasses` (`featureLocked` in `App.tsx`). Traders type it in the Plans
+  window's coupon box: `/api/coupons/check` answers `kind: 'feature'`, then `POST /api/feature-codes/redeem`. Coupons and feature codes share one code namespace.
+- Reward programs (owner-specified, `server/rewardPrograms.ts`, Admin → Rewards `src/admin/Rewards.tsx`, cards `RewardProgramCards.tsx` in the notification
+  Rewards tab): admin-made programs (title, text, up to 5 https links, optional button, optional picture (uploaded, byte-checked, `rewardImages`, `/api/reward-image/:id`) and optional video link (YouTube = thumbnail via the `/api/reward-video-thumb/:id` proxy + play button, other https links = a Watch video tile; opens in a new tab), start/end, on/off; admin program routes take bodies up to 2 MB behind the admin cookie) in mode INFO (card only) or SUBMIT (traders send
+  an https link + note; admin approves = credits into the campaign pool + notification + email, or declines with a reason; resubmit up to 5 times; one
+  reward per person `rewardClaims`, optional cap `maxRewards`). `GET /api/rewards/programs`, `POST /api/rewards/programs/:id/submit`; admin routes under
+  `/api/admin/reward-programs` and `/api/admin/reward-submissions/:id/approve|reject`. `rewardSubmissions` deleted with the account.
 - Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
   with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
   A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it
@@ -656,6 +675,13 @@
   OK/NOT_FUNDAMENTAL/UNAVAILABLE/ERROR, recheck state, seconds, reused), with day counters in `siDaily`; 30-day stats, chart, outcomes, top traders,
   top markets/releases, Matt strikes + pauses (`POST /api/admin/si/matt/:uid/clear` resets them), history with username/outcome filters and Load more.
   Server-only, never shown to traders or given to any engine; kept 90 days (`sweepSiLogs`, lead worker daily), deleted with the account; noted in Privacy.
+  SI costs (owner-requested, `server/aiUsage.ts`, `src/admin/SiCosts.tsx`, `GET /api/admin/si-costs`, `PUT /api/admin/si-costs/prices`): a read-only hook
+  on the SDK's `Models.prototype.generateContentInternal` (`installAiUsageMeter`; never changes requests/responses, so no engine's instructions, model
+  list or client is touched) records each call's real tokens (`usageMetadata`: prompt + tool-use in, candidates + thoughts out) and web searches,
+  tagged by `aiUsageContext` (AsyncLocalStorage, after the body parsers) as analysis / question / fundamental / matt / mattVoice / voice / strategy /
+  other / background; buffered and added to `aiUsageDaily/{day}` every 30s. Costed at `adminConfig/aiPrices` (editable in Admin, defaults
+  `DEFAULT_AI_PRICES`, unverified). The page shows cost per day, per action and per model, the margin against the cheapest credit price, and searches
+  against the monthly free allowance. Model names stay server-side (never in the bundle).
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
 

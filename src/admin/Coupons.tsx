@@ -78,7 +78,7 @@ const Switch: React.FC<{ on: boolean; onChange: (v: boolean) => void; label: str
   </button>
 );
 
-// Coupons (owner-specified): create codes with a percent off Monthly / Yearly, switch them on and off. The server only
+// Coupons (owner-specified): create codes with a percent off 3 months / Yearly, switch them on and off. The server only
 // accepts a code while it is live (on, after its start, before its end) and prices the checkout with it.
 export const CouponsSection: React.FC = () => {
   const { data, error, loading, reload } = useAdminData(() => apiFetch<{ coupons: AdminCoupon[] }>('/api/admin/coupons'));
@@ -191,7 +191,7 @@ export const CouponsSection: React.FC = () => {
                 />
               </label>
               <label className="block">
-                <span className="text-[11px] text-slate-400">% off Monthly</span>
+                <span className="text-[11px] text-slate-400">% off 3 months</span>
                 <input className={`${input} mt-1`} inputMode="numeric" value={draft.monthlyPct} placeholder="0 to 90" onChange={e => setDraft({ ...draft, monthlyPct: e.target.value.replace(/\D/g, '').slice(0, 2) })} />
               </label>
               <label className="block">
@@ -260,7 +260,7 @@ export const CouponsSection: React.FC = () => {
                       {c.banner && <Badge tone="violet">Pop-up on site</Badge>}
                     </div>
                     <p className="mt-1.5 text-xs text-slate-300">
-                      {[c.monthlyPct > 0 && `${c.monthlyPct}% off Monthly`, c.yearlyPct > 0 && `${c.yearlyPct}% off Yearly`].filter(Boolean).join(' · ')}
+                      {[c.monthlyPct > 0 && `${c.monthlyPct}% off 3 months`, c.yearlyPct > 0 && `${c.yearlyPct}% off Yearly`].filter(Boolean).join(' · ')}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
                       {c.startsAt ? `From ${fmtDateTime(c.startsAt)}` : 'From now'} · {c.endsAt ? `until ${fmtDateTime(c.endsAt)}` : 'no end date'} · used{' '}

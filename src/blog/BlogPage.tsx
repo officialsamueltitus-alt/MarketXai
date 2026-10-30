@@ -282,7 +282,7 @@ const SECTIONS: Section[] = [
         <Note title="Tools">
           Tap <B>Tools</B> under the input box, or type / in the input, to see every tool. Live now: <B>/watchlist</B>, <B>/price-alerts</B>, <B>/trade-journal</B>, <B>/track-record</B> (see
           Watchlist, journal and track record below), <B>/preference</B> (see Preference Mode below), <B>/strategy-builder</B> (see Strategy Builder below), <B>/fundamental-analysis</B> (see Fundamental Analysis below) and <B>/trading-agent</B> (see Trading Agent below). Still
-          in private testing and marked Soon: MT5 Connector, <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
+          in private testing and marked Soon: <B>/indicators</B> (add your favourite indicators to every analysis) and{' '}
           <B>/connect-tradingview</B> (link TradingView and analyze straight from your charts). They open for everyone once testing ends.
         </Note>
         <P>Each reply shows the tokens it used. One analysis or answer costs one credit. The arrows on the input box jump to the top or bottom of a long chat.</P>
@@ -451,7 +451,7 @@ const SECTIONS: Section[] = [
         </Note>
         <Note title="Free and Pro">
           Price alerts, the track record and the <B>RDM</B> timeframe are free for everyone. The watchlist, trade journal, Strategy Builder, Fundamental
-          Analysis, Preference Mode, chart screenshot analysis, voice input and Talk back with Matt are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
+          Analysis, Preference Mode, chart screenshot analysis, voice input, Talk back with Matt and the Trading Agent are free for everyone until 1 November 2026, then part of Pro. On the Free plan they pause, and your pairs, trades and settings are kept for when you upgrade.
         </Note>
         <Note title="Not trading advice" tone="amber">
           A setup on the watchlist is a level worth looking at, not an instruction to trade. Check the plan, size your risk and decide for yourself.
@@ -513,7 +513,7 @@ const SECTIONS: Section[] = [
               how many <B>trades per day</B> it may open, a <B>profit target</B> and a <B>loss limit</B> for the run.
             </>,
             <>
-              <B>Subscribe and choose how long it runs.</B> The agent has its own plan: <B>$30 a month</B>, or <B>$295.20 a year</B> (18% off). Then pick a
+              <B>Choose how long it runs.</B> The agent is part of <B>Pro</B> (free for everyone until 1 November 2026). Pick a
               day, a week or a month for each run. Each trade the agent takes costs credits once, when it places the trade: <B>7 a trade</B> on a daily run,
               <B>6</B> on a weekly run and <B>5</B> on a monthly run. An order that never fills is refunded in full. The setup shows the most a run can cost
               before you start.
@@ -577,7 +577,7 @@ const SECTIONS: Section[] = [
               <B>Recheck it later.</B> Tap <B>Recheck</B> on the result to read it again with live data. The card tells you whether the release is out:
               <B> Actual</B> then shows the published figure and whether it beat or missed the forecast (until then it says Pending), what is new since your
               last read, whether the forecast changed, and whether the most likely outcome and each pair's For or Against still hold:
-              <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses one analysis credit.
+              <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses two analysis credits.
             </>,
             <>
               <B>Find it again.</B> Every read is kept under <B>Fundamentals</B> in the History section of the side menu, and you get an email with the
@@ -592,7 +592,7 @@ const SECTIONS: Section[] = [
         />
         <Note title="Good to know">
           Only messages that start with /fundamental-analysis get a fundamental read. Everything else you ask, with the tool on or off, is a normal analysis
-          or answer, exactly as before. Each read uses one analysis credit, and a message that isn't about fundamentals is not charged. A fundamental read gives
+          or answer, exactly as before. Each read uses two analysis credits (it searches the web live), and a message that isn't about fundamentals is not charged. A fundamental read gives
           the odds of each outcome, never a certainty: releases surprise and markets can react in unexpected ways, so manage your risk around big releases.
         </Note>
         <Note title="Free until 1 November">Fundamental Analysis, its rechecks and the daily news alerts are free for everyone until 1 November 2026, then part of Pro.</Note>
@@ -744,7 +744,7 @@ const SECTIONS: Section[] = [
             ['Starter credits', '5 on joining', '5 on joining'],
             ['Full trade plans, live prices', 'Included', 'Included'],
             ['Verified trader badge', 'No', 'Yes'],
-            ['Billing', 'None', 'Monthly or yearly'],
+            ['Billing', 'None', 'Every 3 months or yearly'],
           ]}
         />
         <Note title="Check your balance">
@@ -752,9 +752,10 @@ const SECTIONS: Section[] = [
           refill. Daily analyses refill every day at 3:00 AM Lagos time (the site shows it in your own time), with no rollover.
         </Note>
         <Note title="Upgrade or refill">
-          In Credits choose Upgrade to Pro (or Refill or change plan), pick Monthly or Yearly, and pay through the secure checkout by card, bank transfer or USSD
+          In Credits choose Upgrade to Pro (or Refill or change plan), pick 3 months or Yearly, and pay through the secure checkout by card, bank transfer or USSD
           where available. Pro switches on as soon as the payment is confirmed, and you get a notification and an email receipt. Current prices are always shown
-          in the Plans window.
+          in the Plans window. Got a <B>feature code</B>? Type it in the same coupon box: it unlocks that one Pro feature free for the days it gives (not the
+          rest of Pro). Programs with rewards show up in the <B>Rewards</B> tab of your notifications, with their links and how to take part.
         </Note>
         <Note title="Credit packs" tone="emerald">
           Need more? In Credits, under <B>Buy credits</B>, pick a pack: <B>50 credits for $5</B>, <B>150 for $12</B>, <B>400 for $28</B> or <B>1,000 for $60</B>,

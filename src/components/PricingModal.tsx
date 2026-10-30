@@ -35,6 +35,8 @@ interface PricingModalProps {
   onPaymentVerified: (account: any, plan: 'monthly' | 'yearly') => void;
   /** A coupon to apply when the window opens (promo banner, email link) */
   initialCoupon?: string | null;
+  /** A feature code was redeemed (one feature unlocked): reload the account */
+  onFeatureUnlocked?: () => void;
 }
 
 
@@ -45,6 +47,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   paymentsConfig,
   onPaymentVerified,
   initialCoupon,
+  onFeatureUnlocked,
 }) => {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('yearly');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -55,16 +58,43 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
   const [couponError, setCouponError] = useState<string | null>(null);
+  // A feature code (Admin → Feature codes): unlocks one feature for some days instead of a discount
+  const [featureCode, setFeatureCode] = useState<{ code: string; label: string; days: number } | null>(null);
+  const [featureDone, setFeatureDone] = useState<string | null>(null);
+  const redeemFeature = async () => {
+    if (!featureCode) return;
+    setCouponBusy(true);
+    setCouponError(null);
+    try {
+      const r = await apiFetch<{ label: string; until: number }>('/api/feature-codes/redeem', { method: 'POST', body: JSON.stringify({ code: featureCode.code }) });
+      setFeatureDone(`${r.label} is unlocked until ${new Date(r.until).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}.`);
+      setFeatureCode(null);
+      setCouponText('');
+      onFeatureUnlocked?.();
+    } catch (err: any) {
+      setCouponError(err?.message || 'That code could not be used.');
+    } finally {
+      setCouponBusy(false);
+    }
+  };
   const applyCoupon = async (raw: string) => {
     const code = raw.trim().toUpperCase().replace(/\s+/g, '');
     setCouponError(null);
     if (!code) return;
     setCouponBusy(true);
     try {
-      const r = await apiFetch<{ coupon: Omit<AppliedCoupon, 'prices'>; prices: AppliedCoupon['prices'] }>('/api/coupons/check', {
+      const r = await apiFetch<{ kind?: 'feature'; feature?: { code: string; label: string; days: number }; coupon: Omit<AppliedCoupon, 'prices'>; prices: AppliedCoupon['prices'] }>('/api/coupons/check', {
         method: 'POST',
         body: JSON.stringify({ code }),
       });
+      setFeatureDone(null);
+      if (r.kind === 'feature' && r.feature) {
+        setCoupon(null);
+        setFeatureCode(r.feature);
+        setCouponText(r.feature.code);
+        return;
+      }
+      setFeatureCode(null);
       setCoupon({ ...r.coupon, prices: r.prices });
       setCouponText(r.coupon.code);
       // Land on a plan the code works for
@@ -77,6 +107,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     }
   };
   const removeCoupon = () => {
+    setFeatureCode(null);
     setCoupon(null);
     setCouponText('');
     setCouponError(null);
@@ -111,12 +142,13 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   // Prices come from the server (PAYSTACK_* env vars); the browser never decides the amount
   const currency = paymentsConfig?.currency || 'USD';
-  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 20;
-  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 220.8;
+  // Pro is sold for 3 months (the `monthly` plan id) or a year (owner-specified: $30 / 3 months, $200 less 12% a year)
+  const monthlyAmount = paymentsConfig?.monthlyAmount ?? 30;
+  const yearlyAmount = paymentsConfig?.yearlyAmount ?? 176;
+  const yearlyBase = paymentsConfig?.yearlyBaseAmount ?? 200;
   const monthlyPrice = formatMoney(monthlyAmount, currency, true);
   const yearlyDiscountedPrice = formatMoney(yearlyAmount, currency);
-  const yearlyMonthlyEquivalent = formatMoney(yearlyAmount / 12, currency);
-  const discountPct = Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
+  const discountPct = Math.max(0, Math.round(paymentsConfig?.yearlyDiscountPct ?? (1 - yearlyAmount / yearlyBase) * 100));
   const paymentsEnabled = !!paymentsConfig?.enabled;
   const benefits = paymentsConfig?.benefits || DEFAULT_BENEFITS;
   // What Paystack charges (e.g. the NGN equivalent), shown next to the USD price
@@ -193,7 +225,6 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const yearly = billingPeriod === 'yearly';
   const shownMonthly = couponPrice && !yearly ? formatMoney(couponPrice.usd, currency, true) : monthlyPrice;
   const shownYearly = couponPrice && yearly ? formatMoney(couponPrice.usd, currency) : yearlyDiscountedPrice;
-  const shownYearlyMonthly = couponPrice && yearly ? formatMoney(couponPrice.usd / 12, currency) : yearlyMonthlyEquivalent;
   const payLabel = yearly ? chargeLabel || shownYearly : chargeLabel || shownMonthly;
   const couponEnds = coupon?.endsAt
     ? new Date(coupon.endsAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })
@@ -217,6 +248,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     [`Chart screenshot analysis${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
     [`Voice input${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
     [`Talk back with Matt${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
+    [`Trading Agent${freeUntil ? ` (free until ${freeUntil})` : ''}`, !!freeUntil],
   ];
   const proFeatures: string[] = [
     `${benefits.proDailyAnalyses} SI analyses every day`,
@@ -233,6 +265,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     'Chart screenshot analysis',
     'Voice input',
     'Talk back with Matt',
+    'Trading Agent (credits per trade)',
   ];
 
   return (
@@ -285,7 +318,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                     billingPeriod === p ? 'text-slate-950' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  {p === 'monthly' ? 'Monthly' : 'Yearly'}
+                  {p === 'monthly' ? '3 months' : 'Yearly'}
                   {p === 'yearly' && discountPct > 0 && (
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${billingPeriod === p ? 'bg-emerald-500/15 text-emerald-700' : 'bg-emerald-500/15 text-emerald-300'}`}>
                       −{discountPct}%
@@ -328,9 +361,9 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                   <div key={billingPeriod} className="mx-fade-in">
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-[44px] leading-none font-semibold tracking-tight text-white tabular-nums">
-                        {yearly ? shownYearlyMonthly : shownMonthly}
+                        {yearly ? shownYearly : shownMonthly}
                       </span>
-                      <span className="text-sm text-slate-400">/ month</span>
+                      <span className="text-sm text-slate-400">{yearly ? '/ year' : '/ 3 months'}</span>
                       {couponPrice && (
                         <span className="ml-1 h-6 px-2 rounded-full bg-emerald-500/15 text-emerald-300 text-[11px] font-semibold inline-flex items-center">−{couponPrice.pct}%</span>
                       )}
@@ -338,15 +371,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                     <p className="mt-2 text-xs text-slate-400">
                       {yearly ? (
                         <>
-                          <span className="text-slate-200 font-medium">{shownYearly}</span> billed yearly ·{' '}
-                          <span className="line-through text-slate-500">{formatMoney(couponPrice ? yearlyAmount : monthlyAmount * 12, currency)}</span>
+                          Billed yearly · 365 days of Pro ·{' '}
+                          <span className="line-through text-slate-500">{formatMoney(couponPrice ? yearlyAmount : yearlyBase, currency)}</span>
                         </>
                       ) : couponPrice ? (
                         <>
-                          Billed monthly · <span className="line-through text-slate-500">{monthlyPrice}</span> with your coupon
+                          Billed every 3 months · <span className="line-through text-slate-500">{monthlyPrice}</span> with your coupon
                         </>
                       ) : (
-                        <>Billed monthly · 30 days of Pro per payment</>
+                        <>Billed every 3 months · 90 days of Pro per payment</>
                       )}
                     </p>
                   </div>
@@ -374,7 +407,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                         <span className="min-w-0 flex-1">
                           <span className="block font-mono text-[13px] font-semibold tracking-[0.14em] text-white truncate">{coupon.code}</span>
                           <span className="block text-[11px] leading-snug text-slate-400">
-                            {[coupon.monthlyPct > 0 && `${coupon.monthlyPct}% off Monthly`, coupon.yearlyPct > 0 && `${coupon.yearlyPct}% off Yearly`].filter(Boolean).join(' · ')}
+                            {[coupon.monthlyPct > 0 && `${coupon.monthlyPct}% off 3 months`, coupon.yearlyPct > 0 && `${coupon.yearlyPct}% off Yearly`].filter(Boolean).join(' · ')}
                             {couponEnds ? ` · ends ${couponEnds}` : ''}
                           </span>
                         </span>
@@ -403,7 +436,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                           setCouponText(e.target.value.toUpperCase().replace(/\s+/g, '').slice(0, 24));
                           setCouponError(null);
                         }}
-                        placeholder="Coupon code"
+                        placeholder="Coupon or feature code"
                         aria-label="Coupon code"
                         autoCapitalize="characters"
                         autoComplete="off"
@@ -419,6 +452,25 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                       </button>
                     </form>
                   )}
+                  {featureCode && (
+                    <div className="mt-3 rounded-2xl border border-violet-400/30 bg-violet-500/[0.08] p-3.5">
+                      <p className="text-sm font-semibold text-white">Unlock {featureCode.label} free for {featureCode.days} day{featureCode.days === 1 ? '' : 's'}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">Code {featureCode.code} unlocks this feature only, not the rest of Pro.</p>
+                      <div className="mt-3 flex gap-2">
+                        <button type="button" onClick={redeemFeature} disabled={couponBusy} className="h-9 px-4 rounded-xl bg-white text-slate-950 text-[13px] font-semibold disabled:opacity-50 cursor-pointer">
+                          {couponBusy ? 'Unlocking…' : `Unlock ${featureCode.label}`}
+                        </button>
+                        <button type="button" onClick={removeCoupon} className="h-9 px-3 rounded-xl text-[13px] text-slate-400 hover:text-white cursor-pointer">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {featureDone && (
+                    <p className="mt-2 text-[12px] text-emerald-300 px-1" role="status">
+                      {featureDone}
+                    </p>
+                  )}
                   {couponError && (
                     <p className="mt-2 text-[11px] text-rose-300 px-1" role="alert">
                       {couponError}
@@ -426,7 +478,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                   )}
                   {coupon && !couponPrice && (
                     <p className="mt-2 text-[11px] text-amber-300 px-1">
-                      This code doesn't apply to the {yearly ? 'Yearly' : 'Monthly'} plan. Switch to {yearly ? 'Monthly' : 'Yearly'} to use it.
+                      This code doesn't apply to the {yearly ? 'Yearly' : '3-month'} plan. Switch to {yearly ? '3 months' : 'Yearly'} to use it.
                     </p>
                   )}
                 </div>

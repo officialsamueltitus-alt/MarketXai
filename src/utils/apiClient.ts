@@ -4,7 +4,11 @@ export interface PaymentsPublicConfig {
   enabled: boolean;
   publicKey: string;
   currency: string;
+  /** The 3-month Pro plan's price (the `monthly` id is kept) */
   monthlyAmount: number;
+  periodMonths?: number;
+  yearlyBaseAmount?: number;
+  yearlyDiscountPct?: number;
   yearlyAmount: number;
   /** Currency and amounts Paystack actually charges (e.g. NGN equivalent of the USD price) */
   chargeCurrency?: string;

@@ -333,6 +333,8 @@ export interface UserProfile {
   plugins?: PluginStates;
   /** Commands and RDM: true while open to everyone (until proFreeUntil) or on Pro */
   proAccess?: boolean;
+  /** Feature codes redeemed: one Pro feature unlocked until a time ({feature: until}) */
+  featurePasses?: Partial<Record<string, number>>;
   /** When the commands and RDM become Pro only (ms) */
   proFreeUntil?: number;
   subscription: UserSubscription;

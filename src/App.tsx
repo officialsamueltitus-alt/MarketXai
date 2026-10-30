@@ -891,7 +891,7 @@ export default function App() {
     applyAccount(account);
     refreshNotifications();
     setToastNotification({
-      message: `🎉 Pro ${plan === 'yearly' ? 'Yearly' : 'Monthly'} activated. Payment verified by Paystack.`,
+      message: `🎉 Pro ${plan === 'yearly' ? 'Yearly' : '3 months'} activated. Payment verified by Paystack.`,
       type: 'success',
     });
   };
@@ -1109,13 +1109,16 @@ export default function App() {
   // Analysis, Preference Mode, chart screenshots). The server refuses them too; this offers the upgrade at once.
   // Price alerts, the track record and RDM are free.
   const proLocked = !proAccess;
+  // A feature code unlocks one feature only (until its pass runs out)
+  const featurePasses = userProfile.featurePasses;
+  const featureLocked = useCallback((f: ProFeature) => proLocked && !((featurePasses?.[f] || 0) > Date.now()), [proLocked, featurePasses]);
   const lockedPro = useCallback(
     (f: ProFeature) => {
-      if (!proLocked) return false;
+      if (!featureLocked(f)) return false;
       showProUpsell(proMessage(f));
       return true;
     },
-    [proLocked, showProUpsell]
+    [featureLocked, showProUpsell]
   );
 
   // ---------------- Price alerts ----------------
@@ -1606,7 +1609,7 @@ export default function App() {
     (!status || status >= 500 || status === 408 || status === 429);
 
   // Fundamental Analysis: "/fundamental-analysis CPI" (with the command on) gets the same intro steps as every prompt, then
-  // the fundamental read of the event or market asked about. One credit, refunded by the server on any failure.
+  // the fundamental read of the event or market asked about. Two credits, refunded by the server on any failure.
   const runFundamental = async (promptText: string) => {
     if (!promptText.trim() || isLoading) return;
     // What is asked: the text after the command ("CPI" for "/fundamental-analysis CPI")
@@ -1750,7 +1753,7 @@ export default function App() {
   };
 
   // A news alert link, once signed in: Fundamental Analysis is switched on and "/fundamental-analysis <release>" waits in
-  // the input (sending it uses one credit, as any read); ?news=1 opens Fundamental Analysis
+  // the input (sending it uses two credits, as any read); ?news=1 opens Fundamental Analysis
   useEffect(() => {
     const link = newsLinkRef.current;
     if (!authUser || !link) return;
@@ -2604,6 +2607,7 @@ export default function App() {
         paymentsConfig={paymentsConfig}
         onPaymentVerified={handlePaymentVerified}
         initialCoupon={pricingCoupon}
+        onFeatureUnlocked={refreshAccount}
       />
       </Deferred>
 
@@ -2730,7 +2734,7 @@ export default function App() {
         />
       </Deferred>
       <Deferred when={agentOpen}>
-        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} />
+        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} onUpgrade={() => (setAgentOpen(false), setIsPricingModalOpen(true))} />
       </Deferred>
       <Deferred when={!!leaderboard}>
         <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />
@@ -2936,7 +2940,7 @@ export default function App() {
         {currentView === 'home' && (
           <HomePage
             tickers={tickers}
-            voiceLocked={proLocked}
+            voiceLocked={featureLocked('voice')}
             onVoiceLocked={() => lockedPro('voice')}
             onAskMarketX={() => {
               handleNewSession();
@@ -3040,7 +3044,7 @@ export default function App() {
                     creditState={creditState}
                     tickers={tickers}
                     tickersLive={tickersLive}
-                    monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 20, paymentsConfig?.currency || 'USD', true)}
+                    monthlyPriceLabel={formatMoney(paymentsConfig?.monthlyAmount ?? 30, paymentsConfig?.currency || 'USD', true)}
                     onOpenPricing={() => setIsPricingModalOpen(true)}
                     onOpenCampaign={() => setIsShareModalOpen(true)}
                     onSignIn={() => setIsAuthModalOpen(true)}
@@ -3063,10 +3067,10 @@ export default function App() {
                     }
                     defaultTimeframe={authUser ? preferences.timeframe : undefined}
                     defaultSlMode={authUser ? preferences.slMode : undefined}
-                    chartLocked={proLocked}
-                    voiceLocked={proLocked}
+                    chartLocked={featureLocked('chart')}
+                    voiceLocked={featureLocked('voice')}
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
-                    onRdmTimeframesChange={authUser && !proLocked ? next => savePreferences({ rdmTimeframes: next }) : undefined}
+                    onRdmTimeframesChange={authUser && !featureLocked('preference') ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
                     steadyMode={!!authUser && !!preferences.steadyMode}
                     tradeStyle={authUser ? preferences.tradeStyle : undefined}

@@ -173,7 +173,7 @@ export const ENDED_TEXT: Record<NonNullable<AgentRunView['endedReason']>, string
   TARGET: 'Profit target reached',
   LOSS_LIMIT: 'Loss limit reached',
   NO_CREDITS: 'Out of credits',
-  SUB_ENDED: 'Agent subscription ended',
+  SUB_ENDED: 'Pro plan needed',
 };
 
 /** Win rate, R and account % from closed trades (TIMEOUT counts by its sign) */

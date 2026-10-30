@@ -24,7 +24,7 @@ import { fixPriceClaims } from './priceGuard';
 import { logMatt } from './siLogs';
 import { recordMonthly } from './usageMonthly';
 import { cleanTranscript, prespeak, readWavBody, speakToken, speechParts, transcribe, type MattVoice } from './voice';
-import { effectivePreferences, hasProFeatures, proGuard } from './proAccess';
+import { effectivePreferences, hasFeature, proGuard } from './proAccess';
 import { STYLE_INFO, styleFramesLabel } from '../src/utils/tradeStyle';
 import { rdmLabel, withDefaults } from '../src/utils/preferences';
 
@@ -362,7 +362,7 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
     res.json({
       pausedUntil: g.until > Date.now() ? g.until : null,
       owner: createHash('sha256').update(`marketx-matt-owner:${uid}`).digest('hex').slice(0, 20),
-      voice: hasProFeatures(doc as any),
+      voice: hasFeature(doc as any, 'voice'),
     });
   }));
 
@@ -440,7 +440,7 @@ export function registerMattRoutes(app: Express, limiter: (req: Request, res: Re
 
   // Talk back in ONE round trip (owner-requested speed): the trader's words (on-device text, or a WAV clip written down here),
   // Matt's spoken answer, its sentences signed for /api/matt/speak, and the first sentence already spoken in the chosen voice.
-  const talkPro = proGuard('Talking with Matt is a Pro feature. Type your message, or upgrade to Pro to talk to Matt.');
+  const talkPro = proGuard('Talking with Matt is a Pro feature. Type your message, or upgrade to Pro to talk to Matt.', 'voice');
   app.post('/api/matt/talk', limiter, requireAuth, talkPro, wrap(async (req, res) => {
     const { uid } = getUser(res);
     if (perMinute.hit(uid) || perDay.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'You are talking to Matt very fast. Please wait a moment.' });

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppNotification, NotificationType, XShareReward } from '../types';
 import { safeBroadcastImage } from './AnnouncementModal';
+import { RewardProgramCards } from './RewardProgramCards';
 
 // Campaigns shown in the Rewards tab. Listed here only: nobody gets a notification, badge or email about them.
 const EXPLAIN_CAMPAIGN_ENDS = Date.parse('2026-10-30T23:59:59+01:00');
@@ -227,6 +228,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   onOpenShareCampaign,
 }) => {
   const [filter, setFilter] = useState<Filter>('all');
+  // Admin-made reward programs showing in the Rewards tab (RewardProgramCards)
+  const [programCount, setProgramCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -329,9 +332,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         <div className="flex-1 min-h-[240px] overflow-y-auto overscroll-contain px-3 pb-3 border-t border-white/[0.05]">
           {filter === 'rewards' && <ExplainCampaignCard />}
           {filter === 'rewards' && <ShareCampaignCard reward={shareReward} onOpen={onOpenShareCampaign} />}
+          {filter === 'rewards' && <RewardProgramCards onCount={setProgramCount} />}
           {groups.length === 0 ? (
             // The Rewards tab already shows a live campaign: no "Nothing here yet" under it
-            filter === 'rewards' && (explainCampaignLive() || !!onOpenShareCampaign) ? null : (
+            filter === 'rewards' && (explainCampaignLive() || !!onOpenShareCampaign || programCount > 0) ? null : (
             <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center px-8">
               <span className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center text-slate-500">
                 <Bell className="w-5 h-5" />

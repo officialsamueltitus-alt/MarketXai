@@ -44,6 +44,8 @@ import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundam
 import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
 import { registerCouponRoutes, startCoupons } from './server/coupons';
+import { registerFeatureCodeRoutes } from './server/featureCodes';
+import { registerRewardProgramRoutes } from './server/rewardPrograms';
 import { registerPressureRoutes } from './server/pressure';
 import { registerSpeakRoutes, registerVoiceRoutes, useVoiceEngine } from './server/voice';
 import { guardResultText } from './server/priceGuard';
@@ -54,6 +56,7 @@ import { registerSignalProofRoutes, signalProofMiddleware } from './server/signa
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerLeaderboardRoutes } from './server/leaderboard';
 import { registerAdminCreditRoutes } from './server/adminCredits';
+import { aiUsageContext, installAiUsageMeter, registerAiUsageAdminRoutes } from './server/aiUsage';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
 import { registerTradingAgentRoutes } from './server/tradingAgent';
@@ -221,7 +224,7 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
-const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe', '/api/matt/talk'];
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe', '/api/matt/talk', '/api/admin/reward-programs'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
@@ -231,7 +234,7 @@ app.use((req, res, next) => {
   if ((large || medium) && req.method !== 'GET' && req.method !== 'HEAD') {
     // Big bodies are only for signed-in users (admins on the broadcast route): turn anyone else away before
     // a single byte is read, so large junk uploads can't tie up the server
-    const ok = req.path === '/api/admin/broadcast' ? hasValidAdminCookie(req) : !!verifySessionToken(readSessionCookie(req) || '');
+    const ok = req.path.startsWith('/api/admin/') ? hasValidAdminCookie(req) : !!verifySessionToken(readSessionCookie(req) || '');
     if (!ok) {
       res.setHeader('Connection', 'close');
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Please sign in to continue.' });
@@ -241,6 +244,9 @@ app.use((req, res, next) => {
   if (medium) return mediumJson(req, res, next);
   return smallJson(req, res, next);
 });
+// SI engine cost meter: tags each engine call with what it was for (read only; Admin → SI costs)
+installAiUsageMeter();
+app.use(aiUsageContext);
 
 // Initialize Gemini Client
 const getGeminiClient = () => {
@@ -2108,6 +2114,8 @@ registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
 // Coupon codes: 20 tries a minute per trader / visitor
 registerCouponRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many coupon tries. Please wait a minute.' }));
+registerFeatureCodeRoutes(app, generalApiRateLimiter);
+registerRewardProgramRoutes(app, generalApiRateLimiter);
 // Voice input (free): speech to text for browsers without on-device recognition, 20 clips a minute per trader
 registerVoiceRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many voice messages. Please wait a minute.' }));
 registerSpeakRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 30, message: 'Matt is talking a lot. Please wait a minute.' }));
@@ -2286,6 +2294,7 @@ registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, 
 registerTraderIdRoutes(app, generalApiRateLimiter);
 registerLeaderboardRoutes(app, generalApiRateLimiter);
 registerAdminCreditRoutes(app);
+registerAiUsageAdminRoutes(app);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)
@@ -3714,7 +3723,7 @@ async function strategyProGate(req: Request, res: Response, next: NextFunction) 
   } catch {}
   next();
 }
-const chartGuard = proGuard('Chart screenshot analysis is a Pro feature now. Type the market instead (for example "Analyze EURUSD 1H"), or upgrade to Pro to analyze screenshots. No credit was used.');
+const chartGuard = proGuard('Chart screenshot analysis is a Pro feature now. Type the market instead (for example "Analyze EURUSD 1H"), or upgrade to Pro to analyze screenshots. No credit was used.', 'chart');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
 

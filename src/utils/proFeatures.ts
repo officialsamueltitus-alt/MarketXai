@@ -1,7 +1,7 @@
 // Pro features (owner-specified): open to everyone until 1 November 2026 (Lagos midnight), then Pro only.
 // The server enforces every one of them (server/proAccess.ts); this list is what the app badges and locks.
 // Price alerts, the track record and the RDM timeframe stay free for everyone.
-export type ProFeature = 'watchlist' | 'journal' | 'strategy' | 'fundamental' | 'preference' | 'chart' | 'voice';
+export type ProFeature = 'watchlist' | 'journal' | 'strategy' | 'fundamental' | 'preference' | 'chart' | 'voice' | 'agent';
 
 export const PRO_FEATURES: Record<ProFeature, string> = {
   watchlist: 'Watchlist',
@@ -11,6 +11,7 @@ export const PRO_FEATURES: Record<ProFeature, string> = {
   preference: 'Preference Mode',
   chart: 'Chart screenshot analysis',
   voice: 'Voice input',
+  agent: 'Trading Agent',
 };
 
 /** Slash command / tool / plugin ids that are Pro features */

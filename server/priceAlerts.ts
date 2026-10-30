@@ -4,7 +4,7 @@ import { db, isFirebaseConfigured } from './firebase';
 import { sendEmail } from './mailer';
 import { sendPush } from './webPush';
 import { claimMarketMail, getUser, nextMarketMail, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
-import { effectivePreferences, hasProFeatures } from './proAccess';
+import { effectivePreferences, hasFeature } from './proAccess';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { archiveAlertOutcome, openAutoJournal, progressAutoJournal, signalKey } from './journal';
@@ -421,7 +421,7 @@ async function startAlert(uid: string, offer: AlertOffer): Promise<StartResult> 
   await db().collection(OFFERS).doc(offerId).update({ emailPending: false, alertId: id }).catch(() => {});
   if (IS_LEAD_WORKER) watched.set(id, alert);
   // The trade goes into the journal by itself (the Trade Journal is Pro after the free period); the alert scores it when it ends
-  if (hasProFeatures(owner)) await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
+  if (hasFeature(owner, 'journal')) await openAutoJournal(alert).catch(err => console.warn('[MarketX Journal] auto log failed:', err?.message || err));
   return { alert };
 }
 

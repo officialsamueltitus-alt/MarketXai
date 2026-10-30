@@ -129,7 +129,7 @@ export function registerVoiceRoutes(app: Express, limiter: any) {
   // Each clip is an engine call: besides 20 a minute, at most 300 a day per trader (stops anyone draining the engine budget)
   const perDay = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 300 });
   // Voice is free until the Pro gate (1 Nov 2026, Lagos), then Pro only (owner-specified)
-  const voicePro = proGuard('Voice input is a Pro feature. Type your message, or upgrade to Pro to talk to MarketX.');
+  const voicePro = proGuard('Voice input is a Pro feature. Type your message, or upgrade to Pro to talk to MarketX.', 'voice');
   app.post('/api/voice/transcribe', limiter, requireAuth, voicePro, async (req: Request, res: Response) => {
     if (perDay.hit(getUser(res).uid)) {
       return res.status(429).json({ error: 'VOICE_DAILY_LIMIT', message: "You've used voice a lot today. Please type your message; voice is back tomorrow." });
@@ -343,7 +343,7 @@ export function prespeak(uid: string, text: string, voice: MattVoice): Promise<B
 
 export function registerSpeakRoutes(app: Express, limiter: any) {
   const perDay = createKeyedThrottle({ windowMs: 24 * 60 * 60 * 1000, max: 400 });
-  const voicePro = proGuard('Talking with Matt is a Pro feature. Type your message, or upgrade to Pro to talk to Matt.');
+  const voicePro = proGuard('Talking with Matt is a Pro feature. Type your message, or upgrade to Pro to talk to Matt.', 'voice');
   // POST {greeting: true, voice} for Matt's hello, or {text, token, voice} for a reply Matt wrote (token from /api/matt/chat)
   app.post('/api/matt/speak', limiter, requireAuth, voicePro, async (req: Request, res: Response) => {
     const { uid } = getUser(res);
