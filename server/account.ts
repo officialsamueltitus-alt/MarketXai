@@ -809,7 +809,51 @@ async function readAccountState(user: AuthedUser) {
 // ---------------------------------------------------------------------------
 // Analysis credit charging (used by /api/market/analyze)
 // ---------------------------------------------------------------------------
+/**
+ * Charges `cost` credits for one request (all or nothing), refunded in full if the request fails. An analysis costs 1;
+ * a Fundamental Analysis read costs `FUNDAMENTAL_CREDITS` (web search makes it the dearest engine call).
+ */
+export function chargeCredits(cost: number) {
+  const n = Math.max(1, Math.floor(cost));
+  return (req: Request, res: Response, next: NextFunction) => chargeCreditsFor(n, req, res, next);
+}
+export const FUNDAMENTAL_CREDITS = 2;
+
 export async function chargeAnalysisCredit(req: Request, res: Response, next: NextFunction) {
+  return chargeCreditsFor(1, req, res, next);
+}
+
+/**
+ * Where `cost` credits come from, one at a time, each from the first pool that has one: campaign, then the day's
+ * analyses (never touching bought credits), then bought credits. Null if they don't cover the whole cost.
+ */
+export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRemaining' | 'campaign' | 'purchased'>, cost: number) {
+  const campaign = campaignPool(c);
+  const purchased = purchasedPool(c);
+  let dailyDelta = 0;
+  let availableDelta = 0;
+  let campaignDelta = 0;
+  let purchasedDelta = 0;
+  for (let i = 0; i < cost; i++) {
+    if (campaign - campaignDelta > 0) {
+      campaignDelta += 1;
+      availableDelta += 1;
+    } else if (c.dailyRemaining - dailyDelta > 0) {
+      dailyDelta += 1;
+      // A daily analysis never eats into bought credits
+      if (c.available - availableDelta - purchased > 0) availableDelta += 1;
+    } else if (purchased - purchasedDelta > 0) {
+      // The day's analyses are used up: bought credits carry on, one per analysis
+      purchasedDelta += 1;
+      availableDelta += 1;
+    } else {
+      return null;
+    }
+  }
+  return { dailyDelta, availableDelta, campaignDelta, purchasedDelta };
+}
+
+async function chargeCreditsFor(cost: number, req: Request, res: Response, next: NextFunction) {
   const user = getUser(res);
   if (isUnlimited(user)) {
     attachAnalysisAlerts(req, res, user, null);
@@ -826,26 +870,11 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
       // limit is a hard stop until the 3:00 AM refill. Same for Free and Pro.
       const campaign = campaignPool(c);
       const purchased = purchasedPool(c);
-      let dailyDelta = 0;
-      let availableDelta = 0;
-      let campaignDelta = 0;
-      let purchasedDelta = 0;
-      if (campaign > 0) {
-        campaignDelta = 1;
-        availableDelta = 1;
-      } else if (c.dailyRemaining > 0) {
-        dailyDelta = 1;
-        // A daily analysis never eats into bought credits
-        availableDelta = c.available - purchased > 0 ? 1 : 0;
-      } else if (purchased > 0) {
-        // The day's analyses are used up: bought credits carry on, one per analysis
-        purchasedDelta = 1;
-        availableDelta = 1;
-      } else {
-        return { ok: false as const, reason: 'DAILY_LIMIT' };
-      }
+      const split = splitCharge(c, cost);
+      if (!split) return { ok: false as const, reason: 'DAILY_LIMIT' };
+      const { dailyDelta, availableDelta, campaignDelta, purchasedDelta } = split;
       const campaignLeft = campaign - campaignDelta;
-      const lastCampaignCredit = campaignDelta === 1 && campaignLeft === 0;
+      const lastCampaignCredit = campaignDelta > 0 && campaignLeft === 0;
       tx.update(loaded.ref, {
         'credits.dailyRemaining': c.dailyRemaining - dailyDelta,
         'credits.available': c.available - availableDelta,
@@ -874,13 +903,15 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
         error: charged.reason,
         nextDailyResetAt: limitReached ? nextDailyReset() : undefined,
         message: limitReached
-          ? `You've reached today's analysis limit. Your analyses refill automatically at ${CREDIT_RESET_LABEL}.`
+          ? cost > 1
+            ? `This uses ${cost} credits and you don't have enough left today. Your analyses refill automatically at ${CREDIT_RESET_LABEL}, or buy a credit pack.`
+            : `You've reached today's analysis limit. Your analyses refill automatically at ${CREDIT_RESET_LABEL}.`
           : 'Account not initialised. Please sign in again.',
       });
     }
 
     attachAnalysisAlerts(req, res, user, { daily: charged.remaining, campaign: charged.campaignLeft });
-    // Refund the credit if the analysis request fails
+    // Refund the credits if the request fails
     res.on('finish', () => {
       if (res.statusCode < 400) {
         if (charged.campaignDelta && charged.campaignLeft === 0) {
@@ -913,7 +944,7 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
           if (!snap.exists) return;
           const cur = (snap.data() as UserDoc).credits;
           const refilledSince = (cur.lastDailyReset || 0) > charged.chargedAt;
-          const daily = charged.dailyDelta && !refilledSince ? Math.min(cur.dailyLimit, cur.dailyRemaining + 1) : cur.dailyRemaining;
+          const daily = charged.dailyDelta && !refilledSince ? Math.min(cur.dailyLimit, cur.dailyRemaining + charged.dailyDelta) : cur.dailyRemaining;
           tx.update(userRef(user.uid), {
             'credits.dailyRemaining': daily,
             'credits.available': FieldValue.increment(charged.availableDelta),

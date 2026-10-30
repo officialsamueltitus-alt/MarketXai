@@ -10,7 +10,7 @@ import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
 import { getPaymentsPublicConfig } from './payments';
 import {
   Mt5Error, brokerLevels, createMt5Account, deleteMt5Account, lotSize, maskLogin, matchSymbol, mt5AccountInfo, mt5AccountState, mt5Configured, mt5Positions,
-  mt5Price, mt5Spec, mt5Symbols, mt5Trade, type Mt5Link,
+  mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
 } from './mt5';
 import {
   AGENT_BACKTEST, AGENT_MARKETS, AGENT_MIN_QUALITY, AGENT_PRICING, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
@@ -41,7 +41,10 @@ import {
 // and target at the broker; MarketX never stores the MT5 password.
 //
 //   tradingAgents/{uid}  -> settings, the current/last run, the activity log, setups already used
-//   mt5Links/{uid}       -> the trader's MT5 link (MetaApi account id, masked login, server, matched symbols)
+//   mt5Links/{uid}       -> the trader's MT5 link (MetaApi account id, masked login, server, matched symbols, power)
+//
+// MT5 cost: MetaApi bills per connected hour, so a link sleeps (undeployed, `power` OFF) whenever the agent is not
+// running and has no order/position of its own on the account; starting a run or placing an order wakes it.
 //   agentTrades/{id}     -> one order/trade of a run, with its levels, state and result
 // ===========================================================================
 
@@ -57,6 +60,11 @@ const MAX_CANDLES = 500;
 const LOG_MAX = 60;
 const SEEN_MAX = 80;
 const SCAN_CONCURRENCY = 3;
+/** How often idle MT5 links are put to sleep, and how long a link stays on after it last woke or was checked */
+const MT5_SLEEP_CHECK_MS = 5 * 60_000;
+const MT5_IDLE_GRACE_MS = 10 * 60_000;
+/** How long the agent waits for a sleeping MT5 link to reconnect before an order */
+const MT5_WAKE_WAIT_MS = 45_000;
 
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0;
 const now = () => Date.now();
@@ -117,6 +125,9 @@ const linkRef = (uid: string) => db().collection(LINKS).doc(uid);
 interface Mt5LinkDoc extends Mt5Link {
   uid: string;
   status: 'CONNECTING' | 'CONNECTED' | 'FAILED';
+  /** Connected at MetaApi (billed) or asleep; missing = connected (links made before sleeping existed) */
+  power?: 'ON' | 'WAKING' | 'OFF';
+  poweredAt?: number;
   login: string;
   server: string;
   broker?: string;
@@ -385,17 +396,20 @@ async function cancelPending(t: AgentTrade, note: string, extra: Record<string, 
 // ---------------------------------------------------------------------------
 /** Places the agent's limit order on the linked MT5 account; the outcome is kept on the trade and told to the trader */
 async function mt5Open(t: AgentTrade, feedPrice: number): Promise<void> {
-  const link = await linkOf(t.uid);
-  if (!link || link.status !== 'CONNECTED' || !mt5Configured()) return;
-  const symbol = link.symbols?.[t.symbol];
+  const linked = await linkOf(t.uid);
+  if (!linked || linked.status !== 'CONNECTED' || !mt5Configured()) return;
+  const symbol = linked.symbols?.[t.symbol];
   const fail = async (error: string) => {
     await tradeRef(t.id).update({ mt5: { state: 'FAILED', ...(symbol ? { symbol } : {}), error: error.slice(0, 200) }, updatedAt: now() }).catch(() => {});
     await pushLog(t.uid, [logEntry('PAUSE', `MT5: the ${t.symbol} order was not placed on your account (${error}). MarketX keeps tracking it.`, t.id)]);
     await tell(t.uid, `⚠️ MT5: ${t.symbol} order not placed`, `${error}. MarketX keeps tracking the trade; you can place it yourself: ${orderLine(t)}.`, { tradeId: t.id });
   };
   if (!symbol) return fail(`your broker has no symbol matching ${t.symbol}`);
+  const link = await wakeLink(t.uid);
+  if (!link) return fail('your MT5 account did not reconnect in time');
   try {
     const [info, spec, px] = await Promise.all([mt5AccountInfo(link), mt5Spec(link, symbol), mt5Price(link, symbol)]);
+    linkRef(t.uid).update({ balance: info.balance, currency: info.currency, checkedAt: now() }).catch(() => {});
     if (!info.tradeAllowed) return fail('trading is not allowed with this login (an investor password is read only)');
     const lv = brokerLevels({ entry: t.entry, stop: t.stop, target: t.target }, feedPrice, (px.bid + px.ask) / 2, spec.digits);
     if (!lv) return fail(`your broker's ${symbol} price is too far from the market price MarketX reads`);
@@ -425,9 +439,10 @@ async function mt5Open(t: AgentTrade, feedPrice: number): Promise<void> {
 /** Cancels the agent's unfilled order on MT5 (if it already filled at the broker, its stop and target manage it) */
 async function mt5Cancel(t: AgentTrade): Promise<void> {
   if (t.mt5?.state !== 'PLACED' || !t.mt5.orderId) return;
-  const link = await linkOf(t.uid);
-  if (!link || !mt5Configured()) return;
+  if (!mt5Configured()) return;
+  const link = await wakeLink(t.uid);
   try {
+    if (!link) throw new Mt5Error('MT5_UNREACHABLE', 'not connected');
     await mt5Trade(link, { actionType: 'ORDER_CANCEL', orderId: t.mt5.orderId });
     await tradeRef(t.id).update({ 'mt5.state': 'CANCELLED' }).catch(() => {});
   } catch {
@@ -438,15 +453,70 @@ async function mt5Cancel(t: AgentTrade): Promise<void> {
 /** Closes the agent's open position on MT5 now (Stop and close) */
 async function mt5Close(t: AgentTrade): Promise<void> {
   if (t.mt5?.state !== 'PLACED' || !t.mt5.clientId) return;
-  const link = await linkOf(t.uid);
-  if (!link || !mt5Configured()) return;
+  if (!mt5Configured()) return;
+  const link = await wakeLink(t.uid);
   try {
+    if (!link) throw new Mt5Error('MT5_UNREACHABLE', 'not connected');
     const pos = (await mt5Positions(link)).find(p => p.clientId === t.mt5!.clientId);
     if (pos) await mt5Trade(link, { actionType: 'POSITION_CLOSE_ID', positionId: pos.id });
     else if (t.mt5.orderId) await mt5Trade(link, { actionType: 'ORDER_CANCEL', orderId: t.mt5.orderId }).catch(() => {});
     await tradeRef(t.id).update({ 'mt5.state': 'CLOSED' }).catch(() => {});
   } catch {
     await pushLog(t.uid, [logEntry('PAUSE', `MT5: the ${t.symbol} position could not be closed. Close it in MT5 yourself.`, t.id)]);
+  }
+}
+
+/**
+ * The trader's MT5 link, connected: a sleeping link is woken (deploy) and followed until MetaApi is connected to the
+ * broker again (up to `waitMs`). Null when there is no usable link or it isn't back in time (the next call keeps waiting).
+ */
+async function wakeLink(uid: string, waitMs = MT5_WAKE_WAIT_MS): Promise<Mt5LinkDoc | null> {
+  const link = await linkOf(uid);
+  if (!link || link.status !== 'CONNECTED' || !mt5Configured()) return null;
+  if (!link.power || link.power === 'ON') return link;
+  if (link.power === 'OFF') {
+    await setMt5Power(link, true);
+    await linkRef(uid).update({ power: 'WAKING', poweredAt: now() });
+  }
+  const until = now() + waitMs;
+  for (;;) {
+    const st = await mt5AccountState(link).catch(() => null);
+    if (st?.state === 'DEPLOYED' && st.connection === 'CONNECTED') {
+      await linkRef(uid).update({ power: 'ON', poweredAt: now() });
+      return { ...link, power: 'ON' };
+    }
+    if (now() + 5000 > until) return null;
+    await new Promise(r => setTimeout(r, 5000));
+  }
+}
+
+/** Starts waking the trader's MT5 link in the background (a run starting), so it is connected by the first order */
+function wakeSoon(uid: string) {
+  wakeLink(uid, 0).catch(err => console.warn('[MarketX Agent] MT5 wake failed:', err?.message || err));
+}
+
+/**
+ * Puts MT5 links to sleep (undeploy) when nothing needs them: the agent isn't running and has no order/position of its
+ * own on that account. MetaApi bills per connected hour; the broker keeps the orders, stops and targets either way.
+ */
+let lastSleepCheck = 0;
+async function sleepIdleLinks(force = false) {
+  if (!mt5Configured() || (!force && now() - lastSleepCheck < MT5_SLEEP_CHECK_MS)) return;
+  lastSleepCheck = now();
+  const links = (await db().collection(LINKS).where('status', '==', 'CONNECTED').get()).docs.map(d => d.data() as Mt5LinkDoc).filter(l => l.power !== 'OFF');
+  if (!links.length) return;
+  const live = (await db().collection(TRADES).where('state', 'in', ['PENDING', 'OPEN']).get()).docs.map(d => d.data() as AgentTrade);
+  for (const l of links) {
+    if (now() - Math.max(l.poweredAt || 0, l.checkedAt || 0, l.linkedAt || 0) < MT5_IDLE_GRACE_MS) continue;
+    if (live.some(t => t.uid === l.uid && t.mt5?.state === 'PLACED')) continue;
+    const a = (await agentRef(l.uid).get()).data() as AgentDoc | undefined;
+    if (a?.run?.state === 'RUNNING') continue;
+    try {
+      await setMt5Power(l, false);
+      await linkRef(l.uid).update({ power: 'OFF', poweredAt: now() });
+    } catch (err: any) {
+      console.warn('[MarketX Agent] MT5 sleep failed:', err?.message || err);
+    }
   }
 }
 
@@ -466,7 +536,7 @@ async function finishLink(uid: string, tries = 18): Promise<void> {
       if (st.state === 'DEPLOYED' && st.connection === 'CONNECTED') {
         const [info, list] = await Promise.all([mt5AccountInfo(link), mt5Symbols(link)]);
         const symbols = Object.fromEntries(AGENT_MARKETS.map(m => [m.symbol, matchSymbol(m.symbol, list)]));
-        await linkRef(uid).update({ status: 'CONNECTED', broker: info.broker, currency: info.currency, balance: info.balance, symbols, message: '', checkedAt: now() });
+        await linkRef(uid).update({ status: 'CONNECTED', power: 'ON', poweredAt: now(), broker: info.broker, currency: info.currency, balance: info.balance, symbols, message: '', checkedAt: now() });
         await tell(uid, '🔗 MT5 linked', `Your MT5 account ${link.login} (${link.server}) is linked. The agent now places its trades there, sized to your risk per trade.`);
         return;
       }
@@ -521,6 +591,8 @@ async function manageTrades(deps: AgentDeps) {
         await tell(t.uid, `🎯 Agent trade opened on ${t.symbol}`, text, { tradeId: t.id, mail: true, rows: [['Trade', `${sideText(t).replace(' LIMIT', '')} ${mt5Name(t.symbol)} · ${t.timeframe}`], ['Stop', fmtPrice(t.stop)], ['Target', fmtPrice(t.target)]] });
       }
       if (step.closed) {
+        // Open too long: closed at the broker too (its own stop/target handle the other exits)
+        if (step.closed.kind === 'TIME') await mt5Close(cur).catch(() => {});
         await closeTrade(cur, step.closed, step.closed.kind === 'TP' ? 'Target reached.' : step.closed.kind === 'SL' ? 'Stop reached.' : 'Closed at the market: open too long.');
         continue;
       }
@@ -671,6 +743,7 @@ async function tick(deps: AgentDeps) {
   try {
     await manageTrades(deps);
     await runAgents(deps);
+    await sleepIdleLinks();
   } catch (err: any) {
     console.warn('[MarketX Agent] cycle failed:', err?.message || err);
   } finally {
@@ -743,7 +816,7 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       mt5: {
         available: mt5Configured(),
         link: link
-          ? { status: link.status, login: link.login, server: link.server, broker: link.broker || null, currency: link.currency || null, balance: link.balance ?? null, symbols: link.symbols || {}, message: link.message || '', linkedAt: link.linkedAt }
+          ? { status: link.status, asleep: link.power === 'OFF' || link.power === 'WAKING', login: link.login, server: link.server, broker: link.broker || null, currency: link.currency || null, balance: link.balance ?? null, symbols: link.symbols || {}, message: link.message || '', linkedAt: link.linkedAt }
           : null,
       },
     };
@@ -794,6 +867,7 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     const text = `${price.label} run started: ${s.markets.join(', ')} on ${s.timeframes.join(' and ')}, risk ${s.riskPct}% a trade, up to ${s.tradesPerDay} trade${s.tradesPerDay === 1 ? '' : 's'} a day. Runs until ${ends} WAT. ${price.perTrade} credits a trade, taken when the agent places it and refunded if it never fills.`;
     await pushLog(uid, [logEntry('START', text)]);
     tell(uid, '🤖 Trading agent is on', text, { mail: true, rows: [['Run', price.label], ['Risk a trade', `${s.riskPct}%`], ['Most it can cost', `${run.maxCredits} credits`]] }).catch(() => {});
+    wakeSoon(uid);
     // First look straight away on the lead worker (others: within the next cycle)
     if (IS_LEAD_WORKER) runAgents(deps, uid).catch(err => console.warn('[MarketX Agent] first scan failed:', err?.message || err));
     res.json(await state(uid));
@@ -837,7 +911,8 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     if (!link) return res.status(404).json({ error: 'NOT_LINKED', message: 'No MT5 account is linked.' });
     if (refreshThrottle.hit(uid)) return res.status(429).json({ error: 'TOO_SOON', message: 'Checked a moment ago. Try again in a minute.' });
     if (link.status === 'CONNECTING') await finishLink(uid, 1).catch(() => {});
-    else if (link.status === 'CONNECTED' && mt5Configured()) {
+    // Asleep (agent off): the balance is read again when the agent next runs, without paying to connect now
+    else if (link.status === 'CONNECTED' && link.power !== 'OFF' && link.power !== 'WAKING' && mt5Configured()) {
       try {
         const [info, list] = await Promise.all([mt5AccountInfo(link), mt5Symbols(link)]);
         await linkRef(uid).update({ balance: info.balance, currency: info.currency, broker: info.broker, symbols: Object.fromEntries(AGENT_MARKETS.map(m => [m.symbol, matchSymbol(m.symbol, list)])), checkedAt: now() });
@@ -865,4 +940,4 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
   }));
 }
 
-export const __agentInternals = { tick, manageTrades, runAgents, closeTrade, fillTrade, endRun };
+export const __agentInternals = { tick, manageTrades, runAgents, closeTrade, fillTrade, endRun, wakeLink, sleepIdleLinks };

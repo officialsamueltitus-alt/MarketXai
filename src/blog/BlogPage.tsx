@@ -577,7 +577,7 @@ const SECTIONS: Section[] = [
               <B>Recheck it later.</B> Tap <B>Recheck</B> on the result to read it again with live data. The card tells you whether the release is out:
               <B> Actual</B> then shows the published figure and whether it beat or missed the forecast (until then it says Pending), what is new since your
               last read, whether the forecast changed, and whether the most likely outcome and each pair's For or Against still hold:
-              <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses one analysis credit.
+              <B> Still valid</B>, <B>Changed</B> or <B>Released</B>. The card updates in place. A recheck uses two analysis credits.
             </>,
             <>
               <B>Find it again.</B> Every read is kept under <B>Fundamentals</B> in the History section of the side menu, and you get an email with the
@@ -592,7 +592,7 @@ const SECTIONS: Section[] = [
         />
         <Note title="Good to know">
           Only messages that start with /fundamental-analysis get a fundamental read. Everything else you ask, with the tool on or off, is a normal analysis
-          or answer, exactly as before. Each read uses one analysis credit, and a message that isn't about fundamentals is not charged. A fundamental read gives
+          or answer, exactly as before. Each read uses two analysis credits (it searches the web live), and a message that isn't about fundamentals is not charged. A fundamental read gives
           the odds of each outcome, never a certainty: releases surprise and markets can react in unexpected ways, so manage your risk around big releases.
         </Note>
         <Note title="Free until 1 November">Fundamental Analysis, its rechecks and the daily news alerts are free for everyone until 1 November 2026, then part of Pro.</Note>

@@ -26,7 +26,7 @@ interface AgentState {
   subscription: { active: boolean; staff: boolean; plan: string | null; expiresAt: number | null; monthlyUsd: number; yearlyUsd: number; yearlyDiscountPct: number; payments: boolean };
   mt5: {
     available: boolean;
-    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
+    link: null | { status: 'CONNECTING' | 'CONNECTED' | 'FAILED'; asleep?: boolean; login: string; server: string; broker: string | null; currency: string | null; balance: number | null; symbols: Record<string, string | null>; message: string; linkedAt: number };
   };
 }
 type Tab = 'setup' | 'trades' | 'activity';
@@ -392,7 +392,7 @@ export function TradingAgentPanel({ isOpen, onClose, focusId, onBuyCredits }: { 
                     </p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
                       {link?.status === 'CONNECTED'
-                        ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.`
+                        ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.${link.asleep ? ' Resting while the agent is off: it reconnects by itself when you start a run.' : ''}`
                         : link?.status === 'CONNECTING'
                           ? 'Signing in to your broker. This takes up to a minute or two.'
                           : link?.status === 'FAILED'

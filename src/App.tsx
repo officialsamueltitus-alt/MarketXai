@@ -1606,7 +1606,7 @@ export default function App() {
     (!status || status >= 500 || status === 408 || status === 429);
 
   // Fundamental Analysis: "/fundamental-analysis CPI" (with the command on) gets the same intro steps as every prompt, then
-  // the fundamental read of the event or market asked about. One credit, refunded by the server on any failure.
+  // the fundamental read of the event or market asked about. Two credits, refunded by the server on any failure.
   const runFundamental = async (promptText: string) => {
     if (!promptText.trim() || isLoading) return;
     // What is asked: the text after the command ("CPI" for "/fundamental-analysis CPI")
@@ -1750,7 +1750,7 @@ export default function App() {
   };
 
   // A news alert link, once signed in: Fundamental Analysis is switched on and "/fundamental-analysis <release>" waits in
-  // the input (sending it uses one credit, as any read); ?news=1 opens Fundamental Analysis
+  // the input (sending it uses two credits, as any read); ?news=1 opens Fundamental Analysis
   useEffect(() => {
     const link = newsLinkRef.current;
     if (!authUser || !link) return;

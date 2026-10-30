@@ -9,6 +9,8 @@ import crypto from 'crypto';
 //   Linking (trader): MT5 login, MASTER (trading) password and broker server are passed straight to MetaApi to add the
 //   account; MarketX never stores, logs or returns the password. MarketX keeps only MetaApi's account id, the region,
 //   a masked login, the server name and the broker symbols it matched. Unlinking deletes the account at MetaApi.
+//   Cost: MetaApi bills per connected hour, so a linked account is connected (deployed) only while the agent runs or
+//   still manages an order/position on it, and disconnected (undeployed) otherwise (`setMt5Power`).
 //
 //   Hosts: provisioning  https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai
 //          trading       https://mt-client-api-v1.<region>.agiliumtrade.ai
@@ -124,6 +126,16 @@ export async function deleteMt5Account(link: Mt5Link): Promise<void> {
     if (err instanceof Mt5Error && (err.code === 'MT5_NOT_FOUND' || err.code === 'MT5_PENDING')) return;
     throw err;
   }
+}
+
+/**
+ * Connects (deploy) or disconnects (undeploy) the account's cloud terminal. MetaApi bills per connected hour, so the
+ * agent keeps an account connected only while it needs it (a run, or orders/positions it still manages); the
+ * credentials stay at MetaApi either way, so waking it needs nothing from the trader.
+ */
+export async function setMt5Power(link: Mt5Link, on: boolean): Promise<void> {
+  if (!safeId(link.accountId)) throw new Mt5Error('MT5_ERROR', 'Unknown MT5 account.');
+  await call(`${PROVISIONING}/users/current/accounts/${link.accountId}/${on ? 'deploy' : 'undeploy'}`, { method: 'POST', tries: 3 });
 }
 
 const acct = (link: Mt5Link) => {

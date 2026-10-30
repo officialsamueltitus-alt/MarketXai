@@ -54,6 +54,7 @@ import { registerSignalProofRoutes, signalProofMiddleware } from './server/signa
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerLeaderboardRoutes } from './server/leaderboard';
 import { registerAdminCreditRoutes } from './server/adminCredits';
+import { aiUsageContext, installAiUsageMeter, registerAiUsageAdminRoutes } from './server/aiUsage';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
 import { registerTradingAgentRoutes } from './server/tradingAgent';
@@ -241,6 +242,9 @@ app.use((req, res, next) => {
   if (medium) return mediumJson(req, res, next);
   return smallJson(req, res, next);
 });
+// SI engine cost meter: tags each engine call with what it was for (read only; Admin → SI costs)
+installAiUsageMeter();
+app.use(aiUsageContext);
 
 // Initialize Gemini Client
 const getGeminiClient = () => {
@@ -2286,6 +2290,7 @@ registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, 
 registerTraderIdRoutes(app, generalApiRateLimiter);
 registerLeaderboardRoutes(app, generalApiRateLimiter);
 registerAdminCreditRoutes(app);
+registerAiUsageAdminRoutes(app);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();
 // Trade journal (/trade-journal) and track record (/track-record)

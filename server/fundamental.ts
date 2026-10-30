@@ -9,11 +9,11 @@
 // It is separate from the analysis engine: its own route (/api/fundamental/analyze), its own instructions, and it
 // only calls the engine connection handed over by server.ts (getGeminiClient is never changed). The analysis
 // prompts are never sent here, and this command's instructions never reach the analysis engine.
-// Credits: one analysis credit, refunded on any failure (chargeAnalysisCredit). Storage: users.fundamentalMode.
+// Credits: FUNDAMENTAL_CREDITS (2) per read or recheck, refunded on any failure (chargeCredits). Storage: users.fundamentalMode.
 // ===========================================================================
 import type { Express, NextFunction, Request, Response } from 'express';
 import type { GoogleGenAI } from '@google/genai';
-import { chargeAnalysisCredit, getUser, requireAuth, userRef } from './account';
+import { FUNDAMENTAL_CREDITS, chargeCredits, getUser, requireAuth, userRef } from './account';
 import { getCalendar, getFullCalendar, getHeadlines, parseRssItems, refreshNewsFeedsWithin, type CalendarEvent, type WireHeadline } from './news';
 import { cleanDomain, readGrounding } from './webResearch';
 import { scrubReply } from './matt';
@@ -517,7 +517,7 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
   const wrap = (fn: (req: Request, res: Response) => Promise<any>) => (req: Request, res: Response) =>
     fn(req, res).catch(err => {
       console.error('[MarketX Fundamental] request failed:', err?.message || err);
-      if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'The fundamental analysis hit a snag. Your credit was refunded, please try again.' });
+      if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'The fundamental analysis hit a snag. Your credits were refunded, please try again.' });
     });
 
   // Fundamental Analysis is Pro after the free period (owner-specified): a free account sees it as off and locked, and
@@ -598,13 +598,13 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
       const reply = await askEngine(deps, FUNDAMENTAL_SYSTEM, prompt, deadline, text =>
         isNotFundamental(text) || !!parseReport(extractJson(text), { sources: [], web: false, calendar })
       );
-      if (!reply) return { status: 503, body: { error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis is unavailable right now. Your credit was refunded, please try again shortly.' } };
+      if (!reply) return { status: 503, body: { error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis is unavailable right now. Your credits were refunded, please try again shortly.' } };
       if (isNotFundamental(reply.text)) {
         return {
           status: 422,
           body: {
             error: 'NOT_FUNDAMENTAL',
-            message: "That isn't something Fundamental Analysis can read. After /fundamental-analysis, name an economic release (CPI, NFP, PPI, GDP...), a central bank decision, or a market and what is driving it. For a trade plan, just ask without the command. No credit was used.",
+            message: "That isn't something Fundamental Analysis can read. After /fundamental-analysis, name an economic release (CPI, NFP, PPI, GDP...), a central bank decision, or a market and what is driving it. For a trade plan, just ask without the command. No credits were used.",
           },
         };
       }
@@ -618,7 +618,7 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
         if (!report.sources.includes('Economic calendar')) report.sources = [...report.sources, 'Economic calendar'].slice(0, 8);
       }
       if (report && prev) report.question = question.slice(0, 300);
-      if (!report) return { status: 503, body: { error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis could not be completed. Your credit was refunded, please try again.' } };
+      if (!report) return { status: 503, body: { error: 'FUNDAMENTAL_UNAVAILABLE', message: 'The fundamental analysis could not be completed. Your credits were refunded, please try again.' } };
       report.question = question.slice(0, 300);
       cache.set(key, { at: Date.now(), report: structuredClone(report) });
       if (cache.size > 300) cache.delete(cache.keys().next().value as string);
@@ -647,7 +647,9 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
     logFundamental(getUser(res).uid, { kind, question: res.locals.fundamentalPrompt, outcome, ms: Date.now() - started, cached: !!r && !('status' in r) && r.cached, report: r && !('status' in r) ? r.report : null });
   };
 
-  app.post('/api/fundamental/analyze', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (_req, res) => {
+  // Two credits a read (web search makes it the dearest engine call), refunded in full on any failure
+  const chargeFundamental = chargeCredits(FUNDAMENTAL_CREDITS);
+  app.post('/api/fundamental/analyze', analysisLimiter, requireAuth, ready, chargeFundamental, wrap(async (_req, res) => {
     const started = Date.now();
     const r = await read(res.locals.fundamentalPrompt, false).catch(err => {
       track(res, 'READ', started, null);
@@ -660,8 +662,8 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
 
   // "Recheck" on a fundamental card: the same question read again now (never from the cache), compared with the earlier
   // read: has the release come out, is the forecast the same, does the most likely outcome and each pair's bias still hold.
-  // One analysis credit, refunded on any failure, like a normal read.
-  app.post('/api/fundamental/recheck', analysisLimiter, requireAuth, ready, chargeAnalysisCredit, wrap(async (req, res) => {
+  // Same price as a read, refunded on any failure.
+  app.post('/api/fundamental/recheck', analysisLimiter, requireAuth, ready, chargeFundamental, wrap(async (req, res) => {
     const prev = readPrevious(req.body?.previous);
     const started = Date.now();
     const r = await read(res.locals.fundamentalPrompt, true, prev).catch(err => {

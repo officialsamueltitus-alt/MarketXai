@@ -179,8 +179,12 @@
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
   (`lotSize`: stop/tickSize x lossTickValue, rounded DOWN to the volume step; under the minimum = not placed), BUY/SELL LIMIT with stop, final target,
   comment "MarketX agent" + clientId `MX…` (≤ 26 chars), timed expiry (GTC fallback); FAILED placements stay tracked and the trader is told. Cancels
-  (`mt5Cancel`, ORDER_CANCEL) follow MarketX's cancels; Stop and close uses POSITION_CLOSE_ID (`mt5Close`); the broker's own stop/target close filled
-  trades. MarketX's candle tracking stays the record (alerts, stats). Unlink and account deletion delete the MetaApi account first (`unlinkMt5`).
+  (`mt5Cancel`, ORDER_CANCEL) follow MarketX's cancels; Stop and close (and the 500-candle timeout) use POSITION_CLOSE_ID (`mt5Close`); the broker's own
+  stop/target close filled trades. MarketX's candle tracking stays the record (alerts, stats). Unlink and account deletion delete the MetaApi account first (`unlinkMt5`).
+  Connected only when needed (owner-approved, MetaApi bills per connected hour): `mt5Links.power` ON / WAKING / OFF (missing = ON). `sleepIdleLinks`
+  (agent tick, every 5 min) undeploys a link (`setMt5Power`) when its run isn't RUNNING and it has no PENDING/OPEN trade with an MT5 order PLACED (10 min
+  grace after linking/waking); `wakeLink` deploys and waits for CONNECTED (45s) before any order/cancel/close; a run start wakes it in the background
+  (`wakeSoon`). The panel says "Resting" while asleep; refresh doesn't wake it.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
@@ -256,15 +260,16 @@
   read and must search the latest information (released figure into `data.actual` + status RELEASED, else actual empty; `whatsNew` = "Update: …"
   line), the live calendar's released figure (`actual` in `getFullCalendar`) is given to it and fills a missing actual when exactly one matching
   line is out, and headlines since the earlier read ride on `recheck.news`. Card: Actual = the figure (sky tile, "just out", above/below/in line with
-  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; one credit, refunded on failure. Save / share (owner-specified, `src/utils/fundamentalShare.ts`, buttons on the card):
+  forecast), else Pending ("Awaiting figure" once the time has passed). The card updates in place with a banner; two credits, refunded on failure. Save / share (owner-specified, `src/utils/fundamentalShare.ts`, buttons on the card):
   "Save image" draws the card picture (canvas 1080x1350 @2x: forecast, or the result once `data.actual` is in, username, marketx.world; drawn ahead on
   hover/touch, `prepareFundamentalCard`) and downloads it (iPhone: share sheet → Save Image to Photos); "Share" sends picture + brief text via the share
   sheet (else copies the text and saves the picture); "Post on X" opens `openXPost(buildFundamentalShareText)`: key points only, ≤ 280. Every read is kept (owner-specified):
   the sidebar History has a Fundamentals tab (`fundamentalReads` in `Sidebar.tsx`, from the chats' `fundamental` messages, opens the read via
   `openChatMessage`), and each read or recheck sends its own notification + email (`fundamentalAlert` in `server/account.ts`: release, most likely
   with odds, effect, actual/forecast/previous, pairs for/against, confidence, recheck result; button = `/?chat=&msg=` of that read; `important`
-  = sent at once, never paced out, still only with activity emails on). The analysis engine and `/api/market/analyze` are untouched. One credit
-  (`chargeAnalysisCredit`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
+  = sent at once, never paced out, still only with activity emails on). The analysis engine and `/api/market/analyze` are untouched. Two credits
+  (owner-approved, web search makes it the dearest call: `chargeCredits(FUNDAMENTAL_CREDITS)` in `server/account.ts`, all or nothing across pools via
+  `splitCharge`, after the on-check); refunded on 422 `NOT_FUNDAMENTAL` (engine replies NOT_FUNDAMENTAL), 503 `FUNDAMENTAL_UNAVAILABLE`, 409
   `FUNDAMENTAL_OFF` before any charge. Its own instructions only (`FUNDAMENTAL_SYSTEM`; the engine connection is only called via
   `useFundamentalEngine(getGeminiClient)`, web search on, same three models, shared `aiGate`); the trader's text only in the user message, fenced and
   labelled untrusted. Context: this week's matching calendar lines (`calendarMatches`, exact titles, figures given to the engine, release time kept),
@@ -656,6 +661,13 @@
   OK/NOT_FUNDAMENTAL/UNAVAILABLE/ERROR, recheck state, seconds, reused), with day counters in `siDaily`; 30-day stats, chart, outcomes, top traders,
   top markets/releases, Matt strikes + pauses (`POST /api/admin/si/matt/:uid/clear` resets them), history with username/outcome filters and Load more.
   Server-only, never shown to traders or given to any engine; kept 90 days (`sweepSiLogs`, lead worker daily), deleted with the account; noted in Privacy.
+  SI costs (owner-requested, `server/aiUsage.ts`, `src/admin/SiCosts.tsx`, `GET /api/admin/si-costs`, `PUT /api/admin/si-costs/prices`): a read-only hook
+  on the SDK's `Models.prototype.generateContentInternal` (`installAiUsageMeter`; never changes requests/responses, so no engine's instructions, model
+  list or client is touched) records each call's real tokens (`usageMetadata`: prompt + tool-use in, candidates + thoughts out) and web searches,
+  tagged by `aiUsageContext` (AsyncLocalStorage, after the body parsers) as analysis / question / fundamental / matt / mattVoice / voice / strategy /
+  other / background; buffered and added to `aiUsageDaily/{day}` every 30s. Costed at `adminConfig/aiPrices` (editable in Admin, defaults
+  `DEFAULT_AI_PRICES`, unverified). The page shows cost per day, per action and per model, the margin against the cheapest credit price, and searches
+  against the monthly free allowance. Model names stay server-side (never in the bundle).
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
 
