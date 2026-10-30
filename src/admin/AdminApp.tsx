@@ -39,9 +39,11 @@ import { FundamentalAdminSection, MattAdminSection } from './SiTools';
 import { InviteRewardsSection, LeaderboardAdminSection } from './Leaderboard';
 import { CreditsSection } from './Credits';
 import { SiCostsSection } from './SiCosts';
+import { FeatureCodesSection } from './FeatureCodes';
+import { RewardsSection } from './Rewards';
 import { Card, ConfirmDialog, fmtDateTime } from './ui';
 
-type Section = 'overview' | 'users' | 'credits' | 'usage' | 'sicosts' | 'leaderboard' | 'invites' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'campaign' | 'support' | 'broadcast' | 'security';
+type Section = 'overview' | 'users' | 'credits' | 'usage' | 'sicosts' | 'leaderboard' | 'invites' | 'matt' | 'fundamental' | 'subscriptions' | 'coupons' | 'rewards' | 'campaign' | 'support' | 'broadcast' | 'security';
 
 const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -55,6 +57,7 @@ const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: 'fundamental', label: 'Fundamentals', icon: Landmark },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'coupons', label: 'Coupons', icon: Ticket },
+  { id: 'rewards', label: 'Rewards', icon: Gift },
   { id: 'campaign', label: 'Campaign', icon: Gift },
   { id: 'support', label: 'Support', icon: MessageCircle },
   { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
@@ -457,7 +460,13 @@ export default function AdminApp() {
             {section === 'matt' && <MattAdminSection />}
             {section === 'fundamental' && <FundamentalAdminSection />}
             {section === 'subscriptions' && <SubscriptionsSection />}
-            {section === 'coupons' && <CouponsSection />}
+            {section === 'coupons' && (
+              <>
+                <CouponsSection />
+                <FeatureCodesSection />
+              </>
+            )}
+            {section === 'rewards' && <RewardsSection />}
             {section === 'campaign' && <CampaignSection />}
             {section === 'support' && <SupportSection />}
             {section === 'broadcast' && <BroadcastSection initialTarget={messageTarget} />}

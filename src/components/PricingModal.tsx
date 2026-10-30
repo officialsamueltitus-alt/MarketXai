@@ -35,6 +35,8 @@ interface PricingModalProps {
   onPaymentVerified: (account: any, plan: 'monthly' | 'yearly') => void;
   /** A coupon to apply when the window opens (promo banner, email link) */
   initialCoupon?: string | null;
+  /** A feature code was redeemed (one feature unlocked): reload the account */
+  onFeatureUnlocked?: () => void;
 }
 
 
@@ -45,6 +47,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   paymentsConfig,
   onPaymentVerified,
   initialCoupon,
+  onFeatureUnlocked,
 }) => {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('yearly');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -55,16 +58,43 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
   const [couponError, setCouponError] = useState<string | null>(null);
+  // A feature code (Admin → Feature codes): unlocks one feature for some days instead of a discount
+  const [featureCode, setFeatureCode] = useState<{ code: string; label: string; days: number } | null>(null);
+  const [featureDone, setFeatureDone] = useState<string | null>(null);
+  const redeemFeature = async () => {
+    if (!featureCode) return;
+    setCouponBusy(true);
+    setCouponError(null);
+    try {
+      const r = await apiFetch<{ label: string; until: number }>('/api/feature-codes/redeem', { method: 'POST', body: JSON.stringify({ code: featureCode.code }) });
+      setFeatureDone(`${r.label} is unlocked until ${new Date(r.until).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}.`);
+      setFeatureCode(null);
+      setCouponText('');
+      onFeatureUnlocked?.();
+    } catch (err: any) {
+      setCouponError(err?.message || 'That code could not be used.');
+    } finally {
+      setCouponBusy(false);
+    }
+  };
   const applyCoupon = async (raw: string) => {
     const code = raw.trim().toUpperCase().replace(/\s+/g, '');
     setCouponError(null);
     if (!code) return;
     setCouponBusy(true);
     try {
-      const r = await apiFetch<{ coupon: Omit<AppliedCoupon, 'prices'>; prices: AppliedCoupon['prices'] }>('/api/coupons/check', {
+      const r = await apiFetch<{ kind?: 'feature'; feature?: { code: string; label: string; days: number }; coupon: Omit<AppliedCoupon, 'prices'>; prices: AppliedCoupon['prices'] }>('/api/coupons/check', {
         method: 'POST',
         body: JSON.stringify({ code }),
       });
+      setFeatureDone(null);
+      if (r.kind === 'feature' && r.feature) {
+        setCoupon(null);
+        setFeatureCode(r.feature);
+        setCouponText(r.feature.code);
+        return;
+      }
+      setFeatureCode(null);
       setCoupon({ ...r.coupon, prices: r.prices });
       setCouponText(r.coupon.code);
       // Land on a plan the code works for
@@ -77,6 +107,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
     }
   };
   const removeCoupon = () => {
+    setFeatureCode(null);
     setCoupon(null);
     setCouponText('');
     setCouponError(null);
@@ -405,7 +436,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                           setCouponText(e.target.value.toUpperCase().replace(/\s+/g, '').slice(0, 24));
                           setCouponError(null);
                         }}
-                        placeholder="Coupon code"
+                        placeholder="Coupon or feature code"
                         aria-label="Coupon code"
                         autoCapitalize="characters"
                         autoComplete="off"
@@ -420,6 +451,25 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                         {couponBusy ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : 'Apply'}
                       </button>
                     </form>
+                  )}
+                  {featureCode && (
+                    <div className="mt-3 rounded-2xl border border-violet-400/30 bg-violet-500/[0.08] p-3.5">
+                      <p className="text-sm font-semibold text-white">Unlock {featureCode.label} free for {featureCode.days} day{featureCode.days === 1 ? '' : 's'}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">Code {featureCode.code} unlocks this feature only, not the rest of Pro.</p>
+                      <div className="mt-3 flex gap-2">
+                        <button type="button" onClick={redeemFeature} disabled={couponBusy} className="h-9 px-4 rounded-xl bg-white text-slate-950 text-[13px] font-semibold disabled:opacity-50 cursor-pointer">
+                          {couponBusy ? 'Unlocking…' : `Unlock ${featureCode.label}`}
+                        </button>
+                        <button type="button" onClick={removeCoupon} className="h-9 px-3 rounded-xl text-[13px] text-slate-400 hover:text-white cursor-pointer">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {featureDone && (
+                    <p className="mt-2 text-[12px] text-emerald-300 px-1" role="status">
+                      {featureDone}
+                    </p>
                   )}
                   {couponError && (
                     <p className="mt-2 text-[11px] text-rose-300 px-1" role="alert">

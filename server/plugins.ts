@@ -2,7 +2,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { getUser, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { db, isFirebaseConfigured } from './firebase';
 import { IS_LEAD_WORKER } from './workers';
-import { hasProFeatures, proGateActive, PRO_REQUIRED } from './proAccess';
+import { hasFeature, proGateActive, PRO_REQUIRED } from './proAccess';
 import { createKeyedThrottle } from './security';
 import { setAlertsEnabled } from './priceAlerts';
 import { setWatchlistEnabled } from './watchlist';
@@ -23,11 +23,10 @@ export type PluginId = (typeof PLUGIN_IDS)[number];
 export const PRO_PLUGINS: readonly PluginId[] = ['watchlist', 'journal'];
 
 export function pluginStates(doc: UserDoc | undefined): Record<PluginId, boolean> {
-  const pro = hasProFeatures(doc);
   return {
     alerts: !!doc?.alerts?.enabled,
-    watchlist: pro && !!doc?.watchlist?.enabled,
-    journal: pro && !!doc?.plugins?.journal,
+    watchlist: hasFeature(doc, 'watchlist') && !!doc?.watchlist?.enabled,
+    journal: hasFeature(doc, 'journal') && !!doc?.plugins?.journal,
     trackRecord: !!doc?.plugins?.trackRecord,
   };
 }
@@ -57,14 +56,16 @@ export async function sweepFreeAccounts(): Promise<number> {
   for (const s of snaps) for (const d of s.docs) docs.set(d.id, d.data() as UserDoc);
   let n = 0;
   for (const [uid, doc] of docs) {
-    if (hasProFeatures(doc)) continue;
     const d = doc as any;
+    // Per feature: Pro keeps all of them, a feature code's pass keeps just its own one (until it runs out)
+    const watchOff = doc.watchlist?.enabled && !hasFeature(doc, 'watchlist');
+    const off: Record<string, unknown> = {};
+    if (d.fundamentalMode?.enabled && !hasFeature(doc, 'fundamental')) off.fundamentalMode = { enabled: false, at: Date.now() };
+    if (d.preferences?.newsAlerts?.enabled && !hasFeature(doc, 'fundamental')) off['preferences.newsAlerts.enabled'] = false;
+    if (d.strategyMode?.enabled && !hasFeature(doc, 'strategy')) off['strategyMode.enabled'] = false;
+    if (!watchOff && !Object.keys(off).length) continue;
     try {
-      if (doc.watchlist?.enabled) await setWatchlistEnabled(uid, false);
-      const off: Record<string, unknown> = {};
-      if (d.fundamentalMode?.enabled) off.fundamentalMode = { enabled: false, at: Date.now() };
-      if (d.preferences?.newsAlerts?.enabled) off['preferences.newsAlerts.enabled'] = false;
-      if (d.strategyMode?.enabled) off['strategyMode.enabled'] = false;
+      if (watchOff) await setWatchlistEnabled(uid, false);
       if (Object.keys(off).length) await userRef(uid).update(off);
       n++;
       await notifyActivity(
@@ -110,7 +111,7 @@ export function registerPluginRoutes(app: Express, limiter: (req: Request, res: 
     if (!PLUGIN_IDS.includes(id)) return res.status(404).json({ error: 'NOT_FOUND', message: 'That tool does not exist.' });
     if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'BAD_REQUEST', message: 'Say whether to turn it on or off.' });
     // Turning a Pro tool on needs Pro after the free period; turning anything off always works
-    if (req.body.enabled && PRO_PLUGINS.includes(id) && !hasProFeatures((await userRef(uid).get()).data() as UserDoc | undefined)) {
+    if (req.body.enabled && PRO_PLUGINS.includes(id) && !hasFeature((await userRef(uid).get()).data() as UserDoc | undefined, id as 'watchlist' | 'journal')) {
       return res.status(402).json(PRO_REQUIRED);
     }
     if (throttle.hit(uid)) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many changes. Please wait a minute.' });

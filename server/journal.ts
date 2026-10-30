@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { db } from './firebase';
 import { getUser, requireAuth } from './account';
-import { requirePro } from './proAccess';
+import { requireFeature } from './proAccess';
+const requirePro = requireFeature('journal');
 import { createKeyedThrottle } from './security';
 import { formatMarketPrice } from '../src/utils/formatPrice';
 

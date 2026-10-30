@@ -754,7 +754,8 @@ const SECTIONS: Section[] = [
         <Note title="Upgrade or refill">
           In Credits choose Upgrade to Pro (or Refill or change plan), pick 3 months or Yearly, and pay through the secure checkout by card, bank transfer or USSD
           where available. Pro switches on as soon as the payment is confirmed, and you get a notification and an email receipt. Current prices are always shown
-          in the Plans window.
+          in the Plans window. Got a <B>feature code</B>? Type it in the same coupon box: it unlocks that one Pro feature free for the days it gives (not the
+          rest of Pro). Programs with rewards show up in the <B>Rewards</B> tab of your notifications, with their links and how to take part.
         </Note>
         <Note title="Credit packs" tone="emerald">
           Need more? In Credits, under <B>Buy credits</B>, pick a pack: <B>50 credits for $5</B>, <B>150 for $12</B>, <B>400 for $28</B> or <B>1,000 for $60</B>,

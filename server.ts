@@ -44,6 +44,8 @@ import { registerFundamentalRoutes, useFundamentalEngine } from './server/fundam
 import { startNewsAlerts } from './server/newsAlerts';
 import { startSiLogSweep } from './server/siLogs';
 import { registerCouponRoutes, startCoupons } from './server/coupons';
+import { registerFeatureCodeRoutes } from './server/featureCodes';
+import { registerRewardProgramRoutes } from './server/rewardPrograms';
 import { registerPressureRoutes } from './server/pressure';
 import { registerSpeakRoutes, registerVoiceRoutes, useVoiceEngine } from './server/voice';
 import { guardResultText } from './server/priceGuard';
@@ -2112,6 +2114,8 @@ registerPaymentRoutes(app, generalApiRateLimiter);
 registerAdminRoutes(app);
 // Coupon codes: 20 tries a minute per trader / visitor
 registerCouponRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many coupon tries. Please wait a minute.' }));
+registerFeatureCodeRoutes(app, generalApiRateLimiter);
+registerRewardProgramRoutes(app, generalApiRateLimiter);
 // Voice input (free): speech to text for browsers without on-device recognition, 20 clips a minute per trader
 registerVoiceRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many voice messages. Please wait a minute.' }));
 registerSpeakRoutes(app, createRateLimiter({ windowMs: 60 * 1000, max: 30, message: 'Matt is talking a lot. Please wait a minute.' }));
@@ -3719,7 +3723,7 @@ async function strategyProGate(req: Request, res: Response, next: NextFunction) 
   } catch {}
   next();
 }
-const chartGuard = proGuard('Chart screenshot analysis is a Pro feature now. Type the market instead (for example "Analyze EURUSD 1H"), or upgrade to Pro to analyze screenshots. No credit was used.');
+const chartGuard = proGuard('Chart screenshot analysis is a Pro feature now. Type the market instead (for example "Analyze EURUSD 1H"), or upgrade to Pro to analyze screenshots. No credit was used.', 'chart');
 
 // Fallback response for general conversational chat questions when Gemini is unavailable
 

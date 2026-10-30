@@ -25,7 +25,8 @@ import { SUPPORTED_TIMEFRAMES } from '../src/utils/timeframe';
 
 import { normalizeStyleFrames } from '../src/utils/tradeStyle';
 import { DEFAULT_PREFERENCES, engineModeOf, normalizeNewsImpacts, normalizeRdmTimeframes, withDefaults, type Currency, type Preferences } from '../src/utils/preferences';
-import { effectivePreferences, hasProFeatures, PRO_REQUIRED } from './proAccess';
+import { effectivePreferences, hasFeature, PRO_REQUIRED } from './proAccess';
+const hasProFeatures = (doc: any) => hasFeature(doc, 'preference');
 import { syncWatchPrefs } from './watchlist';
 export { DEFAULT_PREFERENCES };
 export type { Preferences };

@@ -1109,13 +1109,16 @@ export default function App() {
   // Analysis, Preference Mode, chart screenshots). The server refuses them too; this offers the upgrade at once.
   // Price alerts, the track record and RDM are free.
   const proLocked = !proAccess;
+  // A feature code unlocks one feature only (until its pass runs out)
+  const featurePasses = userProfile.featurePasses;
+  const featureLocked = useCallback((f: ProFeature) => proLocked && !((featurePasses?.[f] || 0) > Date.now()), [proLocked, featurePasses]);
   const lockedPro = useCallback(
     (f: ProFeature) => {
-      if (!proLocked) return false;
+      if (!featureLocked(f)) return false;
       showProUpsell(proMessage(f));
       return true;
     },
-    [proLocked, showProUpsell]
+    [featureLocked, showProUpsell]
   );
 
   // ---------------- Price alerts ----------------
@@ -2604,6 +2607,7 @@ export default function App() {
         paymentsConfig={paymentsConfig}
         onPaymentVerified={handlePaymentVerified}
         initialCoupon={pricingCoupon}
+        onFeatureUnlocked={refreshAccount}
       />
       </Deferred>
 
@@ -2936,7 +2940,7 @@ export default function App() {
         {currentView === 'home' && (
           <HomePage
             tickers={tickers}
-            voiceLocked={proLocked}
+            voiceLocked={featureLocked('voice')}
             onVoiceLocked={() => lockedPro('voice')}
             onAskMarketX={() => {
               handleNewSession();
@@ -3063,10 +3067,10 @@ export default function App() {
                     }
                     defaultTimeframe={authUser ? preferences.timeframe : undefined}
                     defaultSlMode={authUser ? preferences.slMode : undefined}
-                    chartLocked={proLocked}
-                    voiceLocked={proLocked}
+                    chartLocked={featureLocked('chart')}
+                    voiceLocked={featureLocked('voice')}
                     rdmTimeframes={authUser ? preferences.rdmTimeframes : undefined}
-                    onRdmTimeframesChange={authUser && !proLocked ? next => savePreferences({ rdmTimeframes: next }) : undefined}
+                    onRdmTimeframesChange={authUser && !featureLocked('preference') ? next => savePreferences({ rdmTimeframes: next }) : undefined}
                     confirmationMode={!!authUser && preferences.analysisMode === 'CONFIRMATION'}
                     steadyMode={!!authUser && !!preferences.steadyMode}
                     tradeStyle={authUser ? preferences.tradeStyle : undefined}

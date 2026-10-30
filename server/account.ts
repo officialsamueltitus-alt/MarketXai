@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
-import { effectivePreferences, hasProFeatures, PRO_GATE_AT } from './proAccess';
+import { effectivePreferences, hasFeature, hasProFeatures, livePasses, PRO_GATE_AT } from './proAccess';
 import { CREDIT_RESET_LABEL, CREDIT_RESET_TZ, isDailyResetDue, nextDailyReset } from './dailyReset';
 import crypto from 'crypto';
 import { FieldValue, Transaction, DocumentReference } from 'firebase-admin/firestore';
@@ -197,12 +197,14 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     emailVerified: !!doc.emailVerified,
     emailActivity: doc.emailPrefs?.activity !== false,
     // Preference Mode is Pro after the free period: a free account's saved choices don't apply (defaults are sent)
-    preferences: vip || hasProFeatures(doc) ? withDefaults((doc as any).preferences) : effectivePreferences(doc),
+    preferences: vip || hasFeature(doc, 'preference') ? withDefaults((doc as any).preferences) : effectivePreferences(doc),
     alertsEnabled: !!doc.alerts?.enabled,
     alertsMode: doc.alerts?.mode || null,
     plugins: { alerts: !!doc.alerts?.enabled, watchlist: !!doc.watchlist?.enabled, journal: !!doc.plugins?.journal, trackRecord: !!doc.plugins?.trackRecord },
     // Commands and RDM: open to all until the free period ends, then Pro only
     proAccess: vip || hasProFeatures(doc),
+    // Feature codes redeemed: one feature unlocked until a time ({feature: until})
+    featurePasses: livePasses(doc),
     proFreeUntil: PRO_GATE_AT,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }

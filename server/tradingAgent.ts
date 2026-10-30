@@ -7,7 +7,7 @@ import { campaignPool, purchasedPool, claimMarketMail, getUser, isUnlimitedEmail
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
-import { hasProFeatures, proGateActive, PRO_GATE_AT } from './proAccess';
+import { hasFeature, proGateActive, PRO_GATE_AT } from './proAccess';
 import {
   Mt5Error, brokerLevels, createMt5Account, deleteMt5Account, lotSize, maskLogin, matchSymbol, mt5AccountInfo, mt5AccountState, mt5Configured, mt5Positions,
   mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
@@ -144,7 +144,7 @@ const linkOf = async (uid: string) => (await linkRef(uid).get()).data() as Mt5Li
 /** May use the agent: Pro features (everyone before the Pro date, then Pro or unlimited staff), or an old agent plan still running */
 export function agentAccess(u: UserDoc | undefined, at = Date.now()): boolean {
   if (!u) return false;
-  if (hasProFeatures(u, at)) return true;
+  if (hasFeature(u, 'agent', at)) return true;
   const legacy = (u as any).agentSub as { active?: boolean; expiresAt?: number } | undefined;
   return !!legacy?.active && (legacy.expiresAt || 0) > at;
 }

@@ -567,6 +567,17 @@
 - Pro price (owner-specified): $30 for 3 months and $200 less 12% ($176) a year (`PRO_QUARTER_PRICE_USD`, `PRO_YEARLY_BASE_USD`,
   `PRO_YEARLY_OFF_PERCENT`; the old monthly env names are ignored). The plan id `monthly` IS the 3-month plan (kept for stored payments, coupons and
   subscriptions; `PLAN_DURATION_MS.monthly` = 90 days); everything traders see says "3 months" (`proPlanName`). Coupons' "Monthly" percent applies to it.
+- Feature codes (owner-specified, `server/featureCodes.ts`, Admin → Coupons → Feature codes `src/admin/FeatureCodes.tsx`): a code that unlocks ONE Pro
+  feature (`PRO_FEATURES` id) free for N days (1-365), nothing else; optional max uses, start/end, on/off; one use per person (`featureCodes/{CODE}/claims/
+  {sha256(email)}`), refused for Pro/staff (`ALREADY_PRO`). Redeem = `users.featurePasses.{feature}` = max(now, current) + days (transaction). Access
+  everywhere goes through `hasFeature(doc, feature)` / `requireFeature(f)` / `proGuard(msg, f)` in `server/proAccess.ts` (routes, `sweepFreeAccounts` per
+  feature, `effectivePreferences`, `agentAccess`), and the app reads `profile.featurePasses` (`featureLocked` in `App.tsx`). Traders type it in the Plans
+  window's coupon box: `/api/coupons/check` answers `kind: 'feature'`, then `POST /api/feature-codes/redeem`. Coupons and feature codes share one code namespace.
+- Reward programs (owner-specified, `server/rewardPrograms.ts`, Admin → Rewards `src/admin/Rewards.tsx`, cards `RewardProgramCards.tsx` in the notification
+  Rewards tab): admin-made programs (title, text, up to 5 https links, optional button, start/end, on/off) in mode INFO (card only) or SUBMIT (traders send
+  an https link + note; admin approves = credits into the campaign pool + notification + email, or declines with a reason; resubmit up to 5 times; one
+  reward per person `rewardClaims`, optional cap `maxRewards`). `GET /api/rewards/programs`, `POST /api/rewards/programs/:id/submit`; admin routes under
+  `/api/admin/reward-programs` and `/api/admin/reward-submissions/:id/approve|reject`. `rewardSubmissions` deleted with the account.
 - Coupons (owner-specified, `server/coupons.ts`, admin `src/admin/Coupons.tsx`, `coupons/{CODE}`): the admin creates codes (3-24 chars A-Z 0-9 - _)
   with a percent off Monthly and/or Yearly (0-90 each, at least one), optional start/end, on/off, optional site pop-up (title, text); edit, delete.
   A code works only while LIVE (`couponState`: on, after `startsAt`, before `endsAt`, server time, never cached for checks/checkouts): turning it

@@ -21,7 +21,7 @@ import { createKeyedThrottle } from './security';
 import { compareReads, fundamentalTopic } from '../src/utils/fundamental';
 import type { CurrencyImpact, FundamentalBias, FundamentalPair, FundamentalPrevious, FundamentalReport, FundamentalScenario, FundamentalStrength } from '../src/utils/fundamental';
 import { logFundamental, type FundamentalOutcome } from './siLogs';
-import { hasProFeatures, PRO_REQUIRED } from './proAccess';
+import { hasFeature, PRO_REQUIRED } from './proAccess';
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 /** One budget for the whole read, under the client's 110s limit */
@@ -523,7 +523,7 @@ export function registerFundamentalRoutes(app: Express, limiter: (req: Request, 
   // Fundamental Analysis is Pro after the free period (owner-specified): a free account sees it as off and locked, and
   // every route below refuses it before any credit is used
   const proMessage = 'Fundamental Analysis is a Pro feature. Upgrade to Pro to read releases and their effect on the pairs. No credit was used.';
-  const fundamentalPro = (doc: any) => hasProFeatures(doc);
+  const fundamentalPro = (doc: any) => hasFeature(doc, 'fundamental');
 
   app.get('/api/fundamental', limiter, requireAuth, wrap(async (_req, res) => {
     const doc = (await userRef(getUser(res).uid).get()).data();

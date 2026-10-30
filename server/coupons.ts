@@ -17,6 +17,7 @@ import { sendEmail, isMailerConfigured } from './mailer';
 import { IS_LEAD_WORKER } from './workers';
 import { requireAdmin } from './admin';
 import { planPrice } from './payments';
+import { featureCodeView, liveFeatureCode } from './featureCodes';
 
 export type CouponPlan = 'monthly' | 'yearly';
 export type CouponState = 'LIVE' | 'OFF' | 'SCHEDULED' | 'EXPIRED';
@@ -261,6 +262,9 @@ export function registerCouponRoutes(app: Express, checkLimiter: any) {
   app.post('/api/coupons/check', checkLimiter, wrap(async (req, res) => {
     const code = normalizeCode(req.body?.code);
     if (!isValidCode(code)) return res.status(400).json({ error: 'COUPON_INVALID', message: "That coupon code isn't valid." });
+    // A feature code (server/featureCodes.ts) unlocks one feature instead of a discount: the box offers to redeem it
+    const fc = await liveFeatureCode(code);
+    if (fc) return res.json({ valid: true, kind: 'feature', feature: featureCodeView(fc) });
     const [m, y] = await Promise.all([couponForCheckout(code, 'monthly'), couponForCheckout(code, 'yearly')]);
     if ('error' in m && 'error' in y) {
       const e = m.error === 'COUPON_PLAN' ? y : m;
@@ -310,11 +314,12 @@ export function registerCouponRoutes(app: Express, checkLimiter: any) {
     if (!input.monthlyPct && !input.yearlyPct) return res.status(400).json({ error: 'INVALID', message: `Give at least one plan a discount (1 to ${MAX_PCT}%).` });
     const now = Date.now();
     const created = await db().runTransaction(async t => {
-      if ((await t.get(couponRef(code))).exists) return false;
+      const [mine, feature] = await Promise.all([t.get(couponRef(code)), t.get(db().collection('featureCodes').doc(code))]);
+      if (mine.exists || feature.exists) return false;
       t.set(couponRef(code), { code, ...input, mailAt: null, uses: { monthly: 0, yearly: 0 }, createdAt: now, updatedAt: now });
       return true;
     });
-    if (!created) return res.status(409).json({ error: 'EXISTS', message: 'That code already exists.' });
+    if (!created) return res.status(409).json({ error: 'EXISTS', message: 'That code is already used by a coupon or feature code.' });
     promoCache = null;
     res.json({ success: true });
   }));
