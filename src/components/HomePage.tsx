@@ -576,7 +576,12 @@ export const HomePage: React.FC<HomePageProps> = ({
           {/* 1. Icon + Symbol Pill + Name */}
           <div className="flex items-center gap-2.5 min-w-0">
             {renderAssetLogo(ticker.symbol)}
-            <span className="px-2.5 py-0.5 rounded-md bg-[var(--mx-surface-3)] text-white font-mono font-bold text-xs border border-white/[0.08] shrink-0 tracking-wide">
+            {/* Owner-specified: only the frame shows the day's direction (green up, red down) */}
+            <span
+              className={`px-2.5 py-0.5 rounded-md bg-[var(--mx-surface-3)] text-white font-mono font-bold text-xs border shrink-0 tracking-wide transition-colors duration-500 ${
+                isUp ? 'border-emerald-500/80' : 'border-rose-500/80'
+              }`}
+            >
               {displaySym}
             </span>
             <span className="text-slate-200 text-xs sm:text-sm font-medium truncate">

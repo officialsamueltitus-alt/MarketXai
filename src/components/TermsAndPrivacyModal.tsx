@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileText, Lock, AlertTriangle, X, Mail, MessageCircle } from 'lucide-react';
-import { TelegramIcon, YouTubeIcon } from './SocialIcons';
+import { TelegramIcon, XLogoIcon, YouTubeIcon } from './SocialIcons';
 import { MARKETX_TELEGRAM_URL, MARKETX_YOUTUBE_URL } from '../utils/campaign';
 
 type Tab = 'terms' | 'privacy' | 'risk';
@@ -215,28 +215,48 @@ export const TermsAndPrivacyModal: React.FC<TermsAndPrivacyModalProps> = ({ isOp
           </ol>
         </div>
 
-        {/* Footer */}
-        <footer className="shrink-0 border-t border-white/[0.06] px-5 sm:px-7 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
-          <span>
+        {/* Footer (owner-requested redesign): a short help line with round contact buttons, then the credit. Two calm rows that fit any screen. */}
+        <footer className="shrink-0 border-t border-white/[0.06] px-5 sm:px-7 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 flex items-center gap-2.5 text-[12px] leading-tight">
+              <span className="w-8 h-8 shrink-0 rounded-full bg-white/[0.05] border border-white/[0.07] grid place-items-center text-slate-300">
+                <MessageCircle className="w-3.5 h-3.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium text-slate-200">Questions?</span>
+                <span className="block truncate text-slate-500">Settings → Support chat</span>
+              </span>
+            </p>
+            <nav className="flex items-center gap-1.5 shrink-0" aria-label="Contact MarketX">
+              <a
+                href="mailto:help.marketx@gmail.com?subject=MarketX%20Support"
+                aria-label="Email support"
+                title="Email"
+                className="w-8 h-8 rounded-full bg-white/[0.05] border border-white/[0.07] grid place-items-center text-slate-300 hover:text-white hover:bg-white/[0.1] transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5" />
+              </a>
+              <a
+                href="https://x.com/_MarketX"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="MarketX on X"
+                title="@_MarketX"
+                className="w-8 h-8 rounded-full bg-white text-black grid place-items-center hover:opacity-85 transition-opacity"
+              >
+                <XLogoIcon className="w-3.5 h-3.5" />
+              </a>
+              <a href={MARKETX_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="MarketX on Telegram" title="Telegram" className="hover:opacity-85 transition-opacity">
+                <TelegramIcon className="w-8 h-8" />
+              </a>
+              <a href={MARKETX_YOUTUBE_URL} target="_blank" rel="noopener noreferrer" aria-label="MarketX on YouTube" title="YouTube" className="hover:opacity-85 transition-opacity">
+                <YouTubeIcon className="w-8 h-8" />
+              </a>
+            </nav>
+          </div>
+          <p className="mt-2.5 pt-2.5 border-t border-white/[0.04] text-[11px] text-slate-500">
             MarketX · Built by <span className="text-slate-300 font-medium">SpiriTech Labs</span>
-          </span>
-          <span className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1">
-              <MessageCircle className="w-3.5 h-3.5" /> Questions? Settings → Support chat
-            </span>
-            <a href="mailto:help.marketx@gmail.com?subject=MarketX%20Support" className="inline-flex items-center gap-1 hover:text-white transition-colors">
-              <Mail className="w-3.5 h-3.5" /> Email
-            </a>
-            <a href="https://x.com/_MarketX" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
-              @_MarketX
-            </a>
-            <a href={MARKETX_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
-              <TelegramIcon className="w-3.5 h-3.5" /> Telegram
-            </a>
-            <a href={MARKETX_YOUTUBE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white transition-colors">
-              <YouTubeIcon className="w-3.5 h-3.5" /> YouTube
-            </a>
-          </span>
+          </p>
         </footer>
       </div>
     </div>

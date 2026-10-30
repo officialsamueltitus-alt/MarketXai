@@ -702,7 +702,7 @@
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
 - Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, NO logo header
   above the card (owner-specified, removed), white card with a violet to cyan top bar, dark readable text, violet button, footer with a row of round icon buttons
-  (`SOCIALS`: X → x.com/_MarketX, Telegram → `/go/telegram`, YouTube → `/go/youtube`; PNGs `public/brand/social/{x,telegram,youtube}-72.png?v=1`, shown 32px)
+  (`SOCIALS`: X → x.com/_MarketX, Telegram → `/go/telegram`, YouTube → `/go/youtube`; PNGs `public/brand/social/{x,telegram,youtube}-72.png?v=2`, shown 32px; YouTube = red circle with the white rounded play button, same as `YouTubeIcon`)
   then marketx.world · Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never

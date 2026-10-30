@@ -27,10 +27,11 @@ export const XLogoIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h
   </svg>
 );
 
-/** YouTube logo: the red rounded play button. */
+/** YouTube mark (owner-specified): a red circle with the white rounded play button and its red triangle. */
 export const YouTubeIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-    <rect x="1" y="4.5" width="22" height="15" rx="4.6" fill="#FF0033" />
-    <path d="M10 8.9v6.2l5.4-3.1z" fill="#fff" />
+    <circle cx="12" cy="12" r="12" fill="#D9232A" />
+    <rect x="5.4" y="7.7" width="13.2" height="8.6" rx="2.6" fill="#fff" />
+    <path d="M10.5 9.7v4.6l4.1-2.3z" fill="#D9232A" />
   </svg>
 );

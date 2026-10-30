@@ -2604,6 +2604,10 @@ export default function App() {
           </div>
         )}
         {authModal}
+        {/* Terms & Privacy from the landing page footer */}
+        <Deferred when={isTermsModalOpen}>
+          <TermsAndPrivacyModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} defaultTab={termsModalTab} />
+        </Deferred>
       </>
     );
   }

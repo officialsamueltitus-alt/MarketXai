@@ -923,8 +923,8 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
             </a>
             <div className="flex gap-2 pt-2">
               <a href="https://x.com/_MarketX" target="_blank" rel="noopener noreferrer" aria-label="MarketX on X" className="lx-nav-round"><XLogoIcon className="w-3.5 h-3.5" /></a>
-              <a href="/go/telegram" target="_blank" rel="noopener noreferrer" aria-label="MarketX on Telegram" className="lx-nav-round"><TelegramIcon className="w-3.5 h-3.5" /></a>
-              <a href="/go/youtube" target="_blank" rel="noopener noreferrer" aria-label="MarketX on YouTube" className="lx-nav-round"><YouTubeIcon className="w-3.5 h-3.5" /></a>
+              <a href="/go/telegram" target="_blank" rel="noopener noreferrer" aria-label="MarketX on Telegram" className="hover:opacity-85 transition-opacity"><TelegramIcon className="w-8 h-8" /></a>
+              <a href="/go/youtube" target="_blank" rel="noopener noreferrer" aria-label="MarketX on YouTube" className="hover:opacity-85 transition-opacity"><YouTubeIcon className="w-8 h-8" /></a>
             </div>
           </div>
         </div>
@@ -973,7 +973,7 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
       <nav className={`lx-nav ${down ? 'down' : ''}`} aria-label="MarketX">
         <a href="/" className="flex items-center gap-1.5 pr-2 mr-1" aria-label="MarketX home">
           <MarketXIcon size="sm" />
-          <MarketXText className="text-[14px] hidden sm:inline" />
+          <MarketXText className="text-[14px] hidden sm:inline whitespace-nowrap" />
         </a>
         <button type="button" className="lx-nav-link hidden md:inline-flex" onClick={() => go('lx-show')}>Features</button>
         <button type="button" className="lx-nav-link hidden md:inline-flex" onClick={onSignUp}>Trading Agent</button>

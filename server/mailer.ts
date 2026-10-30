@@ -151,7 +151,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 12px"><tr>
           ${SOCIALS.map(
             ([label, href, icon]) =>
-              `<td style="padding:0 5px"><a href="${escapeHtml(href)}" target="_blank" title="${label}" style="display:block;text-decoration:none"><img src="${escapeHtml(siteUrl)}/brand/social/${icon}-72.png?v=1" width="32" height="32" alt="${label}" style="display:block;width:32px;height:32px;border:0;border-radius:16px"></a></td>`
+              `<td style="padding:0 5px"><a href="${escapeHtml(href)}" target="_blank" title="${label}" style="display:block;text-decoration:none"><img src="${escapeHtml(siteUrl)}/brand/social/${icon}-72.png?v=2" width="32" height="32" alt="${label}" style="display:block;width:32px;height:32px;border:0;border-radius:16px"></a></td>`
           ).join('')}
         </tr></table>
         <p style="margin:0 0 12px;font-size:12px">
