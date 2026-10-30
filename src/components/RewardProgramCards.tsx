@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Clock, ExternalLink, Gift, Loader2, Send, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, ExternalLink, Gift, Loader2, Play, Send, XCircle } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 
 // Reward programs the admin creates (server/rewardPrograms.ts), shown in the notification center's Rewards tab.
@@ -11,6 +11,10 @@ interface ProgramView {
   body: string;
   links: Array<{ label: string; url: string }>;
   button: { label: string; url: string } | null;
+  /** The program's picture, served by MarketX */
+  image: string | null;
+  /** A video link; `thumb` (served by MarketX) for YouTube videos */
+  video: { url: string; thumb: string | null } | null;
   mode: 'INFO' | 'SUBMIT';
   reward: number;
   askFor: string;
@@ -20,6 +24,35 @@ interface ProgramView {
 }
 
 const safeHref = (u: string) => (/^https:\/\//i.test(u) ? u : undefined);
+/** Only MarketX's own picture addresses are ever loaded */
+const ownImage = (u: string | null | undefined) => (u && /^\/api\/(reward-image|reward-video-thumb)\/[\w-]+$/.test(u) ? u : null);
+
+/** The picture, or the video's preview (thumbnail + play button, or a Watch video tile); tapping a video opens it */
+const ProgramMedia: React.FC<{ p: ProgramView }> = ({ p }) => {
+  const picture = ownImage(p.image);
+  const thumb = ownImage(p.video?.thumb);
+  if (p.video) {
+    const preview = thumb || picture;
+    return (
+      <a href={safeHref(p.video.url)} target="_blank" rel="noopener noreferrer nofollow" aria-label={`Watch the video: ${p.title}`} className="group relative mt-3 block overflow-hidden rounded-xl border border-white/[0.08] bg-black/40 aspect-video">
+        {preview ? (
+          <img src={preview} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-[1.02]" />
+        ) : (
+          <span aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(120%_120%_at_30%_20%,rgba(139,92,246,0.35),transparent_60%),radial-gradient(120%_120%_at_80%_90%,rgba(34,211,238,0.25),transparent_60%)]" />
+        )}
+        <span className="absolute inset-0 bg-black/25 group-hover:bg-black/15 transition-colors" />
+        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5">
+          <span className="w-12 h-12 rounded-full bg-white/90 text-slate-950 flex items-center justify-center shadow-lg">
+            <Play className="w-5 h-5 ml-0.5 fill-current" />
+          </span>
+          {!preview && <span className="text-xs font-semibold text-white">Watch video</span>}
+        </span>
+      </a>
+    );
+  }
+  if (!picture) return null;
+  return <img src={picture} alt="" loading="lazy" className="relative mt-3 w-full max-h-72 object-cover rounded-xl border border-white/[0.08]" />;
+};
 
 const ProgramCard: React.FC<{ p: ProgramView; onChange: (p: ProgramView) => void }> = ({ p, onChange }) => {
   const [open, setOpen] = useState(false);
@@ -72,6 +105,8 @@ const ProgramCard: React.FC<{ p: ProgramView; onChange: (p: ProgramView) => void
           </span>
         )}
       </div>
+
+      <ProgramMedia p={p} />
 
       {p.links.length > 0 && (
         <div className="relative mt-2.5 flex flex-wrap gap-1.5">

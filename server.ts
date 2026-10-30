@@ -224,7 +224,7 @@ app.use('/api/market/analyze', alertOfferMiddleware);
 // Every LONG / SHORT signal is sealed (hash + id) for its on-chain proof; Solana tokens get a safety check next to the result
 app.use('/api/market/analyze', signalProofMiddleware);
 app.use('/api/market/analyze', tokenSafetyMiddleware);
-const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe', '/api/matt/talk'];
+const MEDIUM_BODY_PREFIXES = ['/api/history', '/api/profile', '/api/account', '/api/voice/transcribe', '/api/matt/talk', '/api/admin/reward-programs'];
 const largeJson = express.json({ limit: '15mb', verify: keepRawBody });
 const mediumJson = express.json({ limit: '2mb', verify: keepRawBody });
 const smallJson = express.json({ limit: '256kb', verify: keepRawBody });
@@ -234,7 +234,7 @@ app.use((req, res, next) => {
   if ((large || medium) && req.method !== 'GET' && req.method !== 'HEAD') {
     // Big bodies are only for signed-in users (admins on the broadcast route): turn anyone else away before
     // a single byte is read, so large junk uploads can't tie up the server
-    const ok = req.path === '/api/admin/broadcast' ? hasValidAdminCookie(req) : !!verifySessionToken(readSessionCookie(req) || '');
+    const ok = req.path.startsWith('/api/admin/') ? hasValidAdminCookie(req) : !!verifySessionToken(readSessionCookie(req) || '');
     if (!ok) {
       res.setHeader('Connection', 'close');
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Please sign in to continue.' });

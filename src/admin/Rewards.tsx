@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Check, ExternalLink, Gift, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, ExternalLink, Gift, ImagePlus, Loader2, Pencil, Plus, Trash2, Video, X } from 'lucide-react';
+import { prepareImages } from './Broadcast';
 import { apiFetch } from '../utils/apiClient';
 import { Badge, Card, ConfirmDialog, Empty, ErrorNote, Spinner, fmtDateTime, fmtNum, useAdminData } from './ui';
 
@@ -13,6 +14,8 @@ interface Program {
   body: string;
   links: Array<{ label: string; url: string }>;
   button: { label: string; url: string } | null;
+  image: string | null;
+  video: { url: string; youtubeId: string | null } | null;
   mode: 'INFO' | 'SUBMIT';
   reward: number;
   askFor: string;
@@ -59,6 +62,9 @@ interface Draft {
   links: Array<{ label: string; url: string }>;
   buttonLabel: string;
   buttonUrl: string;
+  /** The saved picture's address, a new upload (data URL), or null */
+  image: string | null;
+  video: string;
   mode: 'INFO' | 'SUBMIT';
   reward: string;
   askFor: string;
@@ -67,13 +73,15 @@ interface Draft {
   endsAt: string;
   active: boolean;
 }
-const EMPTY: Draft = { title: '', body: '', links: [], buttonLabel: '', buttonUrl: '', mode: 'INFO', reward: '0', askFor: '', maxRewards: '0', startsAt: '', endsAt: '', active: true };
+const EMPTY: Draft = { title: '', body: '', links: [], buttonLabel: '', buttonUrl: '', image: null, video: '', mode: 'INFO', reward: '0', askFor: '', maxRewards: '0', startsAt: '', endsAt: '', active: true };
 const draftOf = (p: Program): Draft => ({
   title: p.title,
   body: p.body,
   links: p.links.map(l => ({ ...l })),
   buttonLabel: p.button?.label || '',
   buttonUrl: p.button?.url || '',
+  image: p.image || null,
+  video: p.video?.url || '',
   mode: p.mode,
   reward: String(p.reward || 0),
   askFor: p.askFor || '',
@@ -175,6 +183,8 @@ export const RewardsSection: React.FC = () => {
       body: draft.body,
       links: draft.links.filter(l => l.url.trim() || l.label.trim()),
       button: draft.buttonUrl.trim() ? { label: draft.buttonLabel, url: draft.buttonUrl.trim() } : null,
+      image: draft.image,
+      video: draft.video.trim() || null,
       mode: draft.mode,
       reward: Number(draft.reward) || 0,
       askFor: draft.askFor,
@@ -205,6 +215,23 @@ export const RewardsSection: React.FC = () => {
     reload();
   };
   const set = (patch: Partial<Draft>) => setDraft(d => ({ ...d, ...patch }));
+  const [picBusy, setPicBusy] = useState(false);
+  const pickPicture = async (file: File | undefined) => {
+    if (!file) return;
+    setPicBusy(true);
+    setFormError(null);
+    try {
+      set({ image: (await prepareImages(file)).display });
+    } catch (e: any) {
+      setFormError(e?.message || 'That picture could not be used.');
+    } finally {
+      setPicBusy(false);
+    }
+  };
+  const ytId = (() => {
+    const m = /(?:youtu\.be\/|[?&]v=|\/(?:shorts|live|embed)\/)([A-Za-z0-9_-]{11})/.exec(draft.video);
+    return m ? m[1] : null;
+  })();
 
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorNote message={error} onRetry={reload} />;
@@ -263,6 +290,39 @@ export const RewardsSection: React.FC = () => {
                   + Add a link
                 </button>
               )}
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <span className="text-xs text-slate-400">Picture (optional)</span>
+                {draft.image ? (
+                  <div className="relative">
+                    <img src={draft.image} alt="" className="w-full max-h-40 object-cover rounded-xl border border-white/[0.08]" />
+                    <button type="button" onClick={() => set({ image: null })} aria-label="Remove picture" className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/70 text-white inline-flex items-center justify-center cursor-pointer">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="h-24 rounded-xl border border-dashed border-white/[0.15] text-xs text-slate-400 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-white/[0.03]">
+                    {picBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                    {picBusy ? 'Preparing…' : 'Add a picture (JPG, PNG, GIF, WebP)'}
+                    <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={e => (pickPicture(e.target.files?.[0]), (e.target.value = ''))} />
+                  </label>
+                )}
+              </div>
+              <label className="text-xs text-slate-400 space-y-1 block">
+                <span className="inline-flex items-center gap-1">
+                  <Video className="w-3.5 h-3.5" /> Video link (optional)
+                </span>
+                <input value={draft.video} onChange={e => set({ video: e.target.value.slice(0, 500) })} placeholder="https://youtube.com/watch?v=…" className={field} />
+                <span className="block text-[11px] text-slate-500">
+                  {ytId
+                    ? 'YouTube: the card shows its thumbnail with a play button.'
+                    : draft.video.trim()
+                      ? 'Not YouTube: the card shows your picture (or a Watch video tile) with a play button.'
+                      : 'YouTube links show the video thumbnail; other links show a Watch video tile. Tapping opens the video.'}
+                </span>
+                {ytId && <img src={`https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`} alt="" className="mt-1 w-full max-h-32 object-cover rounded-xl border border-white/[0.08]" />}
+              </label>
             </div>
             <div className="grid grid-cols-[1fr_2fr] gap-2">
               <label className="text-xs text-slate-400 space-y-1">
@@ -344,6 +404,8 @@ export const RewardsSection: React.FC = () => {
             <p className="mt-2 text-[11px] text-slate-500">
               {p.links.length} link{p.links.length === 1 ? '' : 's'}
               {p.button ? ' · button' : ''}
+              {p.image ? ' · picture' : ''}
+              {p.video ? ` · video${p.video.youtubeId ? ' (YouTube)' : ''}` : ''}
               {p.mode === 'SUBMIT' ? ` · rewarded ${fmtNum(p.rewarded)}${p.maxRewards ? ` of ${fmtNum(p.maxRewards)}` : ''}` : ''}
               {p.startsAt ? ` · starts ${fmtDateTime(p.startsAt)}` : ''}
               {p.endsAt ? ` · ends ${fmtDateTime(p.endsAt)}` : ''}

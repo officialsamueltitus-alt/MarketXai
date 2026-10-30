@@ -574,7 +574,7 @@
   feature, `effectivePreferences`, `agentAccess`), and the app reads `profile.featurePasses` (`featureLocked` in `App.tsx`). Traders type it in the Plans
   window's coupon box: `/api/coupons/check` answers `kind: 'feature'`, then `POST /api/feature-codes/redeem`. Coupons and feature codes share one code namespace.
 - Reward programs (owner-specified, `server/rewardPrograms.ts`, Admin → Rewards `src/admin/Rewards.tsx`, cards `RewardProgramCards.tsx` in the notification
-  Rewards tab): admin-made programs (title, text, up to 5 https links, optional button, start/end, on/off) in mode INFO (card only) or SUBMIT (traders send
+  Rewards tab): admin-made programs (title, text, up to 5 https links, optional button, optional picture (uploaded, byte-checked, `rewardImages`, `/api/reward-image/:id`) and optional video link (YouTube = thumbnail via the `/api/reward-video-thumb/:id` proxy + play button, other https links = a Watch video tile; opens in a new tab), start/end, on/off; admin program routes take bodies up to 2 MB behind the admin cookie) in mode INFO (card only) or SUBMIT (traders send
   an https link + note; admin approves = credits into the campaign pool + notification + email, or declines with a reason; resubmit up to 5 times; one
   reward per person `rewardClaims`, optional cap `maxRewards`). `GET /api/rewards/programs`, `POST /api/rewards/programs/:id/submit`; admin routes under
   `/api/admin/reward-programs` and `/api/admin/reward-submissions/:id/approve|reject`. `rewardSubmissions` deleted with the account.

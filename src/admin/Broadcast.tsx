@@ -21,7 +21,7 @@ const readDataUrl = (file: File) =>
  * and emails, and the full original (kept byte for byte up to 10 MB; larger files are re-saved at very high quality to fit)
  * that opens when someone taps the picture.
  */
-async function prepareImages(file: File): Promise<{ display: string; full: string }> {
+export async function prepareImages(file: File): Promise<{ display: string; full: string }> {
   if (!/^image\/(jpeg|png|gif|webp)$/.test(file.type)) throw new Error('Choose a JPG, PNG, GIF or WebP picture.');
   const url = URL.createObjectURL(file);
   try {

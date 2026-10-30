@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebase';
-import { requireAdmin, adminLog } from './admin';
+import { requireAdmin, adminLog, parseBroadcastImage } from './admin';
+import { clientIp } from './security';
 import { sendEmail } from './mailer';
 import { addNotificationInTx, getUser, loadUserInTx, requireAuth, saveNormalized, siteLink } from './account';
 import { createKeyedThrottle } from './security';
@@ -20,6 +21,10 @@ import { createKeyedThrottle } from './security';
 //   rewardSubmissions/{programId}_{uid}      -> one submission per trader per program (deleted with the account)
 //   rewardClaims/{programId}_{sha256(email)} -> one reward per person, even across deleted accounts
 // Links are https only and opened in a new tab (noopener); nothing here is ever given to an engine.
+// Optional picture (uploaded by the admin, checked by its bytes like broadcast pictures, `rewardImages/{rp_…}_{rand}`, served
+// at /api/reward-image/:id) and optional video link: a YouTube link shows its thumbnail with a play button (fetched through
+// /api/reward-video-thumb/:id, so traders' browsers never load anything from YouTube); any other https video link shows a
+// "Watch video" tile. Tapping either opens the video in a new tab.
 // ===========================================================================
 
 export type ProgramMode = 'INFO' | 'SUBMIT';
@@ -29,6 +34,10 @@ export interface RewardProgram {
   body: string;
   links: Array<{ label: string; url: string }>;
   button: { label: string; url: string } | null;
+  /** The picture's address on MarketX (/api/reward-image/…), or null */
+  image: string | null;
+  /** A video link: YouTube (with a thumbnail) or any other https video page */
+  video: { url: string; youtubeId: string | null } | null;
   mode: ProgramMode;
   /** Credits for an approved submission (SUBMIT) */
   reward: number;
@@ -92,6 +101,22 @@ export function safeUrl(raw: unknown): string | null {
     return null;
   }
 }
+/** A YouTube video id from any usual link form (watch, youtu.be, shorts, live, embed), else null */
+export function youtubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^(www\.|m\.|music\.)/, '');
+    let id: string | null = null;
+    if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+    else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+      id = u.searchParams.get('v') || (/^\/(?:shorts|live|embed)\/([^/?#]+)/.exec(u.pathname)?.[1] ?? null);
+    }
+    return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 const timeOrNull = (v: unknown): number | null => {
   if (v === null || v === undefined || v === '') return null;
   const n = typeof v === 'number' ? v : Date.parse(String(v));
@@ -132,6 +157,14 @@ export function programInput(b: any, partial: boolean): Partial<RewardProgram> |
       out.button = { label: line(b.button.label, 30) || 'Open', url };
     } else out.button = null;
   }
+  if (!partial || 'video' in b) {
+    const raw = typeof b.video === 'string' ? b.video : b.video?.url;
+    if (raw) {
+      const url = safeUrl(raw);
+      if (!url) return { error: 'The video needs a valid https link.' };
+      out.video = { url, youtubeId: youtubeId(url) };
+    } else out.video = null;
+  }
   if (!partial || 'mode' in b) out.mode = b.mode === 'SUBMIT' ? 'SUBMIT' : 'INFO';
   if (!partial || 'reward' in b) {
     const r = Math.round(Number(b.reward ?? 0));
@@ -157,6 +190,8 @@ const publicProgram = (p: RewardProgram) => ({
   body: p.body,
   links: p.links,
   button: p.button,
+  image: p.image || null,
+  video: p.video ? { url: p.video.url, thumb: p.video.youtubeId ? `/api/reward-video-thumb/${p.video.youtubeId}` : null } : null,
   mode: p.mode,
   reward: p.mode === 'SUBMIT' ? p.reward : 0,
   askFor: p.mode === 'SUBMIT' ? p.askFor : '',
@@ -261,6 +296,28 @@ export async function rejectRewardSubmission(id: string, reason: string): Promis
   return r;
 }
 
+// Pictures: one Firestore document each (the display copy, at most 700 KB, checked by its bytes)
+const pictures = () => db().collection('rewardImages');
+async function savePicture(programId: string, raw: unknown): Promise<{ url: string } | { error: string } | null> {
+  const parsed = parseBroadcastImage(raw);
+  if (!parsed) return null;
+  if ('error' in parsed) return parsed;
+  const imgId = `${programId}_${crypto.randomBytes(4).toString('hex')}`;
+  await pictures().doc(imgId).set({ id: imgId, contentType: parsed.contentType, data: parsed.data.toString('base64'), bytes: parsed.data.length, createdAt: Date.now() });
+  return { url: `/api/reward-image/${imgId}` };
+}
+async function dropPicture(url: string | null) {
+  const m = url ? /^\/api\/reward-image\/(rp_[a-f0-9]{12}_[a-f0-9]{8})$/.exec(url) : null;
+  if (m) await pictures().doc(m[1]).delete().catch(() => {});
+}
+const sendPicture = (res: Response, type: string, data: Buffer) => {
+  res.setHeader('Content-Type', type);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.send(data);
+};
+
 export function registerRewardProgramRoutes(app: Express, limiter: (req: Request, res: Response, next: NextFunction) => void) {
   const wrap = (fn: (req: Request, res: Response) => Promise<any>) => (req: Request, res: Response) =>
     fn(req, res).catch(err => {
@@ -268,6 +325,41 @@ export function registerRewardProgramRoutes(app: Express, limiter: (req: Request
       if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' });
     });
   const submitThrottle = createKeyedThrottle({ windowMs: 60 * 60_000, max: 10 });
+
+  // Public pictures: the program's picture and YouTube thumbnails (fetched here once, kept in memory)
+  const picThrottle = createKeyedThrottle({ windowMs: 60_000, max: 120 });
+  const picCache = new Map<string, { type: string; data: Buffer; at: number }>();
+  const remember = (key: string, type: string, data: Buffer) => {
+    if (picCache.size > 200) picCache.delete(picCache.keys().next().value as string);
+    picCache.set(key, { type, data, at: Date.now() });
+  };
+  app.get('/api/reward-image/:id', wrap(async (req, res) => {
+    const id = String(req.params.id || '');
+    if (!/^rp_[a-f0-9]{12}_[a-f0-9]{8}$/.test(id) || picThrottle.hit(clientIp(req))) return res.status(404).end();
+    const hit = picCache.get(id);
+    if (hit) return sendPicture(res, hit.type, hit.data);
+    const d = (await pictures().doc(id).get()).data() as any;
+    if (!d || typeof d.data !== 'string' || !/^image\/(jpeg|png|gif|webp)$/.test(d.contentType)) return res.status(404).end();
+    const data = Buffer.from(d.data, 'base64');
+    remember(id, d.contentType, data);
+    sendPicture(res, d.contentType, data);
+  }));
+  app.get('/api/reward-video-thumb/:id', wrap(async (req, res) => {
+    const id = String(req.params.id || '');
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id) || picThrottle.hit(clientIp(req))) return res.status(404).end();
+    const key = `yt:${id}`;
+    const hit = picCache.get(key);
+    if (hit && Date.now() - hit.at < 6 * 3600e3) return sendPicture(res, hit.type, hit.data);
+    // Only thumbnails of videos a live program links to
+    const list = await live();
+    if (!list.some(p => p.video?.youtubeId === id)) return res.status(404).end();
+    const r = await fetch(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`, { signal: AbortSignal.timeout(6000) }).catch(() => null);
+    if (!r || !r.ok || !/^image\/jpeg/.test(r.headers.get('content-type') || '')) return res.status(404).end();
+    const data = Buffer.from(await r.arrayBuffer());
+    if (!data.length || data.length > 2 * 1024 * 1024) return res.status(404).end();
+    remember(key, 'image/jpeg', data);
+    sendPicture(res, 'image/jpeg', data);
+  }));
 
   // Programs read at most every 20s per worker; start/end checked on every request
   let cache: { at: number; list: RewardProgram[] } | null = null;
@@ -346,7 +438,9 @@ export function registerRewardProgramRoutes(app: Express, limiter: (req: Request
     if ('error' in input) return res.status(400).json({ error: 'INVALID', message: input.error });
     const now = Date.now();
     const id = `rp_${crypto.randomBytes(6).toString('hex')}`;
-    await programs().doc(id).set({ id, ...input, rewarded: 0, createdAt: now, updatedAt: now });
+    const pic = await savePicture(id, req.body?.image);
+    if (pic && 'error' in pic) return res.status(400).json({ error: 'INVALID_IMAGE', message: pic.error });
+    await programs().doc(id).set({ id, ...input, image: pic && 'url' in pic ? pic.url : null, rewarded: 0, createdAt: now, updatedAt: now });
     cache = null;
     adminLog('reward_program_create', { id });
     res.json({ success: true, id });
@@ -357,6 +451,17 @@ export function registerRewardProgramRoutes(app: Express, limiter: (req: Request
     if (!SAFE_ID.test(id)) return res.status(404).json({ error: 'NOT_FOUND' });
     const input = programInput(req.body || {}, true);
     if ('error' in input) return res.status(400).json({ error: 'INVALID', message: input.error });
+    // Picture: a new upload replaces the old one, null removes it, leaving it out keeps it
+    if ('image' in (req.body || {})) {
+      const old = ((await programs().doc(id).get()).data() as RewardProgram | undefined)?.image || null;
+      const keep = typeof req.body.image === 'string' && req.body.image === old;
+      if (!keep) {
+        const pic = req.body.image ? await savePicture(id, req.body.image) : null;
+        if (pic && 'error' in pic) return res.status(400).json({ error: 'INVALID_IMAGE', message: pic.error });
+        input.image = pic && 'url' in pic ? pic.url : null;
+        await dropPicture(old);
+      }
+    }
     const r = await db().runTransaction(async t => {
       const snap = await t.get(programs().doc(id));
       if (!snap.exists) return 'MISSING';
@@ -375,6 +480,7 @@ export function registerRewardProgramRoutes(app: Express, limiter: (req: Request
   app.delete('/api/admin/reward-programs/:id', requireAdmin, wrap(async (req, res) => {
     const id = String(req.params.id || '');
     if (!SAFE_ID.test(id)) return res.status(404).json({ error: 'NOT_FOUND' });
+    await dropPicture(((await programs().doc(id).get()).data() as RewardProgram | undefined)?.image || null);
     await programs().doc(id).delete();
     cache = null;
     adminLog('reward_program_delete', { id });
