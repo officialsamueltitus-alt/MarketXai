@@ -9,6 +9,7 @@ import { TelegramIcon, XLogoIcon, YouTubeIcon } from '../components/SocialIcons'
 import { formatMarketPrice } from '../utils/formatPrice';
 import type { MarketQuote } from '../types';
 import { DemoClip, type DemoId } from './demos';
+import { XPosts } from './XPosts';
 import { ease, lerp, seg, useEnter, useScene } from './scenes';
 import './landing.css';
 
@@ -788,6 +789,9 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
           </div>
         </div>
       </section>
+
+      {/* ================= Traders talking about MarketX on X ================= */}
+      <XPosts />
 
       {/* ================= Scene 8: Unlock all benefits ================= */}
       <section ref={s8} className="lx-scene" style={{ height: '240vh' }}>

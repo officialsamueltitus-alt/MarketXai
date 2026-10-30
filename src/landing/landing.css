@@ -216,9 +216,25 @@
 .lx-live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: #10b981; animation: lx-ping 1.6s cubic-bezier(0,0,.2,1) infinite; }
 @keyframes lx-ping { 75%, 100% { transform: scale(2.4); opacity: 0; } }
 
+
+/* Posts about MarketX on X: white post cards, the founder's featured, the rest gliding in two rows */
+.lx-post { background: #fff; color: #0f1419; border-radius: 22px; padding: 16px 18px; border: 1px solid rgba(255,255,255,0.6);
+  box-shadow: 0 24px 50px -30px rgba(0,0,0,0.9); text-align: left; }
+.lx-post a { color: #1D9BF0; }
+.lx-post-featured { box-shadow: 0 0 0 1px rgba(167,139,250,0.35), 0 30px 80px -30px rgba(139,92,246,0.65); }
+.lx-slide { overflow: hidden; -webkit-mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.lx-slide-row { display: flex; align-items: flex-start; gap: 16px; width: max-content; padding: 4px 0; animation: lx-slide 70s linear infinite; animation-play-state: paused; }
+.lx-slide-row.reverse { animation-direction: reverse; animation-duration: 80s; }
+.lx-xposts.run .lx-slide-row { animation-play-state: running; }
+.lx-xposts.run .lx-slide:hover .lx-slide-row { animation-play-state: paused; }
+.lx-slide-row .lx-post { transition: transform .35s cubic-bezier(.2,.8,.2,1); }
+.lx-slide-row .lx-post:hover { transform: translateY(-4px); }
+@keyframes lx-slide { from { transform: translateX(0); } to { transform: translateX(calc(-50% - 8px)); } }
+
 /* Calm motion when the device asks for it */
 @media (prefers-reduced-motion: reduce) {
   .lx *, .lx *::before, .lx *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .lx [data-reveal] { opacity: 1; transform: none; }
-  .lx-pill-col, .lx-list-col { animation: none; }
+  .lx-pill-col, .lx-list-col, .lx-slide-row { animation: none; }
+  .lx-slide { overflow-x: auto; }
 }

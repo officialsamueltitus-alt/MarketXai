@@ -373,6 +373,11 @@
   talk back, Fundamental Analysis, Token safety, Solana records) are animated replicas tagged "Demo" with example numbers; owner-specified: every
   site screen shown on the page (phone screens, clip cards, device screens, mini cards) is LIGHT (white) on dark or coloured sections and DARK on
   white sections (the "Choose your tool" showcase); the screen colours are `--s-*` variables in landing.css, flipped by `.lx-white`.
+  "Traders are talking about MarketX" (owner-specified, `XPosts.tsx`, after the Q&A deck): real posts about MarketX on X reproduced word for word as
+  white post cards (styled on the owner's sample post; pictures cropped from the owner's screenshots in `public/landing/x/`), every label kept as X
+  shows it (verified badge, "Automated by"); the founder's post (@_saamie, "Founder" tag, the Solana address → Solscan, marketx.world/checker →
+  /checker, the Solscan memo picture) is featured, the others glide in two opposite rows (pause on hover, only while on screen, a plain scroll with
+  reduced motion). Add a post only from a real post, word for word.
   No server notice on the landing page (owner-specified; an auth problem still shows inside the sign-in window). Every feature CTA opens
   Create account / Sign in; only `/checker` and `/blog` open directly. No internals, providers or settings in its copy; keep the prices in step
   with `server/payments.ts`.
