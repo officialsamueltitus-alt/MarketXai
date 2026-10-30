@@ -17,7 +17,16 @@ import crypto from 'crypto';
 // ===========================================================================
 
 const PROVISIONING = 'https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai';
-const token = () => String(process.env.METAAPI_TOKEN || '').trim();
+/** The MetaApi token, forgiving how it was pasted (surrounding quotes, a "Bearer " or "auth-token:" prefix, line breaks) */
+const token = () =>
+  String(process.env.METAAPI_TOKEN || '')
+    .replace(/[\r\n\t]/g, '')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim()
+    .replace(/^(?:auth-token\s*:\s*|bearer\s+)/i, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
 const defaultRegion = () => {
   const r = String(process.env.METAAPI_REGION || 'new-york').trim().toLowerCase();
   return /^[a-z][a-z-]{1,24}$/.test(r) ? r : 'new-york';
@@ -64,7 +73,7 @@ async function call(
       });
     } catch (err: any) {
       if (i < tries - 1) continue;
-      throw new Mt5Error('MT5_UNREACHABLE', 'The MT5 connection did not answer. Please try again.');
+      throw networkError(err, url, init.timeoutMs || 15_000);
     }
     if (res.status === 202 && init.pendingUntil) {
       const body: any = await res.json().catch(() => null);
@@ -100,6 +109,52 @@ async function call(
   throw new Mt5Error('MT5_PENDING', 'Your MT5 account is still being connected. Try again in a minute.');
 }
 
+/**
+ * Why a request never got an answer, named exactly (the reason shows in the panel; the owner also gets it in the logs):
+ * a timeout, a network failure with its system code (DNS, refused, reset, certificate), or a token that can't be sent.
+ */
+function networkError(err: any, url: string, timeoutMs: number): Mt5Error {
+  const host = (() => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return 'MetaApi';
+    }
+  })();
+  const name = String(err?.name || '');
+  const code = String(err?.cause?.code || err?.code || '');
+  const detail = String(err?.cause?.message || err?.message || '').slice(0, 160);
+  console.warn(`[MarketX MT5] request to ${host} failed: ${name}${code ? ` ${code}` : ''} ${detail}`);
+  if (name === 'TimeoutError' || name === 'AbortError') {
+    return new Mt5Error('MT5_TIMEOUT', `The MT5 connection didn't answer within ${Math.round(timeoutMs / 1000)} seconds. Please try again in a minute.`);
+  }
+  if (/header|bytestring|character/i.test(detail) || (name === 'TypeError' && !code)) {
+    return new Mt5Error('MT5_CONFIG', 'The MT5 connection token saved on MarketX is not in a valid form (code TOKEN_FORMAT).');
+  }
+  return new Mt5Error('MT5_UNREACHABLE', `MarketX couldn't reach the MT5 connection${code ? `, network code ${code}` : ''}. Please try again in a minute.`);
+}
+
+/** A quick health check of the MetaApi setup for Admin: token shape, the provisioning API, the region's trading API */
+export async function mt5Check(): Promise<{
+  configured: boolean;
+  tokenShape: 'JWT' | 'OTHER' | 'MISSING';
+  region: string;
+  provisioning: { ok: boolean; ms: number; status?: number; message?: string; accounts?: number };
+}> {
+  const t = token();
+  const tokenShape = !t ? 'MISSING' : /^[\w-]+\.[\w-]+\.[\w-]+$/.test(t) ? 'JWT' : 'OTHER';
+  const region = defaultRegion();
+  if (!t) return { configured: false, tokenShape, region, provisioning: { ok: false, ms: 0, message: 'No MT5 connection token is set (NOT_CONFIGURED).' } };
+  const started = Date.now();
+  try {
+    const d = await call(`${PROVISIONING}/users/current/accounts?limit=1`, { timeoutMs: 15_000 });
+    return { configured: true, tokenShape, region, provisioning: { ok: true, ms: Date.now() - started, status: 200, accounts: Array.isArray(d) ? d.length : undefined } };
+  } catch (err: any) {
+    const status = err instanceof Mt5Error ? ({ MT5_AUTH: 401, MT5_NOT_FOUND: 404, MT5_BUSY: 429 } as Record<string, number>)[err.code] : undefined;
+    return { configured: true, tokenShape, region, provisioning: { ok: false, ms: Date.now() - started, status, message: `${err?.code ? `${err.code}: ` : ''}${err?.message || 'failed'}` } };
+  }
+}
+
 /** MetaApi's wording for the usual linking mistakes, in a trader's words */
 export function friendlyMt5Message(m: string): string {
   if (/server.*(not found|unknown|invalid)|no such server|E_SRV_NOT_FOUND/i.test(m)) return "MT5 doesn't know that server. Pick it from the list or type it exactly as MT5 shows it (File, Login to Trade Account).";
@@ -123,8 +178,9 @@ export async function createMt5Account(
     method: 'POST',
     // One transaction id for every retry, so MetaApi never creates the account twice
     txId: crypto.randomBytes(16).toString('hex'),
-    tries: 3,
-    timeoutMs: 30_000,
+    tries: 2,
+    // MetaApi can take a while to answer an account creation; a timeout is reported as such (never a silent hang)
+    timeoutMs: 60_000,
     pendingUntil: opts.pendingUntil ?? Date.now() + 60_000,
     onPending: opts.onPending,
     body: {

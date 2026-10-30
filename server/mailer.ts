@@ -146,7 +146,7 @@ export async function sendEmail(to: string | undefined | null, subject: string, 
         </td></tr>
       </table>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%"><tr><td align="center" style="padding:22px 10px 0">
-        <p style="margin:0 0 4px;font-size:13px;color:${BODY};font-weight:600">MarketX SI &middot; Super Intelligence for traders</p>
+        <p style="margin:0 0 4px;font-size:13px;color:${BODY};font-weight:600">MarketX &middot; Your Trading Co-Pilot</p>
         <p style="margin:0 0 10px;font-size:11px;color:#a1a1aa">Built by SpiriTech Labs</p>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 12px"><tr>
           ${SOCIALS.map(

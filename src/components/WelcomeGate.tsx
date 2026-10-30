@@ -29,7 +29,7 @@ export const WelcomeGate: React.FC<WelcomeGateProps> = ({ onSignIn, onSignUp, on
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Private access · Batch 1
       </span>
       <h1 className="mx-rise mt-4 text-[2rem] sm:text-[2.4rem] leading-[1.1] font-semibold tracking-tight text-white">
-        Market intelligence,
+        Your trading co-pilot,
         <br />
         <span className="marketx-chroma-x">one prompt away.</span>
       </h1>

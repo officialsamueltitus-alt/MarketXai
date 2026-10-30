@@ -28,7 +28,8 @@ import {
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit, userRef } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
-import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
+import { hasValidAdminCookie, registerAdminRoutes, requireAdmin } from './server/admin';
+import { mt5Check } from './server/mt5';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
@@ -56,6 +57,7 @@ import { registerSignalProofRoutes, signalProofMiddleware } from './server/signa
 import { registerTraderIdRoutes } from './server/traderId';
 import { registerLeaderboardRoutes } from './server/leaderboard';
 import { registerAdminCreditRoutes } from './server/adminCredits';
+import { indexFor, registerSeoRoutes } from './server/seo';
 import { aiUsageContext, installAiUsageMeter, registerAiUsageAdminRoutes } from './server/aiUsage';
 import { registerDedupe } from './server/dedupe';
 import { registerJournalRoutes } from './server/journal';
@@ -2294,6 +2296,15 @@ registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, 
 registerTraderIdRoutes(app, generalApiRateLimiter);
 registerLeaderboardRoutes(app, generalApiRateLimiter);
 registerAdminCreditRoutes(app);
+// Admin: one-tap check of the MetaApi setup (token shape, region, provisioning API reachable and accepting the token)
+app.get('/api/admin/mt5/check', requireAdmin, async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    res.json(await mt5Check());
+  } catch (err: any) {
+    res.status(500).json({ error: 'SERVER_ERROR', message: err?.message || 'Check failed.' });
+  }
+});
 registerAiUsageAdminRoutes(app);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();
@@ -3783,9 +3794,9 @@ In institutional trading, surviving drawdowns and compounding gains is entirely 
   }
 
   if (p.includes('who are you') || p.includes('what are you') || p.includes('what can you do') || /^\s*help\b/.test(p)) {
-    return `### 👋 Welcome to MarketX, your Institutional Quant & Trading Mentor
+    return `### 👋 Welcome to MarketX, your Trading Co-Pilot
 
-I am **MarketX SI**, a Super Intelligence market assistant built for quantitative traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
+I am **MarketX SI**, your trading co-pilot, built for traders and technical analysts. I specialize in finding unmitigated institutional Supply & Demand zones and Fibonacci confluence across **Crypto, Forex, Commodities (Gold), Equities, and Synthetic Indices**.
 
 #### What I Can Help You With:
 - 🎯 **Institutional Supply & Demand Zones**: Locate live accumulation and distribution order blocks.
@@ -5037,7 +5048,17 @@ async function startServer() {
       }
       next();
     });
+    // Search engines: robots.txt, sitemap.xml, Google's verification file; the app page per path (title, canonical, ownership tags)
+    registerSeoRoutes(app);
+    let indexHtml: string | null = null;
+    const sendIndex = (req: Request, res: Response) => {
+      if (indexHtml === null) indexHtml = fs.readFileSync(path.join(distPath, 'index.html'), 'utf8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(indexFor(indexHtml, req.path));
+    };
+    app.get(['/', '/index.html'], sendIndex);
     app.use(express.static(distPath, {
+      index: false,
       maxAge: '1y',
       immutable: true,
       setHeaders: (res, filePath) => {
@@ -5058,8 +5079,7 @@ async function startServer() {
         res.setHeader('Cache-Control', 'no-store');
         return res.status(404).type('text/plain').send('Not found');
       }
-      res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(path.join(distPath, 'index.html'));
+      sendIndex(req, res);
     });
   }
 

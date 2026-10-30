@@ -3,6 +3,7 @@ import { Users, Crown, DollarSign, KeyRound, UserPlus } from 'lucide-react';
 import { apiFetch } from '../utils/apiClient';
 import { PasscodesCard } from './Passcodes';
 import { ProofsCard } from './Proofs';
+import { Mt5CheckCard } from './Mt5Check';
 import { Card, ColumnChart, ErrorNote, RankBars, Spinner, Stat, fmtNum, fmtUsd, timeAgo, useAdminData } from './ui';
 
 export const ACTIVITY_LABEL: Record<string, string> = {
@@ -63,6 +64,7 @@ export const Overview: React.FC = () => {
       <PasscodesCard />
 
       <ProofsCard />
+      <Mt5CheckCard />
 
       <div className="grid grid-cols-3 gap-3">
         <Stat label="Prompts today" value={fmtNum(usage.today)} />

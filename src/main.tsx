@@ -72,6 +72,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
   }
 }
 
+// The readable boot screen in index.html (for visitors before the app loads, and for search engines) goes once the app paints
+requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('mx-boot')?.remove()));
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>

@@ -179,7 +179,11 @@
   details to MetaApi (its 202 "still checking the server" answers are retried with the same transaction id for up to 5 min, `pendingUntil`, each shown
   as the link `message`; the password lives only in that call's memory), then `finishLink` follows DEPLOYING → SIGNING_IN → CONNECTED every 5s for up
   to 5 min, writing each step. Any failure ends in `failLink`: status FAILED with the exact reason (unknown server, broker refused the sign-in after ~30s
-  of DISCONNECTED_FROM_BROKER, MarketX token refused, timeout with the last status), the MetaApi account deleted and a notification. A link cancelled
+  of DISCONNECTED_FROM_BROKER, MarketX token refused, timeout with the last status), the MetaApi account deleted and a notification. A request that never gets an answer is named exactly (`networkError` in
+  `server/mt5.ts`, owner-reported "did not answer"): timeout (account creation waits 60s), network code (ENOTFOUND, ECONNRESET…), or a token that can't be
+  sent (TOKEN_FORMAT); setup problems show a code (TOKEN_REFUSED / TOKEN_FORMAT / NO_TOKEN) and are logged. The token is read forgivingly (quotes,
+  "Bearer "/"auth-token:" prefixes, line breaks removed). Admin → Overview "MT5 connection" card (`Mt5Check.tsx`, `GET /api/admin/mt5/check`, `mt5Check`):
+  token shape, region, provisioning API reachable + token accepted, with a plain hint; the provider is never named in trader-facing text or the bundle. A link cancelled
   mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The panel polls every 4s while
   linking and shows Step N of 3, a timer, the live message, Cancel, and the failure reason in red. With a CONNECTED link, `mt5Open` places each agent order on the account:
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
@@ -348,19 +352,28 @@
   `apple-touch-icon.png`, `marketx-maskable-512.png`, `/favicon.ico`), referenced with `?v=3` (bump `LOGO_V` in `MarketXIcon.tsx`
   and every other `?v=` ref when the files change). Render any size with `python3 brand/logo-ball.py OUT.png --size N [--no-shadow]`;
   master `brand/marketx-logo-ball-1080.png`, flat mark `brand/marketx-logo-flat-512.png`.
-- SEO (`index.html`): link previews use `public/brand/marketx-share-2026.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
-  `marketx-og-1200x630.jpg` holds the same picture for old links; a new image gets a NEW file name so social caches refetch;
-  design: "Ask any market. Get the trade." + live XAU/USD trade card);
+- Google (owner-requested, `server/seo.ts`): `/robots.txt` (all public pages, never /api or /admin) and `/sitemap.xml` (/, /blog, /checker); the app page is
+  served through `indexFor(path)` (`sendIndex` in `server.ts`, static `index: false`): per-page title/description/canonical/og:url for /, /blog, /checker, plus
+  the owner's ownership tags when set (`GOOGLE_SITE_VERIFICATION` HTML-tag content, `BING_SITE_VERIFICATION`; or `GOOGLE_VERIFICATION_FILE` answered at
+  /googleXXXX.html). `index.html` carries a readable boot screen `#mx-boot` (h1 "MarketX · Your Trading Co-Pilot", what it does, links) that search engines
+  read; `src/main.tsx` removes it once the app paints and the boot watchdog removes it before showing its fallback. JSON-LD has alternateName/slogan.
+- SEO (`index.html`): link previews use `public/brand/marketx-share-si.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
+  `marketx-og-1200x630.jpg` and `marketx-share-2026.jpg` hold the same picture for old links; a new image gets a NEW file name so social caches refetch;
+  design (owner-specified, Oct 2026, styled on the owner's studio template): white page, top nav (logo, dark pill "Ask SI" / "Explore Markets", outlined
+  marketx.world), "YOUR TRADING CO-PILOT" over pixel-block "MARKETX", the glossy logo ball behind it, three frosted cards Analysis / Trading Agent / Proof, footer "MarketX, Your Trading Co-Pilot";
+  source HTML rendered with headless Chromium at 2x then downscaled);
   JSON-LD is an @graph of Organization (logo, sameAs X), WebSite and SoftwareApplication; `public/site.webmanifest` lists the icons.
 - Videos (owner-specified): every MarketX video shows the logo SPINNING, never static. Render it with
   `python3 brand/logo-spin.py OUT_DIR [--size N] [--frames 120] [--transparent]` (seamless loop, one turn per 120 frames).
-  Every video, whatever it is about, ENDS with the line "MarketX, the Super Intelligence system for every market" (on screen,
-  and spoken when the video has a voice-over) as its final card.
+  Every video, whatever it is about, ENDS with the line "MarketX, Your Trading Co-Pilot" (owner-specified, Oct 2026, replaces the
+  old "the Super Intelligence system for every market" line; on screen, and spoken when the video has a voice-over) as its final card.
   Owner-specified for every new video: the site is always captured in LIGHT mode; every phone/device is shown whole (all
   four sides, frame and body in view, never cropped by the video edge); the music is always in the style of the owner's
   chosen ad track (the Epidemic Sound track used in the MarketX ad, ~101 BPM, a quiet build-up then a bass drop), with
   the cuts timed to its beat.
-- Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). X handle
+- Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). Tagline (owner-specified, Oct 2026):
+  "MarketX, Your Trading Co-Pilot" (browser title "MarketX · Your Trading Co-Pilot", meta/OG/Twitter/JSON-LD/manifest descriptions, the welcome and Markets
+  headlines "Your trading co-pilot, one prompt away.", email footer, guide, Terms intro, Matt, the offline welcome answer); feature names keep "SI". X handle
   is @_MarketX (`MARKETX_X_URL` / `MARKETX_X_HANDLE` in `src/utils/campaign.ts`). Parent company (owner-specified): SpiriTech Labs owns and built MarketX; credited as "Built by SpiriTech Labs" in the
   sidebar Settings (under Terms & Privacy), the guide, Terms, proof and checker footers, the email footer, the `index.html` JSON-LD (`#spiritech`
   parentOrganization / creator, meta author) and Matt's public knowledge. Telegram buttons link to `/go/telegram`, a

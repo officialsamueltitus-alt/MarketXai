@@ -25,7 +25,7 @@ const DOCS: Record<Tab, Doc> = {
   terms: {
     tone: 'indigo',
     summary:
-      'MarketX is a Super Intelligence (SI) market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research, not advice.',
+      'MarketX, your trading co-pilot, is a Super Intelligence (SI) market-analysis tool built and operated by SpiriTech Labs. Use it fairly, keep your account secure, and remember that analyses are research, not advice.',
     sections: [
       {
         title: 'Using MarketX',
