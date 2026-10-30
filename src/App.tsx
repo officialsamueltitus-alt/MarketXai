@@ -2590,6 +2590,10 @@ export default function App() {
               setIsAuthModalOpen(true);
             }}
             onHaveCode={() => goToAccessPage(accessEmail)}
+            onOpenTerms={tab => {
+              setTermsModalTab(tab);
+              setIsTermsModalOpen(true);
+            }}
           />
           </Suspense>
         ) : (

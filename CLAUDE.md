@@ -357,13 +357,18 @@
   the owner's ownership tags when set (`GOOGLE_SITE_VERIFICATION` HTML-tag content, `BING_SITE_VERIFICATION`; or `GOOGLE_VERIFICATION_FILE` answered at
   /googleXXXX.html). `index.html` carries a readable boot screen `#mx-boot` (h1 "MarketX · Your Trading Co-Pilot", what it does, links) that search engines
   read; `src/main.tsx` removes it once the app paints and the boot watchdog removes it before showing its fallback. JSON-LD has alternateName/slogan.
-- Landing page (owner-specified, Oct 2026, styled on the owner's reference video: dark hero, phone in glowing rings, floating pill nav, pill
-  marquee, highlighted word list, white "Choose what you want to do" showcase with sliding clip cards, progress ring, big gradient "MT5",
-  gradient CTA card): `src/landing/LandingPage.tsx` + `landing.css` (scoped `.lx`, its own scroll container) + `demos.tsx`, lazily loaded,
-  shown to every signed-out visitor in place of the old `WelcomeGate`. Short looping demo clips (Analyze a trade, Matt talk back, Fundamental
-  Analysis, Token safety, Solana records) are animated replicas tagged "Demo" with made-up example numbers, played only while on screen (never
-  real trader data). Every feature CTA (Get started, Try it, Trading Agent…) opens Create account / Sign in; only `/checker` and `/blog` open
-  directly. No internals, providers or settings in its copy.
+- Landing page (owner-specified, Oct 2026, laid out section by section on the owner's Pinterest reference video "Fitonist"): `src/landing/LandingPage.tsx`
+  + `landing.css` (scoped `.lx`, its own scroll container) + `demos.tsx`, lazily loaded, shown to every signed-out visitor in place of the old
+  `WelcomeGate`. Order: pill nav at the top that glides to the bottom on scroll (+ a back-to-top bump), gradient hero card (phones rising from its
+  bottom, floating spheres and mini cards, outline Create account / Sign in), phone in soft rings with a curved-line annotation, stacked colourful
+  market pills, a scrolling tools list, "Define your goal" list (icon badge over the active line), white "Choose your tool" showcase (tilted stickers,
+  circle switcher, rotating clip cards), progress ring + two cards, device screens around big gradient "MT5", stacked-card "What traders ask"
+  carousel (real Q&A, never made-up reviews), "Unlock all benefits" pricing (Free $0 3 a day / Pro $30 per 3 months / $176 a year), gradient CTA
+  card with tilted phones, "Contact us" (opens the visitor's mail app to the public support address; nothing is sent through MarketX) and the
+  footer (Terms / Privacy open the existing modal). Short looping demo clips (Analyze a trade, Matt talk back, Fundamental Analysis, Token safety,
+  Solana records) are animated replicas tagged "Demo" with example numbers, played only while on screen (never real trader data). Every feature
+  CTA opens Create account / Sign in; only `/checker` and `/blog` open directly. No internals, providers or settings in its copy; keep the prices
+  in step with `server/payments.ts`.
 - SEO (`index.html`): link previews use `public/brand/marketx-share-si.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
   `marketx-og-1200x630.jpg` and `marketx-share-2026.jpg` hold the same picture for old links; a new image gets a NEW file name so social caches refetch;
   design (owner-specified, Oct 2026, styled on the owner's studio template): white page, top nav (logo, dark pill "Ask SI" / "Explore Markets", outlined
