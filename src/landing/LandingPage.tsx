@@ -25,7 +25,6 @@ interface LandingProps {
   onSignIn: () => void;
   onHaveCode: () => void;
   onOpenTerms?: (tab: 'terms' | 'privacy') => void;
-  notice?: string | null;
   /** The live price feed shared with the home page */
   tickers?: MarketQuote[];
 }
@@ -133,12 +132,12 @@ const FAQ: Array<{ q: string; a: string; bg: string }> = [
 
 // Device screens around "MT5": x (% of width), where they start below the screen and how fast they rise
 const DEVICES: Array<{ x: number; base: number; speed: number; el: React.ReactNode; hideSm?: boolean }> = [
-  { x: 3, base: 0.75, speed: 1.35, el: (<><p className="flex justify-between text-[9px] text-[#7d7e8c]"><span>Agent</span><span>running</span></p><p className="mt-1.5 text-[13px] font-semibold text-white">Day 2 of 7</p><p className="mt-2 h-7 rounded-full bg-[#2f5bff] text-white text-[11px] font-semibold grid place-items-center">Stop the run</p></>) },
-  { x: 76, base: 0.62, speed: 1.2, el: (<><p className="flex justify-between text-[9px] text-[#7d7e8c]"><span>Order placed</span><span>9:55</span></p><p className="mt-1.5 text-[12px] font-semibold text-white">XAUUSD · BUY LIMIT</p><p className="mt-1 text-[22px] font-semibold tabular-nums">0.10 lots</p></>) },
-  { x: 24, base: 1.05, speed: 1.6, hideSm: true, el: (<><p className="text-[9px] text-[#7d7e8c]">Linking MT5</p><LoaderCircle className="mt-2 w-5 h-5 mx-auto text-[#a5b4fc] animate-spin" /><p className="mt-2 text-center text-[11px]">Step 2 of 3</p></>) },
-  { x: 12, base: 1.25, speed: 1.55, el: (<><p className="flex justify-between text-[9px] text-[#7d7e8c]"><span>BTCUSD</span><span>closed</span></p><p className="mt-1.5 text-[22px] font-semibold text-emerald-300">+2.1R</p><p className="mt-1 h-6 rounded-full bg-[#2f5bff] text-white text-[10px] font-semibold grid place-items-center">Target reached</p></>) },
-  { x: 86, base: 1.15, speed: 1.6, el: (<><p className="text-[9px] text-[#7d7e8c]">Risk per trade</p><p className="mt-1.5 text-[24px] font-semibold">0.5%</p><p className="text-[10px] text-[#7d7e8c]">2 trades a day</p></>) },
-  { x: 64, base: 1.4, speed: 1.7, hideSm: true, el: (<><p className="text-[9px] text-[#7d7e8c]">Trades</p><p className="mt-1.5 text-[24px] font-semibold tabular-nums">−&nbsp;1/2&nbsp;+</p><p className="mt-1 h-6 rounded-full bg-[#2f5bff] text-white text-[10px] font-semibold grid place-items-center">Preview</p></>) },
+  { x: 3, base: 0.75, speed: 1.35, el: (<><p className="flex justify-between text-[9px] text-[#6b6b7b]"><span>Agent</span><span>running</span></p><p className="mt-1.5 text-[13px] font-semibold text-[#0b0b12]">Day 2 of 7</p><p className="mt-2 h-7 rounded-full bg-[#2f5bff] text-white text-[11px] font-semibold grid place-items-center">Stop the run</p></>) },
+  { x: 76, base: 0.62, speed: 1.2, el: (<><p className="flex justify-between text-[9px] text-[#6b6b7b]"><span>Order placed</span><span>9:55</span></p><p className="mt-1.5 text-[12px] font-semibold text-[#0b0b12]">XAUUSD · BUY LIMIT</p><p className="mt-1 text-[22px] font-semibold tabular-nums">0.10 lots</p></>) },
+  { x: 24, base: 1.05, speed: 1.6, hideSm: true, el: (<><p className="text-[9px] text-[#6b6b7b]">Linking MT5</p><LoaderCircle className="mt-2 w-5 h-5 mx-auto text-violet-500 animate-spin" /><p className="mt-2 text-center text-[11px]">Step 2 of 3</p></>) },
+  { x: 12, base: 1.25, speed: 1.55, el: (<><p className="flex justify-between text-[9px] text-[#6b6b7b]"><span>BTCUSD</span><span>closed</span></p><p className="mt-1.5 text-[22px] font-semibold text-emerald-600">+2.1R</p><p className="mt-1 h-6 rounded-full bg-[#2f5bff] text-white text-[10px] font-semibold grid place-items-center">Target reached</p></>) },
+  { x: 86, base: 1.15, speed: 1.6, el: (<><p className="text-[9px] text-[#6b6b7b]">Risk per trade</p><p className="mt-1.5 text-[24px] font-semibold">0.5%</p><p className="text-[10px] text-[#6b6b7b]">2 trades a day</p></>) },
+  { x: 64, base: 1.4, speed: 1.7, hideSm: true, el: (<><p className="text-[9px] text-[#6b6b7b]">Trades</p><p className="mt-1.5 text-[24px] font-semibold tabular-nums">−&nbsp;1/2&nbsp;+</p><p className="mt-1 h-6 rounded-full bg-[#2f5bff] text-white text-[10px] font-semibold grid place-items-center">Preview</p></>) },
 ];
 
 const Phone = React.forwardRef<HTMLDivElement, { demo: DemoId; className?: string; style?: React.CSSProperties }>(({ demo, className = '', style }, ref) => (
@@ -151,7 +150,7 @@ const Phone = React.forwardRef<HTMLDivElement, { demo: DemoId; className?: strin
 ));
 Phone.displayName = 'Phone';
 
-export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHaveCode, onOpenTerms, notice, tickers }) => {
+export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHaveCode, onOpenTerms, tickers }) => {
   const scroller = useRef<HTMLDivElement>(null);
   useReveal(scroller);
   const markets = useLiveMarkets(tickers);
@@ -381,7 +380,6 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
           </div>
 
           <div ref={s1card} className="lx-hero-card absolute left-3 right-3 sm:left-5 sm:right-5 top-[max(72px,calc(env(safe-area-inset-top)+62px))] bottom-4 max-w-6xl mx-auto text-center will-change-transform">
-            {notice && <p className="relative z-10 mx-auto mt-5 max-w-md text-[13px] text-amber-900 bg-amber-100/70 border border-amber-300/60 rounded-xl px-3 py-2">{notice}</p>}
             <h1 className="relative z-10 mt-10 sm:mt-14 px-5 text-[36px] sm:text-[62px] font-bold tracking-[-0.035em] leading-[1.02] text-[#2b2d42]">
               Your trading <span className="whitespace-nowrap">co-pilot</span>
             </h1>
@@ -420,10 +418,10 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
             <div className="lx-blob lx-blob-fuzzy w-16 h-16 sm:w-24 sm:h-24 left-[6%] sm:left-[17%] bottom-[30%]" />
             <div className="lx-blob lx-blob-gloss w-14 h-14 sm:w-20 sm:h-20 right-[6%] sm:right-[20%] bottom-[14%]" style={{ animationDelay: '-3s' }} />
             <div className="lx-mini hidden md:block left-[calc(50%-330px)] bottom-[20%] z-20" style={{ animationDelay: '-2s' }}>
-              <div className="w-[118px] rounded-[26px] bg-[#0b0b10] border-2 border-[#2a2a31] p-3 text-left shadow-2xl">
-                <p className="text-[9px] text-[#9b9cab]">Price alert</p>
-                <p className="text-[9px] text-emerald-300 mt-0.5">Entry reached</p>
-                <p className="mt-1 text-[22px] font-semibold text-white tabular-nums">00:34</p>
+              <div className="w-[118px] rounded-[26px] bg-white border-2 border-[#2a2a31] p-3 text-left shadow-2xl">
+                <p className="text-[9px] text-[#6b6b7b]">Price alert</p>
+                <p className="text-[9px] text-emerald-600 mt-0.5">Entry reached</p>
+                <p className="mt-1 text-[22px] font-semibold text-[#0b0b12] tabular-nums">00:34</p>
                 <p className="mt-1 h-5 rounded-full bg-[#2f5bff] text-[9px] text-white grid place-items-center">XAU/USD · LONG</p>
               </div>
             </div>
@@ -618,7 +616,7 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
                   {i === shown ? (
                     <DemoClip id={s.id} />
                   ) : (
-                    <div className="h-full grid place-items-center text-center px-6" style={{ background: 'radial-gradient(80% 60% at 50% 40%, #1d1b35, #0a0a10)' }}>
+                    <div className="h-full grid place-items-center text-center px-6" style={{ background: 'radial-gradient(80% 60% at 50% 40%, #f1edff, #ffffff)' }}>
                       <div>
                         <span className="mx-auto w-12 h-12 rounded-2xl grid place-items-center" style={{ background: s.tint, color: '#0b0b12' }}>
                           <s.icon className="w-5 h-5" />
@@ -694,7 +692,7 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
               </div>
               <p className="mt-3 text-[17px] font-bold text-center">Keep up with your best results</p>
               <p className="mt-1 text-[12.5px] text-[#7d7e8c] text-center">Journal and track record, scored by price.</p>
-              <span className="lx-demo-tag !top-3 !bottom-auto">Demo</span>
+              <span className="lx-demo-tag on-dark !top-3 !bottom-auto">Demo</span>
             </div>
             <div className="relative rounded-[26px] bg-[#111114] p-5 sm:p-6 overflow-hidden">
               <div className="h-[130px] sm:h-[190px] relative grid place-items-center">
@@ -716,7 +714,7 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
               </div>
               <p className="mt-3 text-[17px] font-bold text-center">Climb the monthly leaderboard</p>
               <p className="mt-1 text-[12.5px] text-[#7d7e8c] text-center">Points for every analysis, reset on the 1st.</p>
-              <span className="lx-demo-tag !top-3 !bottom-auto">Demo</span>
+              <span className="lx-demo-tag on-dark !top-3 !bottom-auto">Demo</span>
             </div>
           </div>
         </div>

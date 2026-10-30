@@ -74,7 +74,7 @@
 .lx-phone { width: 300px; height: 610px; border-radius: 46px; padding: 10px; background: linear-gradient(160deg, #3a3a44, #0d0d12 40%, #24242c);
   box-shadow: 0 0 0 1.5px #44444f, 0 40px 90px -30px rgba(0,0,0,0.9), 0 0 80px -24px rgba(139,92,246,0.45); }
 .lx-phone.float { animation: lx-float 7s ease-in-out infinite; }
-.lx-phone-screen { position: relative; width: 100%; height: 100%; border-radius: 37px; background: #07070b; overflow: hidden; }
+.lx-phone-screen { position: relative; width: 100%; height: 100%; border-radius: 37px; background: #fff; color: #0b0b12; overflow: hidden; }
 .lx-phone-notch { position: absolute; top: 9px; left: 50%; transform: translateX(-50%); width: 88px; height: 25px; border-radius: 14px; background: #000; z-index: 6; }
 @keyframes lx-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
 
@@ -119,11 +119,14 @@
 .lx-sticker { display: inline-block; padding: 3px 9px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 16px -8px rgba(80,60,160,.45); }
 .lx-chip { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: transparent; color: #4b4b5a; border: 0; cursor: pointer; transition: transform .35s, background .35s, color .35s; }
 .lx-chip.on { transform: scale(1.15); color: #0b0b12; }
-.lx-clip { position: relative; border-radius: 30px; overflow: hidden; background: #0a0a10; color: #f4f4f6; box-shadow: 0 30px 70px -30px rgba(20,10,60,0.55); }
+.lx-clip { position: relative; border-radius: 30px; overflow: hidden; background: #fff; color: #0b0b12; box-shadow: 0 30px 70px -30px rgba(20,10,60,0.55); }
+.lx-white .lx-clip { border: 1px solid #e7e7f0; }
 .lx-clip-in { animation: lx-clip-in 0.95s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes lx-clip-in { from { opacity: 0; transform: translateY(90px) rotate(-6deg) scale(0.95); } to { opacity: 1; transform: rotate(-1.5deg); } }
 .lx-clip-ghost { position: absolute; left: 8%; right: 4%; height: 64px; border-radius: 24px; background: linear-gradient(120deg, #23232c, #3a3a48); }
-.lx-demo-tag { position: absolute; bottom: 12px; right: 14px; pointer-events: none; z-index: 5; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.06); border: 1px solid var(--lx-line); padding: 4px 8px; border-radius: 8px; }
+.lx-demo-tag { position: absolute; bottom: 12px; right: 14px; pointer-events: none; z-index: 5; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(11,11,18,0.45); background: rgba(11,11,18,0.04); border: 1px solid rgba(11,11,18,0.08); padding: 4px 8px; border-radius: 8px; }
+
+.lx-demo-tag.on-dark { color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.06); border-color: var(--lx-line); }
 
 /* Progress ring + stepper */
 .lx-progress { stroke-dasharray: 690; stroke-dashoffset: 690; animation: lx-progress 3.2s cubic-bezier(.2,.8,.2,1) forwards; }
@@ -133,7 +136,7 @@
 .lx-orbit { position: absolute; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); }
 
 /* Device screens around the MT5 headline */
-.lx-device { position: absolute; width: 168px; border-radius: 30px; padding: 12px 13px 13px; background: #050506; border: 2px solid #2a2a31; box-shadow: 0 20px 40px -18px rgba(0,0,0,.9); text-align: left; font-size: 11px; color: #d4d4dc; animation: lx-drift 12s ease-in-out infinite; }
+.lx-device { position: absolute; width: 168px; border-radius: 30px; padding: 12px 13px 13px; background: #fff; border: 2px solid #2a2a31; box-shadow: 0 20px 40px -18px rgba(0,0,0,.9); text-align: left; font-size: 11px; color: #0b0b12; animation: lx-drift 12s ease-in-out infinite; }
 @keyframes lx-drift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(6px, -14px); } }
 
 /* Stacked cards carousel */
