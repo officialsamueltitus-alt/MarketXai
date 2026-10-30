@@ -50,16 +50,19 @@ const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel'
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const LeaderboardPanel = lazyWithReload(() => import('./components/LeaderboardPanel').then(m => ({ default: m.LeaderboardPanel })));
-const TradingAgentPanel = lazyWithReload(() => import('./components/TradingAgentPanel').then(m => ({ default: m.TradingAgentPanel })));
+const AgentsPage = lazyWithReload(() => import('./agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 const StrategyBuilderPanel = lazyWithReload(() => import('./components/StrategyBuilderPanel').then(m => ({ default: m.StrategyBuilderPanel })));
 const FundamentalPanel = lazyWithReload(() => import('./components/FundamentalPanel').then(m => ({ default: m.FundamentalPanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel, FundamentalPanel];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel, FundamentalPanel, AgentsPage];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
+/** True on the Trading Agent page's address (/agents, any letter case, optional trailing slash) */
+const isAgentsPath = (path = typeof window !== 'undefined' ? window.location.pathname : '') => /^\/agents\/?$/i.test(path);
+
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
   const [loaded, setLoaded] = useState(when);
   useEffect(() => {
@@ -194,7 +197,7 @@ export default function App() {
   // Leaderboard (usage this month / referrals), opened from the sidebar, /leaderboard, the profile and ?leaderboard=1
   const [leaderboard, setLeaderboard] = useState<'usage' | 'referrals' | null>(null);
   const leaderboardLinkRef = useRef<'usage' | 'referrals' | null>(null);
-  // Trading agent (/trading-agent, ?agent=1&focus=at_…, agent notifications)
+  // Trading agent: its own full-screen page at /agents (also ?agent=1&focus=at_… from older links, agent notifications)
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentFocus, setAgentFocus] = useState<string | null>(null);
   const agentLinkRef = useRef(false);
@@ -337,7 +340,7 @@ export default function App() {
     // Invite link: the code is kept on this device until sign-up (removed from the address bar)
     if (captureRefFromUrl()) inviteArrivalRef.current = true;
     if (params.get('leaderboard') === '1') leaderboardLinkRef.current = params.get('board') === 'referrals' ? 'referrals' : 'usage';
-    if (params.get('agent') === '1') {
+    if (params.get('agent') === '1' || isAgentsPath()) {
       agentLinkRef.current = true;
       const f = params.get('focus') || '';
       if (/^at_[a-f0-9]{16}$/.test(f)) setAgentFocus(f);
@@ -414,9 +417,12 @@ export default function App() {
     };
   }, [handleAuthenticated]);
 
-  // Browser back/forward between the app and the pass code page
+  // Browser back/forward between the app, the pass code page and the agent page
   useEffect(() => {
-    const onPop = () => setOnAccessPage(window.location.pathname === '/access');
+    const onPop = () => {
+      setOnAccessPage(window.location.pathname === '/access');
+      setAgentOpen(isAgentsPath());
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -1348,7 +1354,15 @@ export default function App() {
     setIsSidebarOpen(false);
     setAgentFocus(focus);
     setAgentOpen(true);
+    if (!isAgentsPath()) window.history.pushState({ mxAgents: 1 }, '', '/agents');
   }, [authUser]);
+  /** Leaves the agent page: back to where the trader came from inside the app, else to the home page */
+  const closeAgent = useCallback(() => {
+    setAgentOpen(false);
+    if (!isAgentsPath()) return;
+    if (window.history.state?.mxAgents) window.history.back();
+    else window.history.replaceState(null, '', '/');
+  }, []);
   const openToolPanel = useCallback((id: 'preference' | 'strategy' | 'fundamental') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
@@ -1413,13 +1427,18 @@ export default function App() {
   useEffect(() => {
     if (authUser) clearRefCode();
   }, [authUser]);
-  // A trading agent link (?agent=1, from its emails and push notifications) opens it once signed in
+  // A trading agent link (/agents, or ?agent=1 from older emails) opens the page once signed in; signed out, sign-in comes first
   useEffect(() => {
     if (authUser && agentLinkRef.current) {
       agentLinkRef.current = false;
       setAgentOpen(true);
+      if (!isAgentsPath()) window.history.replaceState(null, '', '/agents');
+    } else if (authChecked && !authUser && agentLinkRef.current && !isAuthModalOpen) {
+      setAuthModalMode('signin');
+      setIsAuthModalOpen(true);
     }
-  }, [authUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, authChecked]);
   // A leaderboard link (?leaderboard=1&board=referrals) opens it once signed in
   useEffect(() => {
     if (authUser && leaderboardLinkRef.current) {
@@ -1480,10 +1499,12 @@ export default function App() {
           } else if (q.get('alerts') === '1') {
             setAlertFocus(/^al_of_[a-z0-9]{8,40}$/.test(focus) ? focus : null);
             openPluginPanel('alerts');
+          } else if (q.get('agent') === '1' || isAgentsPath(new URL(url, window.location.origin).pathname)) {
+            openAgent(/^at_[a-f0-9]{16}$/.test(focus) ? focus : null);
           }
         },
       }),
-    [authUser, refreshNotifications, openPluginPanel]
+    [authUser, refreshNotifications, openPluginPanel, openAgent]
   );
 
   /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
@@ -2752,9 +2773,11 @@ export default function App() {
           onToast={showToast}
         />
       </Deferred>
-      <Deferred when={agentOpen}>
-        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} onUpgrade={() => (setAgentOpen(false), setIsPricingModalOpen(true))} />
-      </Deferred>
+      {agentOpen && (
+        <Suspense fallback={<div className="fixed inset-0 z-[46] bg-[var(--mx-bg)]" aria-busy="true" />}>
+          <AgentsPage focusId={agentFocus} onBack={closeAgent} onBuyCredits={() => (closeAgent(), openAccountTab('credits'))} onUpgrade={() => setIsPricingModalOpen(true)} />
+        </Suspense>
+      )}
       <Deferred when={!!leaderboard}>
         <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />
       </Deferred>

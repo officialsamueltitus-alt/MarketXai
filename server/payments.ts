@@ -331,7 +331,7 @@ function notifyPaymentEmail(result: FulfillResult) {
           ['Active until', result.expiresAt ? new Date(result.expiresAt).toDateString() : '-'],
           ['Reference', result.reference || '-'],
         ],
-        cta: { label: 'Open the trading agent', url: `${(process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '')}/?agent=1` },
+        cta: { label: 'Open the trading agent', url: `${(process.env.APP_URL || 'https://marketx.world').replace(/\/+$/, '')}/agents` },
         note: 'Keep this email as your receipt.',
       }
     );

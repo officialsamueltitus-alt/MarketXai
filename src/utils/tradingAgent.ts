@@ -1,7 +1,7 @@
 // Trading agent (/trading-agent, owner-specified): an agent the trader switches on for a day, a week or a month. It
 // finds trades on its own with Steady mode (option C: limit entries on 1H/4H, the stop 3x the normal room), places
 // them, manages each one to its final target or its stop, and alerts the trader at every step. Shared by the server
-// (server/tradingAgent.ts: validation, pricing, the agent loop) and the client (TradingAgentPanel.tsx).
+// (server/tradingAgent.ts: validation, pricing, the agent loop) and the client (src/agents/AgentsPage.tsx).
 //
 // Back-test (Oct 2026, real order fills): a limit order at the middle of the entry zone, the whole position held to the
 // final target or the stop, setups of quality 65+ only, one trade per market at a time, EUR/USD left out (it lost).

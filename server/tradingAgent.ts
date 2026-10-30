@@ -282,7 +282,7 @@ async function pushLog(uid: string, entries: AgentLogEntry[], extra: Record<stri
 
 /** Tells the trader: site notification + push always; email for the steps that matter, within the market budget */
 async function tell(uid: string, title: string, message: string, opts: { tradeId?: string; mail?: boolean; rows?: [string, string][] } = {}) {
-  const url = `/?agent=1${opts.tradeId ? `&focus=${encodeURIComponent(opts.tradeId)}` : ''}`;
+  const url = `/agents${opts.tradeId ? `?focus=${encodeURIComponent(opts.tradeId)}` : ''}`;
   const mail = opts.mail && (await claimMarketMail(uid).catch(() => false))
     ? { subject: title, lines: [message], options: { rows: (opts.rows || []).slice(0, 3), cta: { label: 'Open the trading agent', url: siteLink(url) } } }
     : undefined;

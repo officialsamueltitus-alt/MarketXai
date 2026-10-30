@@ -145,8 +145,13 @@
   them; none allowed = a Normal analysis saying so), no hot market (ATR percentile ≥ 0.67), stop moved to `STEADY_STOP_MULT` 3 × its normal
   distance (same entry and price targets, R recomputed) and untouched since the zone formed; else "No signal (Steady mode)…". Results carry
   `strategy.steadyMode` and a "> **Stop loss:** Steady mode…" note. Strategy Builder and Confirmation ignore it.
-- Trading agent (owner-specified, `/trading-agent`, `server/tradingAgent.ts`, shared `src/utils/tradingAgent.ts`, panel `TradingAgentPanel.tsx`, slash
-  command `agent` live, Tools sheet More tools, `?agent=1&focus=at_…`, notifications `open_agent`): the trader sets trade type (DAY = 1H, SWING = 4H,
+- Trading agent (owner-specified, `/trading-agent`, `server/tradingAgent.ts`, shared `src/utils/tradingAgent.ts`, slash command `agent` live, Tools sheet
+  More tools, notifications `open_agent`). Its own full-screen PAGE at `/agents` (owner-specified, `src/agents/AgentsPage.tsx` + `agents.css` + `Mt5ServerInput.tsx`,
+  lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows): every entry point (`openAgent`: Tools sheet, slash command,
+  notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
+  (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Soft, calm design:
+  a status hero with the agent's orb (breathes when idle, sends out rings while running), stat tiles, MT5 card, a sliding-pill tab bar (Setup / Trades /
+  Activity timeline), cards that rise in, steppers and choices that respond to the touch, light and dark themes, reduced motion respected: the trader sets trade type (DAY = 1H, SWING = 4H,
   ANY = both; Steady mode only trades 1H/4H), timeframes, markets (`AGENT_MARKETS`: gold, BTC, ETH, USD/JPY, GBP/USD, NAS100; EUR/USD lost in the
   back-test so it is not offered), risk per trade 0.1-2%, trades per day 1-5, profit target and loss limit for the run (% of account, 0 = none) and
   the run length; then switches it on and it works on its own (lead worker, `AGENT_TICK_MS` 60s): scans with Steady mode (option C, the same
@@ -160,13 +165,13 @@
   free); starting needs one trade's credits; can't pay at the fill = order cancelled + run ends NO_CREDITS. Runs end on time (TIME_UP), Stop (STOPPED,
   `closeOpen` closes open trades at the live price), profit target (TARGET) or loss limit (LOSS_LIMIT): unfilled orders are cancelled, open trades are
   still managed to the end. Alerts (`tell`): order placed, filled, closed, run started/ended = site notification + push (`kind: 'agent'`); fills, closes and
-  start/end also email within the market budget. Panel: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
+  start/end also email within the market budget. Page: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
   (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account.
   Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
   Access (owner-specified, supersedes the old $30 agent plan): the agent is part of Pro: free for everyone until `PRO_GATE_AT`, then a live Pro plan or
   unlimited staff (`agentAccess` = `hasProFeatures`, or an old `users.agentSub` still running, honoured until it expires); start and MT5 linking return
   402 `PRO_REQUIRED` otherwise, and a run without access ends `SUB_ENDED` ("Pro plan needed"). `agent_monthly` / `agent_yearly` are no longer sold
-  (`/api/payments/initialize` 400 `PLAN_RETIRED`), kept only to verify checkouts started before. The panel shows an "Upgrade to Pro" card (`onUpgrade`
+  (`/api/payments/initialize` 400 `PLAN_RETIRED`), kept only to verify checkouts started before. The page shows an "Upgrade to Pro" card (`onUpgrade`
   → Plans) instead of plan cards. Credits stay per trade. Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
   PLACES it (same transaction as the order, campaign first, `campaignCharged`), refunded in full when the order is cancelled unfilled (`cancelPending`,
   `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
@@ -184,7 +189,7 @@
   sent (TOKEN_FORMAT); setup problems show a code (TOKEN_REFUSED / TOKEN_FORMAT / NO_TOKEN) and are logged. The token is read forgivingly (quotes,
   "Bearer "/"auth-token:" prefixes, line breaks removed). Admin → Overview "MT5 connection" card (`Mt5Check.tsx`, `GET /api/admin/mt5/check`, `mt5Check`):
   token shape, region, provisioning API reachable + token accepted, with a plain hint; the provider is never named in trader-facing text or the bundle. A link cancelled
-  mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The panel polls every 4s while
+  mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The page polls every 4s while
   linking and shows Step N of 3, a timer, the live message, Cancel, and the failure reason in red. With a CONNECTED link, `mt5Open` places each agent order on the account:
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
   (`lotSize`: stop/tickSize x lossTickValue, rounded DOWN to the volume step; under the minimum = not placed), BUY/SELL LIMIT with stop, final target,
@@ -194,7 +199,7 @@
   Connected only when needed (owner-approved, MetaApi bills per connected hour): `mt5Links.power` ON / WAKING / OFF (missing = ON). `sleepIdleLinks`
   (agent tick, every 5 min) undeploys a link (`setMt5Power`) when its run isn't RUNNING and it has no PENDING/OPEN trade with an MT5 order PLACED (10 min
   grace after linking/waking); `wakeLink` deploys and waits for CONNECTED (45s) before any order/cancel/close; a run start wakes it in the background
-  (`wakeSoon`). The panel says "Resting" while asleep; refresh doesn't wake it.
+  (`wakeSoon`). The page says "Resting" while asleep; refresh doesn't wake it.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle

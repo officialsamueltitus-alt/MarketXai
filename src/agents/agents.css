@@ -1,0 +1,118 @@
+/* Trading Agent page (/agents): soft surfaces from the app's theme variables, emerald accents, calm motion. */
+.ag {
+  --ag-ease: cubic-bezier(.2, .8, .2, 1);
+  --ag-green: 16, 185, 129;
+  --ag-cyan: 14, 165, 233;
+  animation: ag-page-in .45s var(--ag-ease) both;
+  -webkit-font-smoothing: antialiased;
+}
+@keyframes ag-page-in { from { opacity: 0; transform: translateY(14px) scale(.995); } to { opacity: 1; transform: none; } }
+
+/* A soft glow behind the page that warms up while the agent runs */
+.ag-aura { position: fixed; inset: -20% -10% auto; height: 70vh; pointer-events: none; opacity: .55; transition: opacity 1.2s;
+  background: radial-gradient(40% 50% at 30% 30%, rgba(139, 92, 246, .12), transparent 70%), radial-gradient(35% 45% at 75% 20%, rgba(var(--ag-cyan), .08), transparent 70%); }
+.ag-aura[data-on] { opacity: 1; background: radial-gradient(40% 50% at 28% 28%, rgba(var(--ag-green), .16), transparent 70%), radial-gradient(35% 45% at 78% 18%, rgba(var(--ag-cyan), .12), transparent 70%); }
+
+/* Top bar */
+.ag-bar { background: color-mix(in srgb, var(--mx-bg) 78%, transparent); backdrop-filter: saturate(140%) blur(16px); -webkit-backdrop-filter: saturate(140%) blur(16px); border-bottom: 1px solid var(--mx-border); }
+.ag-back { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 999px; font-size: 13px; color: var(--color-slate-300); background: var(--mx-surface); border: 1px solid var(--mx-border); cursor: pointer; transition: background .2s, transform .15s; }
+.ag-back:hover { background: var(--mx-surface-2); }
+.ag-back:active { transform: scale(.96); }
+.ag-mark { position: relative; width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; color: rgb(var(--ag-green)); background: linear-gradient(135deg, rgba(var(--ag-green), .18), rgba(var(--ag-cyan), .14)); border: 1px solid var(--mx-border); flex-shrink: 0; }
+.ag-mark.on::after { content: ''; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: rgb(var(--ag-green)); box-shadow: 0 0 0 2px var(--mx-bg); animation: ag-blink 1.6s ease-in-out infinite; }
+.ag-status { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--color-slate-400); background: var(--mx-surface); border: 1px solid var(--mx-border); }
+.ag-status.on { color: rgb(var(--ag-green)); background: rgba(var(--ag-green), .1); border-color: rgba(var(--ag-green), .25); }
+.ag-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ag-status.on .ag-status-dot { animation: ag-blink 1.6s ease-in-out infinite; }
+@keyframes ag-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* Surfaces */
+.ag-card { background: var(--mx-surface); border: 1px solid var(--mx-border); border-radius: 26px; box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 18px 40px -30px var(--mx-shadow); }
+.ag-soft { background: var(--mx-surface-2); border-radius: 18px; }
+.ag-tile { background: var(--mx-surface-2); border-radius: 16px; padding: 10px 12px; min-width: 0; }
+.ag-hero { position: relative; overflow: hidden; border-radius: 30px; padding: 20px; background: var(--mx-surface); border: 1px solid var(--mx-border); transition: border-color .6s, background .6s;
+  box-shadow: 0 24px 60px -40px var(--mx-shadow); }
+.ag-hero.on { border-color: rgba(var(--ag-green), .28); background: linear-gradient(150deg, rgba(var(--ag-green), .10), rgba(var(--ag-cyan), .04) 60%), var(--mx-surface); }
+.ag-icon { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; transition: background .4s, color .4s; }
+.ag-icon.ok { background: rgba(var(--ag-green), .14); color: rgb(var(--ag-green)); }
+.ag-icon.wait { background: rgba(245, 158, 11, .14); color: rgb(245, 158, 11); }
+.ag-icon.bad { background: rgba(244, 63, 94, .14); color: rgb(244, 63, 94); }
+
+/* The agent's orb: breathes when idle, sends out rings while it runs */
+.ag-orb { position: relative; width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; color: #fff;
+  background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, .55), transparent 40%), linear-gradient(140deg, #34d399, #0ea5e9 60%, #6366f1);
+  box-shadow: 0 10px 30px -10px rgba(var(--ag-green), .7); animation: ag-breathe 4s ease-in-out infinite; filter: saturate(.75); }
+.ag-orb.on { filter: none; animation-duration: 2.4s; }
+.ag-orb::before, .ag-orb::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgba(var(--ag-green), .55); opacity: 0; }
+.ag-orb.on::before { animation: ag-ring 2.4s var(--ag-ease) infinite; }
+.ag-orb.on::after { animation: ag-ring 2.4s var(--ag-ease) 1.2s infinite; }
+@keyframes ag-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@keyframes ag-ring { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(2.1); opacity: 0; } }
+
+/* Tabs with a sliding pill */
+.ag-tabs { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); padding: 5px; border-radius: 20px; background: var(--mx-surface); border: 1px solid var(--mx-border); }
+.ag-tab-pill { position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc((100% - 10px) / 3); border-radius: 15px; background: var(--mx-surface-3);
+  box-shadow: 0 6px 16px -10px var(--mx-shadow); transition: transform .45s var(--ag-ease); }
+.ag-tab { position: relative; z-index: 1; height: 38px; border-radius: 15px; font-size: 13px; font-weight: 500; color: var(--color-slate-400); cursor: pointer; transition: color .25s; background: none; border: 0; }
+.ag-tab:hover { color: var(--color-slate-200); }
+.ag-tab.on { color: var(--color-white); }
+
+/* Choices, chips, steppers, inputs, buttons */
+.ag-choice { text-align: left; padding: 12px; border-radius: 18px; background: var(--mx-surface-2); border: 1px solid transparent; cursor: pointer;
+  transition: border-color .25s, background .25s, transform .2s var(--ag-ease), box-shadow .25s; }
+.ag-choice:hover { transform: translateY(-1px); }
+.ag-choice:active { transform: scale(.98); }
+.ag-choice.on { border-color: rgba(var(--ag-green), .45); background: rgba(var(--ag-green), .08); box-shadow: 0 10px 24px -16px rgba(var(--ag-green), .8); }
+.ag-chip { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--color-slate-400);
+  background: var(--mx-surface-2); border: 1px solid transparent; cursor: pointer; transition: color .2s, background .25s, border-color .25s, transform .15s; }
+.ag-chip:hover { color: var(--color-slate-200); }
+.ag-chip:active { transform: scale(.95); }
+.ag-chip.on { color: rgb(var(--ag-green)); background: rgba(var(--ag-green), .1); border-color: rgba(var(--ag-green), .35); }
+.ag-round { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--color-slate-300); background: var(--mx-surface-3); border: 0; cursor: pointer;
+  transition: background .2s, transform .15s, opacity .2s; flex-shrink: 0; }
+.ag-round:hover { background: var(--mx-border-strong); }
+.ag-round:active { transform: scale(.9); }
+.ag-round:disabled { opacity: .35; cursor: default; transform: none; }
+.ag-input { height: 42px; padding: 0 14px; border-radius: 14px; background: var(--mx-surface-2); border: 1px solid var(--mx-border); font-size: 14px; color: var(--color-white); outline: none;
+  transition: border-color .2s, box-shadow .2s; min-width: 0; }
+.ag-input::placeholder { color: var(--color-slate-500); }
+.ag-input:focus { border-color: rgba(var(--ag-green), .45); box-shadow: 0 0 0 4px rgba(var(--ag-green), .1); }
+.ag-ghost-btn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--color-white);
+  background: var(--mx-surface-3); border: 0; cursor: pointer; transition: background .2s, transform .15s, opacity .2s; }
+.ag-ghost-btn:hover { background: var(--mx-border-strong); }
+.ag-ghost-btn:active { transform: scale(.97); }
+.ag-ghost-btn:disabled { opacity: .5; cursor: default; }
+.ag-cta { display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; border-radius: 18px; font-size: 15px; font-weight: 600; color: #fff; border: 0; cursor: pointer;
+  background-image: linear-gradient(110deg, #10b981, #0ea5e9 55%, #10b981); background-size: 200% 100%; box-shadow: 0 16px 34px -16px rgba(var(--ag-green), .9);
+  transition: background-position .8s var(--ag-ease), transform .15s, filter .2s, opacity .2s; }
+.ag-cta:hover { background-position: 100% 0; }
+.ag-cta:active { transform: scale(.98); }
+.ag-cta:disabled { opacity: .45; cursor: default; box-shadow: none; }
+
+/* MT5 linking steps */
+.ag-step { height: 5px; border-radius: 999px; background: var(--mx-surface-3); overflow: hidden; position: relative; }
+.ag-step.done { background: rgba(var(--ag-green), .7); }
+.ag-step.now::after { content: ''; position: absolute; inset: 0; width: 45%; border-radius: inherit; background: rgba(var(--ag-green), .8); animation: ag-slide 1.4s ease-in-out infinite; }
+@keyframes ag-slide { from { transform: translateX(-100%); } to { transform: translateX(240%); } }
+
+/* Activity timeline */
+.ag-timeline { position: relative; }
+.ag-timeline::before { content: ''; position: absolute; left: 11.5px; top: 8px; bottom: 8px; width: 1px; background: var(--mx-border); }
+
+/* A trade a notification points at */
+.ag-focus { border-color: rgba(var(--ag-green), .55) !important; box-shadow: 0 0 0 4px rgba(var(--ag-green), .12); }
+
+/* Motion helpers */
+.ag-rise { animation: ag-rise .55s var(--ag-ease) both; }
+@keyframes ag-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.ag-fade { animation: ag-fade .4s var(--ag-ease) both; }
+@keyframes ag-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.ag-pop { display: inline-block; animation: ag-pop .35s var(--ag-ease) both; }
+@keyframes ag-pop { from { opacity: .3; transform: translateY(4px) scale(.96); } to { opacity: 1; transform: none; } }
+.ag-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s var(--ag-ease); }
+.ag-collapse > div { overflow: hidden; }
+.ag-collapse.open { grid-template-rows: 1fr; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ag, .ag *, .ag *::before, .ag *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
