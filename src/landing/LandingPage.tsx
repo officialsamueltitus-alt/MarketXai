@@ -971,9 +971,9 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
 
       {/* ================= Pill nav (top on the hero, bottom once scrolled) + back-to-top bump ================= */}
       <nav className={`lx-nav ${down ? 'down' : ''}`} aria-label="MarketX">
-        <a href="/" className="flex items-center gap-1.5 pr-2 mr-1" aria-label="MarketX home">
+        <a href="/" className="flex items-center gap-1.5 pr-2 mr-1 shrink-0" aria-label="MarketX home">
           <MarketXIcon size="sm" />
-          <MarketXText className="text-[14px] hidden sm:inline whitespace-nowrap" />
+          <MarketXText className="text-[14px] !hidden sm:!inline-flex whitespace-nowrap" />
         </a>
         <button type="button" className="lx-nav-link hidden md:inline-flex" onClick={() => go('lx-show')}>Features</button>
         <button type="button" className="lx-nav-link hidden md:inline-flex" onClick={onSignUp}>Trading Agent</button>
