@@ -179,7 +179,11 @@
   details to MetaApi (its 202 "still checking the server" answers are retried with the same transaction id for up to 5 min, `pendingUntil`, each shown
   as the link `message`; the password lives only in that call's memory), then `finishLink` follows DEPLOYING → SIGNING_IN → CONNECTED every 5s for up
   to 5 min, writing each step. Any failure ends in `failLink`: status FAILED with the exact reason (unknown server, broker refused the sign-in after ~30s
-  of DISCONNECTED_FROM_BROKER, MarketX token refused, timeout with the last status), the MetaApi account deleted and a notification. A link cancelled
+  of DISCONNECTED_FROM_BROKER, MarketX token refused, timeout with the last status), the MetaApi account deleted and a notification. A request that never gets an answer is named exactly (`networkError` in
+  `server/mt5.ts`, owner-reported "did not answer"): timeout (account creation waits 60s), network code (ENOTFOUND, ECONNRESET…), or a token that can't be
+  sent (TOKEN_FORMAT); setup problems show a code (TOKEN_REFUSED / TOKEN_FORMAT / NO_TOKEN) and are logged. The token is read forgivingly (quotes,
+  "Bearer "/"auth-token:" prefixes, line breaks removed). Admin → Overview "MT5 connection" card (`Mt5Check.tsx`, `GET /api/admin/mt5/check`, `mt5Check`):
+  token shape, region, provisioning API reachable + token accepted, with a plain hint; the provider is never named in trader-facing text or the bundle. A link cancelled
   mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The panel polls every 4s while
   linking and shows Step N of 3, a timer, the live message, Cancel, and the failure reason in red. With a CONNECTED link, `mt5Open` places each agent order on the account:
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop

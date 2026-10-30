@@ -28,7 +28,8 @@ import {
 import { registerAccountRoutes, requireAuth, chargeAnalysisCredit, userRef } from './server/account';
 import { registerPaymentRoutes, getPaymentsPublicConfig } from './server/payments';
 import { registerAuthRoutes, getGoogleClientId, isAuthConfigured } from './server/auth';
-import { hasValidAdminCookie, registerAdminRoutes } from './server/admin';
+import { hasValidAdminCookie, registerAdminRoutes, requireAdmin } from './server/admin';
+import { mt5Check } from './server/mt5';
 import { registerCampaignRoutes } from './server/campaigns';
 import { alertOfferMiddleware, registerPriceAlertRoutes } from './server/priceAlerts';
 import { registerWatchlistRoutes, type ScanFrame } from './server/watchlist';
@@ -2295,6 +2296,15 @@ registerSignalProofRoutes(app, generalApiRateLimiter, { getBars: async (symbol, 
 registerTraderIdRoutes(app, generalApiRateLimiter);
 registerLeaderboardRoutes(app, generalApiRateLimiter);
 registerAdminCreditRoutes(app);
+// Admin: one-tap check of the MetaApi setup (token shape, region, provisioning API reachable and accepting the token)
+app.get('/api/admin/mt5/check', requireAdmin, async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    res.json(await mt5Check());
+  } catch (err: any) {
+    res.status(500).json({ error: 'SERVER_ERROR', message: err?.message || 'Check failed.' });
+  }
+});
 registerAiUsageAdminRoutes(app);
 // One record per signal: removes duplicate alerts, journal trades and track record results (lead worker)
 registerDedupe();

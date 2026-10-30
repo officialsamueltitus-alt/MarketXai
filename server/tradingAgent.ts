@@ -546,9 +546,9 @@ async function failLink(uid: string, attempt: string | undefined, message: strin
 /** A failed MetaApi call during linking, in the trader's words (the owner sees the cause in the logs) */
 function linkError(err: unknown): string {
   if (err instanceof Mt5Error) {
-    if (err.code === 'MT5_AUTH' || err.code === 'MT5_NOT_CONFIGURED') {
-      console.warn('[MarketX Agent] MetaApi refused the MarketX token: check METAAPI_TOKEN');
-      return 'MT5 linking is unavailable on MarketX right now. Please try again later.';
+    if (err.code === 'MT5_AUTH' || err.code === 'MT5_NOT_CONFIGURED' || err.code === 'MT5_CONFIG') {
+      console.warn(`[MarketX Agent] MetaApi setup problem (${err.code}): check METAAPI_TOKEN`);
+      return `MT5 linking is unavailable on MarketX right now (code ${err.code === 'MT5_AUTH' ? 'TOKEN_REFUSED' : err.code === 'MT5_CONFIG' ? 'TOKEN_FORMAT' : 'NO_TOKEN'}). Please try again later.`;
     }
     if (err.code === 'MT5_BUSY') return 'The MT5 connection is busy. Please try again in a few minutes.';
     return err.message;
