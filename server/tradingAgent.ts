@@ -116,6 +116,8 @@ interface AgentRun extends Omit<AgentRunView, 'stats'> {
   day: string;
   placedToday: number;
   lowCreditsAt?: number;
+  /** Site-TZ day the Pro daily credit limit stopped new orders (told once) */
+  capDay?: string;
 }
 interface AgentDoc {
   uid: string;
@@ -764,6 +766,15 @@ async function runAgents(deps: AgentDeps, onlyUid?: string) {
   }
 }
 
+/** Today's credit limit is used up (Pro, 50 a day): no order today, told once a day; the run carries on after 3:00 AM */
+async function capReached(a: AgentDoc, today: string) {
+  if (a.run?.capDay === today) return;
+  await agentRef(a.uid).update({ 'run.capDay': today }).catch(() => {});
+  const text = "Today's 50-credit limit is used, so the agent places no new trades until it resets at 3:00 AM. Open trades are still managed.";
+  await pushLog(a.uid, [logEntry('PAUSE', text)]);
+  await tell(a.uid, '⏸️ Agent paused for today', text).catch(() => {});
+}
+
 /** Places one order for an agent: its credits are charged in the same transaction (refunded if it never fills) */
 async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickSetup>>, today: string) {
   const run = a.run!;
@@ -775,6 +786,8 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
   }
   const free = !!user.emailVerified && isUnlimitedEmail(user.email);
   if (!free && agentSpendable(user) < run.perTrade) {
+    // Pro's 50 credits a day used up but the balance can pay: the agent waits for the 3:00 AM reset, the run goes on
+    if ((user.credits?.available ?? 0) >= run.perTrade) return capReached(a, today);
     await endRun(a.uid, 'NO_CREDITS');
     return;
   }
@@ -803,6 +816,7 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     // The trader's general credits (campaign first, then the day's allowance), bought credits only after: the same
     // pools as an analysis, so the agent counts toward the daily cap. Can't pay = nothing placed.
     const charge = cost ? await chargeAgentInTx(tx, a.uid, cost) : null;
+    if (charge === 'CAP') return 'CAP' as const;
     if (cost && !charge) return 'NO_CREDITS' as const;
     tx.set(tradeRef(trade.id), {
       ...trade, credits: cost, campaignCharged: charge?.campaignDelta || 0, purchasedCharged: charge?.purchasedDelta || 0,
@@ -814,6 +828,7 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     });
     return true;
   });
+  if (placed === 'CAP') return capReached(a, today);
   if (placed === 'NO_CREDITS') {
     await endRun(a.uid, 'NO_CREDITS');
     return;

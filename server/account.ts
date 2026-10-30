@@ -180,7 +180,8 @@ function normalizeUser(doc: UserDoc, now: number): { doc: UserDoc; changed: bool
   // Campaign credits are spent first. While any are left the trader's own daily analyses are paused: not spent and
   // not refilled at 3:00 AM. When the last campaign credit is used (chargeAnalysisCredit) the refill clock restarts,
   // so the daily analyses that were left carry on, and the next refill is the following 3:00 AM.
-  const onCampaign = campaignPool(next.credits) > 0;
+  // Pro has no pause: its 50 a day is a hard total over every pool, campaign credits included, so it refills every day
+  const onCampaign = !next.subscription.active && campaignPool(next.credits) > 0;
   if (!onCampaign && isDailyResetDue(next.credits.lastDailyReset, now)) {
     next.credits.dailyLimit = targetLimit;
     next.credits.dailyRemaining = targetLimit;
@@ -842,12 +843,24 @@ export async function chargeAnalysisCredit(req: Request, res: Response, next: Ne
 /**
  * Where `cost` credits come from, one at a time, each from the first pool that has one: campaign, then the day's
  * analyses (never touching bought credits), then bought credits. Null if they don't cover the whole cost.
- * `needsBalance` (Pro and the trading agent): a daily slot also needs a general credit to spend, so the day's
- * allowance is a cap on the balance, not free credits; the Free plan's 3 a day stay free.
+ * Modes: FREE = the above (the Free plan's 3 a day are free analyses). PRO (owner-specified): the day's allowance
+ * (PRO_DAILY_LIMIT, 50) is a HARD total of credits spent a day, whatever pool pays (campaign, then the general balance
+ * with the plan's credits, then bought credits); it needs the whole cost left today and the balance to cover it.
+ * BALANCE (the trading agent on a non-Pro account): campaign, then the general balance, then bought; no daily slots.
  */
-export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRemaining' | 'campaign' | 'purchased'>, cost: number, needsBalance = false) {
+export type ChargeMode = 'FREE' | 'PRO' | 'BALANCE';
+export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRemaining' | 'campaign' | 'purchased'>, cost: number, mode: ChargeMode = 'FREE') {
   const campaign = campaignPool(c);
   const purchased = purchasedPool(c);
+  if (mode !== 'FREE') {
+    if (mode === 'PRO' && c.dailyRemaining < cost) return null;
+    const general = Math.max(0, c.available - campaign - purchased);
+    const campaignDelta = Math.min(campaign, cost);
+    const fromGeneral = Math.min(general, cost - campaignDelta);
+    const purchasedDelta = Math.min(purchased, cost - campaignDelta - fromGeneral);
+    if (campaignDelta + fromGeneral + purchasedDelta < cost) return null;
+    return { dailyDelta: mode === 'PRO' ? cost : 0, availableDelta: cost, campaignDelta, purchasedDelta };
+  }
   let dailyDelta = 0;
   let availableDelta = 0;
   let campaignDelta = 0;
@@ -856,7 +869,7 @@ export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRema
     if (campaign - campaignDelta > 0) {
       campaignDelta += 1;
       availableDelta += 1;
-    } else if (c.dailyRemaining - dailyDelta > 0 && (!needsBalance || c.available - availableDelta - purchased > 0)) {
+    } else if (c.dailyRemaining - dailyDelta > 0) {
       dailyDelta += 1;
       // A daily analysis never eats into bought credits
       if (c.available - availableDelta - purchased > 0) availableDelta += 1;
@@ -873,16 +886,17 @@ export function splitCharge(c: Pick<UserDoc['credits'], 'available' | 'dailyRema
 
 /**
  * The trading agent's charge for one trade, inside the caller's transaction (owner-specified: the trader's general credits
- * first, bought credits only when those can't pay; never a separate agent credit). Same pools and order as an analysis
- * (campaign, then the day's allowance from the general balance, then bought credits), so the agent counts toward the Pro
- * daily cap. Null = can't pay, nothing written. Reads the account, so call it before the transaction's other writes.
+ * first, bought credits only when those can't pay; never a separate agent credit). Pro: counted in the hard 50 a day
+ * like an analysis. Null = can't pay, nothing written. Reads the account, so call it before the transaction's other writes.
  */
 export async function chargeAgentInTx(tx: Transaction, uid: string, cost: number) {
   const loaded = await loadUserInTx(tx, uid);
   if (!loaded) return null;
   const c = loaded.doc.credits;
-  const split = splitCharge(c, cost, true);
-  if (!split) return null;
+  const pro = !!loaded.doc.subscription.active;
+  const split = splitCharge(c, cost, pro ? 'PRO' : 'BALANCE');
+  // Pro: today's 50 is used up but the balance could pay = wait for the 3:00 AM reset (not out of credits)
+  if (!split) return pro && c.dailyRemaining < cost && c.available >= cost ? ('CAP' as const) : null;
   saveNormalized(tx, loaded);
   const campaign = campaignPool(c);
   const purchased = purchasedPool(c);
@@ -915,14 +929,12 @@ export function refundAgentInTx(
   });
 }
 
-/** Credits the agent can spend right now: campaign + the day's allowance the general balance covers + bought */
+/** Credits the agent can spend right now: the whole balance, and on Pro no more than what is left of today's 50 */
 export function agentSpendable(raw: UserDoc | undefined): number {
   if (!raw?.credits) return 0;
-  const c = normalizeUser(raw, Date.now()).doc.credits;
-  const campaign = campaignPool(c);
-  const purchased = purchasedPool(c);
-  const general = Math.max(0, c.available - campaign - purchased);
-  return campaign + Math.min(Math.max(0, c.dailyRemaining), general) + purchased;
+  const n = normalizeUser(raw, Date.now()).doc;
+  const total = Math.max(0, n.credits.available);
+  return n.subscription.active ? Math.min(Math.max(0, n.credits.dailyRemaining), total) : total;
 }
 
 async function chargeCreditsFor(cost: number, req: Request, res: Response, next: NextFunction) {
@@ -943,9 +955,9 @@ async function chargeCreditsFor(cost: number, req: Request, res: Response, next:
       const campaign = campaignPool(c);
       const purchased = purchasedPool(c);
       const pro = !!loaded.doc.subscription.active;
-      const split = splitCharge(c, cost, pro);
-      // Pro with the day's allowance left but no general credits: the plan's credits are used up
-      if (!split) return { ok: false as const, reason: pro && c.dailyRemaining > 0 ? 'NO_CREDITS' : 'DAILY_LIMIT' };
+      const split = splitCharge(c, cost, pro ? 'PRO' : 'FREE');
+      // Pro with today's credits left but an empty balance: the plan's credits are used up
+      if (!split) return { ok: false as const, reason: pro && c.dailyRemaining >= cost ? 'NO_CREDITS' : 'DAILY_LIMIT', pro };
       const { dailyDelta, availableDelta, campaignDelta, purchasedDelta } = split;
       const campaignLeft = campaign - campaignDelta;
       const lastCampaignCredit = campaignDelta > 0 && campaignLeft === 0;
@@ -968,6 +980,7 @@ async function chargeCreditsFor(cost: number, req: Request, res: Response, next:
         chargedAt: Date.now(),
         remaining: c.dailyRemaining - dailyDelta,
         limit: c.dailyLimit,
+        pro,
       };
     });
 
@@ -983,7 +996,9 @@ async function chargeCreditsFor(cost: number, req: Request, res: Response, next:
         error: charged.reason,
         nextDailyResetAt: limitReached ? nextDailyReset() : undefined,
         message: limitReached
-          ? cost > 1
+          ? charged.pro
+            ? `You've used today's ${PRO_DAILY_LIMIT} credits${cost > 1 ? ` (this needs ${cost})` : ''}. Your daily limit resets at ${CREDIT_RESET_LABEL}.`
+            : cost > 1
             ? `This uses ${cost} credits and you don't have enough left today. Your daily credits refill automatically at ${CREDIT_RESET_LABEL}, or buy a credit pack.`
             : `You've reached today's limit. Your daily credits refill automatically at ${CREDIT_RESET_LABEL}.`
           : 'Account not initialised. Please sign in again.',
@@ -1003,6 +1018,13 @@ async function chargeCreditsFor(cost: number, req: Request, res: Response, next:
                 ? `Your daily analyses take over now: ${charged.remaining} left, refilling at ${CREDIT_RESET_LABEL}.`
                 : `New prompts are paused until your daily analyses refill automatically at ${CREDIT_RESET_LABEL}.`,
             actionType: 'open_pricing',
+          });
+        } else if (charged.pro && charged.dailyDelta && charged.remaining <= 0) {
+          notifyActivity(user.uid, {
+            type: 'system',
+            title: `You've used today's ${charged.limit} credits`,
+            message: `That's the daily limit on Pro. It resets at ${CREDIT_RESET_LABEL}.`,
+            actionType: 'open_credits',
           });
         } else if (charged.dailyDelta && charged.remaining === 0) {
           notifyActivity(user.uid, {

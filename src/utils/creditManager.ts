@@ -77,17 +77,11 @@ export function purchasedCreditsLeft(state: CreditState): number {
   return Math.max(0, Math.min(state.purchasedCredits ?? 0, state.availableCredits - campaignCreditsLeft(state)));
 }
 
-/** Today's allowance still usable: on Pro it is a cap on the general balance (the plan's credits), so it can't exceed what is left. */
-export function dailyLeft(state: CreditState): number {
-  const daily = Math.max(0, state.dailyUsageRemaining);
-  if (!state.dailyNeedsBalance) return daily;
-  const general = Math.max(0, state.availableCredits - campaignCreditsLeft(state) - purchasedCreditsLeft(state));
-  return Math.min(daily, general);
-}
-
-/** Prompts the user can still send before the next refill: today's allowance, campaign credits and bought credits. */
+/** Prompts the user can still send before the next refill. Pro: a hard 50 credits a day over the whole balance;
+ *  Free: today's analyses + campaign credits + bought credits. */
 export function promptsLeft(state: CreditState): number {
-  return dailyLeft(state) + campaignCreditsLeft(state) + purchasedCreditsLeft(state);
+  if (state.dailyNeedsBalance) return Math.min(Math.max(0, state.dailyUsageRemaining), Math.max(0, state.availableCredits));
+  return Math.max(0, state.dailyUsageRemaining) + campaignCreditsLeft(state) + purchasedCreditsLeft(state);
 }
 
 /** True when today's analyses and campaign credits are both used up (prompts pause until the refill). */

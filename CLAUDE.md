@@ -31,12 +31,13 @@
   "Buy credits" link in the agent panel; `CreditState.purchasedCredits`, `promptsLeft` counts them.
 - Pro credits (owner-specified, Oct 2026): every Pro payment adds `PLAN_CREDITS` to the general balance (`credits.available`): 3 months
   1,000, yearly 3,500 (`fulfillPayment`, `subscription.creditsGranted`; plans bought before get theirs once in `normalizeUser`). Pro's daily
-  allowance is `PRO_DAILY_LIMIT` 50 a day on both plans and is a CAP on that balance, not free analyses (`splitCharge(..., needsBalance)`:
-  a daily slot needs a general credit; `CreditState.dailyNeedsBalance`, `dailyLeft` in `creditManager.ts`); balance used up = 402 `NO_CREDITS`
-  ("You've used your plan's credits"). Analyses, Fundamental Analysis and the trading agent all count toward the 50; bought credits carry on
-  after the cap or the balance runs out. Free keeps 3 free analyses a day. Plan credits stay in the balance when Pro ends.
-  Trading agent credits (owner-specified, no separate agent credit): `chargeAgentInTx` (same pools and order as an analysis: campaign → the
-  day's allowance from the general balance → bought), `refundAgentInTx` on an unfilled cancel (`agentTrades.charge` keeps the split),
+  allowance is `PRO_DAILY_LIMIT` 50 a day on both plans: a HARD TOTAL of credits spent a day (owner-specified), whatever pays (campaign,
+  then the general balance, then bought credits) and whatever spends (analyses, Fundamental Analysis, the trading agent); `splitCharge(c, cost,
+  'PRO')`, no campaign pause on Pro (refills every 3:00 AM), `CreditState.dailyNeedsBalance`, `promptsLeft` = min(today's left, balance).
+  Over the 50 = 402 `DAILY_LIMIT` until 3:00 AM; balance empty = 402 `NO_CREDITS` ("You've used your plan's credits"). Free keeps 3 free
+  analyses a day (`'FREE'`). Plan credits stay in the balance when Pro ends and can be gifted (owner-specified), bought credits can't.
+  Trading agent credits (owner-specified, no separate agent credit): `chargeAgentInTx` (general credits first, bought only when those can't pay;
+  Pro = `'PRO'`, counted in the 50; non-Pro = `'BALANCE'`), `refundAgentInTx` on an unfilled cancel (`agentTrades.charge` keeps the split),
   `agentSpendable` = what the agent page shows and the start/placement check.
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.

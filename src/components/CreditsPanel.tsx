@@ -112,7 +112,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
                 : creditState.dailyNeedsBalance
                   ? `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} left today · ${
                       creditState.dailyUsageLimit - creditState.dailyUsageRemaining
-                    } used. Pro spends your plan's credits, up to ${creditState.dailyUsageLimit} a day (analyses and the Trading Agent). The limit resets every day at ${resetAt}.`
+                    } used. On Pro you can spend up to ${creditState.dailyUsageLimit} credits a day in total (analyses, Fundamental Analysis and the Trading Agent, bought credits included). The limit resets every day at ${resetAt}.`
                   : `${creditState.dailyUsageRemaining} of ${creditState.dailyUsageLimit} analyses left · ${
                       creditState.dailyUsageLimit - creditState.dailyUsageRemaining
                     } used. Each one uses ${TOKEN_RANGE_TEXT}. Refills every day at ${resetAt}, no rollover.`}
@@ -149,6 +149,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ userProfile, creditS
         <section className="rounded-3xl border border-amber-400/15 bg-amber-500/[0.05] p-4 text-xs text-slate-400">
           <span className="text-sm font-medium text-white">{creditState.purchasedCredits} bought credits</span> in your balance: used by the Trading Agent, and for
           analyses once your daily ones run out. The Trading Agent uses your general credits first, then these.
+          {creditState.dailyNeedsBalance && ` On Pro they count toward your ${creditState.dailyUsageLimit} credits a day.`}
         </section>
       )}
       {!unlimited && onCreditsBought && <BuyCreditsCard paymentsConfig={paymentsConfig || null} onPurchased={onCreditsBought} />}

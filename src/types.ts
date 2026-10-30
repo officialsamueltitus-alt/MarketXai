@@ -392,7 +392,7 @@ export interface CreditState {
   campaignCredits?: number;
   /** Credits bought in packs: used by the trading agent and for analyses once the day's analyses run out */
   purchasedCredits?: number;
-  /** Pro: the day's allowance is a cap on the general balance (plan credits), not free analyses */
+  /** Pro: the day's 50 is a hard total of credits spent, from any pool, and needs a balance to spend */
   dailyNeedsBalance?: boolean;
 }
 
