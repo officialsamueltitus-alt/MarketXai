@@ -159,9 +159,14 @@
   More tools, notifications `open_agent`). Its own full-screen PAGE at `/agents` (owner-specified, `src/agents/AgentsPage.tsx` + `agents.css` + `Mt5ServerInput.tsx`,
   lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows): every entry point (`openAgent`: Tools sheet, slash command,
   notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
-  (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Soft, calm design:
-  a status hero with the agent's orb (breathes when idle, sends out rings while running), stat tiles, MT5 card, a sliding-pill tab bar (Setup / Trades /
-  Activity timeline), cards that rise in, steppers and choices that respond to the touch, light and dark themes, reduced motion respected: the trader sets trade type (DAY = 1H, SWING = 4H,
+  (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Design (owner-specified,
+  styled on the owner's dashboard reference): always dark (forced like `.mx-talk` in `index.css`) with lime accents, `agents.css` in `@layer components`;
+  white pill navigation (Setup / Trades / Activity) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
+  P/L, time left with striped progress bars and market "avatars"; credits available with MT5 / run / risk mini cards and a white Start now / Stop now pill),
+  "Live automation" (owner-specified: a pipeline Scan → Find zone → Quality → Order → Manage with a travelling pulse, a tile per market × timeframe whose
+  chart scrolls with a sweeping scan line and step words, a next-scan ring and the latest log lines; it moves ONLY while a run is on, still and grey
+  "Paused" otherwise; the tile charts are drawn shapes, never prices), Trades = a segmented filter (All / Live / Won / Lost) on a white panel with a trade
+  list and a dark detail card, Activity = a white timeline; reduced motion respected: the trader sets trade type (DAY = 1H, SWING = 4H,
   ANY = both; Steady mode only trades 1H/4H), timeframes, markets (`AGENT_MARKETS`: gold, BTC, ETH, USD/JPY, GBP/USD, NAS100; EUR/USD lost in the
   back-test so it is not offered), risk per trade 0.1-2%, trades per day 1-5, profit target and loss limit for the run (% of account, 0 = none) and
   the run length; then switches it on and it works on its own (lead worker, `AGENT_TICK_MS` 60s): scans with Steady mode (option C, the same

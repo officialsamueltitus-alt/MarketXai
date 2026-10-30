@@ -897,8 +897,9 @@ html.mx-blog-page body {
   animation: mx-talk-in 0.35s ease-out both;
 }
 @keyframes mx-talk-in { from { opacity: 0; } to { opacity: 1; } }
-/* The talk screen is always dark (owner's reference): in light mode it keeps the dark colour values */
-:root[data-theme='light'] .mx-talk {
+/* The talk screen and the Trading Agent page are always dark (owner's references): in light mode they keep the dark colour values */
+:root[data-theme='light'] .mx-talk,
+:root[data-theme='light'] .ag {
   color-scheme: dark;
   --mx-bg: #09090b;
   --mx-bg-2: #0c0c0f;

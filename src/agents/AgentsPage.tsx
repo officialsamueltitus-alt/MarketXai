@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Info, Link2, Loader2, Lock, Minus, Plug, Plus, Power, RefreshCw,
-  ShieldAlert, Square, Target, Unlink, WandSparkles, XCircle, Bell, Coins,
+  Activity, ArrowLeft, ArrowUpRight, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Gauge, Info, Layers, LayoutGrid, Link2, Loader2, Lock, Minus, Plug,
+  Plus, Power, Radar, RefreshCw, ScanLine, Send, ShieldAlert, Square, Target, Unlink, WandSparkles, XCircle, Bell, Coins,
 } from 'lucide-react';
 import { apiFetch, formatMoney } from '../utils/apiClient';
 import { exactPrice } from '../utils/formatPrice';
@@ -15,11 +15,12 @@ import { PushToggle } from '../components/PushToggle';
 import { SETUPS } from '../utils/strategyRules';
 import './agents.css';
 
-// Trading Agent page (owner-specified, `/agents`): a full-screen page of its own, soft and calm, with motion that follows
-// what the agent is doing (a breathing orb that sends out rings while it runs, cards that rise in, a sliding tab pill,
-// steppers and choices that respond to the touch). The trader sets it up (trade type, timeframes, markets, risk per trade,
-// profit target, loss limit, trades per day, run length with its credit cost) and switches it on; the agent then finds,
-// places and manages trades on its own (Steady mode) and alerts the trader at every step. Same routes as before.
+// Trading Agent page (owner-specified, `/agents`): a full-screen page of its own, a dark dashboard with lime accents styled on
+// the owner's reference (white pill navigation, big title, stat cards with progress bars, credits card with highlighted mini
+// cards, a white trades panel with a dark detail card). "Live automation" shows the agent at work (a pipeline pulse, market
+// charts being scanned, the next-scan ring, its latest steps): it moves only while a run is on and stops when it ends or the
+// trader stops it. The trader sets it up (strategy, trade type, timeframes, markets, risk, limits, run length) and switches it
+// on; the agent then finds, places and manages trades on its own and alerts the trader at every step. Same routes as before.
 interface AgentState {
   settings: AgentSettings;
   run: AgentRunView | null;
@@ -71,57 +72,93 @@ const left = (t: number) => {
   return h < 48 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`;
 };
 
-const STATE_CHIP: Record<string, { text: string; cls: string }> = {
-  PENDING: { text: 'Waiting to fill', cls: 'bg-sky-500/12 text-sky-300' },
-  OPEN: { text: 'Open', cls: 'bg-violet-500/12 text-violet-300' },
-  WIN: { text: 'Won', cls: 'bg-emerald-500/12 text-emerald-300' },
-  LOSS: { text: 'Lost', cls: 'bg-rose-500/12 text-rose-300' },
-  TIMEOUT: { text: 'Closed', cls: 'bg-slate-500/12 text-slate-300' },
-  CANCELLED: { text: 'Cancelled', cls: 'bg-slate-500/10 text-slate-400' },
+const STATE_CHIP: Record<string, { text: string; tone: 'live' | 'win' | 'loss' | 'flat' }> = {
+  PENDING: { text: 'Waiting to fill', tone: 'live' },
+  OPEN: { text: 'Open', tone: 'live' },
+  WIN: { text: 'Won', tone: 'win' },
+  LOSS: { text: 'Lost', tone: 'loss' },
+  TIMEOUT: { text: 'Closed', tone: 'flat' },
+  CANCELLED: { text: 'Cancelled', tone: 'flat' },
 };
-const chipOf = (t: AgentTradeView) => STATE_CHIP[t.state === 'CLOSED' ? t.result || 'TIMEOUT' : t.state];
-const LOG_ICON: Record<AgentLogEntry['kind'], { icon: React.ElementType; cls: string; dot: string }> = {
-  START: { icon: Power, cls: 'text-emerald-300', dot: 'bg-emerald-400' },
-  SCAN: { icon: Activity, cls: 'text-slate-400', dot: 'bg-slate-500' },
-  ORDER: { icon: CircleDot, cls: 'text-sky-300', dot: 'bg-sky-400' },
-  FILL: { icon: Target, cls: 'text-violet-300', dot: 'bg-violet-400' },
-  WIN: { icon: CheckCircle2, cls: 'text-emerald-300', dot: 'bg-emerald-400' },
-  LOSS: { icon: XCircle, cls: 'text-rose-300', dot: 'bg-rose-400' },
-  CLOSE: { icon: Square, cls: 'text-slate-300', dot: 'bg-slate-400' },
-  CANCEL: { icon: Minus, cls: 'text-slate-400', dot: 'bg-slate-500' },
-  STOP: { icon: Square, cls: 'text-amber-300', dot: 'bg-amber-400' },
-  END: { icon: Clock, cls: 'text-slate-300', dot: 'bg-slate-400' },
-  PAUSE: { icon: ShieldAlert, cls: 'text-amber-300', dot: 'bg-amber-400' },
+const chipOf = (t: AgentTradeView) => STATE_CHIP[t.state === 'CLOSED' ? t.result || 'TIMEOUT' : t.state] || STATE_CHIP.TIMEOUT;
+const LOG_ICON: Record<AgentLogEntry['kind'], { icon: React.ElementType; color: string }> = {
+  START: { icon: Power, color: '#4d7c0f' },
+  SCAN: { icon: Activity, color: '#6b7280' },
+  ORDER: { icon: CircleDot, color: '#0369a1' },
+  FILL: { icon: Target, color: '#6d28d9' },
+  WIN: { icon: CheckCircle2, color: '#15803d' },
+  LOSS: { icon: XCircle, color: '#be123c' },
+  CLOSE: { icon: Square, color: '#374151' },
+  CANCEL: { icon: Minus, color: '#6b7280' },
+  STOP: { icon: Square, color: '#b45309' },
+  END: { icon: Clock, color: '#374151' },
+  PAUSE: { icon: ShieldAlert, color: '#b45309' },
 };
+
+/** Market "avatars": a short code on the market's own colour */
+const MARKET_AV: Record<string, { code: string; bg: string }> = {
+  'XAU/USD': { code: 'XAU', bg: '#fcd34d' },
+  'BTC/USDT': { code: 'BTC', bg: '#fdba74' },
+  'ETH/USDT': { code: 'ETH', bg: '#c4b5fd' },
+  'USD/JPY': { code: 'JPY', bg: '#fda4af' },
+  'GBP/USD': { code: 'GBP', bg: '#7dd3fc' },
+  NAS100: { code: 'NAS', bg: '#86efac' },
+};
+const avOf = (s: string) => MARKET_AV[s] || { code: s.replace(/[^A-Z]/g, '').slice(0, 3) || '•', bg: '#e5e7eb' };
+function MarketAv({ symbol, size = 34 }: { symbol: string; size?: number }) {
+  const a = avOf(symbol);
+  return (
+    <span className="ag-av" style={{ background: a.bg, width: size, height: size, fontSize: size < 30 ? 7.5 : 9.5 }} title={symbol}>
+      {a.code}
+    </span>
+  );
+}
+
+/** A made-up but steady line per market for the scan animation (no prices: it only shows the agent reading charts) */
+function scanPath(seed: string): { line: string; area: string } {
+  let h = 2166136261;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const rnd = () => ((h = Math.imul(h ^ (h >>> 13), 1274126177)) >>> 0) / 4294967296;
+  const n = 22;
+  const ys: number[] = [];
+  let y = 30;
+  for (let i = 0; i < n; i++) {
+    y = Math.max(8, Math.min(46, y + (rnd() - 0.5) * 16));
+    ys.push(y);
+  }
+  ys.push(ys[0]);
+  // Two identical periods side by side, so sliding by half loops without a seam
+  const pts: string[] = [];
+  for (let k = 0; k < 2; k++) ys.forEach((v, i) => (k === 1 && i === 0 ? null : pts.push(`${((k * n + i) / (2 * n)) * 200},${v.toFixed(1)}`)));
+  const line = `M${pts.join(' L')}`;
+  return { line, area: `${line} L200,54 L0,54 Z` };
+}
+const SCAN_STEPS = ['Reading candles', 'Mapping zones', 'Checking quality', 'Waiting for a setup'];
+const FLOW: Array<[string, React.ElementType]> = [
+  ['Scan', ScanLine],
+  ['Find zone', Layers],
+  ['Quality', Gauge],
+  ['Order', Send],
+  ['Manage', Bell],
+];
 
 /** Rise-in delay for the n-th item of a list */
 const rise = (i: number): React.CSSProperties => ({ animationDelay: `${Math.min(i, 12) * 45}ms` });
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'up' | 'down' }) {
-  return (
-    <div className="ag-tile">
-      <p className="text-[10.5px] uppercase tracking-[0.08em] text-slate-500 truncate">{label}</p>
-      <p key={value} className={`ag-pop mt-1 text-[17px] font-semibold tabular-nums truncate ${tone === 'up' ? 'text-emerald-300' : tone === 'down' ? 'text-rose-300' : 'text-white'}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function Stepper({ value, min, max, step, onChange, suffix, label, title, hint }: { value: number; min: number; max: number; step: number; onChange: (v: number) => void; suffix?: string; label: string; title: string; hint: string }) {
   const set = (v: number) => onChange(Math.min(max, Math.max(min, Number((Math.round(v / step) * step).toFixed(2)))));
   return (
     <div className="ag-soft p-3.5">
       <p className="text-[13px] font-medium text-white">{title}</p>
-      <p className="text-[11px] text-slate-500 leading-snug min-h-[28px]">{hint}</p>
+      <p className="text-[11px] text-[#8a91a0] leading-snug min-h-[28px]">{hint}</p>
       <div className="mt-2.5 flex items-center justify-between gap-2">
-        <button type="button" disabled={value <= min} onClick={() => set(value - step)} aria-label={`Less ${label}`} className="ag-round">
+        <button type="button" disabled={value <= min} onClick={() => set(value - step)} aria-label={`Less ${label}`} className="ag-step-btn">
           <Minus className="w-3.5 h-3.5" />
         </button>
-        <span key={value} className="ag-pop text-[18px] font-semibold text-white tabular-nums">
+        <span key={value} className="ag-pop text-[20px] font-medium text-white tabular-nums">
           {value === 0 && suffix === '%' && min === 0 ? 'None' : `${value}${suffix || ''}`}
         </span>
-        <button type="button" disabled={value >= max} onClick={() => set(value + step)} aria-label={`More ${label}`} className="ag-round">
+        <button type="button" disabled={value >= max} onClick={() => set(value + step)} aria-label={`More ${label}`} className="ag-step-btn">
           <Plus className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -132,8 +169,8 @@ function Stepper({ value, min, max, step, onChange, suffix, label, title, hint }
 function Section({ title, hint, children, i = 0 }: { title: string; hint?: string; children: React.ReactNode; i?: number }) {
   return (
     <section className="ag-card ag-rise p-4 sm:p-5" style={rise(i)}>
-      <p className="text-[14px] font-semibold text-white">{title}</p>
-      {hint && <p className="mt-0.5 text-[11.5px] text-slate-500">{hint}</p>}
+      <p className="text-[15px] font-medium text-white">{title}</p>
+      {hint && <p className="mt-0.5 text-[11.5px] text-[#8a91a0]">{hint}</p>}
       <div className="mt-3.5">{children}</div>
     </section>
   );
@@ -162,6 +199,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   const [showBacktest, setShowBacktest] = useState(false);
   const [mt5Form, setMt5Form] = useState({ login: '', server: '', password: '', consent: false });
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [tradeFilter, setTradeFilter] = useState<'all' | 'live' | 'won' | 'lost'>('all');
+  const [picked, setPicked] = useState<string | null>(null);
   const toast = useCallback((m: string, t?: 'success' | 'info') => onToast?.(m, t), [onToast]);
   const pageRef = useRef<HTMLDivElement>(null);
   const onBackRef = useRef(onBack);
@@ -207,6 +246,13 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
     const id = setInterval(() => setClock(Date.now()), linking ? 1000 : 30_000);
     return () => clearInterval(id);
   }, [linking, running]);
+  // Live automation: a 1s beat while the agent runs (next-scan ring, step words); nothing ticks when it's off
+  const [beat, setBeat] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => document.visibilityState === 'visible' && setBeat(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
   // A new agent notice (order, fill, result) while the page is open: show it straight away
   useEffect(() => {
     if (pulse) load(true);
@@ -215,6 +261,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   useEffect(() => {
     if (!focusId || !data) return;
     setTab('trades');
+    setTradeFilter('all');
+    setPicked(focusId);
     const t = setTimeout(() => pageRef.current?.querySelector(`[data-trade="${focusId}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 160);
     return () => clearTimeout(t);
   }, [focusId, data]);
@@ -301,314 +349,380 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   const access = data?.access;
   const allowed = !!access?.allowed;
   const link = data?.mt5?.link || null;
-  const rs = run?.stats;
-  const openTrades = (data?.trades || []).filter(t => t.state === 'OPEN' || t.state === 'PENDING');
+  const trades = data?.trades || [];
+  const openTrades = trades.filter(t => t.state === 'OPEN' || t.state === 'PENDING');
   const marketLabel = (s: string) => data?.markets.find(m => m.symbol === s);
-  const tabs: Array<[Tab, string]> = [
+  const linkStep = link?.stage === 'SIGNING_IN' ? 3 : link?.stage === 'DEPLOYING' ? 2 : 1;
+  // The overview follows the live run, else all the agent's trades
+  const st = (running && run?.stats) || data?.stats || null;
+  const won = trades.filter(t => t.state === 'CLOSED' && t.result === 'WIN');
+  const lost = trades.filter(t => t.state === 'CLOSED' && t.result === 'LOSS');
+  const filtered = tradeFilter === 'live' ? openTrades : tradeFilter === 'won' ? won : tradeFilter === 'lost' ? lost : trades;
+  const sel = filtered.find(t => t.id === picked) || filtered[0] || null;
+  const runMarkets = running ? run!.settings.markets : draft.markets;
+  const runFrames = running ? run!.settings.timeframes : draft.timeframes;
+  const elapsed = running ? Math.min(1, Math.max(0, (beat - run!.startedAt) / Math.max(1, run!.endsAt - run!.startedAt))) : 0;
+  const lastScan = run?.lastScanAt || run?.startedAt || beat;
+  const nextScan = running ? 60 - (Math.floor((beat - lastScan) / 1000) % 60) : 60;
+  const navTabs: Array<[Tab, string, number?]> = [
     ['setup', 'Setup'],
-    ['trades', `Trades${data?.trades.length ? ` · ${data.trades.length}` : ''}`],
+    ['trades', 'Trades', trades.length || undefined],
     ['activity', 'Activity'],
   ];
-  const tabIndex = tabs.findIndex(([id]) => id === tab);
-  const linkStep = link?.stage === 'SIGNING_IN' ? 3 : link?.stage === 'DEPLOYING' ? 2 : 1;
+  const goSetupStart = () => {
+    setTab('setup');
+    setTimeout(() => pageRef.current?.querySelector('[data-start]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+  };
+  const scanTiles = runMarkets.flatMap(m => runFrames.map(tf => ({ m, tf }))).slice(0, 8);
 
   return (
-    <div ref={pageRef} className="ag fixed inset-0 z-[46] overflow-y-auto overscroll-contain bg-[var(--mx-bg)] text-slate-100" role="main" aria-label="Trading Agent">
-      <div className="ag-aura" aria-hidden="true" data-on={running ? '1' : undefined} />
-
-      {/* Top bar */}
+    <div ref={pageRef} className="ag fixed inset-0 z-[46] overflow-y-auto overscroll-contain" role="main" aria-label="Trading Agent">
+      {/* Top bar: brand, white pill navigation, round buttons */}
       <header className="sticky top-0 z-20 ag-bar">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
-          <button type="button" onClick={onBack} className="ag-back" aria-label="Back to MarketX">
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Back</span>
-          </button>
-          <div className="min-w-0 flex items-center gap-2.5">
+        <div className="max-w-[1240px] mx-auto px-4 sm:px-6 h-[68px] flex items-center gap-3">
+          <span className="ag-brand">
             <span className={`ag-mark ${running ? 'on' : ''}`} aria-hidden="true">
               <Bot className="w-4 h-4" />
             </span>
-            <div className="min-w-0">
-              <h1 className="text-[15px] sm:text-base font-semibold text-white tracking-tight leading-tight">Trading Agent</h1>
-              <p className="text-[11px] text-slate-500 truncate hidden sm:block">Finds, places and manages trades for you, and tells you every step</p>
-            </div>
-          </div>
-          <span className={`ml-auto ag-status ${running ? 'on' : ''}`}>
+            <span className="hidden sm:inline">Trading Agent</span>
+          </span>
+          <nav className="ag-nav mx-auto" role="tablist" aria-label="Trading agent">
+            <span className="ag-nav-ico hidden md:grid" aria-hidden="true">
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </span>
+            {navTabs.map(([id, label, count]) => (
+              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`ag-nav-tab ${tab === id ? 'on' : ''}`}>
+                {label}
+                {count ? <span className="ag-nav-count">{count}</span> : null}
+              </button>
+            ))}
+          </nav>
+          <span className={`ag-status hidden sm:inline-flex ${running ? 'on' : ''}`}>
             <span className="ag-status-dot" />
             {running ? 'Running' : run ? 'Ended' : 'Off'}
           </span>
-          <button type="button" onClick={() => load()} disabled={loading} className="ag-round !w-9 !h-9" aria-label="Refresh">
+          <button type="button" onClick={() => load()} disabled={loading} className="ag-round" aria-label="Refresh">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>
 
-      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-4 pb-[max(4rem,calc(env(safe-area-inset-bottom)+3rem))]">
+      <div className="relative max-w-[1240px] mx-auto px-4 sm:px-6 pt-3 pb-[max(4rem,calc(env(safe-area-inset-bottom)+3rem))]">
+        {/* Title row */}
+        <div className="flex items-center gap-3 sm:gap-4">
+          <button type="button" onClick={onBack} className="ag-round" aria-label="Back to MarketX">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <h1 className="text-[28px] sm:text-[44px] font-light tracking-[-0.03em] text-white leading-none">Trading Agent</h1>
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={() => setBuilderOpen(true)} className="ag-round hidden sm:grid" aria-label="Strategies" title="Strategies">
+              <WandSparkles className="w-3.5 h-3.5" />
+            </button>
+            {data &&
+              (running ? (
+                <button type="button" onClick={() => setConfirmStop(true)} className="ag-pill">
+                  <Square className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Stop agent</span>
+                  <span className="sm:hidden">Stop</span>
+                </button>
+              ) : (
+                <button type="button" onClick={goSetupStart} className="ag-pill">
+                  <Power className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Start the agent</span>
+                  <span className="sm:hidden">Start</span>
+                </button>
+              ))}
+          </div>
+        </div>
+
         {!data && loading && (
-          <div className="py-28 flex flex-col items-center gap-4 text-slate-500">
-            <span className="ag-orb" aria-hidden="true" />
+          <div className="py-28 flex flex-col items-center gap-4 text-[#8a91a0]">
+            <span className="ag-mark on" aria-hidden="true">
+              <Bot className="w-4 h-4" />
+            </span>
             <p className="text-xs">Waking the agent…</p>
           </div>
         )}
         {!data && !loading && error && (
           <div className="py-24 text-center">
             <p className="text-sm text-rose-300">{error}</p>
-            <button type="button" onClick={() => load()} className="mt-4 ag-ghost-btn">
+            <button type="button" onClick={() => load()} className="mt-4 ag-pill">
               <RefreshCw className="w-3.5 h-3.5" /> Try again
             </button>
           </div>
         )}
 
         {data && (
-          <div className="grid lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] gap-4 lg:gap-6 items-start">
-            {/* ---------- Left: status, plan, MT5 ---------- */}
-            <div className="space-y-4 lg:sticky lg:top-20">
-              {/* Status hero */}
-              <section className={`ag-hero ag-rise ${running ? 'on' : ''}`}>
-                <div className="flex items-center gap-4">
-                  <span className={`ag-orb ${running ? 'on' : ''}`} aria-hidden="true">
-                    <Bot className="w-5 h-5" />
-                  </span>
+          <>
+            {/* ---------- Overview: results + credits ---------- */}
+            <div className="mt-5 sm:mt-7 grid lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-3 sm:gap-4">
+              <section className="ag-card ag-rise p-5 sm:p-6" style={rise(0)}>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-6">
                   <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.1em] text-slate-500">{running ? `${AGENT_PRICING[run!.settings.duration].label} run` : 'Status'}</p>
-                    <p className="text-[19px] font-semibold text-white leading-tight">{running ? 'Working on your markets' : run ? ENDED_TEXT[run.endedReason || 'TIME_UP'] : 'Ready when you are'}</p>
-                    {running && (
-                      <p className="mt-0.5 text-[12px] text-emerald-300/90 tabular-nums" data-clock={clock}>
-                        Ends in {left(run!.endsAt)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {run ? (
-                  <>
-                    <p className="mt-3.5 text-[11.5px] text-slate-400 leading-relaxed">
-                      {run.strategyName ? `Strategy: ${run.strategyName}` : 'MarketX engine'} · {run.settings.markets.map(m => marketLabel(m)?.label || m).join(', ')} · {run.settings.timeframes.join(' + ')} · risk {run.settings.riskPct}% · up to {run.settings.tradesPerDay}/day
-                    </p>
-                    <div className="mt-3.5 grid grid-cols-4 gap-2">
-                      <Stat label="Won" value={rs!.trades ? `${rs!.winRate}%` : '–'} />
-                      <Stat label="Result" value={rs!.trades ? `${sign(rs!.totalR)}R` : '–'} tone={rs!.totalR > 0 ? 'up' : rs!.totalR < 0 ? 'down' : undefined} />
-                      <Stat label="P/L" value={rs!.trades ? `${sign(rs!.pnlPct)}%` : '–'} tone={rs!.pnlPct > 0 ? 'up' : rs!.pnlPct < 0 ? 'down' : undefined} />
-                      <Stat label="Credits" value={String(run.creditsUsed)} />
+                    <p className="ag-label">{running ? 'Won this run' : 'Won'}</p>
+                    <p key={`w${st?.winRate}`} className="ag-big ag-pop mt-1.5">{st?.trades ? `${st.winRate}%` : '–'}</p>
+                    <div className="mt-5 flex justify-between ag-label text-[11px]">
+                      <span>{st?.wins ?? 0} won</span>
+                      <span>{st?.losses ?? 0} lost</span>
                     </div>
-                    {running && (
-                      <p className="mt-3 text-[11.5px] text-slate-400">
-                        {openTrades.length ? `${openTrades.length} order${openTrades.length === 1 ? '' : 's'}/trade${openTrades.length === 1 ? '' : 's'} live. ` : 'Watching your markets for a clean setup. '}
-                        It only trades setups of quality {run!.settings.strategyId ? data.strategyMinQuality ?? 45 : data.minQuality}+, so some days it takes none.
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="mt-3.5 text-[12px] text-slate-400 leading-relaxed">Set it up and switch it on for a day, a week or a month. It finds the setup, places the order and manages it to the target or the stop.</p>
-                )}
-
-                {running && (
-                  <div className={`ag-collapse ${confirmStop ? 'open' : ''}`}>
-                    <div>
-                      <div className="mt-3.5 ag-soft p-3.5 space-y-2.5">
-                        <p className="text-[12px] text-slate-300">Stop the agent? Orders waiting to fill are cancelled (no credits used).</p>
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" disabled={busy} onClick={() => stop(false)} className="ag-ghost-btn">
-                            Stop, keep open trades
-                          </button>
-                          <button type="button" disabled={busy} onClick={() => stop(true)} className="ag-ghost-btn !bg-rose-500/15 !text-rose-200 hover:!bg-rose-500/25">
-                            Stop and close them now
-                          </button>
-                          <button type="button" onClick={() => setConfirmStop(false)} className="px-3 h-9 rounded-full text-xs text-slate-400 hover:text-white cursor-pointer">
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
+                    <div className="mt-1.5 ag-bar-track">
+                      <span className="ag-bar-fill" style={{ width: `${st?.trades ? st.winRate : 0}%` }} />
                     </div>
-                  </div>
-                )}
-                {running && !confirmStop && (
-                  <button type="button" onClick={() => setConfirmStop(true)} className="mt-3.5 w-full ag-ghost-btn !h-11 !rounded-2xl justify-center">
-                    <Square className="w-3.5 h-3.5" /> Stop agent
-                  </button>
-                )}
-              </section>
-
-              {/* Pro: the agent is part of Pro (free for everyone until the Pro date); credits are used per trade */}
-              {access && !allowed && (
-                <section className="ag-card ag-rise p-4 sm:p-5 !border-violet-400/25" style={{ ...rise(1), background: 'linear-gradient(135deg, rgba(139,92,246,0.12), rgba(217,70,239,0.06))' }}>
-                  <div className="flex items-center gap-2">
-                    <Crown className="w-4 h-4 text-violet-300" />
-                    <p className="text-[14px] font-semibold text-white">The Trading Agent is part of Pro</p>
-                  </div>
-                  <p className="mt-1 text-[12px] text-slate-400">Upgrade to Pro to switch it on. Credits are used per trade the agent takes.</p>
-                  {onUpgrade && (
-                    <button type="button" onClick={onUpgrade} className="mt-3.5 w-full ag-cta !from-violet-500 !to-fuchsia-500">
-                      <Lock className="w-4 h-4" /> Upgrade to Pro
-                    </button>
-                  )}
-                </section>
-              )}
-              {access && allowed && !access.staff && access.freeUntil && (
-                <p className="ag-rise text-[11.5px] text-slate-500 flex items-center gap-1.5 px-1" style={rise(1)}>
-                  <Crown className="w-3.5 h-3.5 text-violet-300" /> Free for everyone until{' '}
-                  {new Date(access.freeUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, then part of Pro.
-                </p>
-              )}
-
-              {/* MT5 */}
-              <section className="ag-card ag-rise p-4 sm:p-5" style={rise(2)}>
-                <div className="flex gap-3">
-                  <span className={`ag-icon ${link?.status === 'CONNECTED' ? 'ok' : link?.status === 'FAILED' ? 'bad' : 'wait'}`}>
-                    <Plug className="w-4 h-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-semibold text-white">
-                      {link?.status === 'CONNECTED' ? `MT5 linked · ${link.login}` : link?.status === 'CONNECTING' ? 'Linking your MT5…' : link?.status === 'FAILED' ? `MT5 not linked · ${link.server}` : 'MT5'}
-                    </p>
-                    <p className={`mt-0.5 text-[11.5px] leading-relaxed ${link?.status === 'FAILED' ? 'text-rose-300' : 'text-slate-400'}`} role={link?.status === 'FAILED' ? 'alert' : undefined}>
-                      {link?.status === 'CONNECTED'
-                        ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.${link.asleep ? ' Resting while the agent is off: it reconnects by itself when you start a run.' : ''}`
-                        : link?.status === 'CONNECTING'
-                          ? link.message || 'Signing in to your broker…'
-                          : link?.status === 'FAILED'
-                            ? link.message || 'Linking failed. Check your details and try again.'
-                            : data.mt5.available
-                              ? 'Link your MT5 account and the agent places its trades there. Until then MarketX tracks each trade and alerts you with the exact order.'
-                              : 'MT5 linking is being set up. Until then MarketX tracks each trade and alerts you with the exact order to place.'}
-                    </p>
-                  </div>
-                </div>
-                {link?.status === 'CONNECTED' && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {Object.entries(link.symbols).map(([m, bs]) => (
-                      <span key={m} className={`text-[10.5px] px-2.5 py-1 rounded-full ${bs ? 'bg-emerald-500/10 text-emerald-200' : 'bg-white/[0.04] text-slate-500'}`}>
-                        {marketLabel(m)?.label || m}: {bs || 'not at your broker'}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {link?.status === 'CONNECTING' && (
-                  <div className="mt-3.5">
-                    <div className="flex items-center gap-2 text-[11.5px] text-slate-300">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
-                      <span>
-                        Step {linkStep} of 3: {linkStep === 3 ? 'signing in to your broker' : linkStep === 2 ? 'starting the MT5 connection' : 'checking your details'}
-                      </span>
-                      <span className="ml-auto tabular-nums text-slate-500">
-                        {(() => {
-                          const s = Math.max(0, Math.floor(((clock || Date.now()) - link.linkedAt) / 1000));
-                          return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-                        })()}
-                      </span>
-                    </div>
-                    <div className="mt-2 grid grid-cols-3 gap-1.5" aria-hidden="true">
-                      {[1, 2, 3].map(n => (
-                        <span key={n} className={`ag-step ${n < linkStep ? 'done' : n === linkStep ? 'now' : ''}`} />
+                    <div className="mt-4 ag-avatars" aria-label="Markets">
+                      {runMarkets.slice(0, 6).map(m => (
+                        <MarketAv key={m} symbol={m} />
                       ))}
                     </div>
-                    <p className="mt-2 text-[10.5px] text-slate-500">Usually under 2 minutes; a broker server MT5 hasn't seen before can take up to 5. If it can't link, the reason shows here.</p>
                   </div>
-                )}
-                {link && (
-                  <div className="mt-3.5 flex gap-2">
-                    {link.status !== 'FAILED' && (
-                      <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5/refresh', 'POST')} className="ag-ghost-btn">
-                        <RefreshCw className="w-3 h-3" /> Check
-                      </button>
-                    )}
-                    <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5', 'DELETE')} className="ag-ghost-btn !text-slate-300">
-                      <Unlink className="w-3 h-3" /> {link.status === 'FAILED' ? 'Clear' : link.status === 'CONNECTING' ? 'Cancel' : 'Disconnect'}
-                    </button>
-                  </div>
-                )}
-                {(!link || link.status === 'FAILED') && data.mt5.available && allowed && (
-                  <form
-                    className="mt-4 space-y-2.5"
-                    onSubmit={e => {
-                      e.preventDefault();
-                      connectMt5();
-                    }}
-                    autoComplete="off"
-                  >
-                    <div className="grid grid-cols-2 gap-2">
-                      <input value={mt5Form.login} onChange={e => setMt5Form(f => ({ ...f, login: e.target.value.replace(/\D/g, '').slice(0, 20) }))} inputMode="numeric" placeholder="MT5 login" aria-label="MT5 login" className="ag-input" />
-                      <Mt5ServerInput value={mt5Form.server} onChange={v => setMt5Form(f => ({ ...f, server: v }))} />
-                    </div>
-                    <input type="password" value={mt5Form.password} onChange={e => setMt5Form(f => ({ ...f, password: e.target.value.slice(0, 64) }))} placeholder="Master (trading) password" aria-label="MT5 master password" autoComplete="new-password" className="ag-input w-full" />
-                    <label className="flex items-start gap-2.5 text-[11.5px] text-slate-400 cursor-pointer leading-relaxed">
-                      <input type="checkbox" checked={mt5Form.consent} onChange={e => setMt5Form(f => ({ ...f, consent: e.target.checked }))} className="mt-0.5 accent-emerald-500" />
-                      <span>I let the MarketX agent place and close trades on this account. The password goes straight to the secure MT5 connection: MarketX never stores it. An investor password can't place trades.</span>
-                    </label>
-                    <button type="submit" disabled={busy || !mt5Form.login || !mt5Form.server || !mt5Form.password || !mt5Form.consent} className="w-full ag-ghost-btn !h-11 !rounded-2xl justify-center">
-                      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Link MT5
-                    </button>
-                  </form>
-                )}
-              </section>
-
-              {/* The agent's notices on this device (the same switch as the sidebar's) */}
-              <section className="ag-card ag-rise p-4 sm:p-5" style={rise(3)}>
-                <div className="flex items-center gap-2.5 mb-3">
-                  <span className="ag-icon ok">
-                    <Bell className="w-4 h-4" />
-                  </span>
                   <div className="min-w-0">
-                    <p className="text-[14px] font-semibold text-white">Alerts on this device</p>
-                    <p className="text-[11.5px] text-slate-500">Orders, fills, wins and losses show on your phone or computer, and in MarketX's notifications wherever you are.</p>
+                    <p className="ag-label">Result</p>
+                    <p key={`r${st?.totalR}`} className={`ag-big ag-pop mt-1.5 ${st && st.totalR > 0 ? '!text-[#b6f23d]' : st && st.totalR < 0 ? '!text-rose-300' : ''}`}>
+                      {st?.trades ? `${sign(st.totalR)}R` : '–'}
+                    </p>
+                    <div className="mt-5 flex justify-between ag-label text-[11px]">
+                      <span>{st?.trades ? `${sign(st.pnlPct)}% of account` : 'No closed trades'}</span>
+                      <span>{openTrades.length} live</span>
+                    </div>
+                    <div className="mt-1.5 ag-bar-track">
+                      <span className={`ag-bar-fill ${running && openTrades.length ? 'run' : ''}`} style={{ width: `${Math.min(100, (openTrades.length / Math.max(1, (running ? run!.settings : draft).tradesPerDay)) * 100)}%` }} />
+                    </div>
+                    <p className="mt-4 text-[11.5px] text-[#8a91a0] leading-snug">
+                      {running ? `Up to ${run!.settings.tradesPerDay} a day · risk ${run!.settings.riskPct}% a trade` : `${data.stats.trades} closed trade${data.stats.trades === 1 ? '' : 's'} so far`}
+                    </p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="ag-label">{running ? 'Time left' : 'Status'}</p>
+                    <p className="ag-big mt-1.5" data-clock={clock}>
+                      {running ? left(run!.endsAt) : <span className="text-[24px] text-[#c7ccd6]">{run ? ENDED_TEXT[run.endedReason || 'TIME_UP'] : 'Off'}</span>}
+                    </p>
+                    <div className="mt-5 flex justify-between ag-label text-[11px]">
+                      <span>{running ? AGENT_PRICING[run!.settings.duration].label : AGENT_PRICING[draft.duration].label}</span>
+                      <span>{running ? `${Math.round(elapsed * 100)}%` : AGENT_RUN_LABEL[draft.duration]}</span>
+                    </div>
+                    <div className="mt-1.5 ag-bar-track">
+                      <span className={`ag-bar-fill ${running ? 'run' : ''}`} style={{ width: `${running ? Math.max(3, elapsed * 100) : 0}%` }} />
+                    </div>
+                    <p className="mt-4 text-[11.5px] text-[#8a91a0] leading-snug truncate">{running ? (run!.strategyName ? `Strategy: ${run!.strategyName}` : 'MarketX engine') : chosen ? `Strategy: ${chosen.name}` : 'MarketX engine'}</p>
                   </div>
                 </div>
-                <PushToggle what="every agent order, fill and result" onToast={toast} />
               </section>
 
-              {error && (
-                <p className="ag-rise text-[12px] text-rose-300 bg-rose-500/10 rounded-2xl px-3.5 py-2.5" role="alert">
-                  {error}
-                </p>
-              )}
+              <section className="ag-card ag-rise p-5 sm:p-6 pb-0 sm:pb-0 flex flex-col" style={rise(1)}>
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0">
+                    <p className="ag-label">Credits available</p>
+                    <div className="mt-1.5 flex items-center gap-2.5 flex-wrap">
+                      <p className={`ag-big ${short ? '!text-amber-300' : ''}`}>{credits === null ? '∞' : short ? '0' : credits.toLocaleString()}</p>
+                      {onBuyCredits && credits !== null && (
+                        <button type="button" onClick={onBuyCredits} className="ag-pill !h-7 !px-3 !text-[11px]">
+                          Buy credits
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[11px] text-[#8a91a0]">{short ? 'No credits available: the agent can’t start.' : 'Used only when the agent places a trade, refunded if it never fills.'}</p>
+                  </div>
+                  {onBuyCredits && (
+                    <button type="button" onClick={onBuyCredits} className="ag-round sm ml-auto" aria-label="Open credits">
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-auto pt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                  <div className="ag-minis">
+                    <div className={`ag-mini ${link?.status === 'CONNECTED' && !running ? 'hi' : ''}`}>
+                      <p className="text-[11.5px] font-semibold truncate">{link?.status === 'CONNECTED' ? `*${String(link.login).slice(-4)}` : link?.status === 'CONNECTING' ? 'Linking' : 'Not linked'}</p>
+                      <p className="text-[10.5px] opacity-70">MT5</p>
+                    </div>
+                    <div className={`ag-mini ${running ? 'hi' : ''}`}>
+                      <p className="text-[11.5px] font-semibold truncate">{running ? left(run!.endsAt) : AGENT_PRICING[draft.duration].label}</p>
+                      <p className="text-[10.5px] opacity-70">{running ? 'Running' : 'Run'}</p>
+                    </div>
+                    <div className="ag-mini">
+                      <p className="text-[11.5px] font-semibold truncate">{(running ? run!.settings.riskPct : draft.riskPct) + '%'}</p>
+                      <p className="text-[10.5px] opacity-70">Risk</p>
+                    </div>
+                  </div>
+                  <div className="pb-4">
+                    {running ? (
+                      <button type="button" onClick={() => setConfirmStop(true)} className="ag-pill white">
+                        Stop now
+                      </button>
+                    ) : (
+                      <button type="button" onClick={goSetupStart} className="ag-pill white">
+                        Start now
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </section>
             </div>
 
-            {/* ---------- Right: tabs ---------- */}
-            <div className="min-w-0">
-              <div role="tablist" aria-label="Trading agent" className="ag-tabs ag-rise" style={rise(1)}>
-                <span className="ag-tab-pill" style={{ transform: `translateX(${tabIndex * 100}%)` }} aria-hidden="true" />
-                {tabs.map(([id, label]) => (
-                  <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`ag-tab ${tab === id ? 'on' : ''}`}>
-                    {label}
-                  </button>
+            {/* Stop: asks first */}
+            {running && (
+              <div className={`ag-collapse ${confirmStop ? 'open' : ''}`}>
+                <div>
+                  <div className="mt-3 ag-card p-4 flex flex-wrap items-center gap-2.5">
+                    <p className="text-[12.5px] text-[#c7ccd6] mr-auto">Stop the agent? Orders waiting to fill are cancelled and their credits refunded.</p>
+                    <button type="button" disabled={busy} onClick={() => stop(false)} className="ag-pill">
+                      Stop, keep open trades
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => stop(true)} className="ag-pill danger">
+                      Stop and close them now
+                    </button>
+                    <button type="button" onClick={() => setConfirmStop(false)} className="ag-pill !border-transparent">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {error && (
+              <p className="mt-3 ag-rise text-[12px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-full px-4 py-2.5" role="alert">
+                {error}
+              </p>
+            )}
+
+            {/* ---------- Live automation: moves only while the agent runs ---------- */}
+            <section className="mt-3 sm:mt-4 ag-card ag-live ag-rise p-5 sm:p-6" style={rise(2)} data-on={running ? '1' : undefined} aria-label="Live automation">
+              <div className="relative flex flex-wrap items-center gap-3">
+                <div className="min-w-0">
+                  <p className="text-[15px] font-medium text-white flex items-center gap-2">
+                    <Radar className={`w-4 h-4 ${running ? 'text-[#b6f23d]' : 'text-[#6b7280]'}`} /> Live automation
+                  </p>
+                  <p className="mt-0.5 text-[11.5px] text-[#8a91a0]">
+                    {running
+                      ? `Scanning ${runMarkets.length} market${runMarkets.length === 1 ? '' : 's'} on ${runFrames.join(' + ')} every minute, on its own.`
+                      : run
+                        ? `Stopped: ${ENDED_TEXT[run.endedReason || 'TIME_UP'].toLowerCase()}. Start a run and it picks up here.`
+                        : 'Switch the agent on and you can watch it work here.'}
+                  </p>
+                </div>
+                <span className={`ml-auto ag-status ${running ? 'on' : ''}`}>
+                  <span className="ag-status-dot" />
+                  {running ? 'Working' : 'Stopped'}
+                </span>
+              </div>
+
+              {/* The pipeline every scan goes through */}
+              <div className="relative mt-5 ag-flow" aria-hidden="true">
+                <span className="ag-flow-line" />
+                {FLOW.map(([label, Icon], n) => (
+                  <div key={label} className="ag-node" style={{ ['--n' as any]: n }}>
+                    <span className="ag-node-dot">
+                      <Icon className="w-4 h-4" />
+                    </span>
+                    <span>{label}</span>
+                  </div>
                 ))}
               </div>
 
-              <div key={tab} className="mt-4 ag-fade">
-                {tab === 'setup' && (
-                  <div className={`space-y-4 ${running ? 'opacity-60 pointer-events-none select-none' : ''}`} aria-disabled={running}>
-                    {running && <p className="text-[12px] text-slate-400 px-1">Stop the agent to change its setup.</p>}
+              <div className="relative mt-5 grid lg:grid-cols-[minmax(0,1fr)_280px] gap-3">
+                {/* Market scan tiles */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                  {scanTiles.map(({ m, tf }, i) => {
+                    const live = openTrades.find(t => t.symbol === m && t.timeframe === tf);
+                    const p = scanPath(`${m}|${tf}`);
+                    const step = live ? (live.state === 'OPEN' ? 'In a trade' : 'Order live') : SCAN_STEPS[(Math.floor(beat / 3200) + i) % SCAN_STEPS.length];
+                    return (
+                      <div key={`${m}${tf}`} className={`ag-scan ${running && live ? 'hot' : ''}`} style={{ ['--d' as any]: `${12 + (i % 4) * 2.5}s`, ['--s' as any]: `${2.8 + (i % 3) * 0.6}s`, ['--delay' as any]: `${(i * 0.35).toFixed(2)}s` }}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <MarketAv symbol={m} size={26} />
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-semibold text-white truncate">{marketLabel(m)?.label || m}</p>
+                            <p className="text-[10px] text-[#8a91a0]">{tf}</p>
+                          </div>
+                        </div>
+                        <div className="ag-scan-chart" aria-hidden="true">
+                          <svg viewBox="0 0 200 54" preserveAspectRatio="none">
+                            <defs>
+                              <linearGradient id="ag-fade" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0" stopColor="#b6f23d" stopOpacity=".28" />
+                                <stop offset="1" stopColor="#b6f23d" stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            <path className="area" d={p.area} />
+                            <path d={p.line} />
+                          </svg>
+                        </div>
+                        <p className="mt-1.5 ag-scan-state">
+                          <i />
+                          <span key={running ? step : 'off'} className="ag-word truncate">
+                            {running ? step : 'Paused'}
+                          </span>
+                        </p>
+                      </div>
+                    );
+                  })}
+                  {!scanTiles.length && <p className="col-span-full text-[12px] text-[#8a91a0]">Pick markets and timeframes in Setup.</p>}
+                </div>
+
+                {/* Next scan + the agent's latest steps */}
+                <div className="ag-soft p-4 flex flex-col gap-3 min-w-0">
+                  <div className="flex items-center gap-3.5">
+                    <div className="ag-radar" aria-hidden="true">
+                      <span className="ag-radar-sweep" />
+                      <svg viewBox="0 0 84 84">
+                        <circle className="bg" cx="42" cy="42" r="36" />
+                        <circle className="fg" cx="42" cy="42" r="36" strokeDasharray={226.2} strokeDashoffset={running ? (226.2 * nextScan) / 60 : 226.2} />
+                      </svg>
+                      <span className="absolute inset-0 grid place-items-center text-[15px] font-semibold text-white tabular-nums">{running ? `${nextScan}s` : '–'}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-white">{running ? 'Next scan' : 'Not scanning'}</p>
+                      <p className="text-[11px] text-[#8a91a0] leading-snug">
+                        {running ? `Quality ${run!.settings.strategyId ? data.strategyMinQuality ?? 45 : data.minQuality}+ only, so some days it takes none.` : 'The agent is off.'}
+                      </p>
+                    </div>
+                  </div>
+                  <ol className="ag-feed space-y-2 min-w-0" aria-label="Latest steps">
+                    {data.log.slice(0, 3).map((l, i) => (
+                      <li key={`${l.at}-${i}`} className="flex gap-2 text-[11.5px] leading-snug min-w-0" style={rise(i)}>
+                        <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 && running ? 'bg-[#b6f23d]' : 'bg-[#4b5263]'}`} />
+                        <span className="text-[#c7ccd6] line-clamp-2 break-words">{l.text}</span>
+                      </li>
+                    ))}
+                    {!data.log.length && <li className="text-[11.5px] text-[#8a91a0]">Its steps show here as it works.</li>}
+                  </ol>
+                </div>
+              </div>
+            </section>
+
+            {/* ---------- Tabs ---------- */}
+            <div key={tab} className="mt-6 ag-fade">
+              {tab === 'setup' && (
+                <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start">
+                  <div className={`space-y-4 ${running ? 'opacity-55 pointer-events-none select-none' : ''}`} aria-disabled={running}>
+                    {running && <p className="text-[12px] text-[#8a91a0] px-1">Stop the agent to change its setup.</p>}
                     <Section title="Strategy" hint="What the agent trades with. Separate from your normal MarketX setup." i={0}>
                       <div className="grid sm:grid-cols-2 gap-2">
                         <button type="button" onClick={() => pickStrategy(null)} className={`ag-choice ${!draft.strategyId ? 'on' : ''}`} aria-pressed={!draft.strategyId}>
                           <span className="flex items-center gap-1.5 text-[13px] font-semibold text-white">
-                            <Bot className="w-3.5 h-3.5 text-emerald-300" /> MarketX engine
-                            <span className="ml-auto text-[10px] font-semibold text-emerald-300">Default</span>
+                            <Bot className="w-3.5 h-3.5 text-[#b6f23d]" /> MarketX engine
+                            <span className="ml-auto text-[10px] font-semibold text-[#b6f23d]">Default</span>
                           </span>
-                          <span className="block mt-0.5 text-[10.5px] text-slate-500 leading-snug">Steady mode: supply and demand zones with a Fibonacci entry, back-tested on these markets</span>
+                          <span className="block mt-0.5 text-[10.5px] text-[#8a91a0] leading-snug">Steady mode: supply and demand zones with a Fibonacci entry, back-tested on these markets</span>
                         </button>
-                        {strategies.map(st => (
-                          <button key={st.id} type="button" onClick={() => pickStrategy(st.id)} className={`ag-choice ${draft.strategyId === st.id ? 'on' : ''}`} aria-pressed={draft.strategyId === st.id}>
+                        {strategies.map(x => (
+                          <button key={x.id} type="button" onClick={() => pickStrategy(x.id)} className={`ag-choice ${draft.strategyId === x.id ? 'on' : ''}`} aria-pressed={draft.strategyId === x.id}>
                             <span className="flex items-center gap-1.5 text-[13px] font-semibold text-white min-w-0">
-                              <span className="truncate">{st.name}</span>
-                              {st.setup && <span className="ml-auto shrink-0 text-[10px] font-semibold text-violet-300">{st.setup}</span>}
+                              <span className="truncate">{x.name}</span>
+                              {x.setup && <span className="ml-auto shrink-0 text-[10px] font-semibold text-violet-300">{x.setup}</span>}
                             </span>
-                            <span className="block mt-0.5 text-[10.5px] text-slate-500 leading-snug line-clamp-2">{st.summary || 'Your own strategy'}</span>
+                            <span className="block mt-0.5 text-[10.5px] text-[#8a91a0] leading-snug line-clamp-2">{x.summary || 'Your own strategy'}</span>
                           </button>
                         ))}
                       </div>
                       {draft.strategyId && !chosen && <p className="mt-2 text-[11px] text-amber-300">That strategy no longer exists. Pick another one, or the MarketX engine.</p>}
-                      <button type="button" onClick={() => setBuilderOpen(true)} className="mt-3 ag-ghost-btn">
+                      <button type="button" onClick={() => setBuilderOpen(true)} className="mt-3 ag-pill">
                         <WandSparkles className="w-3.5 h-3.5" /> {strategies.length ? 'Create or edit a strategy' : 'Create your own strategy'}
                       </button>
-                      {draft.strategyId && <p className="mt-2 text-[11px] text-slate-500">Your strategy’s own rules find the setups (quality {data.strategyMinQuality ?? 45}+). The agent still places, sizes and manages every trade.</p>}
+                      {draft.strategyId && <p className="mt-2 text-[11px] text-[#8a91a0]">Your strategy’s own rules find the setups (quality {data.strategyMinQuality ?? 45}+). The agent still places, sizes and manages every trade.</p>}
                     </Section>
 
                     <Section title="Trade type" hint="Steady mode: limit entries, a wider stop, calm markets only" i={1}>
                       <div className="grid grid-cols-3 gap-2">
-                        {(['DAY', 'SWING', 'ANY'] as AgentStyle[]).map(s => (
-                          <button key={s} type="button" onClick={() => setStyle(s)} className={`ag-choice ${draft.style === s ? 'on' : ''}`} aria-pressed={draft.style === s}>
-                            <span className="block text-[13px] font-semibold text-white">{AGENT_STYLE_INFO[s].label}</span>
-                            <span className="block mt-0.5 text-[10.5px] text-slate-500 leading-snug">{AGENT_STYLE_INFO[s].hint}</span>
+                        {(['DAY', 'SWING', 'ANY'] as AgentStyle[]).map(x => (
+                          <button key={x} type="button" onClick={() => setStyle(x)} className={`ag-choice ${draft.style === x ? 'on' : ''}`} aria-pressed={draft.style === x}>
+                            <span className="block text-[13px] font-semibold text-white">{AGENT_STYLE_INFO[x].label}</span>
+                            <span className="block mt-0.5 text-[10.5px] text-[#8a91a0] leading-snug">{AGENT_STYLE_INFO[x].hint}</span>
                           </button>
                         ))}
                       </div>
@@ -624,8 +738,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {data.markets.map(m => (
-                          <button key={m.symbol} type="button" onClick={() => patch({ markets: toggle(draft.markets, m.symbol) })} className={`ag-chip ${draft.markets.includes(m.symbol) ? 'on' : ''}`} aria-pressed={draft.markets.includes(m.symbol)}>
-                            {m.label} <span className="text-[10px] opacity-60">{m.mt5}</span>
+                          <button key={m.symbol} type="button" onClick={() => patch({ markets: toggle(draft.markets, m.symbol) })} className={`ag-chip !pl-1.5 ${draft.markets.includes(m.symbol) ? 'on' : ''}`} aria-pressed={draft.markets.includes(m.symbol)}>
+                            <MarketAv symbol={m.symbol} size={24} /> {m.label} <span className="text-[10px] opacity-60">{m.mt5}</span>
                           </button>
                         ))}
                       </div>
@@ -645,12 +759,12 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                         {(Object.keys(AGENT_PRICING) as AgentDuration[]).map(k => (
                           <button key={k} type="button" onClick={() => patch({ duration: k })} className={`ag-choice ${draft.duration === k ? 'on' : ''}`} aria-pressed={draft.duration === k}>
                             <span className="block text-[13px] font-semibold text-white">{AGENT_PRICING[k].label}</span>
-                            <span className="block mt-0.5 text-[10.5px] text-slate-500">{AGENT_RUN_LABEL[k]}</span>
+                            <span className="block mt-0.5 text-[10.5px] text-[#8a91a0]">{AGENT_RUN_LABEL[k]}</span>
                           </button>
                         ))}
                       </div>
                       {/* Credits: only what the trader has (owner-specified) */}
-                      <div className={`mt-3 ag-soft p-3.5 flex items-center gap-3 ${short ? '!bg-amber-500/10' : ''}`}>
+                      <div className={`mt-3 ag-soft p-3.5 flex items-center gap-3 ${short ? '!border-amber-400/30 !bg-amber-500/10' : ''}`}>
                         <span className={`ag-icon ${short ? 'wait' : 'ok'}`}>
                           <Coins className="w-4 h-4" />
                         </span>
@@ -658,26 +772,164 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                           <p className={`text-[13px] font-semibold ${short ? 'text-amber-300' : 'text-white'}`}>
                             {credits === null ? 'Unlimited credits' : short ? 'No credits available' : `${credits.toLocaleString()} credits available`}
                           </p>
-                          <p className="text-[11px] text-slate-500 leading-snug">
+                          <p className="text-[11px] text-[#8a91a0] leading-snug">
                             {short ? 'The agent can’t start until you add credits.' : 'Credits come from your balance only when the agent places a trade, and are refunded if it never fills.'}
                           </p>
                         </div>
                         {short && onBuyCredits && (
-                          <button type="button" onClick={onBuyCredits} className="ag-ghost-btn shrink-0">
+                          <button type="button" onClick={onBuyCredits} className="ag-pill lime shrink-0 !h-9">
                             Buy credits
                           </button>
                         )}
                       </div>
                     </Section>
 
+                    {!running && (
+                      <div className="ag-rise" style={rise(5)} data-start>
+                        <button type="button" onClick={start} disabled={busy || !check.ok || short || !allowed} className="w-full ag-cta">
+                          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : short ? <Coins className="w-4 h-4" /> : <Power className="w-4 h-4" />} {short ? 'No credits available' : 'Start the agent'}
+                        </button>
+                        {!check.ok && <p className="mt-2 text-[11.5px] text-amber-300 px-1">{(check as { message: string }).message}</p>}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right column: Pro, MT5, alerts on this device, back-test */}
+                  <div className="space-y-4 lg:sticky lg:top-24">
+                    {access && !allowed && (
+                      <section className="ag-card ag-rise p-5" style={rise(1)}>
+                        <div className="flex items-center gap-2">
+                          <Crown className="w-4 h-4 text-[#b6f23d]" />
+                          <p className="text-[14px] font-semibold text-white">The Trading Agent is part of Pro</p>
+                        </div>
+                        <p className="mt-1 text-[12px] text-[#8a91a0]">Upgrade to Pro to switch it on. Credits are used per trade the agent takes.</p>
+                        {onUpgrade && (
+                          <button type="button" onClick={onUpgrade} className="mt-3.5 w-full ag-cta !h-12">
+                            <Lock className="w-4 h-4" /> Upgrade to Pro
+                          </button>
+                        )}
+                      </section>
+                    )}
+                    {access && allowed && !access.staff && access.freeUntil && (
+                      <p className="ag-rise text-[11.5px] text-[#8a91a0] flex items-center gap-1.5 px-1" style={rise(1)}>
+                        <Crown className="w-3.5 h-3.5 text-[#b6f23d]" /> Free for everyone until{' '}
+                        {new Date(access.freeUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, then part of Pro.
+                      </p>
+                    )}
+
+                    {/* MT5 */}
+                    <section className="ag-card ag-rise p-5" style={rise(2)}>
+                      <div className="flex gap-3">
+                        <span className={`ag-icon ${link?.status === 'CONNECTED' ? 'ok' : link?.status === 'FAILED' ? 'bad' : 'wait'}`}>
+                          <Plug className="w-4 h-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[14px] font-semibold text-white">
+                            {link?.status === 'CONNECTED' ? `MT5 linked · ${link.login}` : link?.status === 'CONNECTING' ? 'Linking your MT5…' : link?.status === 'FAILED' ? `MT5 not linked · ${link.server}` : 'MT5'}
+                          </p>
+                          <p className={`mt-0.5 text-[11.5px] leading-relaxed ${link?.status === 'FAILED' ? 'text-rose-300' : 'text-[#8a91a0]'}`} role={link?.status === 'FAILED' ? 'alert' : undefined}>
+                            {link?.status === 'CONNECTED'
+                              ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.${link.asleep ? ' Resting while the agent is off: it reconnects by itself when you start a run.' : ''}`
+                              : link?.status === 'CONNECTING'
+                                ? link.message || 'Signing in to your broker…'
+                                : link?.status === 'FAILED'
+                                  ? link.message || 'Linking failed. Check your details and try again.'
+                                  : data.mt5.available
+                                    ? 'Link your MT5 account and the agent places its trades there. Until then MarketX tracks each trade and alerts you with the exact order.'
+                                    : 'MT5 linking is being set up. Until then MarketX tracks each trade and alerts you with the exact order to place.'}
+                          </p>
+                        </div>
+                      </div>
+                      {link?.status === 'CONNECTED' && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {Object.entries(link.symbols).map(([m, bs]) => (
+                            <span key={m} className={`text-[10.5px] px-2.5 py-1 rounded-full ${bs ? 'bg-[#b6f23d]/10 text-[#d9f99d]' : 'bg-white/[0.04] text-[#6b7280]'}`}>
+                              {marketLabel(m)?.label || m}: {bs || 'not at your broker'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {link?.status === 'CONNECTING' && (
+                        <div className="mt-3.5">
+                          <div className="flex items-center gap-2 text-[11.5px] text-[#c7ccd6]">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#b6f23d]" />
+                            <span>
+                              Step {linkStep} of 3: {linkStep === 3 ? 'signing in to your broker' : linkStep === 2 ? 'starting the MT5 connection' : 'checking your details'}
+                            </span>
+                            <span className="ml-auto tabular-nums text-[#8a91a0]">
+                              {(() => {
+                                const sec = Math.max(0, Math.floor(((clock || Date.now()) - link.linkedAt) / 1000));
+                                return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+                              })()}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-1.5" aria-hidden="true">
+                            {[1, 2, 3].map(n => (
+                              <span key={n} className={`ag-step ${n < linkStep ? 'done' : n === linkStep ? 'now' : ''}`} />
+                            ))}
+                          </div>
+                          <p className="mt-2 text-[10.5px] text-[#8a91a0]">Usually under 2 minutes; a broker server MT5 hasn't seen before can take up to 5. If it can't link, the reason shows here.</p>
+                        </div>
+                      )}
+                      {link && (
+                        <div className="mt-3.5 flex gap-2">
+                          {link.status !== 'FAILED' && (
+                            <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5/refresh', 'POST')} className="ag-pill !h-9">
+                              <RefreshCw className="w-3 h-3" /> Check
+                            </button>
+                          )}
+                          <button type="button" disabled={busy} onClick={() => mt5Action('/api/agent/mt5', 'DELETE')} className="ag-pill !h-9">
+                            <Unlink className="w-3 h-3" /> {link.status === 'FAILED' ? 'Clear' : link.status === 'CONNECTING' ? 'Cancel' : 'Disconnect'}
+                          </button>
+                        </div>
+                      )}
+                      {(!link || link.status === 'FAILED') && data.mt5.available && allowed && (
+                        <form
+                          className="mt-4 space-y-2.5"
+                          onSubmit={e => {
+                            e.preventDefault();
+                            connectMt5();
+                          }}
+                          autoComplete="off"
+                        >
+                          <div className="grid grid-cols-2 gap-2">
+                            <input value={mt5Form.login} onChange={e => setMt5Form(f => ({ ...f, login: e.target.value.replace(/\D/g, '').slice(0, 20) }))} inputMode="numeric" placeholder="MT5 login" aria-label="MT5 login" className="ag-input" />
+                            <Mt5ServerInput value={mt5Form.server} onChange={v => setMt5Form(f => ({ ...f, server: v }))} />
+                          </div>
+                          <input type="password" value={mt5Form.password} onChange={e => setMt5Form(f => ({ ...f, password: e.target.value.slice(0, 64) }))} placeholder="Master (trading) password" aria-label="MT5 master password" autoComplete="new-password" className="ag-input w-full" />
+                          <label className="flex items-start gap-2.5 text-[11.5px] text-[#8a91a0] cursor-pointer leading-relaxed">
+                            <input type="checkbox" checked={mt5Form.consent} onChange={e => setMt5Form(f => ({ ...f, consent: e.target.checked }))} className="mt-0.5 accent-lime-400" />
+                            <span>I let the MarketX agent place and close trades on this account. The password goes straight to the secure MT5 connection: MarketX never stores it. An investor password can't place trades.</span>
+                          </label>
+                          <button type="submit" disabled={busy || !mt5Form.login || !mt5Form.server || !mt5Form.password || !mt5Form.consent} className="w-full ag-pill lime !h-11">
+                            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Link MT5
+                          </button>
+                        </form>
+                      )}
+                    </section>
+
+                    {/* The agent's notices on this device (the same switch as the sidebar's) */}
+                    <section className="ag-card ag-rise p-5" style={rise(3)}>
+                      <div className="flex items-center gap-2.5 mb-3">
+                        <span className="ag-icon ok">
+                          <Bell className="w-4 h-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[14px] font-semibold text-white">Alerts on this device</p>
+                          <p className="text-[11.5px] text-[#8a91a0]">Orders, fills, wins and losses show on your phone or computer, and in MarketX's notifications wherever you are.</p>
+                        </div>
+                      </div>
+                      <PushToggle what="every agent order, fill and result" onToast={toast} />
+                    </section>
+
                     <section className="ag-card ag-rise overflow-hidden" style={rise(4)}>
-                      <button type="button" onClick={() => setShowBacktest(v => !v)} aria-expanded={showBacktest} className="w-full flex items-center gap-2 text-left px-4 sm:px-5 py-3.5 text-[12.5px] text-slate-300 hover:text-white cursor-pointer">
-                        <Info className="w-4 h-4 shrink-0 text-slate-500" /> How it has done in back-tests, and the risks
+                      <button type="button" onClick={() => setShowBacktest(v => !v)} aria-expanded={showBacktest} className="w-full flex items-center gap-2 text-left px-5 py-4 text-[12.5px] text-[#c7ccd6] hover:text-white cursor-pointer">
+                        <Info className="w-4 h-4 shrink-0 text-[#8a91a0]" /> How it has done in back-tests, and the risks
                         <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-300 ${showBacktest ? 'rotate-180' : ''}`} />
                       </button>
                       <div className={`ag-collapse ${showBacktest ? 'open' : ''}`}>
                         <div>
-                          <div className="px-4 sm:px-5 pb-4 text-[11.5px] leading-relaxed text-slate-400 space-y-1.5">
+                          <div className="px-5 pb-4 text-[11.5px] leading-relaxed text-[#8a91a0] space-y-1.5">
                             <p>
                               Replayed on years of real prices for these markets, after spreads and fees: <span className="text-white">{data.backtest.won}% of trades won</span>, about{' '}
                               <span className="text-white">{sign(data.backtest.avgR)}R a trade</span> on average, about {data.backtest.tradesPerMonth} trades a month across all six markets.
@@ -690,115 +942,169 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                         </div>
                       </div>
                     </section>
-
-                    {!running && (
-                      <div className="ag-rise" style={rise(5)}>
-                        <button type="button" onClick={start} disabled={busy || !check.ok || short || !allowed} className="w-full ag-cta">
-                          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : short ? <Coins className="w-4 h-4" /> : <Power className="w-4 h-4" />} {short ? 'No credits available' : 'Start the agent'}
-                        </button>
-                        {!check.ok && <p className="mt-2 text-[11.5px] text-amber-300 px-1">{(check as { message: string }).message}</p>}
-                      </div>
-                    )}
                   </div>
-                )}
+                </div>
+              )}
 
-                {tab === 'trades' && (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-4 gap-2 ag-rise">
-                      <Stat label="Win rate" value={data.stats.trades ? `${data.stats.winRate}%` : '–'} />
-                      <Stat label="Trades" value={String(data.stats.trades)} />
-                      <Stat label="Total" value={data.stats.trades ? `${sign(data.stats.totalR)}R` : '–'} tone={data.stats.totalR > 0 ? 'up' : data.stats.totalR < 0 ? 'down' : undefined} />
-                      <Stat label="P/L" value={data.stats.trades ? `${sign(data.stats.pnlPct)}%` : '–'} tone={data.stats.pnlPct > 0 ? 'up' : data.stats.pnlPct < 0 ? 'down' : undefined} />
+              {tab === 'trades' && (
+                <div>
+                  <div className="relative z-10 flex justify-center -mb-5">
+                    <div className="ag-notch ag-scroll-x max-w-full" role="tablist" aria-label="Filter trades">
+                      {(
+                        [
+                          ['all', 'All trades', trades.length],
+                          ['live', 'Live', openTrades.length],
+                          ['won', 'Won', won.length],
+                          ['lost', 'Lost', lost.length],
+                        ] as const
+                      ).map(([id, label, n]) => (
+                        <button key={id} type="button" role="tab" aria-selected={tradeFilter === id} onClick={() => setTradeFilter(id)} className={`ag-seg shrink-0 ${tradeFilter === id ? 'on' : ''}`}>
+                          {label}
+                          {id !== 'all' && <b>{n}</b>}
+                        </button>
+                      ))}
                     </div>
-                    <p className="text-[11px] text-slate-500 px-1">All the agent's closed trades. Wins and losses in R (the amount risked on a trade) and in % of your account.</p>
-                    {!data.trades.length && (
-                      <div className="ag-card py-14 text-center">
-                        <Target className="w-6 h-6 mx-auto text-slate-600" />
-                        <p className="mt-3 text-[12.5px] text-slate-500">No trades yet. Switch the agent on and its orders show here.</p>
+                  </div>
+                  <section className="ag-paper ag-rise p-4 sm:p-6 pt-9 sm:pt-10">
+                    <div className="flex items-center gap-2 px-1">
+                      <p className="text-[15px] font-medium">Agent trades</p>
+                      <p className="muted text-[11.5px] hidden sm:block">
+                        · {data.stats.trades ? `${data.stats.winRate}% won · ${sign(data.stats.totalR)}R · ${sign(data.stats.pnlPct)}%` : 'no closed trades yet'}
+                      </p>
+                    </div>
+                    {!filtered.length ? (
+                      <div className="py-14 text-center">
+                        <Target className="w-6 h-6 mx-auto text-[#9ca3af]" />
+                        <p className="mt-3 text-[12.5px] muted">{trades.length ? 'Nothing here for this filter.' : 'No trades yet. Switch the agent on and its orders show here.'}</p>
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4 items-start">
+                        <div className="space-y-1 max-h-[560px] overflow-y-auto pr-1">
+                          {filtered.map((t, i) => {
+                            const chip = chipOf(t);
+                            const on = sel?.id === t.id;
+                            return (
+                              <button key={t.id} type="button" data-trade={t.id} onClick={() => setPicked(t.id)} className={`ag-row ag-rise ${on ? 'on' : ''} ${t.id === focusId ? 'ag-focus' : ''}`} style={rise(i)}>
+                                <MarketAv symbol={t.symbol} size={36} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-[13px] font-semibold truncate">
+                                    # {marketLabel(t.symbol)?.mt5 || t.symbol} <span className="font-normal muted">· {t.timeframe}</span>
+                                  </span>
+                                  <span className="block text-[11px] muted">
+                                    {t.direction === 'LONG' ? 'Buy' : 'Sell'} · {ago(t.closedAt || t.filledAt || t.createdAt)}
+                                  </span>
+                                </span>
+                                <span className="ag-row-chip hidden sm:inline-grid">{chip.text}</span>
+                                <span className={`w-[64px] text-right text-[13.5px] font-semibold tabular-nums ${typeof t.r === 'number' ? (t.r > 0 ? 'text-[#4d7c0f]' : t.r < 0 ? 'text-[#be123c]' : '') : 'muted !font-medium'} ${on && typeof t.r === 'number' && t.r > 0 ? '!text-[#b6f23d]' : ''} ${on && typeof t.r === 'number' && t.r < 0 ? '!text-rose-300' : ''}`}>
+                                  {typeof t.r === 'number' ? `${sign(t.r)}R` : `${t.rr}R aim`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {sel && (
+                          <div key={sel.id} className="ag-detail ag-fade">
+                            <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+                              <div className="min-w-0">
+                                <p className="text-[11.5px] text-[#8a91a0]">Trade details</p>
+                                <div className="mt-1 flex items-center gap-2.5">
+                                  <p className="text-[26px] sm:text-[30px] font-medium tracking-[-0.02em] leading-none">
+                                    <span className="text-[#8a91a0] text-[16px] mr-1">#</span>
+                                    {marketLabel(sel.symbol)?.mt5 || sel.symbol}
+                                  </p>
+                                  <span className={`ag-pill !h-7 !px-3 !text-[11px] ${chipOf(sel).tone === 'win' ? 'lime' : ''}`}>{chipOf(sel).text}</span>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-[11.5px] text-[#8a91a0]">Side</p>
+                                <p className={`mt-1 text-[18px] font-semibold ${sel.direction === 'LONG' ? 'text-[#b6f23d]' : 'text-rose-300'}`}>{sel.direction === 'LONG' ? 'Buy' : 'Sell'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[11.5px] text-[#8a91a0]">Chart</p>
+                                <p className="mt-1 text-[18px] font-semibold">{sel.timeframe}</p>
+                              </div>
+                            </div>
+                            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {(
+                                [
+                                  ['Entry', exactPrice(sel.entry)],
+                                  ['Stop', exactPrice(sel.stop)],
+                                  ['Target', exactPrice(sel.target)],
+                                  ['Quality', `${sel.quality}/100`],
+                                ] as const
+                              ).map(([k, v]) => (
+                                <div key={k} className="ag-dtile">
+                                  <ArrowUpRight className="absolute right-2.5 top-2.5 w-3.5 h-3.5 text-[#8a91a0]" />
+                                  <p className="text-[14px] font-medium tabular-nums truncate pr-4">{v}</p>
+                                  <p className="mt-3 text-[10.5px] text-[#8a91a0]">{k}</p>
+                                </div>
+                              ))}
+                            </div>
+                            {sel.mt5 && (
+                              <p className={`mt-3 text-[11.5px] ${sel.mt5.state === 'FAILED' ? 'text-amber-300' : 'text-[#d9f99d]'}`}>
+                                {sel.mt5.state === 'FAILED' ? `Not placed on MT5: ${sel.mt5.error || 'error'}` : `On MT5 · ${sel.mt5.symbol} · ${sel.mt5.volume} lots${sel.mt5.state === 'CANCELLED' ? ' · cancelled' : sel.mt5.state === 'CLOSED' ? ' · closed' : ''}`}
+                              </p>
+                            )}
+                            {sel.note && sel.state !== 'OPEN' && sel.state !== 'PENDING' && (
+                              <p className="mt-2 text-[11.5px] text-[#8a91a0]">
+                                {sel.note}
+                                {sel.refunded ? ` · ${sel.refunded} credits refunded` : sel.credits ? ` · ${sel.credits} credits` : ''}
+                              </p>
+                            )}
+                            <div className="mt-4 ag-dsum">
+                              <div className="min-w-0">
+                                <p className="text-[10.5px] text-[#8a91a0]">Reward to risk</p>
+                                <p className="text-[15px] font-semibold tabular-nums">{sel.rr}R</p>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[10.5px] text-[#8a91a0]">Risk</p>
+                                <p className="text-[15px] font-semibold tabular-nums">{sel.riskPct}%</p>
+                              </div>
+                              <div className="min-w-0 hidden sm:block">
+                                <p className="text-[10.5px] text-[#8a91a0]">Placed</p>
+                                <p className="text-[15px] font-semibold">{ago(sel.createdAt)}</p>
+                              </div>
+                              <span className={`ml-auto ag-pill !h-10 ${typeof sel.r === 'number' && sel.r > 0 ? 'lime' : typeof sel.r === 'number' && sel.r < 0 ? 'danger' : 'white'}`}>
+                                {typeof sel.r === 'number' ? `${sign(sel.r)}R · ${sign(sel.pnlPct || 0)}%` : chipOf(sel).text}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
-                    {data.trades.map((t, i) => {
-                      const chip = chipOf(t);
-                      const focus = t.id === focusId;
+                  </section>
+                </div>
+              )}
+
+              {tab === 'activity' && (
+                <section className="ag-paper ag-rise p-5 sm:p-7">
+                  <p className="text-[15px] font-medium">Activity</p>
+                  <p className="muted text-[11.5px]">Everything the agent does, newest first. You're alerted as it happens.</p>
+                  {!data.log.length && (
+                    <div className="py-10 text-center">
+                      <Activity className="w-6 h-6 mx-auto text-[#9ca3af]" />
+                      <p className="mt-3 text-[12.5px] muted">Nothing yet.</p>
+                    </div>
+                  )}
+                  <ol className="ag-timeline mt-5">
+                    {data.log.map((l, i) => {
+                      const { icon: Icon, color } = LOG_ICON[l.kind] || LOG_ICON.SCAN;
                       return (
-                        <article key={t.id} data-trade={t.id} className={`ag-card ag-rise p-4 ${focus ? 'ag-focus' : ''}`} style={rise(i + 1)}>
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${t.direction === 'LONG' ? 'bg-emerald-500/12 text-emerald-300' : 'bg-rose-500/12 text-rose-300'}`}>{t.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
-                            <span className="text-[14px] font-semibold text-white truncate">{t.symbol}</span>
-                            <span className="text-[11.5px] text-slate-500">{t.timeframe}</span>
-                            <span className={`ml-auto text-[10.5px] font-semibold px-2.5 py-0.5 rounded-full ${chip.cls}`}>{chip.text}</span>
-                          </div>
-                          <div className="mt-3 grid grid-cols-3 gap-2">
-                            {(
-                              [
-                                ['Entry', t.entry],
-                                ['Stop', t.stop],
-                                ['Target', t.target],
-                              ] as const
-                            ).map(([k, v]) => (
-                              <div key={k} className="ag-soft px-3 py-2 min-w-0">
-                                <p className="text-[10.5px] text-slate-500">{k}</p>
-                                <p className="text-[12.5px] text-slate-200 font-mono truncate">{exactPrice(v)}</p>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="mt-2.5 flex items-center gap-2 text-[11.5px] text-slate-500">
-                            <span>
-                              Quality {t.quality}/100 · {t.rr}R · risk {t.riskPct}%
-                            </span>
-                            {typeof t.r === 'number' ? (
-                              <span className={`ml-auto font-semibold tabular-nums ${t.r > 0 ? 'text-emerald-300' : t.r < 0 ? 'text-rose-300' : 'text-slate-300'}`}>
-                                {sign(t.r)}R · {sign(t.pnlPct || 0)}%
-                              </span>
-                            ) : (
-                              <span className="ml-auto">{ago(t.filledAt || t.createdAt)}</span>
-                            )}
-                          </div>
-                          {t.mt5 && (
-                            <p className={`mt-1.5 text-[11px] ${t.mt5.state === 'FAILED' ? 'text-amber-300' : 'text-emerald-300'}`}>
-                              {t.mt5.state === 'FAILED' ? `Not placed on MT5: ${t.mt5.error || 'error'}` : `On MT5 · ${t.mt5.symbol} · ${t.mt5.volume} lots${t.mt5.state === 'CANCELLED' ? ' · cancelled' : t.mt5.state === 'CLOSED' ? ' · closed' : ''}`}
-                            </p>
-                          )}
-                          {t.note && t.state !== 'OPEN' && t.state !== 'PENDING' && (
-                            <p className="mt-1 text-[11px] text-slate-500">
-                              {t.note}
-                              {t.refunded ? ` · ${t.refunded} credits refunded` : t.credits ? ` · ${t.credits} credits` : ''}
-                            </p>
-                          )}
-                        </article>
+                        <li key={`${l.at}-${i}`} className="ag-rise relative pl-11 pb-5 last:pb-0" style={rise(i)}>
+                          <span className="absolute left-0 top-0 w-7 h-7 rounded-full grid place-items-center bg-white border border-[#e6e8ec]" style={{ color }}>
+                            <Icon className="w-3.5 h-3.5" />
+                          </span>
+                          <p className="text-[13px] leading-relaxed break-words">{l.text}</p>
+                          <p className="text-[11px] muted">{ago(l.at)}</p>
+                        </li>
                       );
                     })}
-                  </div>
-                )}
-
-                {tab === 'activity' && (
-                  <div className="ag-card p-4 sm:p-5">
-                    {!data.log.length && (
-                      <div className="py-10 text-center">
-                        <Activity className="w-6 h-6 mx-auto text-slate-600" />
-                        <p className="mt-3 text-[12.5px] text-slate-500">Nothing yet. Everything the agent does shows here, and you're alerted as it happens.</p>
-                      </div>
-                    )}
-                    <ol className="ag-timeline">
-                      {data.log.map((l, i) => {
-                        const { icon: Icon, cls, dot } = LOG_ICON[l.kind] || LOG_ICON.SCAN;
-                        return (
-                          <li key={`${l.at}-${i}`} className="ag-rise relative pl-9 pb-4 last:pb-0" style={rise(i)}>
-                            <span className={`absolute left-0 top-0 w-6 h-6 rounded-full grid place-items-center bg-[var(--mx-bg)] ${cls}`}>
-                              <span className={`absolute inset-0 rounded-full opacity-15 ${dot}`} />
-                              <Icon className="relative w-3.5 h-3.5" />
-                            </span>
-                            <p className="text-[12.5px] text-slate-200 leading-relaxed break-words">{l.text}</p>
-                            <p className="text-[10.5px] text-slate-500">{ago(l.at)}</p>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  </div>
-                )}
-              </div>
+                  </ol>
+                </section>
+              )}
             </div>
-          </div>
+          </>
         )}
       </div>
 
