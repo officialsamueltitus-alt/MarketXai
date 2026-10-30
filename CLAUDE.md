@@ -174,8 +174,14 @@
   (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
   login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id; never `manualTrades`, which MetaApi refuses with a magic number; its errors are reworded by `friendlyMt5Message` with request ids stripped). Server box (owner-requested) = `Mt5ServerInput`: suggestions from `src/utils/mt5Servers.ts` (common brokers) + `GET /api/agent/mt5/servers?q=` (that list + MetaApi's `known-mt-servers/5/search`, cached 10 min) and are NEVER stored,
   logged or returned; `mt5Links/{uid}` keeps MetaApi's account id + region (server only), masked login, server, broker, currency, balance and the
-  broker symbols matched per market (`matchSymbol`: exact, else a short suffix like XAUUSDm/XAUUSD.r; NAS100 = US100/USTEC…); `finishLink` polls until
-  DEPLOYED + CONNECTED (bad details = FAILED, the MetaApi account deleted). With a CONNECTED link, `mt5Open` places each agent order on the account:
+  broker symbols matched per market (`matchSymbol`: exact, else a short suffix like XAUUSDm/XAUUSD.r; NAS100 = US100/USTEC…); linking never blocks the request (owner-reported
+  fix: it used to hang for minutes): `/connect` saves the link CONNECTING (`stage` CREATING, `attempt`) and returns at once; `linkInBackground` sends the
+  details to MetaApi (its 202 "still checking the server" answers are retried with the same transaction id for up to 5 min, `pendingUntil`, each shown
+  as the link `message`; the password lives only in that call's memory), then `finishLink` follows DEPLOYING → SIGNING_IN → CONNECTED every 5s for up
+  to 5 min, writing each step. Any failure ends in `failLink`: status FAILED with the exact reason (unknown server, broker refused the sign-in after ~30s
+  of DISCONNECTED_FROM_BROKER, MarketX token refused, timeout with the last status), the MetaApi account deleted and a notification. A link cancelled
+  mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The panel polls every 4s while
+  linking and shows Step N of 3, a timer, the live message, Cancel, and the failure reason in red. With a CONNECTED link, `mt5Open` places each agent order on the account:
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
   (`lotSize`: stop/tickSize x lossTickValue, rounded DOWN to the volume step; under the minimum = not placed), BUY/SELL LIMIT with stop, final target,
   comment "MarketX agent" + clientId `MX…` (≤ 26 chars), timed expiry (GTC fallback); FAILED placements stay tracked and the trader is told. Cancels

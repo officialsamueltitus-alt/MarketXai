@@ -127,6 +127,10 @@ const linkRef = (uid: string) => db().collection(LINKS).doc(uid);
 interface Mt5LinkDoc extends Mt5Link {
   uid: string;
   status: 'CONNECTING' | 'CONNECTED' | 'FAILED';
+  /** While CONNECTING: where linking is (CREATING = MetaApi checking the details, DEPLOYING, SIGNING_IN), shown to the trader */
+  stage?: 'CREATING' | 'DEPLOYING' | 'SIGNING_IN';
+  /** Which link attempt this is (a background step that finds another attempt stops) */
+  attempt?: string;
   /** Connected at MetaApi (billed) or asleep; missing = connected (links made before sleeping existed) */
   power?: 'ON' | 'WAKING' | 'OFF';
   poweredAt?: number;
@@ -524,30 +528,107 @@ async function sleepIdleLinks(force = false) {
   }
 }
 
-/** Follows a new link until MetaApi has connected it to the broker, then reads the balance and matches the symbols */
-async function finishLink(uid: string, tries = 18): Promise<void> {
-  for (let i = 0; i < tries; i++) {
+const LINK_CREATE_MS = 5 * 60_000;
+const LINK_CONNECT_MS = 5 * 60_000;
+const LINK_POLL_MS = Math.max(50, Number(process.env.MT5_LINK_POLL_MS) || 5_000);
+/** A link still CONNECTING after this long was cut off (a restart): it is failed with a reason, never left loading */
+const LINK_STALE_MS = LINK_CREATE_MS + LINK_CONNECT_MS + 60_000;
+
+/** Ends a link attempt with the reason, in the panel and as a notification; the MetaApi account (if any) is removed */
+async function failLink(uid: string, attempt: string | undefined, message: string) {
+  const link = await linkOf(uid);
+  if (!link || (attempt && link.attempt && link.attempt !== attempt)) return;
+  if (link.accountId) await deleteMt5Account(link).catch(() => {});
+  await linkRef(uid).update({ status: 'FAILED', stage: FieldValue.delete(), accountId: '', message: message.slice(0, 300), checkedAt: now() }).catch(() => {});
+  await tell(uid, '⚠️ MT5 not linked', message);
+}
+
+/** A failed MetaApi call during linking, in the trader's words (the owner sees the cause in the logs) */
+function linkError(err: unknown): string {
+  if (err instanceof Mt5Error) {
+    if (err.code === 'MT5_AUTH' || err.code === 'MT5_NOT_CONFIGURED') {
+      console.warn('[MarketX Agent] MetaApi refused the MarketX token: check METAAPI_TOKEN');
+      return 'MT5 linking is unavailable on MarketX right now. Please try again later.';
+    }
+    if (err.code === 'MT5_BUSY') return 'The MT5 connection is busy. Please try again in a few minutes.';
+    return err.message;
+  }
+  return 'The MT5 connection did not answer. Please try again.';
+}
+
+/**
+ * Links an account in the background (the request returns at once, so the panel never hangs): MetaApi checks the
+ * details (it may answer "still checking" for a few minutes on a new broker server, shown as progress), then
+ * `finishLink` follows it until it is signed in. The password lives only in this call's memory until MetaApi has it.
+ */
+async function linkInBackground(uid: string, attempt: string, details: { login: string; password: string; server: string }) {
+  let created: Mt5Link;
+  try {
+    created = await createMt5Account(
+      { ...details, name: `MarketX ${uid.slice(0, 8)}` },
+      {
+        pendingUntil: now() + LINK_CREATE_MS,
+        onPending: msg => {
+          linkRef(uid)
+            .update({ message: `The MT5 connection is checking your broker's server${msg ? ` (${msg})` : ''}. This can take a few minutes the first time.`, checkedAt: now() })
+            .catch(() => {});
+        },
+      }
+    );
+  } catch (err) {
+    return failLink(uid, attempt, linkError(err));
+  } finally {
+    details.password = '';
+  }
+  const link = await linkOf(uid);
+  // Disconnected (or a newer attempt) while MetaApi was working: the account it made is removed again
+  if (!link || link.attempt !== attempt || link.status !== 'CONNECTING') {
+    await deleteMt5Account(created).catch(() => {});
+    return;
+  }
+  await linkRef(uid).update({ ...created, stage: 'DEPLOYING', message: 'Details accepted. Starting your MT5 connection…', checkedAt: now() });
+  await finishLink(uid);
+}
+
+/** Follows a new link until MetaApi has signed in to the broker (progress shown each step), then reads the balance and symbols */
+async function finishLink(uid: string, opts: { once?: boolean } = {}): Promise<void> {
+  const until = now() + LINK_CONNECT_MS;
+  let fromBroker = 0;
+  let last = '';
+  for (;;) {
     const link = await linkOf(uid);
-    if (!link || link.status !== 'CONNECTING') return;
+    if (!link || link.status !== 'CONNECTING' || !link.accountId) return;
     try {
       const st = await mt5AccountState(link);
-      if (st.state === 'DEPLOY_FAILED' || st.connection === 'DISCONNECTED_FROM_BROKER') {
-        await deleteMt5Account(link).catch(() => {});
-        await linkRef(uid).update({ status: 'FAILED', message: 'MT5 could not sign in. Check the login, the master (trading) password and the server name.', checkedAt: now() });
-        await tell(uid, '⚠️ MT5 not linked', 'MT5 could not sign in with those details. Check the login, the master (trading) password and the server name, then try again.');
-        return;
-      }
+      last = st.state === 'DEPLOYED' ? `signing in (${st.connection.toLowerCase().replace(/_/g, ' ')})` : st.state.toLowerCase();
+      if (st.state === 'DEPLOY_FAILED') return failLink(uid, link.attempt, 'The MT5 connection could not start this account. Check the server name and try again.');
       if (st.state === 'DEPLOYED' && st.connection === 'CONNECTED') {
         const [info, list] = await Promise.all([mt5AccountInfo(link), mt5Symbols(link)]);
         const symbols = Object.fromEntries(AGENT_MARKETS.map(m => [m.symbol, matchSymbol(m.symbol, list)]));
-        await linkRef(uid).update({ status: 'CONNECTED', power: 'ON', poweredAt: now(), broker: info.broker, currency: info.currency, balance: info.balance, symbols, message: '', checkedAt: now() });
-        await tell(uid, '🔗 MT5 linked', `Your MT5 account ${link.login} (${link.server}) is linked. The agent now places its trades there, sized to your risk per trade.`);
+        await linkRef(uid).update({ status: 'CONNECTED', stage: FieldValue.delete(), power: 'ON', poweredAt: now(), broker: info.broker, currency: info.currency, balance: info.balance, symbols, message: '', checkedAt: now() });
+        const missing = AGENT_MARKETS.filter(m => !symbols[m.symbol]).map(m => m.label);
+        await tell(uid, '🔗 MT5 linked', `Your MT5 account ${link.login} (${link.server}) is linked. The agent now places its trades there, sized to your risk per trade.${missing.length ? ` Not found at your broker: ${missing.join(', ')} (those are tracked only).` : ''}`);
         return;
       }
-    } catch {}
-    await new Promise(r => setTimeout(r, 10_000));
+      // Rejected by the broker: only after it stays that way for ~30s (it can flicker while the terminal starts)
+      fromBroker = st.connection === 'DISCONNECTED_FROM_BROKER' ? fromBroker + 1 : 0;
+      if (fromBroker >= 6) return failLink(uid, link.attempt, "Your broker didn't accept the sign-in. Check the login (account number), the MASTER (trading) password, not the investor one, and the server name, then try again.");
+      const stage = st.state === 'DEPLOYED' ? 'SIGNING_IN' : 'DEPLOYING';
+      const message = stage === 'SIGNING_IN' ? 'Signing in to your broker…' : 'Starting your MT5 connection in the cloud…';
+      if (link.stage !== stage || link.message !== message) await linkRef(uid).update({ stage, message, checkedAt: now() });
+    } catch (err) {
+      if (err instanceof Mt5Error && (err.code === 'MT5_AUTH' || err.code === 'MT5_NOT_CONFIGURED' || err.code === 'MT5_NOT_FOUND')) {
+        return failLink(uid, link.attempt, err.code === 'MT5_NOT_FOUND' ? 'The MT5 connection lost this account. Please link it again.' : linkError(err));
+      }
+      // A passing hiccup: keep following, and say so
+      await linkRef(uid).update({ message: `Still connecting… (${linkError(err)})`, checkedAt: now() }).catch(() => {});
+    }
+    if (opts.once) return;
+    if (now() >= until) {
+      return failLink(uid, link.attempt, `Your MT5 account didn't connect within 5 minutes${last ? ` (last status: ${last})` : ''}. Check the server name and the master password, then try again.`);
+    }
+    await new Promise(r => setTimeout(r, LINK_POLL_MS));
   }
-  await linkRef(uid).update({ status: 'FAILED', message: 'MT5 took too long to connect. Try again in a few minutes.', checkedAt: now() }).catch(() => {});
 }
 
 /** Removes the trader's MT5 link (account deletion, Disconnect): deleted at MetaApi first, then here */
@@ -788,7 +869,13 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
   };
 
   const state = async (uid: string) => {
-    const [snap, trades, user, link] = await Promise.all([agentRef(uid).get(), tradesOf(uid), userRef(uid).get(), linkOf(uid)]);
+    const [snap, trades, user, found] = await Promise.all([agentRef(uid).get(), tradesOf(uid), userRef(uid).get(), linkOf(uid)]);
+    let link = found;
+    // A link left CONNECTING by a restart: say so instead of loading forever
+    if (link?.status === 'CONNECTING' && now() - link.linkedAt > LINK_STALE_MS) {
+      await failLink(uid, link.attempt, 'Linking was interrupted. Please link your MT5 account again.');
+      link = await linkOf(uid);
+    }
     const a = snap.data() as AgentDoc | undefined;
     const u = user.data() as UserDoc | undefined;
     const free = !!u?.emailVerified && isUnlimitedEmail(u?.email || '');
@@ -809,7 +896,7 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       mt5: {
         available: mt5Configured(),
         link: link
-          ? { status: link.status, asleep: link.power === 'OFF' || link.power === 'WAKING', login: link.login, server: link.server, broker: link.broker || null, currency: link.currency || null, balance: link.balance ?? null, symbols: link.symbols || {}, message: link.message || '', linkedAt: link.linkedAt }
+          ? { status: link.status, stage: link.stage || null, asleep: link.power === 'OFF' || link.power === 'WAKING', login: link.login, server: link.server, broker: link.broker || null, currency: link.currency || null, balance: link.balance ?? null, symbols: link.symbols || {}, message: link.message || '', linkedAt: link.linkedAt }
           : null,
       },
     };
@@ -882,18 +969,19 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     if (password.length < 4 || password.length > 64 || /[\u0000-\u001F]/.test(password)) return res.status(400).json({ error: 'BAD_PASSWORD', message: 'Type your MT5 master (trading) password.' });
     if (req.body?.consent !== true) return res.status(400).json({ error: 'CONSENT_REQUIRED', message: 'Tick the box to let the agent place trades on this account.' });
     const existing = await linkOf(uid);
-    if (existing && existing.status !== 'FAILED') return res.status(409).json({ error: 'MT5_LINKED', message: 'An MT5 account is already linked. Disconnect it first.' });
+    if (existing && existing.status !== 'FAILED') return res.status(409).json({ error: 'MT5_LINKED', message: existing.status === 'CONNECTING' ? 'Linking is already in progress. Wait for it, or tap Cancel to start again.' : 'An MT5 account is already linked. Disconnect it first.' });
     if (existing) await unlinkMt5(uid).catch(() => {});
-    let created: Mt5Link;
-    try {
-      created = await createMt5Account({ login, password, server, name: `MarketX ${uid.slice(0, 8)}` });
-    } catch (err) {
-      const msg = err instanceof Mt5Error ? err.message : 'Could not reach MT5. Please try again.';
-      return res.status(err instanceof Mt5Error && err.code === 'MT5_ERROR' ? 400 : 502).json({ error: 'MT5_LINK_FAILED', message: msg });
-    }
-    const doc: Mt5LinkDoc = { uid, ...created, status: 'CONNECTING', login: maskLogin(login), server, linkedAt: now() };
+    // Answer at once; linking carries on in the background and the panel shows each step (or the exact reason it failed)
+    const attempt = crypto.randomBytes(6).toString('hex');
+    const doc: Mt5LinkDoc = {
+      uid, accountId: '', region: '', status: 'CONNECTING', stage: 'CREATING', attempt,
+      message: 'Sending your details to the secure MT5 connection…', login: maskLogin(login), server, linkedAt: now(),
+    };
     await linkRef(uid).set(doc);
-    finishLink(uid).catch(err => console.warn('[MarketX Agent] MT5 link check failed:', err?.message || err));
+    linkInBackground(uid, attempt, { login, password, server }).catch(err => {
+      console.warn('[MarketX Agent] MT5 link failed:', err?.message || err);
+      failLink(uid, attempt, 'Linking stopped unexpectedly. Please try again.').catch(() => {});
+    });
     res.json(await state(uid));
   }));
 
@@ -926,7 +1014,7 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     const link = await linkOf(uid);
     if (!link) return res.status(404).json({ error: 'NOT_LINKED', message: 'No MT5 account is linked.' });
     if (refreshThrottle.hit(uid)) return res.status(429).json({ error: 'TOO_SOON', message: 'Checked a moment ago. Try again in a minute.' });
-    if (link.status === 'CONNECTING') await finishLink(uid, 1).catch(() => {});
+    if (link.status === 'CONNECTING') await finishLink(uid, { once: true }).catch(() => {});
     // Asleep (agent off): the balance is read again when the agent next runs, without paying to connect now
     else if (link.status === 'CONNECTED' && link.power !== 'OFF' && link.power !== 'WAKING' && mt5Configured()) {
       try {
@@ -956,4 +1044,4 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
   }));
 }
 
-export const __agentInternals = { tick, manageTrades, runAgents, closeTrade, fillTrade, endRun, wakeLink, sleepIdleLinks };
+export const __agentInternals = { tick, manageTrades, runAgents, closeTrade, fillTrade, endRun, wakeLink, sleepIdleLinks, linkInBackground, finishLink };
