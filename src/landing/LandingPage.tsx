@@ -616,7 +616,7 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
                   {i === shown ? (
                     <DemoClip id={s.id} />
                   ) : (
-                    <div className="h-full grid place-items-center text-center px-6" style={{ background: 'radial-gradient(80% 60% at 50% 40%, #f1edff, #ffffff)' }}>
+                    <div className="lxs-wait h-full grid place-items-center text-center px-6">
                       <div>
                         <span className="mx-auto w-12 h-12 rounded-2xl grid place-items-center" style={{ background: s.tint, color: '#0b0b12' }}>
                           <s.icon className="w-5 h-5" />

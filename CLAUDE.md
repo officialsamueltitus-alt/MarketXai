@@ -371,7 +371,8 @@
   `/api/market/stream` / `/api/market/tickers`, public), hero chips + the price rows, flashing on each tick; only real quotes (`asOf` set) are
   shown, a featured market without one is swapped for another live market, never App's built-in starting values. Demo clips (Analyze a trade, Matt
   talk back, Fundamental Analysis, Token safety, Solana records) are animated replicas tagged "Demo" with example numbers; owner-specified: every
-  site screen shown on the page (phone screens, clip cards, device screens, mini cards) is in LIGHT mode (white), whatever the section's colour.
+  site screen shown on the page (phone screens, clip cards, device screens, mini cards) is LIGHT (white) on dark or coloured sections and DARK on
+  white sections (the "Choose your tool" showcase); the screen colours are `--s-*` variables in landing.css, flipped by `.lx-white`.
   No server notice on the landing page (owner-specified; an auth problem still shows inside the sign-in window). Every feature CTA opens
   Create account / Sign in; only `/checker` and `/blog` open directly. No internals, providers or settings in its copy; keep the prices in step
   with `server/payments.ts`.
