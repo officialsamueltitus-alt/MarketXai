@@ -357,6 +357,13 @@
   the owner's ownership tags when set (`GOOGLE_SITE_VERIFICATION` HTML-tag content, `BING_SITE_VERIFICATION`; or `GOOGLE_VERIFICATION_FILE` answered at
   /googleXXXX.html). `index.html` carries a readable boot screen `#mx-boot` (h1 "MarketX · Your Trading Co-Pilot", what it does, links) that search engines
   read; `src/main.tsx` removes it once the app paints and the boot watchdog removes it before showing its fallback. JSON-LD has alternateName/slogan.
+- Landing page (owner-specified, Oct 2026, styled on the owner's reference video: dark hero, phone in glowing rings, floating pill nav, pill
+  marquee, highlighted word list, white "Choose what you want to do" showcase with sliding clip cards, progress ring, big gradient "MT5",
+  gradient CTA card): `src/landing/LandingPage.tsx` + `landing.css` (scoped `.lx`, its own scroll container) + `demos.tsx`, lazily loaded,
+  shown to every signed-out visitor in place of the old `WelcomeGate`. Short looping demo clips (Analyze a trade, Matt talk back, Fundamental
+  Analysis, Token safety, Solana records) are animated replicas tagged "Demo" with made-up example numbers, played only while on screen (never
+  real trader data). Every feature CTA (Get started, Try it, Trading Agent…) opens Create account / Sign in; only `/checker` and `/blog` open
+  directly. No internals, providers or settings in its copy.
 - SEO (`index.html`): link previews use `public/brand/marketx-share-si.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
   `marketx-og-1200x630.jpg` and `marketx-share-2026.jpg` hold the same picture for old links; a new image gets a NEW file name so social caches refetch;
   design (owner-specified, Oct 2026, styled on the owner's studio template): white page, top nav (logo, dark pill "Ask SI" / "Explore Markets", outlined

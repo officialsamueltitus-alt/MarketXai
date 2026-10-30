@@ -34,6 +34,8 @@ import { preloadMarkdown } from './components/LazyMarkdown';
 import { lazyWithReload } from './utils/lazyReload';
 
 // Modals load on first open (smaller first download); once loaded they stay mounted
+// Signed-out visitors land on the marketing page (owner-specified); its own chunk, so the app never loads it
+const LandingPage = lazyWithReload(() => import('./landing/LandingPage').then(m => ({ default: m.LandingPage })));
 const PricingModal = lazyWithReload(() => import('./components/PricingModal').then(m => ({ default: m.PricingModal })));
 const GiftCreditsModal = lazyWithReload(() => import('./components/GiftCreditsModal').then(m => ({ default: m.GiftCreditsModal })));
 const NotificationCenterModal = lazyWithReload(() => import('./components/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
@@ -68,7 +70,6 @@ const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when
 import { AuthModal } from './components/AuthModal';
 import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
-import { WelcomeGate } from './components/WelcomeGate';
 import { SiteBanner } from './components/SiteBanner';
 import { PromoBanner } from './components/PromoBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
@@ -2569,7 +2570,16 @@ export default function App() {
           }}
         />
         {authChecked ? (
-          <WelcomeGate
+          <Suspense
+            fallback={
+              <div className="mx-backdrop min-h-[100dvh] flex items-center justify-center" aria-busy="true">
+                <span className="mx-shimmer">
+                  <MarketXIcon size="lg" />
+                </span>
+              </div>
+            }
+          >
+          <LandingPage
             notice={authUnavailable}
             onSignUp={() => {
               setAuthModalMode('signup');
@@ -2581,6 +2591,7 @@ export default function App() {
             }}
             onHaveCode={() => goToAccessPage(accessEmail)}
           />
+          </Suspense>
         ) : (
           <div className="mx-backdrop min-h-[100dvh] flex items-center justify-center" aria-busy="true">
             <span className="mx-shimmer">
