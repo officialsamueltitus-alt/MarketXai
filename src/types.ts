@@ -337,6 +337,8 @@ export interface UserProfile {
   featurePasses?: Partial<Record<string, number>>;
   /** When the commands and RDM become Pro only (ms) */
   proFreeUntil?: number;
+  /** A trading agent run is live (the app picks up its notices more often) */
+  agentLive?: boolean;
   subscription: UserSubscription;
 }
 

@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Info, Link2, Loader2, Lock, Minus, Plug, Plus, Power, RefreshCw,
-  ShieldAlert, Square, Target, Unlink, XCircle,
+  ShieldAlert, Square, Target, Unlink, WandSparkles, XCircle, Bell, Coins,
 } from 'lucide-react';
 import { apiFetch, formatMoney } from '../utils/apiClient';
 import { exactPrice } from '../utils/formatPrice';
 import {
-  AGENT_FRAMES, AGENT_LIMITS, AGENT_PRICING, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, agentMaxCost, normalizeAgentSettings,
+  AGENT_FRAMES, AGENT_LIMITS, AGENT_PRICING, AGENT_RUN_LABEL, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, normalizeAgentSettings,
   type AgentDuration, type AgentLogEntry, type AgentRunView, type AgentSettings, type AgentStats, type AgentStyle, type AgentTradeView,
 } from '../utils/tradingAgent';
 import { Mt5ServerInput } from './Mt5ServerInput';
+import { StrategyBuilderPanel } from '../components/StrategyBuilderPanel';
+import { PushToggle } from '../components/PushToggle';
+import { SETUPS } from '../utils/strategyRules';
 import './agents.css';
 
 // Trading Agent page (owner-specified, `/agents`): a full-screen page of its own, soft and calm, with motion that follows
@@ -26,6 +29,10 @@ interface AgentState {
   markets: Array<{ symbol: string; label: string; mt5: string }>;
   pricing: typeof AGENT_PRICING;
   minQuality: number;
+  /** A personal strategy's quality floor */
+  strategyMinQuality?: number;
+  /** The trader's own strategies the agent can trade with */
+  strategies?: Array<{ id: string; name: string; summary: string; setup: string }>;
   backtest: { won: number; avgR: number; profitFactor: number; maxDrawdownR: number; worstRun: number; tradesPerMonth: number };
   credits: number | null;
   /** Pro gives the agent (free for everyone until the Pro date); credits are still used per trade */
@@ -137,9 +144,14 @@ export interface AgentsPageProps {
   onBack: () => void;
   onBuyCredits?: () => void;
   onUpgrade?: () => void;
+  onToast?: (message: string, type?: 'success' | 'info') => void;
+  /** Tells the app whether a run is live (it then picks up the agent's notices on the normal page too) */
+  onRunning?: (live: boolean) => void;
+  /** Goes up when a new agent notice arrives while this page is open: the page reloads at once */
+  pulse?: number;
 }
 
-export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsPageProps) {
+export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, onRunning, pulse = 0 }: AgentsPageProps) {
   const [data, setData] = useState<AgentState | null>(null);
   const [draft, setDraft] = useState<AgentSettings>(DEFAULT_AGENT_SETTINGS);
   const [tab, setTab] = useState<Tab>('setup');
@@ -149,10 +161,17 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
   const [confirmStop, setConfirmStop] = useState(false);
   const [showBacktest, setShowBacktest] = useState(false);
   const [mt5Form, setMt5Form] = useState({ login: '', server: '', password: '', consent: false });
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const toast = useCallback((m: string, t?: 'success' | 'info') => onToast?.(m, t), [onToast]);
   const pageRef = useRef<HTMLDivElement>(null);
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
   const running = data?.run?.state === 'RUNNING';
+  const onRunningRef = useRef(onRunning);
+  onRunningRef.current = onRunning;
+  useEffect(() => {
+    if (data) onRunningRef.current?.(running);
+  }, [data, running]);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -188,6 +207,10 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
     const id = setInterval(() => setClock(Date.now()), linking ? 1000 : 30_000);
     return () => clearInterval(id);
   }, [linking, running]);
+  // A new agent notice (order, fill, result) while the page is open: show it straight away
+  useEffect(() => {
+    if (pulse) load(true);
+  }, [pulse, load]);
   // A notification's trade: open the Trades tab and ring it
   useEffect(() => {
     if (!focusId || !data) return;
@@ -197,10 +220,20 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
   }, [focusId, data]);
 
   const check = useMemo(() => normalizeAgentSettings(draft), [draft]);
-  const price = AGENT_PRICING[draft.duration];
-  const maxCost = agentMaxCost(draft);
+  // The page shows only the credits the trader has (owner-specified, no price list); enough = the agent's first trade
+  const needed = AGENT_PRICING[draft.duration].perTrade;
   const credits = data?.credits ?? null;
-  const short = credits !== null && credits < price.perTrade;
+  const short = credits !== null && credits < needed;
+  const strategies = data?.strategies || [];
+  const chosen = draft.strategyId ? strategies.find(x => x.id === draft.strategyId) || null : null;
+  /** Picks what the agent trades with (kept with the agent's settings, separate from the normal page's Strategy Builder) */
+  const pickStrategy = (strategyId: string | null) => {
+    const next = { ...draft, strategyId };
+    setDraft(next);
+    if (running) return;
+    const v = normalizeAgentSettings(next);
+    if (v.ok) apiFetch<AgentState>('/api/agent/settings', { method: 'PUT', body: JSON.stringify({ settings: v.settings }) }).then(d => setData(cur => (cur ? { ...cur, settings: d.settings, strategies: d.strategies } : d))).catch(() => {});
+  };
 
   const patch = (p: Partial<AgentSettings>) => setDraft(d => ({ ...d, ...p }));
   const setStyle = (style: AgentStyle) => patch({ style, timeframes: AGENT_FRAMES[style] });
@@ -211,6 +244,13 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
     setBusy(true);
     setError('');
     try {
+      // Before anything begins: read the balance again and stop here when it can't cover the agent's first trade
+      const fresh = await apiFetch<AgentState>('/api/agent');
+      setData(fresh);
+      if (fresh.credits !== null && fresh.credits < AGENT_PRICING[check.settings.duration].perTrade) {
+        setError('No credits available. Add credits to start the agent.');
+        return;
+      }
       setData(await apiFetch<AgentState>('/api/agent/start', { method: 'POST', body: JSON.stringify({ settings: check.settings }) }));
       setTab('activity');
       pageRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -342,7 +382,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                 {run ? (
                   <>
                     <p className="mt-3.5 text-[11.5px] text-slate-400 leading-relaxed">
-                      {run.settings.markets.map(m => marketLabel(m)?.label || m).join(', ')} · {run.settings.timeframes.join(' + ')} · risk {run.settings.riskPct}% · up to {run.settings.tradesPerDay}/day · {run.perTrade} credits a trade, {run.maxCredits} at most
+                      {run.strategyName ? `Strategy: ${run.strategyName}` : 'MarketX engine'} · {run.settings.markets.map(m => marketLabel(m)?.label || m).join(', ')} · {run.settings.timeframes.join(' + ')} · risk {run.settings.riskPct}% · up to {run.settings.tradesPerDay}/day
                     </p>
                     <div className="mt-3.5 grid grid-cols-4 gap-2">
                       <Stat label="Won" value={rs!.trades ? `${rs!.winRate}%` : '–'} />
@@ -353,7 +393,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                     {running && (
                       <p className="mt-3 text-[11.5px] text-slate-400">
                         {openTrades.length ? `${openTrades.length} order${openTrades.length === 1 ? '' : 's'}/trade${openTrades.length === 1 ? '' : 's'} live. ` : 'Watching your markets for a clean setup. '}
-                        It only trades setups of quality {data.minQuality}+, so some days it takes none.
+                        It only trades setups of quality {run!.settings.strategyId ? data.strategyMinQuality ?? 45 : data.minQuality}+, so some days it takes none.
                       </p>
                     )}
                   </>
@@ -501,6 +541,20 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                 )}
               </section>
 
+              {/* The agent's notices on this device (the same switch as the sidebar's) */}
+              <section className="ag-card ag-rise p-4 sm:p-5" style={rise(3)}>
+                <div className="flex items-center gap-2.5 mb-3">
+                  <span className="ag-icon ok">
+                    <Bell className="w-4 h-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[14px] font-semibold text-white">Alerts on this device</p>
+                    <p className="text-[11.5px] text-slate-500">Orders, fills, wins and losses show on your phone or computer, and in MarketX's notifications wherever you are.</p>
+                  </div>
+                </div>
+                <PushToggle what="every agent order, fill and result" onToast={toast} />
+              </section>
+
               {error && (
                 <p className="ag-rise text-[12px] text-rose-300 bg-rose-500/10 rounded-2xl px-3.5 py-2.5" role="alert">
                   {error}
@@ -523,7 +577,33 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                 {tab === 'setup' && (
                   <div className={`space-y-4 ${running ? 'opacity-60 pointer-events-none select-none' : ''}`} aria-disabled={running}>
                     {running && <p className="text-[12px] text-slate-400 px-1">Stop the agent to change its setup.</p>}
-                    <Section title="Trade type" hint="Steady mode: limit entries, a wider stop, calm markets only" i={0}>
+                    <Section title="Strategy" hint="What the agent trades with. Separate from your normal MarketX setup." i={0}>
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        <button type="button" onClick={() => pickStrategy(null)} className={`ag-choice ${!draft.strategyId ? 'on' : ''}`} aria-pressed={!draft.strategyId}>
+                          <span className="flex items-center gap-1.5 text-[13px] font-semibold text-white">
+                            <Bot className="w-3.5 h-3.5 text-emerald-300" /> MarketX engine
+                            <span className="ml-auto text-[10px] font-semibold text-emerald-300">Default</span>
+                          </span>
+                          <span className="block mt-0.5 text-[10.5px] text-slate-500 leading-snug">Steady mode: supply and demand zones with a Fibonacci entry, back-tested on these markets</span>
+                        </button>
+                        {strategies.map(st => (
+                          <button key={st.id} type="button" onClick={() => pickStrategy(st.id)} className={`ag-choice ${draft.strategyId === st.id ? 'on' : ''}`} aria-pressed={draft.strategyId === st.id}>
+                            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-white min-w-0">
+                              <span className="truncate">{st.name}</span>
+                              {st.setup && <span className="ml-auto shrink-0 text-[10px] font-semibold text-violet-300">{st.setup}</span>}
+                            </span>
+                            <span className="block mt-0.5 text-[10.5px] text-slate-500 leading-snug line-clamp-2">{st.summary || 'Your own strategy'}</span>
+                          </button>
+                        ))}
+                      </div>
+                      {draft.strategyId && !chosen && <p className="mt-2 text-[11px] text-amber-300">That strategy no longer exists. Pick another one, or the MarketX engine.</p>}
+                      <button type="button" onClick={() => setBuilderOpen(true)} className="mt-3 ag-ghost-btn">
+                        <WandSparkles className="w-3.5 h-3.5" /> {strategies.length ? 'Create or edit a strategy' : 'Create your own strategy'}
+                      </button>
+                      {draft.strategyId && <p className="mt-2 text-[11px] text-slate-500">Your strategy’s own rules find the setups (quality {data.strategyMinQuality ?? 45}+). The agent still places, sizes and manages every trade.</p>}
+                    </Section>
+
+                    <Section title="Trade type" hint="Steady mode: limit entries, a wider stop, calm markets only" i={1}>
                       <div className="grid grid-cols-3 gap-2">
                         {(['DAY', 'SWING', 'ANY'] as AgentStyle[]).map(s => (
                           <button key={s} type="button" onClick={() => setStyle(s)} className={`ag-choice ${draft.style === s ? 'on' : ''}`} aria-pressed={draft.style === s}>
@@ -534,7 +614,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                       </div>
                     </Section>
 
-                    <Section title="Timeframes and markets" hint="The markets the agent's back-test covered and that held up" i={1}>
+                    <Section title="Timeframes and markets" hint="The markets the agent's back-test covered and that held up" i={2}>
                       <div className="flex flex-wrap gap-2">
                         {AGENT_FRAMES[draft.style].map(tf => (
                           <button key={tf} type="button" onClick={() => patch({ timeframes: toggle(draft.timeframes, tf) })} className={`ag-chip ${draft.timeframes.includes(tf) ? 'on' : ''}`} aria-pressed={draft.timeframes.includes(tf)}>
@@ -551,7 +631,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                       </div>
                     </Section>
 
-                    <Section title="Risk and limits" i={2}>
+                    <Section title="Risk and limits" i={3}>
                       <div className="grid grid-cols-2 gap-2.5">
                         <Stepper title="Risk per trade" hint="Of your account, lost if a trade hits its stop" label="risk" value={draft.riskPct} min={AGENT_LIMITS.riskPct.min} max={AGENT_LIMITS.riskPct.max} step={0.1} suffix="%" onChange={v => patch({ riskPct: v })} />
                         <Stepper title="Trades per day" hint="The most it opens in a day" label="trades per day" value={draft.tradesPerDay} min={AGENT_LIMITS.tradesPerDay.min} max={AGENT_LIMITS.tradesPerDay.max} step={1} onChange={v => patch({ tradesPerDay: v })} />
@@ -560,30 +640,32 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                       </div>
                     </Section>
 
-                    <Section title="How long it runs" i={3}>
+                    <Section title="How long it runs" i={4}>
                       <div className="grid grid-cols-3 gap-2">
                         {(Object.keys(AGENT_PRICING) as AgentDuration[]).map(k => (
                           <button key={k} type="button" onClick={() => patch({ duration: k })} className={`ag-choice ${draft.duration === k ? 'on' : ''}`} aria-pressed={draft.duration === k}>
                             <span className="block text-[13px] font-semibold text-white">{AGENT_PRICING[k].label}</span>
-                            <span className="block mt-1 text-[15px] text-emerald-300 font-semibold tabular-nums">{AGENT_PRICING[k].perTrade}</span>
-                            <span className="block text-[10.5px] text-slate-500">credits a trade</span>
+                            <span className="block mt-0.5 text-[10.5px] text-slate-500">{AGENT_RUN_LABEL[k]}</span>
                           </button>
                         ))}
                       </div>
-                      <div className="mt-3 ag-soft p-3.5 text-[11.5px] text-slate-400 space-y-1.5 leading-relaxed">
-                        <p>
-                          <span className="text-white font-medium">{price.perTrade} credits a trade</span>, used once when the agent places it and refunded if the order never fills. Most this run can cost:{' '}
-                          <span className="text-white font-medium">{maxCost} credits</span> ({draft.tradesPerDay} a day × {price.days} day{price.days === 1 ? '' : 's'}).
-                        </p>
-                        {credits !== null && (
-                          <p className={short ? 'text-amber-300' : ''}>
-                            You have {credits} credits.{short ? ` You need at least ${price.perTrade} to start.` : ''}{' '}
-                            {onBuyCredits && (
-                              <button type="button" onClick={onBuyCredits} className="underline underline-offset-2 cursor-pointer text-amber-200">
-                                Buy credits
-                              </button>
-                            )}
+                      {/* Credits: only what the trader has (owner-specified) */}
+                      <div className={`mt-3 ag-soft p-3.5 flex items-center gap-3 ${short ? '!bg-amber-500/10' : ''}`}>
+                        <span className={`ag-icon ${short ? 'wait' : 'ok'}`}>
+                          <Coins className="w-4 h-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-[13px] font-semibold ${short ? 'text-amber-300' : 'text-white'}`}>
+                            {credits === null ? 'Unlimited credits' : short ? 'No credits available' : `${credits.toLocaleString()} credits available`}
                           </p>
+                          <p className="text-[11px] text-slate-500 leading-snug">
+                            {short ? 'The agent can’t start until you add credits.' : 'Credits come from your balance only when the agent places a trade, and are refunded if it never fills.'}
+                          </p>
+                        </div>
+                        {short && onBuyCredits && (
+                          <button type="button" onClick={onBuyCredits} className="ag-ghost-btn shrink-0">
+                            Buy credits
+                          </button>
                         )}
                       </div>
                     </Section>
@@ -612,7 +694,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
                     {!running && (
                       <div className="ag-rise" style={rise(5)}>
                         <button type="button" onClick={start} disabled={busy || !check.ok || short || !allowed} className="w-full ag-cta">
-                          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />} Start the agent
+                          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : short ? <Coins className="w-4 h-4" /> : <Power className="w-4 h-4" />} {short ? 'No credits available' : 'Start the agent'}
                         </button>
                         {!check.ok && <p className="mt-2 text-[11.5px] text-amber-300 px-1">{(check as { message: string }).message}</p>}
                       </div>
@@ -719,6 +801,18 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade }: AgentsP
           </div>
         )}
       </div>
+
+      <StrategyBuilderPanel
+        isOpen={builderOpen}
+        onClose={() => {
+          setBuilderOpen(false);
+          load(true);
+        }}
+        onToast={(m, t) => toast(m, t)}
+        onState={st => setData(cur => (cur ? { ...cur, strategies: st.strategies.map(x => ({ id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules.setup]?.short || '' })) } : cur))}
+        onProRequired={() => (setBuilderOpen(false), onUpgrade?.())}
+        agent={{ selectedId: draft.strategyId, onSelect: id => pickStrategy(id) }}
+      />
     </div>
   );
 }

@@ -61,6 +61,12 @@ export interface AgentSettings {
   profitTargetPct: number;
   lossLimitPct: number;
   duration: AgentDuration;
+  /**
+   * The strategy the agent trades with (owner-specified, the agent's own choice, separate from the Strategy Builder setting
+   * of the normal MarketX page): null = the MarketX engine (Steady mode, the default); else one of the trader's saved
+   * strategies (st_…), read with its own rules.
+   */
+  strategyId: string | null;
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -72,7 +78,12 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   profitTargetPct: AGENT_LIMITS.profitTargetPct.def,
   lossLimitPct: AGENT_LIMITS.lossLimitPct.def,
   duration: 'DAILY',
+  strategyId: null,
 };
+/** A personal strategy's setups need this quality (the site's own floor); the MarketX engine keeps AGENT_MIN_QUALITY */
+export const AGENT_STRATEGY_MIN_QUALITY = 45;
+/** The days each run length lasts (the agent page shows run lengths, never prices) */
+export const AGENT_RUN_LABEL: Record<AgentDuration, string> = { DAILY: '1 day', WEEKLY: '7 days', MONTHLY: '30 days' };
 
 const num = (v: unknown, lo: number, hi: number, step: number): number | null => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
@@ -101,6 +112,7 @@ export function normalizeAgentSettings(raw: any): { ok: true; settings: AgentSet
   if (lossLimitPct === null) return { ok: false, message: `The loss limit must be between 0% (none) and ${AGENT_LIMITS.lossLimitPct.max}%.` };
   if (lossLimitPct > 0 && lossLimitPct < riskPct) return { ok: false, message: 'The loss limit must be at least one trade’s risk.' };
   const duration: AgentDuration = r.duration === 'WEEKLY' || r.duration === 'MONTHLY' ? r.duration : 'DAILY';
+  const strategyId = typeof r.strategyId === 'string' && /^st_[a-f0-9]{16}$/.test(r.strategyId) ? r.strategyId : null;
   return {
     ok: true,
     settings: {
@@ -109,6 +121,7 @@ export function normalizeAgentSettings(raw: any): { ok: true; settings: AgentSet
       tradesPerDay,
       profitTargetPct: Number(profitTargetPct.toFixed(1)),
       lossLimitPct: Number(lossLimitPct.toFixed(1)),
+      strategyId,
     },
   };
 }
@@ -163,6 +176,8 @@ export interface AgentRunView {
   perTrade: number;
   maxCredits: number;
   creditsUsed: number;
+  /** The personal strategy this run trades with (null = the MarketX engine) */
+  strategyName?: string | null;
   stats: AgentStats;
   lastScanAt?: number;
 }
@@ -172,7 +187,7 @@ export const ENDED_TEXT: Record<NonNullable<AgentRunView['endedReason']>, string
   STOPPED: 'Stopped by you',
   TARGET: 'Profit target reached',
   LOSS_LIMIT: 'Loss limit reached',
-  NO_CREDITS: 'Out of credits',
+  NO_CREDITS: 'No credits available',
   SUB_ENDED: 'Pro plan needed',
 };
 

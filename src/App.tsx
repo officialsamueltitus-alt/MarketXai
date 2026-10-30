@@ -200,6 +200,10 @@ export default function App() {
   // Trading agent: its own full-screen page at /agents (also ?agent=1&focus=at_… from older links, agent notifications)
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentFocus, setAgentFocus] = useState<string | null>(null);
+  /** A run is live, as the agent page last saw it (null = not seen this visit: the account's own flag is used) */
+  const [agentRunLive, setAgentRunLive] = useState<boolean | null>(null);
+  /** Counts agent notices that arrived while the agent page is open (it reloads at once) */
+  const [agentPulse, setAgentPulse] = useState(0);
   const agentLinkRef = useRef(false);
   // Arrived through an invite link (?ref=CODE) while signed out: the sign-up form opens once we know
   const inviteArrivalRef = useRef(false);
@@ -1478,6 +1482,39 @@ export default function App() {
       playChime(fresh.some(n => n.title.startsWith('🎯')) ? 'ready' : 'building');
     }
   }, [notifications]);
+  // While the trading agent runs, its notices (order placed, filled, won, lost, run ended) are picked up every 15s on the
+  // normal page too (tab visible only), and at once when the trader comes back to the tab
+  const agentLive = agentRunLive ?? !!userProfile.agentLive;
+  useEffect(() => {
+    if (!authUser || !agentLive || hasActiveAlerts) return;
+    const id = setInterval(() => {
+      if (!document.hidden) refreshNotifications(true);
+    }, 15_000);
+    const onVisible = () => {
+      if (!document.hidden) refreshNotifications(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [authUser, agentLive, hasActiveAlerts, refreshNotifications]);
+  // A new agent notice while the trader is elsewhere in MarketX: a short toast (tap opens the agent page) and a chime
+  const seenAgentNotifsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const agentNotifs = notifications.filter(n => n.actionType === 'open_agent');
+    if (!seenAgentNotifsRef.current) {
+      seenAgentNotifsRef.current = new Set(agentNotifs.map(n => n.id));
+      return;
+    }
+    const fresh = agentNotifs.filter(n => !seenAgentNotifsRef.current!.has(n.id) && !n.read);
+    agentNotifs.forEach(n => seenAgentNotifsRef.current!.add(n.id));
+    if (fresh.length && agentOpen) setAgentPulse(p => p + 1);
+    else if (fresh.length) {
+      setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
+      playChime(/won|target|filled/i.test(fresh[0].title) ? 'ready' : 'building');
+    }
+  }, [notifications, agentOpen]);
   useEffect(() => primeSound(), []);
   // Phone / desktop notifications: this device is linked to whoever signs in; a push that arrives while MarketX is
   // open refreshes the notices at once (toast + chime), and a tapped notification opens its exact item
@@ -2775,7 +2812,15 @@ export default function App() {
       </Deferred>
       {agentOpen && (
         <Suspense fallback={<div className="fixed inset-0 z-[46] bg-[var(--mx-bg)]" aria-busy="true" />}>
-          <AgentsPage focusId={agentFocus} onBack={closeAgent} onBuyCredits={() => (closeAgent(), openAccountTab('credits'))} onUpgrade={() => setIsPricingModalOpen(true)} />
+          <AgentsPage
+            focusId={agentFocus}
+            onBack={closeAgent}
+            onBuyCredits={() => (closeAgent(), openAccountTab('credits'))}
+            onUpgrade={() => setIsPricingModalOpen(true)}
+            onToast={showToast}
+            onRunning={setAgentRunLive}
+            pulse={agentPulse}
+          />
         </Suspense>
       )}
       <Deferred when={!!leaderboard}>

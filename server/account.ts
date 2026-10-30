@@ -206,6 +206,8 @@ export function toClientState(doc: UserDoc, user: AuthedUser) {
     // Feature codes redeemed: one feature unlocked until a time ({feature: until})
     featurePasses: livePasses(doc),
     proFreeUntil: PRO_GATE_AT,
+    // A trading agent run is live: the app checks for its notices more often (set at start, cleared when the run ends)
+    agentLive: !!(doc as any).agentLive,
     subscription: vip
       ? { plan: 'yearly', active: true, startDate: doc.joinedAt, expiresAt: 0, price: 0 }
       : doc.subscription,

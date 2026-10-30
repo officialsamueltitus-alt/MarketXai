@@ -2324,6 +2324,22 @@ registerTradingAgentRoutes(
       if (!m || !p || p.execution !== 'LIMIT' || p.moved) return null;
       return { direction: p.direction, entry: p.entry, stop: p.stopLoss, targets: p.targets.map(t => t.price), quality: Math.round(m.confidence), price: q.price };
     },
+    // The agent's own strategy choice (Strategy Builder rules, no AI call): the same rules engine and the same hard checks
+    // as a personal strategy analysis, on the agent's market and timeframe
+    scanStrategy: async (strategyId, symbol, tf) => {
+      const st = await strategyById(strategyId).catch(() => null);
+      if (!st) return null;
+      const asset = await resolveAssetInfo(symbol, symbol);
+      const q = await livePriceFor(asset);
+      if (!q || q.live === false) return null;
+      const cs = await fetchCandlesForAsset(asset, tf).catch(() => null);
+      if (!cs) return null;
+      const dec = priceDecimals(q.price, asset.symbol.includes('JPY'), asset.type === 'forex');
+      const sig = runUserStrategy(cs, st.rules, { price: q.price, timeframe: tf, decimals: dec }).signal;
+      if (!sig || !sig.targets.length) return null;
+      if (personalStrategyStatus(sig.direction, q.price, sig.entry.optimal, sig.stop, sig.targets.map(t => ({ level: t.label, price: t.price }))).state !== 'ACTIVE') return null;
+      return { direction: sig.direction, entry: sig.entry, stop: sig.stop, targets: sig.targets.map(t => t.price), quality: Math.round(sig.score), price: q.price };
+    },
     getBars: async symbol => fetchCandlesForAsset(await resolveAssetInfo(symbol, symbol), '1M'),
     closePrice: async symbol => {
       const q = await livePriceFor(await resolveAssetInfo(symbol, symbol));

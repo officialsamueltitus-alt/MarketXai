@@ -44,6 +44,11 @@ interface Props {
   onState: (s: StrategyState) => void;
   /** Free until 1 Nov, then Pro: opens pricing when the server says so */
   onProRequired: (message: string) => void;
+  /**
+   * Opened from the Trading Agent page (owner-specified): picking a strategy here chooses what the AGENT trades with, kept
+   * separate from the Strategy Builder on/off of the normal MarketX page (which this never changes). null = the MarketX engine.
+   */
+  agent?: { selectedId: string | null; onSelect: (id: string | null, name?: string) => void };
 }
 
 const tfLabel = (tf: string) => tf.replace(/^(\d+)M$/, '$1m');
@@ -95,7 +100,7 @@ const NumberIn: React.FC<{ value: number; onChange: (n: number) => void; step?: 
   </label>
 );
 
-export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast, onState, onProRequired }) => {
+export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast, onState, onProRequired, agent }) => {
   const [state, setState] = useState<StrategyState | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -176,11 +181,18 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
   };
   const save = async (use: boolean) => {
     if (!draft) return;
-    const body = JSON.stringify({ name, freeText, guided, rules: draft.rules, summary: draft.summary, notSupported: draft.notSupported, templateId, use });
+    const body = JSON.stringify({ name, freeText, guided, rules: draft.rules, summary: draft.summary, notSupported: draft.notSupported, templateId, use: agent ? false : use });
     const out = await call('save', () =>
       editId ? apiFetch<StrategyState & { saved: Saved }>(`/api/strategies/${editId}`, { method: 'PUT', body }) : apiFetch<StrategyState & { saved: Saved }>('/api/strategies', { method: 'POST', body })
     );
     if (!out) return;
+    if (agent) {
+      apply(out);
+      if (use) agent.onSelect(out.saved.id, out.saved.name);
+      onToast(use ? `The agent will trade with "${out.saved.name}"` : `"${out.saved.name}" saved`, 'success');
+      setView('home');
+      return;
+    }
     if (use && editId && !out.enabled) {
       const on = await call('mode', () => apiFetch<StrategyState>('/api/strategies/mode', { method: 'POST', body: JSON.stringify({ enabled: true, strategyId: out.saved.id }) }));
       if (on) apply(on);
@@ -207,7 +219,29 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
   // ---------------------------------------------------------------- home
   const home = (
     <div className="pt-4 space-y-4">
-      {/* Strategy Builder on / off */}
+      {agent ? (
+        <section className={`relative overflow-hidden p-4 rounded-3xl border ${agent.selectedId ? 'border-emerald-400/30 bg-emerald-500/[0.06]' : 'border-white/[0.08] bg-white/[0.03]'}`}>
+          <div className="relative flex items-start gap-3">
+            <span className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${agent.selectedId ? 'bg-emerald-500/20 text-emerald-200' : 'bg-white/[0.06] text-slate-300'}`}>
+              <Target className="w-4 h-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-white">The agent's strategy</h3>
+              <p className="mt-0.5 text-xs text-slate-400 leading-snug">
+                {agent.selectedId && state?.strategies.find(x => x.id === agent.selectedId)
+                  ? <>The agent trades with <span className="text-white font-medium">{state.strategies.find(x => x.id === agent.selectedId)!.name}</span>.</>
+                  : 'The agent trades with the MarketX engine (default).'}{' '}
+                Picking one here only changes the agent: your normal MarketX setup stays as it is.
+              </p>
+            </div>
+            {agent.selectedId && (
+              <button type="button" onClick={() => (agent.onSelect(null), onToast('The agent will trade with the MarketX engine', 'success'))} className="h-8 px-3 rounded-full text-xs font-semibold text-slate-200 border border-white/[0.12] hover:bg-white/[0.06] cursor-pointer shrink-0">
+                Use MarketX engine
+              </button>
+            )}
+          </div>
+        </section>
+      ) : (
       <section className={`relative overflow-hidden p-4 rounded-3xl border ${state?.enabled ? 'border-emerald-400/30 bg-emerald-500/[0.06]' : 'border-white/[0.08] bg-white/[0.03]'}`}>
         <div aria-hidden="true" className="pointer-events-none absolute -top-16 -right-10 w-48 h-48 rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.25),transparent_65%)]" />
         <div className="relative flex items-start gap-3">
@@ -229,6 +263,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
           )}
         </div>
       </section>
+      )}
 
       {!state?.engineReady && (
         <p className="flex items-start gap-2 p-3 rounded-2xl bg-amber-500/[0.06] border border-amber-400/20 text-[11px] text-amber-200/90 leading-snug">
@@ -255,7 +290,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
         ) : (
           <ul className="space-y-2">
             {state.strategies.map(s => {
-              const on = state.enabled && state.activeId === s.id;
+              const on = agent ? agent.selectedId === s.id : state.enabled && state.activeId === s.id;
               return (
                 <li key={s.id} className={`p-3.5 rounded-2xl border transition-colors ${on ? 'border-emerald-400/40 bg-emerald-500/[0.05]' : 'border-white/[0.08] bg-white/[0.03]'}`}>
                   <div className="flex items-center gap-2">
@@ -266,7 +301,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
                   <p className="mt-1 text-xs text-slate-400 leading-snug line-clamp-2">{s.summary}</p>
                   <div className="mt-2.5 flex items-center gap-1.5">
                     {!on && (
-                      <button type="button" onClick={() => setMode(true, s.id)} disabled={!!busy} className="h-8 px-3 rounded-full bg-white text-slate-900 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-60">
+                      <button type="button" onClick={() => (agent ? (agent.onSelect(s.id, s.name), onToast(`The agent will trade with "${s.name}"`, 'success')) : setMode(true, s.id))} disabled={!!busy} className="h-8 px-3 rounded-full bg-white text-slate-900 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-60">
                         {busy === `mode:${s.id}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />} Use this
                       </button>
                     )}
@@ -499,7 +534,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
               {busy === 'save' ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save'}
             </button>
             <button type="button" onClick={() => save(true)} disabled={!!busy || name.trim().length < 2} className="h-11 rounded-2xl bg-white text-slate-900 text-sm font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40">
-              <Power className="w-4 h-4" /> Save and use
+              <Power className="w-4 h-4" /> {agent ? "Save and use for the agent" : "Save and use"}
             </button>
           </div>
           <p className="mt-3 flex items-start gap-1.5 text-[10px] text-slate-500 leading-snug">
@@ -517,7 +552,7 @@ export const StrategyBuilderPanel: React.FC<Props> = ({ isOpen, onClose, onToast
       ask={{ q: "How does the Strategy Builder work: building my own strategy, the library, and turning it on?", label: "Strategy Builder" }}
       label="Strategy Builder"
       title="Strategy Builder"
-      subtitle={state?.enabled && active ? `On · ${active.name}` : 'Your own strategy, run on real candles'}
+      subtitle={agent ? 'Pick or build the strategy your agent trades with' : state?.enabled && active ? `On · ${active.name}` : 'Your own strategy, run on real candles'}
       icon={Target}
       gradient="from-violet-500/30 to-emerald-500/25"
       iconTone="text-violet-100"

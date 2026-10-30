@@ -175,6 +175,16 @@
   → Plans) instead of plan cards. Credits stay per trade. Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
   PLACES it (same transaction as the order, campaign first, `campaignCharged`), refunded in full when the order is cancelled unfilled (`cancelPending`,
   `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
+  No price list on the page (owner-specified): it shows only the credits the trader has ("N credits available"); with fewer than one trade's
+  credits the start says "No credits available" (Start button disabled, the page re-reads `/api/agent` before starting, the server refuses
+  402 NO_CREDITS) and nothing runs. Agent strategy (owner-specified, SEPARATE from the normal page's `users.strategyMode`): `settings.strategyId`
+  (null = the MarketX engine, the default) picked in the Setup tab's Strategy section; "Create or edit a strategy" opens `StrategyBuilderPanel`
+  with its `agent` prop (saves never switch on the normal page's builder; "Use this" / "Save and use for the agent" only pick it for the agent).
+  A strategy run scans with `deps.scanStrategy` (`runUserStrategy` + `personalStrategyStatus`, like the watchlist strategy scan, scan key
+  `strategyId|symbol|tf`), floor `AGENT_STRATEGY_MIN_QUALITY` 45; the run stores `strategyName`; a deleted strategy = 400 NO_STRATEGY at start.
+  Notifications: every `tell` is a site notification + web push (`PushToggle` card "Alerts on this device" on the page); `users.agentLive`
+  (set at start, cleared by `endRun`, `profile.agentLive`) makes the app poll notifications every 15s, and a new `open_agent` notification shows
+  a toast + chime on the normal page, or reloads the agent page (`pulse`) when it is open.
   MT5 execution (owner-specified: MetaApi only, no copy-trade platform; the old "MT5 Connector" Soon command is removed; `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
   (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
   login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id; never `manualTrades`, which MetaApi refuses with a magic number; its errors are reworded by `friendlyMt5Message` with request ids stripped). Server box (owner-requested) = `Mt5ServerInput`: suggestions from `src/utils/mt5Servers.ts` (common brokers) + `GET /api/agent/mt5/servers?q=` (that list + MetaApi's `known-mt-servers/5/search`, cached 10 min) and are NEVER stored,
