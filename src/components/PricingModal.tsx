@@ -296,7 +296,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               Trade with more <span className="marketx-chroma-x">firepower</span>
             </h2>
             <p className="mt-3 text-sm sm:text-[15px] text-slate-400 leading-relaxed">
-              More analyses every day and a verified trader badge. Pay once per period, with no auto-renewal.
+              Plan credits for every analysis and the Trading Agent, plus a verified trader badge. Pay once per period, with no auto-renewal.
             </p>
           </div>
 

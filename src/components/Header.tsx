@@ -135,7 +135,9 @@ export const Header: React.FC<HeaderProps> = ({
               ? `${campaignCredits} campaign credit${campaignCredits === 1 ? '' : 's'} left, used first. Your ${credits} daily ${credits === 1 ? 'analysis is' : 'analyses are'} paused until they run out.`
               : paused
                 ? `Today's analyses are used up. They refill at ${refillLabel}.`
-                : `${credits} of ${maxCredits} analyses left today. Refills at ${refillLabel}.`;
+                : credits > maxCredits
+                  ? `${credits} left today, bought credits included. Daily ones refill at ${refillLabel}.`
+                  : `${credits} of ${maxCredits} left today. Refills at ${refillLabel}.`;
           return (
             <button
               type="button"

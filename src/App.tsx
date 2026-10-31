@@ -78,7 +78,7 @@ import { PromoBanner } from './components/PromoBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
-import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft } from './utils/creditManager';
+import { INITIAL_USER_PROFILE, INITIAL_CREDIT_STATE, isUnlimitedUser, setServerUnlimitedEmail, isDailyLimitReached, formatDailyResetTime, getNextDailyReset, promptsLeft, campaignCreditsLeft, purchasedCreditsLeft, limitReachedText } from './utils/creditManager';
 import { getApiUrl } from './utils/api';
 import { classifyPrompt, isMajorCoin, isSafetyRequest, safetySubject, solanaAddressIn, wantsSafetyCheck } from './utils/promptIntent';
 import { timeframeFromPrompt } from './utils/timeframe';
@@ -1682,7 +1682,7 @@ export default function App() {
       return;
     }
     if (isDailyLimitReached(creditState, userProfile.email)) {
-      setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
+      setToastNotification({ message: limitReachedText(creditState), type: 'info' });
       return;
     }
     setCurrentView('chat');
@@ -1862,7 +1862,7 @@ export default function App() {
     const topic = (prev.question || (before ? fundamentalTopic(before.content) : null) || prev.event || '').trim();
     if (!topic) return;
     if (isDailyLimitReached(creditState, userProfile.email)) {
-      setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
+      setToastNotification({ message: limitReachedText(creditState), type: 'info' });
       return;
     }
     if (!fundamentalOn) {
@@ -2002,7 +2002,7 @@ export default function App() {
 
     // Daily limit reached: prompts are paused until the automatic 3:00 AM refill (the server enforces this too)
     if (isDailyLimitReached(creditState, userProfile.email)) {
-      setToastNotification({ message: `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(creditState)}.`, type: 'info' });
+      setToastNotification({ message: limitReachedText(creditState), type: 'info' });
       return;
     }
 
@@ -3000,7 +3000,8 @@ export default function App() {
         <Header
           onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
           tickers={tickers}
-          credits={creditState.dailyUsageRemaining}
+          // What can still be spent today: Pro = min(today's 50, the balance); Free = today's analyses + bought credits (campaign shown apart)
+          credits={creditState.dailyUsageRemaining >= 99999 ? creditState.dailyUsageRemaining : creditState.dailyNeedsBalance ? promptsLeft(creditState) : Math.max(0, creditState.dailyUsageRemaining) + purchasedCreditsLeft(creditState)}
           maxCredits={creditState.dailyUsageLimit}
           campaignCredits={campaignCreditsLeft(creditState)}
           refillLabel={formatDailyResetTime(creditState)}

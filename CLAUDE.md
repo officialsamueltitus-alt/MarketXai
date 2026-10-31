@@ -768,6 +768,9 @@
 - Always use the site's own colour combinations, whatever colours a reference image or "clue" uses: the theme surfaces (`--mx-bg`,
   `--mx-surface*`, `--mx-border*`, `--mx-text`, light and dark themes both), the violet accent (`--mx-accent` #8b5cf6, gradients violet →
   fuchsia / violet → indigo → cyan) and the usual states (emerald win, rose loss, amber warning). Take a reference's layout and motion only.
+- Corners and cards (owner-requested, site-wide): the radius scale is set once in `index.css` `@theme` (md .5rem, lg .75rem, xl 1rem,
+  2xl 1.3rem, 3xl 1.75rem) so every card, button and input is well curved; bordered `rounded-2xl/3xl` cards get a faint top highlight and
+  eased colour changes (`:where(...)` rules at the end of `index.css`). Change the scale there, never card by card.
 
 ## Deployment
 - `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory);
