@@ -104,17 +104,20 @@ function AnalyzeRun({ compact }: { compact?: boolean }) {
 function MattRun() {
   const reply = useTyped('Gold is holding its 1H demand zone. A buy only makes sense on a pullback into it, with the stop under the zone.', 2600, 32);
   return (
-    <div className="relative flex flex-col items-center h-full p-5 pt-8">
+    <div className="lx-matt relative flex flex-col items-center h-full p-5 pt-6 pb-11">
       <div className="absolute inset-0 grid place-items-center pointer-events-none">
         <div className="w-[260px] h-[260px] rounded-full border border-violet-400/15" />
       </div>
-      <div className="lx-orb mt-4" />
-      <div className="lx-wave mt-6 flex items-end gap-1 h-8">
-        {Array.from({ length: 14 }).map((_, i) => (
-          <i key={i} style={{ height: 32, animationDelay: `${(i % 7) * 90}ms` }} />
-        ))}
+      {/* Orb and wave share the space left over; the conversation always sits whole at the bottom */}
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center">
+        <div className="lx-orb" />
+        <div className="lx-wave mt-5 flex items-end gap-1 h-8">
+          {Array.from({ length: 14 }).map((_, i) => (
+            <i key={i} style={{ height: 32, animationDelay: `${(i % 7) * 90}ms` }} />
+          ))}
+        </div>
       </div>
-      <div className="mt-6 w-full space-y-2.5">
+      <div className="relative mt-4 w-full space-y-2.5">
         <div className="lx-step ml-auto max-w-[80%] rounded-2xl rounded-br-md lxs-q px-3.5 py-2 text-[12.5px]" style={delay(600)}>
           <Mic className="inline w-3 h-3 mr-1 -mt-0.5" /> Is gold a buy today?
         </div>
@@ -137,7 +140,7 @@ function FundamentalRun() {
     { k: 'Cooler', p: 15, c: '#5d5e6b' },
   ];
   return (
-    <div className="flex flex-col h-full p-5">
+    <div className="lx-fund flex flex-col h-full p-5 pb-11">
       <div className="flex items-center gap-2">
         <span className="w-8 h-8 rounded-xl bg-sky-500/15 lxs-sky grid place-items-center">
           <Landmark className="w-4 h-4" />
@@ -148,7 +151,7 @@ function FundamentalRun() {
         </div>
         <span className="ml-auto text-[10.5px] px-2 py-0.5 rounded-md bg-rose-500/15 lxs-down font-semibold">High impact</span>
       </div>
-      <div className="mt-4 space-y-3">
+      <div className="lx-fund-bars mt-4 space-y-3">
         {scen.map((s, i) => (
           <div key={s.k}>
             <div className="flex justify-between text-[11.5px] mb-1">
@@ -161,7 +164,7 @@ function FundamentalRun() {
           </div>
         ))}
       </div>
-      <div className="lx-step mt-4 flex flex-wrap gap-1.5" style={delay(1800)}>
+      <div className="lx-fund-pairs lx-step mt-4 flex flex-wrap gap-1.5" style={delay(1800)}>
         {[
           ['USD/JPY', 'For', 'bg-emerald-500/15 lxs-up'],
           ['XAU/USD', 'Against', 'bg-rose-500/15 lxs-down'],
@@ -172,7 +175,7 @@ function FundamentalRun() {
           </span>
         ))}
       </div>
-      <div className="lx-pop mt-auto rounded-2xl bg-sky-500/10 border border-sky-400/20 p-3" style={delay(3400)}>
+      <div className="lx-fund-recheck lx-pop mt-auto rounded-2xl bg-sky-500/10 border border-sky-400/20 p-3" style={delay(3400)}>
         <p className="text-[11px] uppercase tracking-wider lxs-sky font-semibold">Recheck · Released</p>
         <p className="mt-1 text-[13px]">
           Actual <b className="lxs-ink">3.4%</b> vs forecast 3.2%: hotter, the most likely outcome held.
