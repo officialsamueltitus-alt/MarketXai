@@ -50,6 +50,7 @@ const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel'
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const LeaderboardPanel = lazyWithReload(() => import('./components/LeaderboardPanel').then(m => ({ default: m.LeaderboardPanel })));
+import { AgentDisclaimer } from './agents/AgentDisclaimer';
 const AgentsPage = lazyWithReload(() => import('./agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
@@ -75,6 +76,7 @@ import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
 import { SiteBanner } from './components/SiteBanner';
 import { PromoBanner } from './components/PromoBanner';
+import { InstallPrompt } from './components/InstallPrompt';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
@@ -200,6 +202,11 @@ export default function App() {
   // Trading agent: its own full-screen page at /agents (also ?agent=1&focus=at_… from older links, agent notifications)
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentFocus, setAgentFocus] = useState<string | null>(null);
+  // The risk disclaimer is accepted on every entry to the agent page (owner-specified)
+  const [agentAgreed, setAgentAgreed] = useState(false);
+  useEffect(() => {
+    if (!agentOpen) setAgentAgreed(false);
+  }, [agentOpen]);
   /** A run is live, as the agent page last saw it (null = not seen this visit: the account's own flag is used) */
   const [agentRunLive, setAgentRunLive] = useState<boolean | null>(null);
   /** Counts agent notices that arrived while the agent page is open (it reloads at once) */
@@ -2810,7 +2817,8 @@ export default function App() {
           onToast={showToast}
         />
       </Deferred>
-      {agentOpen && (
+      {agentOpen && !agentAgreed && <AgentDisclaimer onProceed={() => setAgentAgreed(true)} onBack={closeAgent} />}
+      {agentOpen && agentAgreed && (
         <Suspense fallback={<div className="fixed inset-0 z-[46] bg-[var(--mx-bg)]" aria-busy="true" />}>
           <AgentsPage
             focusId={agentFocus}
@@ -2986,6 +2994,9 @@ export default function App() {
         onOpenLeaderboard={authUser ? openLeaderboard : undefined}
         onToast={(message, type) => setToastNotification({ message, type: type || 'success' })}
       />
+
+      {/* Signed in: offer to add MarketX to the device as a web app (can be closed) */}
+      <InstallPrompt signedIn={!!authUser} />
 
       {/* Main Workspace Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">

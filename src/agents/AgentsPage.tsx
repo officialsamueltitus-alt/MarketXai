@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowLeft, ArrowUpRight, Bot, CheckCircle2, ChevronDown, CircleDot, Clock, Crown, Gauge, Info, Layers, LayoutGrid, Link2, Loader2, Lock, Minus, Plug,
-  Plus, Power, Radar, RefreshCw, ScanLine, Send, ShieldAlert, Square, Target, Unlink, WandSparkles, XCircle, Bell, Coins,
+  Plus, Power, Radar, RefreshCw, ScanLine, Send, ShieldAlert, Square, Target, Unlink, WandSparkles, XCircle, Bell, Coins, Settings2,
 } from 'lucide-react';
 import { apiFetch, formatMoney } from '../utils/apiClient';
 import { exactPrice } from '../utils/formatPrice';
@@ -59,7 +59,8 @@ interface AgentState {
     };
   };
 }
-type Tab = 'setup' | 'trades' | 'activity';
+/** Trades + History are the agent's day-to-day view; everything the trader configures lives under Settings */
+type Tab = 'trades' | 'activity' | 'settings';
 
 const sign = (n: number, d = 2) => `${n > 0 ? '+' : ''}${n.toFixed(d)}`;
 const ago = (t: number) => {
@@ -195,7 +196,7 @@ export interface AgentsPageProps {
 export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, onRunning, pulse = 0 }: AgentsPageProps) {
   const [data, setData] = useState<AgentState | null>(null);
   const [draft, setDraft] = useState<AgentSettings>(DEFAULT_AGENT_SETTINGS);
-  const [tab, setTab] = useState<Tab>('setup');
+  const [tab, setTab] = useState<Tab>('trades');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -384,12 +385,12 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   const lastScan = run?.lastScanAt || run?.startedAt || beat;
   const nextScan = running ? 60 - (Math.floor((beat - lastScan) / 1000) % 60) : 60;
   const navTabs: Array<[Tab, string, number?]> = [
-    ['setup', 'Setup'],
     ['trades', 'Trades', trades.length || undefined],
-    ['activity', 'Activity'],
+    ['activity', 'History'],
+    ['settings', 'Settings'],
   ];
   const goSetupStart = () => {
-    setTab('setup');
+    setTab('settings');
     setTimeout(() => pageRef.current?.querySelector('[data-start]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
   };
   const scanTiles = runMarkets.flatMap(m => runFrames.map(tf => ({ m, tf }))).slice(0, 8);
@@ -434,9 +435,6 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
           </button>
           <h1 className="min-w-0 truncate text-[23px] min-[360px]:text-[28px] sm:text-[44px] font-light tracking-[-0.03em] text-white leading-tight">Trading Agent</h1>
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={() => setBuilderOpen(true)} className="ag-round hidden sm:grid" aria-label="Strategies" title="Strategies">
-              <WandSparkles className="w-3.5 h-3.5" />
-            </button>
             {data &&
               (running ? (
                 <button type="button" onClick={() => setConfirmStop(true)} className="ag-pill">
@@ -471,6 +469,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
 
         {data && (
           <>
+            {tab !== 'settings' && (
+            <>
             {/* ---------- Overview: results + credits ---------- */}
             <div className="mt-5 sm:mt-7 grid lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-3 sm:gap-4">
               <section className="ag-card ag-rise p-5 sm:p-6" style={rise(0)}>
@@ -574,6 +574,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                 </div>
               </section>
             </div>
+            </>
+            )}
 
             {/* Stop: asks first */}
             {running && (
@@ -600,6 +602,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
               </p>
             )}
 
+            {tab !== 'settings' && (
+            <>
             {/* ---------- Live automation: moves only while the agent runs ---------- */}
             <section className="mt-3 sm:mt-4 ag-card ag-live ag-rise p-5 sm:p-6" style={rise(2)} data-on={running ? '1' : undefined} aria-label="Live automation">
               <div className="relative flex flex-wrap items-center gap-3">
@@ -704,11 +708,19 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                 </div>
               </div>
             </section>
+            </>
+            )}
 
             {/* ---------- Tabs ---------- */}
             <div key={tab} className="mt-6 ag-fade">
-              {tab === 'setup' && (
+              {tab === 'settings' && (
                 <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start">
+                  <div className="lg:col-span-2 -mb-1 px-1">
+                    <p className="text-[18px] font-medium text-white flex items-center gap-2">
+                      <Settings2 className="w-4 h-4 text-[var(--ag-accent-text)]" /> Settings
+                    </p>
+                    <p className="text-[12px] text-[var(--ag-muted)]">Strategy, markets, risk, how long it runs, your MT5 account and alerts on this device.</p>
+                  </div>
                   <div className={`space-y-4 ${running ? 'opacity-55 pointer-events-none select-none' : ''}`} aria-disabled={running}>
                     {running && <p className="text-[12px] text-[var(--ag-muted)] px-1">Stop the agent to change its setup.</p>}
                     <Section title="Strategy" hint="What the agent trades with. Separate from your normal MarketX setup." i={0}>
@@ -1135,7 +1147,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
 
               {tab === 'activity' && (
                 <section className="ag-paper ag-rise p-5 sm:p-7">
-                  <p className="text-[15px] font-medium">Activity</p>
+                  <p className="text-[15px] font-medium">History</p>
                   <p className="muted text-[11.5px]">Everything the agent does, newest first. You're alerted as it happens.</p>
                   {!data.log.length && (
                     <div className="py-10 text-center">

@@ -18,6 +18,8 @@ interface Post {
   time?: string;
   /** The post on X (tracking parameters removed); never shown, the card opens it */
   url: string;
+  /** A MarketX role shown next to the name (e.g. CMO) */
+  tag?: string;
 }
 
 const POSTS: Post[] = [
@@ -25,6 +27,7 @@ const POSTS: Post[] = [
     id: 'dyce',
     name: 'DYÇÊ.XÏ',
     handle: 'DominatorDyce',
+    tag: 'CMO',
     url: 'https://x.com/DominatorDyce/status/2115672674252788026',
     avatar: '/landing/x/dyce.webp',
     verified: true,
@@ -184,7 +187,7 @@ const ROW_B = [POSTS[4], POSTS[5], POSTS[3], POSTS[0], POSTS[2], POSTS[1]];
 const Row: React.FC<{ posts: Post[]; reverse?: boolean }> = ({ posts, reverse }) => (
   <div className={`lx-slide-row ${reverse ? 'reverse' : ''}`}>
     {[...posts, ...posts].map((p, i) => (
-      <PostCard key={`${p.id}-${i}`} post={p} hidden={i >= posts.length} className="w-[300px] sm:w-[340px] shrink-0" />
+      <PostCard key={`${p.id}-${i}`} post={p} tag={p.tag} hidden={i >= posts.length} className="w-[300px] sm:w-[340px] shrink-0" />
     ))}
   </div>
 );
