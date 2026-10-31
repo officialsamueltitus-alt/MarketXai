@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendPush } from './webPush';
 import { agentSpendable, chargeAgentInTx, refundAgentInTx, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
@@ -16,7 +16,7 @@ import {
   mt5KnownServers, mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
 } from './mt5';
 import {
-  AGENT_BACKTEST, AGENT_MARKETS, AGENT_MIN_QUALITY, AGENT_PRICING, AGENT_STRATEGY_MIN_QUALITY, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
+  AGENT_BACKTEST, AGENT_MARKETS, AGENT_STRATEGY_FRAMES, AGENT_STRATEGY_MARKETS, agentMarketInfo, strategyAgentFrames, AGENT_MIN_QUALITY, AGENT_PRICING, AGENT_STRATEGY_MIN_QUALITY, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
   type AgentLogEntry, type AgentRunView, type AgentSettings, type AgentTradeResult, type AgentTradeState, type AgentTradeView,
 } from '../src/utils/tradingAgent';
 
@@ -74,7 +74,7 @@ const MT5_WAKE_WAIT_MS = 45_000;
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0;
 const now = () => Date.now();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
-const mt5Name = (symbol: string) => AGENT_MARKETS.find(m => m.symbol === symbol)?.mt5 || symbol.replace(/[^A-Z0-9]/gi, '');
+const mt5Name = (symbol: string) => agentMarketInfo(symbol)?.mt5 || symbol.replace(/[^A-Z0-9]/gi, '');
 
 /** One setup the engine would serve right now (Steady mode, limit entry) */
 export interface AgentSetup {
@@ -419,15 +419,21 @@ async function cancelPending(t: AgentTrade, note: string, extra: Record<string, 
 async function mt5Open(t: AgentTrade, feedPrice: number): Promise<void> {
   const linked = await linkOf(t.uid);
   if (!linked || linked.status !== 'CONNECTED' || !mt5Configured()) return;
-  const symbol = linked.symbols?.[t.symbol];
+  let symbol = linked.symbols?.[t.symbol];
   const fail = async (error: string) => {
     await tradeRef(t.id).update({ mt5: { state: 'FAILED', ...(symbol ? { symbol } : {}), error: error.slice(0, 200) }, updatedAt: now() }).catch(() => {});
     await pushLog(t.uid, [logEntry('PAUSE', `MT5: the ${t.symbol} order was not placed on your account (${error}). MarketX keeps tracking it.`, t.id)]);
     await tell(t.uid, `⚠️ MT5: ${t.symbol} order not placed`, `${error}. MarketX keeps tracking the trade; you can place it yourself: ${orderLine(t)}.`, { tradeId: t.id });
   };
-  if (!symbol) return fail(`your broker has no symbol matching ${t.symbol}`);
+  // A market outside the engine's list (personal strategy): matched against the broker's symbols the first time, then kept
+  if (symbol === null) return fail(`your broker has no symbol matching ${t.symbol}`);
   const link = await wakeLink(t.uid);
   if (!link) return fail('your MT5 account did not reconnect in time');
+  if (symbol === undefined) {
+    symbol = matchSymbol(t.symbol, await mt5Symbols(link).catch(() => [] as string[]));
+    linkRef(t.uid).update(new FieldPath('symbols', t.symbol), symbol).catch(() => {});
+    if (!symbol) return fail(`your broker has no symbol matching ${t.symbol}`);
+  }
   try {
     const [info, spec, px] = await Promise.all([mt5AccountInfo(link), mt5Spec(link, symbol), mt5Price(link, symbol)]);
     linkRef(t.uid).update({ balance: info.balance, currency: info.currency, checkedAt: now() }).catch(() => {});
@@ -909,7 +915,14 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       minQuality: AGENT_MIN_QUALITY,
       strategyMinQuality: AGENT_STRATEGY_MIN_QUALITY,
       // The trader's own strategies the agent can trade with (its own choice, separate from the normal page's Strategy Builder)
-      strategies: (await listOwn(uid).catch(() => [])).map(x => ({ id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules?.setup as keyof typeof SETUPS]?.short || '' })),
+      strategies: (await listOwn(uid).catch(() => [])).map(x => ({
+        id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules?.setup as keyof typeof SETUPS]?.short || '',
+        // What the strategy itself allows: the page offers only these (and RDM = these timeframes)
+        timeframes: strategyAgentFrames(x.rules?.timeframes), ownTimeframes: (x.rules?.timeframes || []).length > 0, kinds: x.rules?.markets || [],
+      })),
+      // A personal strategy picks its own markets and timeframes from these
+      strategyMarkets: AGENT_STRATEGY_MARKETS,
+      strategyFrames: AGENT_STRATEGY_FRAMES,
       backtest: AGENT_BACKTEST,
       // What the agent can spend now: general credits (within today's allowance) + bought credits
       credits: free ? null : agentSpendable(u),
@@ -943,11 +956,22 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     const { uid } = getUser(res);
     const v = normalizeAgentSettings(req.body?.settings);
     if (v.ok === false) return res.status(400).json({ error: 'BAD_SETTINGS', message: v.message });
-    const s = v.settings;
+    let s = v.settings;
     const price = AGENT_PRICING[s.duration];
     // A personal strategy must still be the trader's own (deleted or someone else's = refused before anything runs)
     const strategy = s.strategyId ? await ownStrategy(uid, s.strategyId) : null;
     if (s.strategyId && !strategy) return res.status(400).json({ error: 'NO_STRATEGY', message: 'That strategy no longer exists. Pick another one, or the MarketX engine.' });
+    if (strategy) {
+      // The strategy's own rules bound the choice: RDM = every timeframe it trades; markets of the kinds it trades
+      const own = strategyAgentFrames(strategy.rules?.timeframes);
+      const ruleFrames: string[] = strategy.rules?.timeframes || [];
+      const timeframes = s.rdm ? own : ruleFrames.length ? s.timeframes.filter(tf => ruleFrames.includes(tf)) : s.timeframes;
+      if (!timeframes.length) return res.status(400).json({ error: 'BAD_SETTINGS', message: `"${strategy.name}" only trades ${ruleFrames.join(', ')}. Pick one of those, or RDM.` });
+      const kinds: string[] = strategy.rules?.markets || [];
+      const markets = kinds.length ? s.markets.filter(m => kinds.includes(agentMarketInfo(m)?.kind || '')) : s.markets;
+      if (!markets.length) return res.status(400).json({ error: 'BAD_SETTINGS', message: `"${strategy.name}" only trades ${kinds.join(', ')} markets. Pick one of those.` });
+      s = { ...s, timeframes, markets };
+    }
     const t = now();
     const run: AgentRun = {
       id: id('ar'), state: 'RUNNING', startedAt: t, endsAt: t + price.days * 86400e3, settings: s, perTrade: price.perTrade,

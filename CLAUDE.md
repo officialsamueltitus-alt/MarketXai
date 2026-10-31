@@ -197,6 +197,11 @@
   with its `agent` prop (saves never switch on the normal page's builder; "Use this" / "Save and use for the agent" only pick it for the agent).
   A strategy run scans with `deps.scanStrategy` (`runUserStrategy` + `personalStrategyStatus`, like the watchlist strategy scan, scan key
   `strategyId|symbol|tf`), floor `AGENT_STRATEGY_MIN_QUALITY` 45; the run stores `strategyName`; a deleted strategy = 400 NO_STRATEGY at start.
+  Strategy runs choose their own markets and timeframes (owner-specified; the MarketX engine keeps `AGENT_MARKETS` on 1H/4H and its Trade type cards):
+  `AGENT_STRATEGY_MARKETS` (18: metals, oil, BTC/ETH/SOL, 9 forex pairs, NAS100/US30/GER40, up to 6), `AGENT_STRATEGY_FRAMES` 5m-1D (up to 4) or
+  `settings.rdm` = the strategy's own timeframes (`strategyAgentFrames`, filled in at start); the start route keeps them inside the strategy's
+  rules (its timeframes, its market kinds). MT5: `matchSymbol` also tries the plain name, and `mt5Open` matches a new market's broker symbol on
+  first use and keeps it (`mt5Links.symbols`).
   Notifications: every `tell` is a site notification + web push (`PushToggle` card "Alerts on this device" on the page); `users.agentLive`
   (set at start, cleared by `endRun`, `profile.agentLive`) makes the app poll notifications every 15s, and a new `open_agent` notification shows
   a toast + chime on the normal page, or reloads the agent page (`pulse`) when it is open.

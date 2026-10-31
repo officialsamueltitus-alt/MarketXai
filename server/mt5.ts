@@ -299,10 +299,18 @@ export const MT5_CANDIDATES: Record<string, string[]> = {
   'USD/JPY': ['USDJPY'],
   'GBP/USD': ['GBPUSD'],
   NAS100: ['NAS100', 'US100', 'USTEC', 'NDX100', 'USTECH', 'NQ100'],
+  // Personal-strategy markets (AGENT_STRATEGY_MARKETS)
+  'XAG/USD': ['XAGUSD', 'SILVER'],
+  'WTI/USD': ['USOIL', 'XTIUSD', 'WTI', 'CRUDE', 'OILUSD'],
+  'SOL/USDT': ['SOLUSD', 'SOLUSDT'],
+  US30: ['US30', 'DJ30', 'WS30', 'DOW30', 'US30CASH'],
+  GER40: ['GER40', 'DE40', 'DAX40', 'GER30', 'DE30'],
 };
 /** The broker's symbol for a MarketX market: an exact name first, then the shortest one with a suffix */
 export function matchSymbol(market: string, brokerSymbols: string[]): string | null {
-  const cands = MT5_CANDIDATES[market] || [];
+  // Forex and anything else: the plain name ("EUR/USD" -> EURUSD, "SOL/USDT" -> SOLUSD / SOLUSDT)
+  const plain = market.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const cands = MT5_CANDIDATES[market] || [...new Set([plain.replace(/USDT$/, 'USD'), plain])];
   const norm = (s: string) => s.toUpperCase();
   for (const c of cands) {
     const exact = brokerSymbols.find(s => norm(s) === c);
