@@ -1,5 +1,5 @@
 // MarketX social posts: five 1080x1350 (4:5) designs built on the owner's reference layouts, in MarketX's own colours
-// (rendered at 2x). Run from the repo root: node brand/posts/make-posts.js (needs playwright-core and the bundled Chromium).
+// (rendered at 2x). Run from the repo root: node brand/posts/make-posts.cjs (needs playwright-core and the bundled Chromium).
 // Honest copy only: MarketX is not in an app store, so no ratings, awards or store badges; real facts and marketx.world instead.
 const fs = require('fs');
 const path = require('path');
@@ -60,29 +60,49 @@ const phoneShell = (inner, { x, y, w, h, rot = 0 }) =>
 
 const page = (body, bg) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body class="grain" style="background:${bg}">${body}</body></html>`;
 
-// 1. "Open MarketX" card + tilted phone (reference 1)
-const post1 = page(`
-<div class="abs" style="inset:0;background:radial-gradient(60% 45% at 95% 5%,rgba(139,92,246,.55),transparent 70%),radial-gradient(55% 40% at 0% 85%,rgba(217,70,239,.38),transparent 70%)"></div>
-<div class="abs" style="left:48px;top:140px;width:660px;height:500px;border-radius:64px;background:#fff;color:#0b0b12;overflow:hidden;box-shadow:0 40px 90px -40px rgba(0,0,0,.8)">
-  <div class="abs" style="left:24px;top:30px;display:flex;align-items:center;gap:10px;color:#7c3aed;font-size:31px"><svg width="22" height="36" viewBox="0 0 22 36"><path d="M18 3L4 18l14 15" stroke="#7c3aed" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>marketx.world</div>
-  <div class="abs" style="left:30px;top:92px">${tile('mx', 204)}</div>
-  <div class="abs" style="left:266px;top:122px"><p style="font-size:38px;font-weight:700;letter-spacing:-.5px">MarketX</p><p style="margin-top:8px;font-size:24px;font-weight:500;background:linear-gradient(90deg,#7c3aed,#0ea5e9);-webkit-background-clip:text;color:transparent">Your Trading Co-Pilot</p></div>
-  <div class="abs" style="left:262px;top:244px;width:132px;height:52px;border-radius:30px;background:linear-gradient(110deg,#8b5cf6,#d946ef);color:#fff;font-weight:600;font-size:24px;display:grid;place-items:center;letter-spacing:.5px">OPEN</div>
-  <svg class="abs" style="left:600px;top:252px" width="38" height="46" viewBox="0 0 38 46"><path d="M19 3v26M10 12l9-9 9 9" stroke="#7c3aed" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 18H4v25h30V18h-3" stroke="#7c3aed" stroke-width="3.4" fill="none" stroke-linejoin="round"/></svg>
-  <div class="abs" style="left:34px;right:0;top:330px;height:2px;background:#ececf1"></div>
-  <div class="abs" style="left:34px;top:358px;display:grid;grid-template-columns:repeat(4,190px);text-align:center;color:#8a8a96;font-size:19px;letter-spacing:.06em">
-    ${[['LIVE MARKETS', '29+', 'Live prices'], ['EVERY SIGNAL', 'Solana', 'Sealed on chain'], ['PLAN', 'Free', 'To start'], ['ENGINE', 'SI', '']].map(([a, b, c], i) =>
-      `<div style="${i ? 'border-left:2px solid #ececf1;' : ''}padding:0 6px"><p>${a}</p><p style="margin-top:12px;font-size:44px;color:#55556a;font-weight:600;letter-spacing:0">${b}</p><p style="margin-top:8px;font-size:18px;letter-spacing:0">${c}</p></div>`).join('')}
+// 1. "Open MarketX" card + tilted phone (reference 1, matched to its measurements: drawn on the reference's 1164x1454 grid,
+// then scaled to 1080x1350; the phone uses the reference's perspective as a 2D matrix with its corner at (350, 596))
+const P1 = (inner) => page(`<div style="position:absolute;left:0;top:0;width:1164px;height:1454px;transform:scale(${1080 / 1164});transform-origin:0 0;overflow:hidden">${inner}</div>`, '#000');
+const lbl = t => `<span style="position:absolute;left:-40px;right:-40px;top:206px;text-align:center;font-size:44px;font-weight:500;color:#fff">${t}</span>`;
+const post1 = P1(`
+<div class="abs" style="inset:0;background:radial-gradient(38% 30% at 92% 4%,rgba(124,58,237,.75),transparent 72%),radial-gradient(34% 30% at 0% 92%,rgba(192,38,211,.55),transparent 72%),radial-gradient(40% 25% at 60% 0%,rgba(76,29,149,.45),transparent 70%),#000"></div>
+<div class="abs" style="left:53px;top:152px;width:709px;height:538px;border-radius:62px;background:#fff;color:#0b0b12;overflow:hidden">
+  <div class="abs" style="left:22px;top:30px;display:flex;align-items:center;gap:16px;color:#7c3aed;font-size:31px;letter-spacing:-.2px">
+    <svg width="24" height="40" viewBox="0 0 24 40"><path d="M20 3L4 20l16 17" stroke="#7c3aed" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>marketx.world</div>
+  <div class="abs" style="left:30px;top:90px">${tile('mx', 222).replace('class="ico"', 'class="ico" style="border-radius:52px;box-shadow:none"').replace('style="border-radius:52px;box-shadow:none" style="', 'style="border-radius:52px;box-shadow:none;')}</div>
+  <p class="abs" style="left:287px;top:122px;font-size:37px;font-weight:700;letter-spacing:-.3px">MarketX</p>
+  <p class="abs" style="left:287px;top:174px;font-size:24px;font-weight:500;letter-spacing:.2px;background:linear-gradient(90deg,#7c3aed,#0ea5e9);-webkit-background-clip:text;color:transparent">SpiriTech Labs</p>
+  <div class="abs" style="left:278px;top:253px;width:129px;height:50px;border-radius:26px;background:linear-gradient(110deg,#8b5cf6,#c026d3);color:#fff;font-size:27px;display:grid;place-items:center;letter-spacing:.5px">OPEN</div>
+  <svg class="abs" style="left:630px;top:257px" width="36" height="44" viewBox="0 0 36 44"><path d="M18 3v25M10 11l8-8 8 8" stroke="#7c3aed" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 17H4v24h28V17h-4" stroke="#7c3aed" stroke-width="3" fill="none" stroke-linejoin="round"/></svg>
+  <div class="abs" style="left:36px;right:0;top:339px;height:2px;background:#e5e5ea"></div>
+  ${[['PLAN', 'Free', 'To start'], ['LIVE MARKETS', '29+', 'Live prices'], ['ENGINE', 'SI', 'Super Intelligence'], ['PROOF', 'Solana', '']].map(([l, v, c], i) => `
+   <div class="abs" style="left:${21 + i * 204}px;top:364px;width:204px;text-align:center;color:#8e8e93">
+     <p style="font-size:19px;letter-spacing:.06em">${l}</p>
+     <p style="margin-top:15px;font-size:40px;font-weight:600;color:#6e6e76;letter-spacing:-.3px;line-height:1">${v}</p>
+     <p style="margin-top:16px;font-size:19px">${c}</p>
+   </div>${i ? `<div class="abs" style="left:${21 + i * 204}px;top:384px;width:2px;height:70px;background:#e5e5ea"></div>` : ''}`).join('')}
+</div>
+<div class="abs" style="left:0;top:0;width:1400px;height:2900px;transform-origin:0 0;transform:matrix(0.989,-0.148,0.4785,0.878,350,596)">
+  <div class="abs" style="left:-64px;top:22px;width:1400px;height:2900px;border-radius:285px;background:linear-gradient(90deg,#141416 0%,#3f3f45 18%,#1b1b1e 40%,#111113 100%)"></div>
+  <div class="abs" style="left:-62px;top:625px;width:16px;height:156px;border-radius:8px;background:linear-gradient(90deg,#55555c,#c9c9cf 45%,#3a3a40);box-shadow:0 0 0 2px #0b0b0d"></div>
+  <div class="abs" style="left:-30px;top:0;width:1400px;height:2900px;border-radius:280px;background:linear-gradient(135deg,#5a5a61 0%,#2a2a2e 22%,#46464d 48%,#1f1f22 70%,#3a3a40 100%);box-shadow:inset 0 0 0 3px rgba(255,255,255,.14)"></div>
+  <div class="abs" style="left:-12px;top:18px;width:1364px;height:2864px;border-radius:262px;background:#050506"></div>
+  <div class="abs" style="left:4px;top:34px;width:1332px;height:2832px;border-radius:246px;background:radial-gradient(70% 40% at 30% 12%,#1c1338 0%,#06050b 60%,#000 100%);overflow:hidden">
+    <div class="abs" style="left:540px;top:60px;width:330px;height:104px;border-radius:60px;background:#000"></div>
+    <p class="abs" style="left:236px;top:90px;font-size:62px;font-weight:600;letter-spacing:1px">9:41</p>
+    <div class="abs" style="left:172px;top:290px;width:186px;height:186px">${tile('mx', 186).replace('class="ico"', 'class="ico" style="border-radius:44px"').replace('style="border-radius:44px" style="', 'style="border-radius:44px;')}${lbl('MarketX')}</div>
+    <div class="abs" style="left:484px;top:290px;width:186px;height:186px">${tile('cal', 186).replace('font-size:186px', 'font-size:186px;border-radius:44px')}${lbl('Calendar')}</div>
+    <div class="abs" style="left:172px;top:604px;width:186px;height:186px">${tile('mail', 186).replace('width:186px;height:186px', 'width:186px;height:186px;border-radius:44px')}${lbl('Mail')}</div>
+    <div class="abs" style="left:484px;top:604px;width:186px;height:186px">${tile('notes', 186).replace('width:186px;height:186px', 'width:186px;height:186px;border-radius:44px')}${lbl('Notes')}</div>
   </div>
 </div>
-${phoneShell(`<div class="island" style="left:auto;right:-40px;transform:none"></div><div class="time" style="left:200px;top:110px;font-size:52px">9:41</div>
-  <div class="grid" style="left:200px;top:290px;grid-template-columns:repeat(2,260px);gap:70px 60px">
-   ${app('mx', 'MarketX', 260)}${app('cal', 'Calendar', 260)}${app('mail', 'Mail', 260)}${app('wal', 'Wallet', 260)}
-  </div>`, { x: 470, y: 560, w: 900, h: 1500, rot: -14 }).replace('<span>MarketX</span>', '<span style="font-size:42px;font-weight:500">MarketX</span>').replace(/<span>(Calendar|Mail|Wallet)<\/span>/g, '<span style="font-size:42px">$1</span>')}
-<div class="abs" style="left:0;right:0;bottom:0;height:110px;background:#111116;display:flex;align-items:center;justify-content:space-between;padding:0 90px">
-  <div><p style="font-weight:800;letter-spacing:.14em;font-size:24px">MARKETX</p><p style="margin-top:4px;font-size:12px;letter-spacing:.32em;color:#a1a1aa">YOUR TRADING CO-PILOT</p></div>
-  <p style="font-size:17px;color:#d4d4d8;letter-spacing:.04em">marketx.world &nbsp;|&nbsp; @_MarketX on X</p>
-</div>`, '#05050a');
+<div class="abs" style="left:0;right:0;top:1348px;bottom:0;background:#141416;z-index:2">
+  <div class="abs" style="left:100px;top:34px"><p style="font-weight:800;letter-spacing:.16em;font-size:23px;line-height:1">MARKETX</p><p style="margin-top:8px;font-size:10.5px;letter-spacing:.34em;color:#a1a1aa">YOUR TRADING CO-PILOT</p></div>
+  <div class="abs" style="right:100px;top:44px;display:flex;align-items:center;gap:16px;font-size:16px;color:#e4e4e7;letter-spacing:.03em">
+    <span style="display:flex;align-items:center;gap:8px"><img src="logo.png" style="width:20px;height:20px">marketx.world</span><span style="color:#71717a">|</span>
+    <span style="display:flex;align-items:center;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M18.2 2.5h3.4l-7.4 8.5 8.7 11.5h-6.8l-5.3-7-6.1 7H1.3l7.9-9L.9 2.5h7l4.8 6.4 5.5-6.4zm-1.2 18h1.9L7.1 4.4H5.1l11.9 16.1z" fill="#e4e4e7"/></svg>@_MarketX</span>
+  </div>
+</div>`);
 
 // 2. Floating card + home screen (reference 2)
 const post2 = page(`
