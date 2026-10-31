@@ -757,7 +757,24 @@ export async function sweepDueXShareRewards(): Promise<number> {
 
 const EXPIRY_REMINDER_MS = 3 * DAY_MS;
 
+/**
+ * The account as the app sees it. Normally read and tidied inside a transaction (plan expiry, daily refill); if that
+ * transaction fails (a busy moment, a stored field the tidy-up can't write), the same state is served from a plain read
+ * instead, so signing in or opening the app never fails because of it. The failure is logged in full.
+ */
 async function readAccountState(user: AuthedUser) {
+  try {
+    return await readAccountStateTx(user);
+  } catch (err: any) {
+    console.error(`[MarketX Account] account state for ${user.uid} fell back to a plain read:`, err?.stack || err?.message || err);
+    const snap = await userRef(user.uid).get();
+    if (!snap.exists) return null;
+    const { doc } = normalizeUser(snap.data() as UserDoc, Date.now());
+    return { ...toClientState(doc, user), recentGifts: [] as CreditGift[] };
+  }
+}
+
+async function readAccountStateTx(user: AuthedUser) {
   let planAlert: 'reminder' | 'ended' | null = null;
   const doc = await db().runTransaction(async tx => {
     planAlert = null;

@@ -54,6 +54,19 @@ function loadGoogleIdentity(): Promise<void> {
   return gisPromise;
 }
 
+/** Sign-in asks once more after a brief pause when the server or the connection hiccups (5xx, network drop); a wrong
+ *  password, a block or a rate limit is never retried */
+async function retryOnce<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const transient = err instanceof TypeError || (typeof err?.status === 'number' && (err.status === 0 || err.status >= 500));
+    if (!transient) throw err;
+    await new Promise(r => setTimeout(r, 900));
+    return fn();
+  }
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
@@ -149,10 +162,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             setBusy(true);
             setError(null);
             try {
-              const account = await apiFetch('/api/auth/google', {
-                method: 'POST',
-                body: JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals(), ref: inviteRef.current.trim() || undefined }),
-              });
+              const body = JSON.stringify({ credential: response.credential, acceptTerms: acceptedTermsRef.current, device: await deviceSignals(), ref: inviteRef.current.trim() || undefined });
+              const account = await retryOnce(() => apiFetch('/api/auth/google', { method: 'POST', body }));
               finish(account);
             } catch (err: any) {
               if (err?.code === 'BATCH_FULL') setBatchFull(err.message);
@@ -187,7 +198,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       await fn();
     } catch (err: any) {
       if (err?.code === 'BATCH_FULL') setBatchFull(err.message);
-      else setError(err?.message || 'Something went wrong. Please try again.');
+      else setError(err?.message || 'Could not reach MarketX. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
@@ -259,10 +270,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     run(async () => {
-      const account = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email: cleanEmail, password, device: await deviceSignals() }),
-      });
+      const body = JSON.stringify({ email: cleanEmail, password, device: await deviceSignals() });
+      const account = await retryOnce(() => apiFetch('/api/auth/login', { method: 'POST', body }));
       finish(account);
     });
   };
@@ -404,7 +413,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {(mode === 'signin' || mode === 'signup') && googleClientId && (
               <>
                 <div className="relative">
-                  <div ref={googleButtonRef} className={`flex justify-center min-h-[44px] transition-opacity ${acceptedTerms ? '' : 'opacity-45'}`} />
+                  {/* Google's button is an iframe with a light page: color-scheme light stops mobile browsers painting a white box around it */}
+                  <div ref={googleButtonRef} style={{ colorScheme: 'light' }} className={`flex justify-center min-h-[44px] rounded-full overflow-hidden transition-opacity ${acceptedTerms ? '' : 'opacity-45'}`} />
                   {!acceptedTerms && (
                     // Google's button is an iframe; this shield catches taps until the terms are accepted
                     <button

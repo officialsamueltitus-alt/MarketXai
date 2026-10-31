@@ -164,7 +164,9 @@ async function signIn(res: Response, uid: string) {
   const doc = snap.data() as UserDoc;
   setSessionCookie(res, uid, doc.sessionVersion || 0);
   const user: AuthedUser = { uid, email: doc.email, emailVerified: !!doc.emailVerified };
-  return readAccountState(user);
+  const state = await readAccountState(user);
+  if (!state) throw new Error(`account ${uid} vanished while signing in`);
+  return state;
 }
 
 async function sendVerificationEmail(req: Request, uid: string, email: string) {
@@ -330,8 +332,10 @@ export function registerAuthRoutes(app: Express) {
     (fn: (req: Request, res: Response) => Promise<any>) =>
     (req: Request, res: Response) =>
       fn(req, res).catch(err => {
-        console.error(`[MarketX Auth] ${req.method} ${req.path} failed:`, err?.message || err);
-        if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' });
+        // A short reference the trader can quote; the full error (with its stack) is in the server log under it
+        const ref = crypto.randomBytes(3).toString('hex').toUpperCase();
+        console.error(`[MarketX Auth] ${req.method} ${req.path} failed (ref ${ref}, ${String(req.headers['user-agent'] || '').slice(0, 120)}):`, err?.stack || err?.message || err);
+        if (!res.headersSent) res.status(500).json({ error: 'SERVER_ERROR', message: `Sign-in hit a problem on our side. Please try again (ref ${ref}).` });
       });
 
   // --- Sign-up abuse guard: one device, one email, one IP (see server/signupGuard.ts) ---
