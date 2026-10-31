@@ -36,7 +36,12 @@
 @keyframes ag-page-in { from { opacity: 0; transform: translateY(14px) scale(.995); } to { opacity: 1; transform: none; } }
 
 /* ---------- Top bar ---------- */
-.ag-bar { background: color-mix(in srgb, var(--ag-bg) 95%, transparent); backdrop-filter: saturate(140%) blur(16px); -webkit-backdrop-filter: saturate(140%) blur(16px); }
+.ag-bar { background: var(--ag-bg); border-bottom: 1px solid var(--ag-line); padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
+  /* Its own layer on iOS so it never flickers or slips under the content while the page scrolls */
+  transform: translateZ(0); -webkit-transform: translateZ(0); }
+.ag-bar-row { min-width: 0; }
+.ag-bar-row > * { flex-shrink: 0; }
+.ag-bar-row > .ag-nav { flex-shrink: 1; min-width: 0; }
 .ag-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; letter-spacing: -.01em; color: var(--ag-text); white-space: nowrap; }
 .ag-mark { position: relative; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--ag-grad); flex-shrink: 0; box-shadow: 0 8px 20px -10px rgba(var(--ag-accent-rgb), .9); }
 .ag-mark.on::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid rgba(var(--ag-accent-rgb), .6); animation: ag-ring 2s var(--ag-ease) infinite; }
@@ -49,6 +54,13 @@
 .ag-nav-tab:hover { color: var(--ag-text); }
 .ag-nav-tab.on { background: var(--ag-grad); color: #fff; font-weight: 600; box-shadow: 0 8px 20px -12px rgba(var(--ag-accent-rgb), .9); }
 .ag-nav-tab.on::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+@media (max-width: 400px) {
+  .ag-nav-tab { padding: 0 10px; font-size: 12px; gap: 5px; }
+  .ag-nav-tab.on::before { display: none; }
+}
+@media (max-width: 340px) {
+  .ag-nav-tab { padding: 0 8px; }
+}
 .ag-nav-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: 10px; display: inline-grid; place-items: center; background: var(--ag-panel-3); color: var(--ag-text-2); }
 .ag-nav-tab.on .ag-nav-count { background: rgba(255, 255, 255, .25); color: #fff; }
 
@@ -98,7 +110,7 @@
 /* Market "avatars" (stacked circles) */
 .ag-avatars { display: flex; }
 .ag-av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; letter-spacing: .02em; color: #0b0b0e;
-  border: 2px solid var(--ag-panel); margin-left: -8px; flex-shrink: 0; }
+  border: 2px solid var(--ag-panel); margin-left: -5px; flex-shrink: 0; }
 .ag-av:first-child { margin-left: 0; }
 
 /* Mini cards (like the reference's payout methods): the highlighted one is lime and taller */

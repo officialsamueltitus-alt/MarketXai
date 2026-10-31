@@ -43,7 +43,9 @@
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a
   fresh code (hourly sweep + checks at redeem/sign-in/sign-up).
-  When a batch is fully allocated, new sign-ups are refused until `ACCESS_CODE_BATCH` is raised.
+  Extra seats (owner-specified): `ACCESS_TOP_UPS` in `server/access.ts` adds seats to the current batch ONCE each (`2026-10-31`: +50 codes,
+  kept in the batch's `extra` list, handed out after the original 50 and any returned seat; `extraNext`, `topUps`; `batchSeats` = 100 in the
+  admin report). When every seat is taken, registration is closed ("every seat on MarketX has now been taken"): nobody else can register.
 - Sign-up (email or Google) and every Google sign-in require `acceptTerms: true` (Terms & Privacy checkbox),
   enforced server-side. Google sign-in only works for accounts registered with that same Google account.
 - Analysis strategy (owner-specified): identify high-probability institutional Supply & Demand zones, then enter with the
@@ -157,7 +159,8 @@
   `strategy.steadyMode` and a "> **Stop loss:** Steady mode…" note. Strategy Builder and Confirmation ignore it.
 - Trading agent (owner-specified, `/trading-agent`, `server/tradingAgent.ts`, shared `src/utils/tradingAgent.ts`, slash command `agent` live, Tools sheet
   More tools, notifications `open_agent`). Its own full-screen PAGE at `/agents` (owner-specified, `src/agents/AgentsPage.tsx` + `agents.css` + `Mt5ServerInput.tsx`,
-  lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows): every entry point (`openAgent`: Tools sheet, slash command,
+  lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows; its top bar is opaque, padded for the iPhone
+  notch/status bar (`env(safe-area-inset-*)`, viewport-fit=cover) and fits 320px phones; the credits card stacks its button under the mini cards on phones): every entry point (`openAgent`: Tools sheet, slash command,
   notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
   (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Design (owner-specified,
   laid out on the owner's dashboard reference, in the SITE's colours: violet accent `--ag-grad` violet → fuchsia, cyan scan lines, the site's
@@ -625,6 +628,10 @@
   Public ID checker (owner-specified, `/checker?id=`, `src/checker/CheckerPage.tsx`, `GET /api/checker/:id`, 20/min per IP): picture,
   display name, username, verified badge, join date, the ID (Solscan link, on-chain state) and the track record (one result per signal,
   last 10). Never email, credits, plan details or the account id; banned/suspended accounts are not shown.
+  History (owner-requested): the profile also carries `months` (each month with results: summary, site-TZ months) and `firstAt`;
+  `GET /api/checker/:id/records?month=|from=&to=&offset=&limit=` (60/min per IP, ≤ 50 a page, results cached 30s per ID, `publicRecords`) serves any
+  period. Page (`RecordSection` in `CheckerPage.tsx`): chips All time / This month / Last month / Earlier months (picker) / Custom (from-to dates),
+  the period's numbers, 5 results first then "See more" (+10), "Showing N of M".
 - One record per signal (owner-specified, `signalKey` in `server/journal.ts` = pair + timeframe + side + every level): the same signal
   is ONE price alert per trader (`startAlert` reuses the twin alert and adds the new card to `offerIds`, which the client matches cards
   by), ONE journal trade (manual add of the same trade, open or opened within a minute, is 409 `DUPLICATE_TRADE`) and ONE track record

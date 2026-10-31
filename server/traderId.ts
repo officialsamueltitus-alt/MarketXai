@@ -17,6 +17,7 @@ import { base58Encode, RENT_EXEMPT_EMPTY, walletBalance, type ProofWallet } from
 import { IS_LEAD_WORKER } from './workers';
 import { clientIp, createKeyedThrottle } from './security';
 import { safeAvatar } from './trust';
+import { monthKey } from './usageMonthly';
 
 const PKCS8_ED25519 = Buffer.from('302e020100300506032b657004220420', 'hex');
 const CONFIG = () => db().collection('adminConfig').doc('traderIds');
@@ -134,22 +135,71 @@ const totalROf = (rs: any[]) => {
   return xs.length ? Number(xs.reduce((t, r) => t + r.r, 0).toFixed(2)) : null;
 };
 
+/** A trader's results behind a MarketX ID: one result per signal, newest first (kept 30s per ID, so paging and filters
+ *  don't read the whole record again) */
+const recordCache = new Map<string, { at: number; v: { idx: TraderIdDoc; u: UserDoc; uniq: any[] } | null }>();
+async function traderRecords(id: string) {
+  const hit = recordCache.get(id);
+  if (hit && Date.now() - hit.at < 30_000) return hit.v;
+  const found = (await db().collection(INDEX).doc(id).get()).data() as TraderIdDoc | undefined;
+  let v: { idx: TraderIdDoc; u: UserDoc; uniq: any[] } | null = null;
+  if (found) {
+    const idx = await refreshActivation(found).catch(() => found);
+    const u = (await db().collection('users').doc(idx.uid).get()).data() as UserDoc | undefined;
+    if (u && u.status !== 'banned' && u.status !== 'suspended') {
+      const records = (await db().collection('trackRecord').where('uid', '==', idx.uid).get()).docs.map(d => d.data() as any);
+      const seen = new Set<string>();
+      const uniq = records
+        .filter(r => Number(r.closedAt) > 0)
+        .sort((a, b) => b.closedAt - a.closedAt)
+        .filter(r => { const k = r.signalKey || r.id; if (seen.has(k)) return false; seen.add(k); return true; });
+      v = { idx, u, uniq };
+    }
+  }
+  recordCache.set(id, { at: Date.now(), v });
+  if (recordCache.size > 500) recordCache.delete(recordCache.keys().next().value as string);
+  return v;
+}
+
+/** Wins, losses, win rate and total R of a list of results */
+function summaryOf(rs: any[]) {
+  const wins = rs.filter(r => r.outcome === 'WIN').length;
+  const losses = rs.filter(r => r.outcome === 'LOSS').length;
+  return { results: rs.length, wins, losses, missed: rs.filter(r => r.outcome === 'MISSED').length, ended: rs.filter(r => r.outcome === 'ENDED').length, winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : null, totalR: totalROf(rs) };
+}
+/** What the public sees of one result */
+const publicResult = (r: any) => ({ symbol: r.symbol, timeframe: r.timeframe, direction: r.direction, outcome: r.outcome, tpsHit: r.tpsHit, closedAt: r.closedAt, ...(typeof r.r === 'number' ? { r: r.r } : {}) });
+
+/** Results in a period (month "2026-10", or from/to in ms), newest first, a page at a time */
+export async function publicRecords(id: string, q: { month?: string; from?: number; to?: number; offset?: number; limit?: number }) {
+  const t = await traderRecords(id);
+  if (!t) return null;
+  let rs = t.uniq;
+  if (q.month) rs = rs.filter(r => monthKey(r.closedAt) === q.month);
+  if (q.from) rs = rs.filter(r => r.closedAt >= q.from!);
+  if (q.to) rs = rs.filter(r => r.closedAt <= q.to!);
+  const offset = Math.max(0, Math.floor(q.offset || 0));
+  const limit = Math.min(50, Math.max(1, Math.floor(q.limit || 10)));
+  return { summary: summaryOf(rs), items: rs.slice(offset, offset + limit).map(publicResult), total: rs.length, nextOffset: offset + limit < rs.length ? offset + limit : null };
+}
+
 /** Public profile behind a MarketX ID (never email, credits, plan details or the account id) */
 export async function publicProfile(id: string) {
-  const found = (await db().collection(INDEX).doc(id).get()).data() as TraderIdDoc | undefined;
-  if (!found) return null;
-  const idx = await refreshActivation(found).catch(() => found);
-  const u = (await db().collection('users').doc(idx.uid).get()).data() as UserDoc | undefined;
-  if (!u || u.status === 'banned' || u.status === 'suspended') return null;
+  const t = await traderRecords(id);
+  if (!t) return null;
+  const { idx, u, uniq } = t;
   const now = Date.now();
   const staff = !!u.emailVerified && isUnlimitedEmail(u.email);
   const pro = !!u.subscription?.active && (!u.subscription.expiresAt || u.subscription.expiresAt > now);
-  const records = (await db().collection('trackRecord').where('uid', '==', idx.uid).get()).docs.map(d => d.data() as any);
-  // One result per signal, newest first
-  const seen = new Set<string>();
-  const uniq = records.sort((a, b) => b.closedAt - a.closedAt).filter(r => { const k = r.signalKey || r.id; if (seen.has(k)) return false; seen.add(k); return true; });
   const wins = uniq.filter(r => r.outcome === 'WIN').length;
   const losses = uniq.filter(r => r.outcome === 'LOSS').length;
+  // Months that have results (newest first), for the month picker
+  const byMonth = new Map<string, any[]>();
+  for (const r of uniq) {
+    const m = monthKey(r.closedAt);
+    if (!byMonth.has(m)) byMonth.set(m, []);
+    byMonth.get(m)!.push(r);
+  }
   const avatar = safeAvatar(u.avatarUrl);
   return {
     id,
@@ -161,7 +211,10 @@ export async function publicProfile(id: string) {
     onSolana: idx.state === 'ACTIVE',
     solscan: `https://solscan.io/account/${id}`,
     record: { results: uniq.length, wins, losses, missed: uniq.filter(r => r.outcome === 'MISSED').length, ended: uniq.filter(r => r.outcome === 'ENDED').length, winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : null, totalR: totalROf(uniq) },
-    recent: uniq.slice(0, 10).map(r => ({ symbol: r.symbol, timeframe: r.timeframe, direction: r.direction, outcome: r.outcome, tpsHit: r.tpsHit, closedAt: r.closedAt, ...(typeof r.r === 'number' ? { r: r.r } : {}) })),
+    recent: uniq.slice(0, 10).map(publicResult),
+    months: [...byMonth.entries()].map(([month, rs]) => ({ month, ...summaryOf(rs) })),
+    firstAt: uniq.length ? uniq[uniq.length - 1].closedAt : null,
+    thisMonth: monthKey(now),
   };
 }
 
@@ -195,6 +248,25 @@ export function registerTraderIdRoutes(app: Express, limiter: (req: Request, res
       if (!profile) return res.status(404).json({ error: 'NOT_FOUND', message: 'No MarketX trader has this ID.' });
       res.setHeader('Cache-Control', 'no-store');
       res.json({ profile });
+    } catch {
+      res.status(503).json({ error: 'UNAVAILABLE', message: 'The checker is unavailable right now. Try again shortly.' });
+    }
+  });
+
+  // Public: the results behind an ID for a period, a page at a time (the checker's filters and "See more")
+  const perIpRecords = createKeyedThrottle({ windowMs: 60_000, max: 60 });
+  app.get('/api/checker/:id/records', limiter, async (req: Request, res: Response) => {
+    const id = String(req.params.id || '').trim();
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(id)) return res.status(400).json({ error: 'BAD_ID', message: 'That does not look like a MarketX ID.' });
+    if (perIpRecords.hit(clientIp(req))) return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'Too many lookups. Please wait a minute.' });
+    if (!isFirebaseConfigured()) return res.status(503).json({ error: 'UNAVAILABLE', message: 'The checker is unavailable right now.' });
+    const month = typeof req.query.month === 'string' && /^20\d\d-(0[1-9]|1[0-2])$/.test(req.query.month) ? req.query.month : undefined;
+    const num = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+    try {
+      const out = await publicRecords(id, { month, from: num(req.query.from), to: num(req.query.to), offset: num(req.query.offset), limit: num(req.query.limit) });
+      if (!out) return res.status(404).json({ error: 'NOT_FOUND', message: 'No MarketX trader has this ID.' });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(out);
     } catch {
       res.status(503).json({ error: 'UNAVAILABLE', message: 'The checker is unavailable right now. Try again shortly.' });
     }

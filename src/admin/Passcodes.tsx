@@ -79,7 +79,7 @@ export const PasscodesCard: React.FC = () => {
         <p className="text-sm text-slate-300">
           <span className="text-2xl font-semibold text-white tabular-nums">{fmtNum(data.available)}</span> of {fmtNum(data.size)} seats open
         </p>
-        {data.full ? <Badge tone="red">Batch full, sign-ups paused</Badge> : <Badge tone="green">Sign-ups open</Badge>}
+        {data.full ? <Badge tone="red">All seats taken, sign-ups closed</Badge> : <Badge tone="green">Sign-ups open</Badge>}
       </div>
       <div className="mt-3 h-2.5 rounded-full bg-white/[0.06] overflow-hidden flex" role="img" aria-label={`${data.redeemed} redeemed, ${data.waiting} waiting, ${data.available} available`}>
         <span className="h-full bg-emerald-400" style={{ width: pct(data.redeemed) }} />
