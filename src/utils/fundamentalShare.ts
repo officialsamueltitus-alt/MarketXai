@@ -67,7 +67,7 @@ export function buildFundamentalShareText(r: FundamentalReport, origin = 'https:
 // ---------------------------------------------------------------------------
 // The picture
 // ---------------------------------------------------------------------------
-function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
   else {
@@ -79,7 +79,7 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
     ctx.closePath();
   }
 }
-const loadImage = (src: string) =>
+export const loadImage = (src: string) =>
   new Promise<HTMLImageElement | null>(resolve => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -87,7 +87,7 @@ const loadImage = (src: string) =>
     img.src = src;
   });
 /** Wraps text into at most `max` lines that fit `width` (the last one ends with … when cut) */
-function wrap(ctx: CanvasRenderingContext2D, text: string, width: number, max: number): string[] {
+export function wrapText(ctx: CanvasRenderingContext2D, text: string, width: number, max: number): string[] {
   const words = String(text || '').split(/\s+/).filter(Boolean);
   const out: string[] = [];
   let cur = '';
@@ -190,7 +190,7 @@ export async function renderFundamentalCard(r: FundamentalReport, username?: str
   ctx.textBaseline = 'alphabetic';
   ctx.font = `700 50px ${SANS}`;
   ctx.fillStyle = '#fafafa';
-  for (const line of wrap(ctx, r.event, R - L, 2)) {
+  for (const line of wrapText(ctx, r.event, R - L, 2)) {
     ctx.fillText(line, L, y + 40);
     y += 58;
   }
@@ -240,7 +240,7 @@ export async function renderFundamentalCard(r: FundamentalReport, username?: str
       ctx.fillText('THE READ BEFORE THE RELEASE', R - 28, y + 40);
       ctx.font = `500 18px ${SANS}`;
       ctx.fillStyle = '#d4d4d8';
-      wrap(ctx, before, 360, 3).forEach((l, i) => ctx.fillText(l, R - 28, y + 72 + i * 26));
+      wrapText(ctx, before, 360, 3).forEach((l, i) => ctx.fillText(l, R - 28, y + 72 + i * 26));
       ctx.textAlign = 'left';
     }
     y += 192;
@@ -264,7 +264,7 @@ export async function renderFundamentalCard(r: FundamentalReport, username?: str
   ctx.textAlign = 'left';
   ctx.font = `700 30px ${SANS}`;
   ctx.fillStyle = '#fafafa';
-  wrap(ctx, r.mostLikely.outcome, R - L - 230, 2).forEach((l, i) => ctx.fillText(l, L + 28, y + 86 + i * 38));
+  wrapText(ctx, r.mostLikely.outcome, R - L - 230, 2).forEach((l, i) => ctx.fillText(l, L + 28, y + 86 + i * 38));
   rr(ctx, L + 28, y + 152, R - L - 56, 8, 4);
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   ctx.fill();
@@ -375,15 +375,15 @@ export async function renderFundamentalCard(r: FundamentalReport, username?: str
 // ---------------------------------------------------------------------------
 // Save and share
 // ---------------------------------------------------------------------------
-const isIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
-const canShareFile = (file: File) => {
+export const isIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+export const canShareFile = (file: File) => {
   try {
     return typeof navigator !== 'undefined' && !!navigator.canShare && navigator.canShare({ files: [file] });
   } catch {
     return false;
   }
 };
-const downloadBlob = (blob: Blob, name: string) => {
+export const downloadBlob = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

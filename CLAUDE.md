@@ -585,7 +585,9 @@
   trader; a live "Reading the token from the Solana blockchain" step, then the card + Analyze / Info buttons); `tokenSafetyGate` (before
   `chargeAnalysisCredit`) does the same if one reaches the analyze route. `safetyAnswer` finds the mint: an address in the prompt, an
   on-chain token, or an exchange-listed coin whose most liquid pool is on Solana (WIF, BONK, JUP via `lookupDexToken`); SOL itself is
-  explained, tokens on other chains get "trades mainly on X, not Solana". Bare crypto tokens get a third "Safety check" button
+  explained, tokens on other chains get "trades mainly on X, not Solana". Save / share (owner-requested, `src/utils/tokenSafetyShare.ts`, buttons on `TokenSafetyCard`): "Save image" draws the result card
+  (canvas 1080x1350 @2x: token, address, score ring, verdict, headline, checks, checked time, marketx.world; drawn ahead on hover/touch) and
+  downloads it (iPhone: share sheet), "Share" sends picture + short text, "Post on X" opens `openXPost(buildTokenSafetyShareText)` (≤ 280). Bare crypto tokens get a third "Safety check" button
   (`MessageChoice.kind` 'safety'); the composer's slash menu lists Token Safety (Free).
   Signal proofs (`server/signalProof.ts`, `ProofBadge`, `/proof/<id>` page `src/proof/ProofPage.tsx`): `signalProofMiddleware` seals every
   LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
