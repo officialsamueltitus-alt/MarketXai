@@ -1,18 +1,18 @@
 // The owner's "glowing phone" reference (736x920) in MarketX colours: the white mark on the screen is cleaned off and the
-// MarketX mark is set in its place (white, like the original), and the red light becomes the site's violet. Nothing else changes.
+// MarketX mark is set in its place (the glossy ball logo in its own colours), and the red light becomes the site's violet. Nothing else changes.
 // Usage: node brand/posts/make-violet-phone.cjs REF.jpg OUT.png
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const [REF, OUT] = process.argv.slice(2).map(p => path.resolve(p));
 const b64 = f => 'data:image/' + (f.endsWith('.png') ? 'png' : 'jpeg') + ';base64,' + fs.readFileSync(f).toString('base64');
-const MARK = b64(path.join(__dirname, '..', 'marketx-logo-flat-512.png'));
+const MARK = b64(path.join(__dirname, '..', '..', 'public', 'brand', 'marketx-logo-512.png'));
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0}html,body{width:736px;height:920px;overflow:hidden;background:#000}.a{position:absolute}
 </style></head><body>
 <canvas id="c" width="736" height="920" class="a" style="left:0;top:0"></canvas>
-<img class="a" src="${MARK}" style="left:${488 - 52}px;top:${458 - 52}px;width:104px;height:104px;transform:rotate(-2deg);filter:brightness(0) invert(1) drop-shadow(0 0 6px rgba(255,255,255,.35))">
+<img class="a" src="${MARK}" style="left:${488 - 58}px;top:${458 - 58}px;width:116px;height:116px;transform:rotate(-2deg);filter:drop-shadow(0 6px 12px rgba(20,0,60,.55))">
 <script>
 const img = new Image(); img.onload = () => {
   const W = 736, H = 920, c = document.getElementById('c'), x = c.getContext('2d'); x.drawImage(img, 0, 0, W, H);
