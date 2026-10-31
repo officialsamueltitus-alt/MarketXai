@@ -398,7 +398,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
     <div ref={pageRef} className="ag fixed inset-0 z-[46] overflow-y-auto overscroll-contain" role="main" aria-label="Trading Agent">
       {/* Top bar: brand, white pill navigation, round buttons */}
       <header className="sticky top-0 z-20 ag-bar">
-        <div className="max-w-[1240px] mx-auto px-4 sm:px-6 h-[68px] flex items-center gap-3">
+        <div className="ag-bar-row max-w-[1240px] mx-auto px-3 sm:px-6 h-[60px] sm:h-[68px] flex items-center gap-2 sm:gap-3">
           <span className="ag-brand">
             <span className={`ag-mark ${running ? 'on' : ''}`} aria-hidden="true">
               <Bot className="w-4 h-4" />
@@ -432,7 +432,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
           <button type="button" onClick={onBack} className="ag-round" aria-label="Back to MarketX">
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <h1 className="text-[28px] sm:text-[44px] font-light tracking-[-0.03em] text-white leading-none">Trading Agent</h1>
+          <h1 className="min-w-0 truncate text-[23px] min-[360px]:text-[28px] sm:text-[44px] font-light tracking-[-0.03em] text-white leading-tight">Trading Agent</h1>
           <div className="ml-auto flex items-center gap-2">
             <button type="button" onClick={() => setBuilderOpen(true)} className="ag-round hidden sm:grid" aria-label="Strategies" title="Strategies">
               <WandSparkles className="w-3.5 h-3.5" />
@@ -544,7 +544,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                     </button>
                   )}
                 </div>
-                <div className="mt-auto pt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                {/* Phones: the mini cards take the full width and the button sits under them (no squeeze, no overlap) */}
+                <div className="mt-auto pt-5 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-3 sm:items-end">
                   <div className="ag-minis">
                     <div className={`ag-mini ${link?.status === 'CONNECTED' && !running ? 'hi' : ''}`}>
                       <p className="text-[11.5px] font-semibold truncate">{link?.status === 'CONNECTED' ? `*${String(link.login).slice(-4)}` : link?.status === 'CONNECTING' ? 'Linking' : 'Not linked'}</p>
@@ -559,7 +560,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       <p className="text-[10.5px] opacity-70">Risk</p>
                     </div>
                   </div>
-                  <div className="pb-4">
+                  <div className="sm:pb-4 [&>button]:w-full sm:[&>button]:w-auto">
                     {running ? (
                       <button type="button" onClick={() => setConfirmStop(true)} className="ag-pill white">
                         Stop now

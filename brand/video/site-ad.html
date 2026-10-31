@@ -1,0 +1,353 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- MarketX site-wide ad (1080x1920, 30 fps, no voice-over), laid out on the owner's reference reel: a black stage, one caption
+     word at a time at the top, and glossy scenes (balance card, lone trader, fear and greed, the crowd, the breakout ball,
+     the ticker, the wave chart, the calm trader with orbiting tools, the growing stacks, kinetic type, the call to action).
+     Site colours lead (violet / fuchsia / cyan); emerald and rose only for gains and losses. Every frame is drawn by
+     render(t); render with: node brand/video/render-agent-ad.cjs SPIN_DIR OUT.mp4 --page site-ad.html -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#050407}
+body{font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#fff;letter-spacing:-.01em}
+.a{position:absolute}
+.scene{position:absolute;inset:0;opacity:0}
+.c{left:0;width:1080px;text-align:center}
+.grad{background:linear-gradient(100deg,#ddd6fe,#a78bfa 35%,#e879f9 70%,#67e8f9);-webkit-background-clip:text;background-clip:text;color:transparent}
+.glow{position:absolute;border-radius:50%}
+.glass{position:absolute;border-radius:44px;background:linear-gradient(170deg,rgba(255,255,255,.07),rgba(255,255,255,.015) 45%,rgba(0,0,0,.25));border:2px solid rgba(255,255,255,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 40px 120px -40px rgba(0,0,0,.9);overflow:hidden}
+.pill{position:absolute;height:64px;padding:0 30px;border-radius:32px;display:flex;align-items:center;font-size:24px;font-weight:600;white-space:nowrap}
+.tag{position:absolute;height:52px;padding:0 22px;border-radius:26px;display:flex;align-items:center;gap:10px;font-size:22px;font-weight:600;white-space:nowrap;background:rgba(18,14,30,.85);border:1.5px solid rgba(167,139,250,.45);color:#ede9fe;box-shadow:0 10px 30px -12px rgba(139,92,246,.8)}
+.tag i{width:12px;height:12px;border-radius:50%;background:#a78bfa;box-shadow:0 0 12px #a78bfa}
+.cond{display:inline-block;font-weight:900;letter-spacing:-.02em;transform-origin:50% 60%}
+</style>
+</head>
+<body>
+<!-- caption: one word at a time, like the reference -->
+<p id="cap" class="a c" style="top:132px;font-size:42px;font-weight:500;z-index:20"></p>
+
+<!-- 1. balance card: the account bleeds out -->
+<div id="s1" class="scene">
+  <div id="g1" class="glow" style="left:90px;top:520px;width:900px;height:700px;filter:blur(10px)"></div>
+  <div class="glass" style="left:190px;top:400px;width:700px;height:640px">
+    <p class="a" style="left:44px;top:44px;font-size:22px;color:#8f8ca3">My account</p>
+    <p id="bal" class="a" style="left:44px;top:80px;font-size:72px;font-weight:600;letter-spacing:-.03em">$50,328</p>
+    <div id="balBar" class="a" style="left:46px;top:178px;width:120px;height:8px;border-radius:4px"></div>
+    <svg class="a" style="left:0;top:0" width="700" height="640"><path id="p1" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg id="spark1" class="a" width="70" height="70" viewBox="-35 -35 70 70" style="left:0;top:0"><path d="M0 -32 L5 -5 L32 0 L5 5 L0 32 L-5 5 L-32 0 L-5 -5Z" fill="#fff"/><circle r="9" fill="#fff"/></svg>
+  </div>
+  <div id="floor" class="a" style="left:220px;top:960px;width:640px;height:96px;border-radius:26px;box-shadow:0 0 60px rgba(255,255,255,.18)"></div>
+  <svg class="a" style="left:500px;top:888px" width="80" height="150" viewBox="0 0 80 150"><g fill="#0b0a10" stroke="#0b0a10" stroke-width="8" stroke-linecap="round"><circle cx="40" cy="22" r="13"/><path d="M40 38 V98 M40 98 L28 140 M40 98 L52 140" fill="none"/><path d="M40 52 L22 30 L30 14 M40 52 L58 30 L50 14" fill="none"/></g></svg>
+</div>
+
+<!-- 2. the lone trader: feelings, not a plan -->
+<div id="s2" class="scene">
+  <p id="s2t" class="a" style="left:250px;top:400px;font-size:52px;font-weight:500;line-height:1.2;color:#e8e6f0">They trade on feelings,<br><span style="color:#8f8ca3">not on a plan.</span></p>
+  <div id="orbs" class="a" style="left:0;top:600px;width:1080px;height:80px"></div>
+  <div class="a" style="left:430px;top:690px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4a4858,#1a1922 55%,#0a0a0e);box-shadow:0 0 50px rgba(255,255,255,.08),inset -10px -16px 40px rgba(0,0,0,.6)"></div>
+  <svg class="a" style="left:430px;top:690px" width="220" height="220"><circle cx="86" cy="104" r="7" fill="#e8e6f0"/><circle cx="134" cy="104" r="7" fill="#e8e6f0"/><path d="M92 150 Q110 136 128 150" stroke="#e8e6f0" stroke-width="5" fill="none" stroke-linecap="round"/></svg>
+  <div class="a" style="left:300px;top:930px;width:480px;height:420px;border-radius:240px 240px 0 0;background:radial-gradient(ellipse at 50% 0%,#2a2834,#0e0d12 60%,#050407);box-shadow:inset 0 2px 0 rgba(255,255,255,.12)"></div>
+</div>
+
+<!-- 3. fear and greed -->
+<div id="s3" class="scene">
+  <p id="s3a" class="a c" style="top:820px;font-size:40px;font-weight:500;color:#e8e6f0">Markets run on</p>
+  <p class="a c" style="top:880px;line-height:1;transform:scaleX(.64);white-space:nowrap">
+    <span id="fear" class="cond" style="font-size:190px;color:#fb7185;text-shadow:0 0 40px rgba(251,113,133,.5)">fear</span>
+    <span id="and" class="cond" style="font-size:64px;color:#fff;margin:0 6px">and</span>
+    <span id="greed" class="cond" style="font-size:190px;color:#34d399;text-shadow:0 0 40px rgba(52,211,153,.5)">greed</span>
+  </p>
+</div>
+
+<!-- 4. the crowd: euphoric on the way up, panic on the way down -->
+<div id="s4" class="scene">
+  <div id="g4" class="glow" style="left:-160px;top:-420px;width:1400px;height:1100px"></div>
+  <div class="glass" style="left:200px;top:470px;width:680px;height:470px">
+    <svg class="a" style="left:0;top:0" width="680" height="470"><path id="p4" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg id="spark4" class="a" width="70" height="70" viewBox="-35 -35 70 70" style="left:0;top:0"><path d="M0 -30 L5 -5 L30 0 L5 5 L0 30 L-5 5 L-30 0 L-5 -5Z" fill="#fff"/><circle r="8" fill="#fff"/></svg>
+  </div>
+  <svg id="crowd" class="a" style="left:0;top:960px" width="1080" height="420"></svg>
+</div>
+
+<!-- 5. MarketX breaks the pattern: the ball shoots between two slabs -->
+<div id="s5" class="scene">
+  <div id="g5" class="glow" style="left:-200px;top:300px;width:1480px;height:1300px;background:radial-gradient(circle,rgba(139,92,246,.55),rgba(76,29,149,.25) 40%,transparent 70%)"></div>
+  <div id="slab1" class="a" style="left:240px;top:640px;width:700px;height:270px;border-radius:44px;background:linear-gradient(160deg,#8b5cf6,#5b21b6 70%);box-shadow:inset 0 2px 0 rgba(255,255,255,.3),0 40px 80px -30px rgba(0,0,0,.8)"></div>
+  <div id="slab2" class="a" style="left:240px;top:1090px;width:700px;height:270px;border-radius:44px;background:linear-gradient(160deg,#7c3aed,#4c1d95 70%);box-shadow:inset 0 2px 0 rgba(255,255,255,.25),0 40px 80px -30px rgba(0,0,0,.8)"></div>
+  <div id="streaks" class="a" style="left:0;top:930px;width:1080px;height:140px"></div>
+  <div id="ballRing" class="a" style="width:250px;height:250px;border-radius:50%;border:4px solid rgba(255,255,255,.75);box-shadow:0 0 40px rgba(196,181,253,.9),inset 0 0 30px rgba(196,181,253,.6)"></div>
+  <img id="ball" class="a" style="width:220px;height:220px">
+</div>
+
+<!-- 6. the ticker -->
+<div id="s6" class="scene">
+  <p id="tick" class="a" style="top:910px;left:1080px;white-space:nowrap;font-size:40px;font-weight:500;color:#cfcbe6">
+    Know your <b style="font-size:76px;color:#fff">entry.</b>&nbsp;&nbsp; Know your <b style="font-size:76px;color:#fb7185">stop.</b>&nbsp;&nbsp; Know your <b style="font-size:76px" class="grad">targets.</b>&nbsp;&nbsp; Know your <b style="font-size:76px;color:#fff">risk.</b>
+  </p>
+</div>
+
+<!-- 7. the wave chart: buy the zone, take profit -->
+<div id="s7" class="scene">
+  <div class="a" style="left:280px;top:560px;width:520px;height:520px;border-left:2px solid rgba(255,255,255,.3);border-bottom:2px solid rgba(255,255,255,.3);background:radial-gradient(circle at 0% 100%,rgba(221,214,254,.55),rgba(139,92,246,.18) 35%,transparent 70%),repeating-linear-gradient(0deg,rgba(255,255,255,.05) 0 1px,transparent 1px 52px),repeating-linear-gradient(90deg,rgba(255,255,255,.05) 0 1px,transparent 1px 52px)"></div>
+  <p class="a" style="left:150px;top:690px;font-size:22px;font-weight:700;color:#34d399">Euphoria</p>
+  <p class="a" style="left:200px;top:800px;font-size:22px;font-weight:700;color:#fb7185">Fear</p>
+  <svg class="a" style="left:280px;top:560px" width="520" height="520">
+    <line id="dv1" x1="150" y1="40" x2="150" y2="520" stroke="rgba(255,255,255,.4)" stroke-width="2" stroke-dasharray="8 8"/>
+    <line id="dv2" x1="370" y1="40" x2="370" y2="520" stroke="rgba(255,255,255,.4)" stroke-width="2" stroke-dasharray="8 8"/>
+    <path id="wg" fill="none" stroke="#34d399" stroke-width="5" stroke-linecap="round"/>
+    <path id="wr" fill="none" stroke="#fb7185" stroke-width="5" stroke-linecap="round"/>
+  </svg>
+  <div id="pb" class="pill" style="left:300px;top:1150px">Buy the zone</div>
+  <div id="pt" class="pill" style="left:600px;top:1150px">Take profit</div>
+  <svg id="ptr" class="a" style="top:1236px" width="40" height="34" viewBox="0 0 40 34"><path d="M20 0 L40 34 H0Z" fill="#a78bfa"/></svg>
+</div>
+
+<!-- 8. the calm trader with every tool in orbit -->
+<div id="s8" class="scene">
+  <div class="glow" style="left:140px;top:560px;width:800px;height:800px;background:radial-gradient(circle,rgba(139,92,246,.35),transparent 65%)"></div>
+  <svg class="a" style="left:0;top:0" width="1080" height="1920"><ellipse id="orb1" cx="540" cy="1000" rx="420" ry="110" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="2"/><ellipse id="orb2" cx="540" cy="1000" rx="340" ry="160" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="2"/></svg>
+  <div id="tagsBack" class="a" style="inset:0"></div>
+  <svg id="monk" class="a" style="left:330px;top:760px" width="420" height="420" viewBox="0 0 420 420">
+    <defs>
+      <radialGradient id="mg" cx="35%" cy="25%" r="80%"><stop offset="0" stop-color="#ffffff"/><stop offset=".35" stop-color="#ddd6fe"/><stop offset=".75" stop-color="#8b5cf6"/><stop offset="1" stop-color="#4c1d95"/></radialGradient>
+      <radialGradient id="hg" cx="35%" cy="30%" r="70%"><stop offset="0" stop-color="#f5f3ff"/><stop offset=".4" stop-color="#c4b5fd"/><stop offset="1" stop-color="#6d28d9"/></radialGradient>
+    </defs>
+    <circle cx="210" cy="78" r="62" fill="url(#hg)"/>
+    <path d="M210 150 C150 150 128 210 118 270 L302 270 C292 210 270 150 210 150Z" fill="url(#mg)"/>
+    <path d="M70 330 C70 270 150 262 210 300 C270 262 350 270 350 330 C350 372 300 382 210 352 C120 382 70 372 70 330Z" fill="url(#mg)"/>
+    <path d="M135 200 C90 250 92 300 150 312 M285 200 C330 250 328 300 270 312" fill="none" stroke="url(#mg)" stroke-width="30" stroke-linecap="round"/>
+    <ellipse cx="210" cy="300" rx="60" ry="22" fill="#1a1530" opacity=".55"/>
+  </svg>
+  <div id="tagsFront" class="a" style="inset:0"></div>
+</div>
+
+<!-- 9. results that stack up, sealed on Solana -->
+<div id="s9" class="scene">
+  <div class="glass" style="left:190px;top:470px;width:700px;height:560px">
+    <p class="a" style="left:44px;top:40px;font-size:22px;color:#8f8ca3">Track record · sealed on Solana</p>
+    <svg class="a" style="left:0;top:0" width="700" height="560"><defs><linearGradient id="cg9" x1="0" x2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset=".6" stop-color="#e879f9"/><stop offset="1" stop-color="#67e8f9"/></linearGradient></defs><path id="p9" fill="none" stroke="url(#cg9)" stroke-width="6" stroke-linecap="round"/></svg>
+    <svg id="spark9" class="a" width="70" height="70" viewBox="-35 -35 70 70" style="left:0;top:0"><path d="M0 -30 L5 -5 L30 0 L5 5 L0 30 L-5 5 L-30 0 L-5 -5Z" fill="#fff"/><circle r="8" fill="#fff"/></svg>
+  </div>
+  <div id="stacks" class="a" style="left:0;top:0;width:1080px;height:1920px"></div>
+</div>
+
+<!-- 10. kinetic type -->
+<div id="s10" class="scene" style="perspective:900px">
+  <p id="k1" class="a c" style="top:820px;font-size:120px;font-weight:800;letter-spacing:-.04em">any market.</p>
+  <p id="k2" class="a c" style="top:960px;font-size:120px;font-weight:300;letter-spacing:-.04em;color:#cfcbe6">any timeframe.</p>
+</div>
+
+<!-- 11. call to action -->
+<div id="s11" class="scene">
+  <div class="glow" style="left:-10px;top:330px;width:1100px;height:1100px;background:radial-gradient(circle,rgba(139,92,246,.45),rgba(192,38,211,.14) 45%,transparent 70%)"></div>
+  <img id="logoCta" class="a" style="left:470px;top:640px;width:140px;height:140px">
+  <p id="cta1" class="a c" style="top:840px;font-size:64px;font-weight:600;color:#fff">Ask SI. Free to start.</p>
+  <p id="cta2" class="a c" style="top:940px;font-size:44px;font-weight:500"><span class="grad">marketx.world</span></p>
+  <svg id="cur" class="a" style="left:690px;top:1000px" width="56" height="70" viewBox="0 0 28 35"><path d="M2 2 L2 28 L9 21 L14 33 L19 31 L14 19 L24 19Z" fill="#fff" stroke="#0b0a10" stroke-width="1.6" stroke-linejoin="round"/></svg>
+</div>
+
+<!-- 12. end card -->
+<div id="s12" class="scene">
+  <div class="glow" style="left:90px;top:400px;width:900px;height:900px;background:radial-gradient(circle,rgba(139,92,246,.4),transparent 65%)"></div>
+  <img id="logoEnd" class="a" style="left:360px;top:560px;width:360px;height:360px">
+  <p id="e1" class="a c" style="top:990px;font-size:92px;font-weight:800;letter-spacing:-.04em">MarketX,</p>
+  <p id="e2" class="a c" style="top:1100px;font-size:72px;font-weight:600;letter-spacing:-.03em"><span class="grad">Your Trading Co-Pilot</span></p>
+  <p id="e3" class="a c" style="top:1260px;font-size:34px;color:#a5a2bd;font-weight:500">marketx.world</p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const out = v => 1 - Math.pow(1 - v, 3);
+const inOut = v => (v < .5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2);
+const back = v => { const c = 1.7; return 1 + (c + 1) * Math.pow(v - 1, 3) + c * Math.pow(v - 1, 2); };
+const lerp = (a, b, v) => a + (b - a) * v;
+const set = (el, o = 1, x = 0, y = 0, s = 1, r = 0) => { el.style.opacity = o; el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`; };
+const vis = (t, a, b, f = .25) => Math.min(seg(t, a, a + f), 1 - seg(t, b - f, b));
+const mix = (c1, c2, k) => { const h = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)); const a = h(c1), b = h(c2); return `rgb(${a.map((v, i) => Math.round(lerp(v, b[i], k))).join(',')})`; };
+const SPIN = window.SPIN || [];
+const spin = (t, speed = 1) => (SPIN.length ? SPIN[Math.floor(t * 30 * speed) % SPIN.length] : '');
+const EM = '#34d399', RO = '#fb7185', VI = '#8b5cf6';
+
+// One caption word at a time (the reference reel's style); null = no caption
+const CAPS = [
+  [0, 'most'], [0.4, 'traders'], [0.8, 'lose'], [1.2, 'money'], [1.6, 'trading'], [2.1, 'blind'], [2.9, null],
+  [3.0, 'they'], [3.3, 'trade'], [3.6, 'on'], [3.9, 'feelings'], [4.6, 'not'], [4.85, 'a'], [5.05, 'plan'], [5.6, null],
+  [7.7, 'prices'], [8.1, 'climb'], [8.6, "everyone's"], [9.1, 'euphoric'], [9.9, 'prices'], [10.3, 'drop'], [10.8, 'everyone'], [11.4, 'panics'],
+  [12.5, 'MarketX'], [13.0, 'breaks'], [13.4, 'this'], [13.8, 'pattern'], [14.6, null],
+  [17.7, 'SI'], [18.05, 'reads'], [18.4, 'the'], [18.65, 'zones'], [19.3, 'buys'], [19.7, 'quality'], [20.4, 'sets'], [20.7, 'the'], [21.0, 'stop'], [21.5, 'takes'], [21.9, 'profit'],
+  [22.5, 'calm'], [22.9, 'trading'], [23.3, 'agent'], [23.8, 'alerts'], [24.2, 'watchlist'], [24.6, 'Matt'], [25.0, 'and'], [25.3, 'more'],
+  [26.1, 'every'], [26.5, 'result'], [26.9, 'sealed'], [27.3, 'on'], [27.6, 'Solana'], [28.6, null],
+];
+function caption(t) {
+  let w = null, at = 0;
+  for (const [s, word] of CAPS) if (t >= s) { w = word; at = s; }
+  const el = $('cap');
+  el.textContent = w || '';
+  const k = out(seg(t, at, at + .12));
+  el.style.opacity = w ? k : 0;
+  el.style.transform = `translateY(${(1 - k) * 14}px)`;
+}
+
+// Paths
+function polyline(pts) { return 'M' + pts.map(p => p.map(v => v.toFixed(1)).join(' ')).join(' L'); }
+const fall = []; for (let i = 0; i <= 40; i++) { const x = 40 + i * 15.5; const y = 250 + i * 7.2 + Math.sin(i * 1.3) * 18 + Math.cos(i * .7) * 10 - (i < 6 ? (6 - i) * 14 : 0); fall.push([x, y]); }
+$('p1').setAttribute('d', polyline(fall));
+const hump = []; for (let i = 0; i <= 60; i++) { const x = 40 + i * 10; const u = i / 60; const y = u < .62 ? 400 - Math.pow(u / .62, 1.6) * 300 + Math.sin(i * 1.1) * 8 : 100 + Math.pow((u - .62) / .38, .8) * 330 + Math.sin(i * 1.7) * 8; hump.push([x, y]); }
+$('p4').setAttribute('d', polyline(hump));
+const grow = []; for (let i = 0; i <= 50; i++) { const x = 40 + i * 12.4; const u = i / 50; grow.push([x, 500 - Math.pow(u, 2.2) * 380 + Math.sin(i * 1.3) * 6 * (1 - u)]); }
+$('p9').setAttribute('d', polyline(grow));
+const wave = (ph) => { const p = []; for (let i = 0; i <= 80; i++) { const x = i * 6.5; p.push([x, 280 - Math.sin(x / 520 * Math.PI * 2.4 + ph) * 170 * (0.35 + x / 520 * .65)]); } return polyline(p); };
+$('wg').setAttribute('d', wave(0));
+$('wr').setAttribute('d', wave(Math.PI));
+const draw = (el, k) => { const L = el.getTotalLength(); el.style.strokeDasharray = `${L} ${L}`; el.style.strokeDashoffset = L * (1 - k); return el.getPointAtLength(L * clamp(k)); };
+
+// Crowd: figures with arms up (cheer) or hands on heads (panic)
+const crowd = $('crowd');
+const PEOPLE = [];
+for (let row = 0; row < 3; row++) for (let i = 0; i < 7 - (row % 2); i++) {
+  const x = 120 + i * 140 + (row % 2) * 70 + Math.sin(i * 3 + row) * 16, y = 60 + row * 110, s = 0.9 + row * 0.12;
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.innerHTML = `<circle cx="0" cy="0" r="22" fill="#0c0b12" stroke-width="4"/><path class="body" d="M-26 70 Q-26 34 0 32 Q26 34 26 70" fill="#0c0b12" stroke-width="4"/><path class="arms" fill="none" stroke-width="7" stroke-linecap="round"/>`;
+  crowd.appendChild(g); PEOPLE.push({ g, x, y, s, ph: i * 1.7 + row });
+}
+
+// Orbs over the lone trader
+const ORBC = ['#a78bfa', '#6366f1', '#34d399', '#e5e7eb', '#fb7185'];
+const orbs = ORBC.map((c, i) => { const d = document.createElement('div'); d.className = 'a'; d.style.cssText = `left:${370 + i * 85}px;top:10px;width:46px;height:34px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff,${c} 45%,${c}00 75%);box-shadow:0 0 30px ${c}`; $('orbs').appendChild(d); return d; });
+
+// Streaks behind the ball
+const streaks = Array.from({ length: 7 }, (_, i) => { const d = document.createElement('div'); d.className = 'a'; d.style.cssText = `top:${20 + i * 16}px;height:${i % 3 ? 3 : 6}px;border-radius:3px;background:linear-gradient(90deg,transparent,#c4b5fd)`; $('streaks').appendChild(d); return d; });
+
+// Orbiting tools
+const TOOLS = ['Trading Agent', 'Price alerts', 'Watchlist', 'Matt', 'Fundamental Analysis', 'Token safety', 'Strategy Builder'];
+const tags = TOOLS.map(n => { const d = document.createElement('div'); d.className = 'tag'; d.innerHTML = `<i></i>${n}`; return d; });
+
+// Coin stacks
+const STACKS = [[230, 4], [370, 7], [510, 10], [650, 13], [790, 16]];
+const coins = [];
+STACKS.forEach(([x, n], si) => { for (let k = 0; k < n; k++) { const d = document.createElement('div'); d.className = 'a'; d.style.cssText = `left:${x}px;top:${1460 - k * 22}px;width:120px;height:34px;border-radius:50%;background:linear-gradient(90deg,#3b0764,#a78bfa 30%,#f5f3ff 45%,#8b5cf6 60%,#4c1d95);box-shadow:0 3px 0 #2e1065,0 0 18px rgba(139,92,246,.35)`; $('stacks').appendChild(d); coins.push({ d, si, k, n }); } });
+
+const money = v => '$' + Math.round(v).toLocaleString('en-US');
+
+function render(t) {
+  caption(t);
+
+  // 1. balance card 0 - 3.0
+  { const v = vis(t, 0, 3.0, .2); $('s1').style.opacity = v;
+    const k = inOut(seg(t, .2, 2.75)), c = seg(t, .7, 2.0), col = mix(EM, RO, c);
+    $('bal').textContent = money(50328 * (1 - k));
+    $('balBar').style.background = col;
+    $('g1').style.background = `radial-gradient(ellipse at 50% 70%,${col.replace('rgb', 'rgba').replace(')', ',.55)')},transparent 65%)`;
+    $('p1').style.stroke = mix('#ffffff', RO, c);
+    const p = draw($('p1'), k);
+    $('spark1').style.transform = `translate(${p.x - 35}px,${p.y - 35}px) scale(${.8 + .2 * Math.sin(t * 20)})`;
+    $('floor').style.background = `linear-gradient(90deg,${col} 0%,#f5f3ff 35%,#ffffff 100%)`;
+    set($('s1').children[1], 1, 0, (1 - out(seg(t, 0, .5))) * 60); }
+
+  // 2. lone trader 3.0 - 5.7
+  { const v = vis(t, 3.0, 5.7); $('s2').style.opacity = v;
+    const a = out(seg(t, 3.0, 3.5)); set($('s2t'), a * (1 - seg(t, 4.0, 4.4) * .75), 0, (1 - a) * 40 - seg(t, 4.0, 4.6) * 70);
+    orbs.forEach((o, i) => { const k = back(seg(t, 4.1 + i * .12, 4.45 + i * .12)); set(o, seg(t, 4.1 + i * .12, 4.25 + i * .12), 0, Math.sin(t * 4 + i) * 6, k); });
+    $('s2').style.transform = `scale(${1 + seg(t, 3, 5.7) * .06})`; }
+
+  // 3. fear and greed 5.6 - 7.7
+  { $('s3').style.opacity = vis(t, 5.6, 7.7);
+    set($('s3a'), out(seg(t, 5.7, 6.0)), 0, (1 - out(seg(t, 5.7, 6.0))) * 20);
+    const f = back(seg(t, 6.1, 6.45)), a = back(seg(t, 6.4, 6.65)), g = back(seg(t, 6.6, 6.95));
+    $('fear').style.opacity = seg(t, 6.1, 6.2); $('fear').style.transform = `scale(${lerp(.4, 1, f)})`;
+    $('and').style.opacity = seg(t, 6.4, 6.5); $('and').style.transform = `scale(${lerp(.4, 1, a)})`;
+    $('greed').style.opacity = seg(t, 6.6, 6.7); $('greed').style.transform = `scale(${lerp(.4, 1, g)})`; }
+
+  // 4. the crowd 7.6 - 12.5
+  { $('s4').style.opacity = vis(t, 7.6, 12.5);
+    const down = seg(t, 9.8, 10.2);
+    const col = mix(EM, RO, down);
+    $('g4').style.background = `radial-gradient(ellipse at 50% 35%,${mix(VI, '#e11d48', down).replace('rgb', 'rgba').replace(')', ',.55)')},${col.replace('rgb', 'rgba').replace(')', ',.12)')} 45%,transparent 70%)`;
+    $('p4').style.stroke = col;
+    const k = t < 9.8 ? .62 * out(seg(t, 7.8, 9.7)) : .62 + .38 * out(seg(t, 10.0, 11.6));
+    const p = draw($('p4'), k);
+    $('spark4').style.transform = `translate(${p.x - 35}px,${p.y - 35}px) scale(${.8 + .2 * Math.sin(t * 22)})`;
+    PEOPLE.forEach((m, i) => {
+      const cheer = 1 - down, bob = cheer * Math.abs(Math.sin(t * 6 + m.ph)) * -14 + down * Math.sin(t * 30 + m.ph) * 3;
+      m.g.setAttribute('transform', `translate(${m.x} ${m.y + bob}) scale(${m.s})`);
+      const stroke = down > .5 ? RO : 'rgba(255,255,255,.55)';
+      m.g.querySelectorAll('circle,.body').forEach(e => e.setAttribute('stroke', stroke));
+      const arms = m.g.querySelector('.arms'); arms.setAttribute('stroke', stroke);
+      arms.setAttribute('d', down > .5 ? 'M-22 44 Q-34 14 -14 -6 M22 44 Q34 14 14 -6' : `M-20 42 L-38 ${-4 - Math.sin(t * 6 + m.ph) * 8} M20 42 L38 ${-4 - Math.cos(t * 6 + m.ph) * 8}`);
+    });
+    $('crowd').style.transform = `translateY(${(1 - out(seg(t, 7.6, 8.3))) * 200}px)`; }
+
+  // 5. breaks the pattern 12.4 - 14.7
+  { $('s5').style.opacity = vis(t, 12.4, 14.7);
+    const sl = out(seg(t, 12.4, 13.0)); set($('slab1'), 1, (1 - sl) * 900, 0, 1, -7); set($('slab2'), 1, (1 - sl) * -900, 0, 1, -7);
+    const b = out(seg(t, 12.7, 13.6)), bx = lerp(-260, 540, b), by = 1000;
+    $('ball').src = spin(t, 2); set($('ball'), 1, bx - 110, by - 110, lerp(.7, 1, b));
+    set($('ballRing'), seg(t, 13.3, 13.6), bx - 125, by - 125, 1 + Math.sin(t * 8) * .03);
+    streaks.forEach((s, i) => { const len = (1 - seg(t, 13.4, 14.2)) * (300 + i * 60) * seg(t, 12.7, 12.9); s.style.left = (bx - 120 - len) + 'px'; s.style.width = len + 'px'; s.style.opacity = .5 + .5 * Math.sin(i + t * 9); });
+    $('s5').style.transform = `scale(${1 + seg(t, 13.6, 14.7) * .08})`; }
+
+  // 6. ticker 14.6 - 17.7
+  { $('s6').style.opacity = vis(t, 14.6, 17.7);
+    const w = $('tick').offsetWidth; $('tick').style.transform = `translateX(${-lerp(0, w + 1080 - 60, seg(t, 14.6, 17.7))}px)`; }
+
+  // 7. wave chart 17.6 - 22.5
+  { $('s7').style.opacity = vis(t, 17.6, 22.5);
+    const k = out(seg(t, 17.8, 21.6)); draw($('wg'), k); draw($('wr'), k);
+    $('dv1').style.opacity = seg(t, 18.8, 19.1); $('dv2').style.opacity = seg(t, 20.9, 21.2);
+    const onBuy = t >= 19.3 && t < 21.5, onTp = t >= 21.5;
+    $('pb').style.background = onBuy ? 'linear-gradient(100deg,#7c3aed,#c026d3)' : 'rgba(255,255,255,.06)';
+    $('pb').style.border = '2px solid ' + (onBuy ? 'rgba(255,255,255,.4)' : 'rgba(255,255,255,.15)');
+    $('pt').style.background = onTp ? 'linear-gradient(100deg,#059669,#10b981)' : 'rgba(255,255,255,.06)';
+    $('pt').style.border = '2px solid ' + (onTp ? 'rgba(255,255,255,.4)' : 'rgba(255,255,255,.15)');
+    set($('pb'), out(seg(t, 18.0, 18.4)), 0, 0, onBuy ? 1.06 : 1); set($('pt'), out(seg(t, 18.2, 18.6)), 0, 0, onTp ? 1.06 : 1);
+    const px = t < 19.3 ? lerp(160, 410, out(seg(t, 18.5, 19.3))) : lerp(410, 740, out(seg(t, 21.1, 21.5)));
+    $('ptr').style.left = px + 'px'; $('ptr').style.opacity = seg(t, 18.4, 18.6); }
+
+  // 8. calm trader + orbiting tools 22.4 - 26.1
+  { $('s8').style.opacity = vis(t, 22.4, 26.1);
+    const m = back(seg(t, 22.4, 23.1)); set($('monk'), 1, 0, (1 - m) * 120 + Math.sin(t * 2) * 8, lerp(.85, 1, m));
+    $('orb1').setAttribute('transform', `rotate(${-8 + Math.sin(t) * 2} 540 1000)`); $('orb2').setAttribute('transform', `rotate(${10 + Math.cos(t) * 2} 540 1000)`);
+    tags.forEach((d, i) => {
+      const a = (i / tags.length) * Math.PI * 2 + t * .7;
+      const front = Math.sin(a) > 0;
+      const host = front ? $('tagsFront') : $('tagsBack');
+      if (d.parentNode !== host) host.appendChild(d);
+      const x = 540 + Math.cos(a) * 420, y = 1000 + Math.sin(a) * 110 - 26;
+      d.style.left = '0px'; d.style.top = '0px';
+      const appear = seg(t, 22.8 + i * .2, 23.1 + i * .2);
+      d.style.opacity = appear * (front ? 1 : .45);
+      d.style.transform = `translate(${x}px,${y}px) translate(-50%,0) scale(${(front ? 1 : .82) * lerp(.6, 1, out(appear))})`;
+    }); }
+
+  // 9. stacks 26.0 - 28.7
+  { $('s9').style.opacity = vis(t, 26.0, 28.7);
+    const p = draw($('p9'), out(seg(t, 26.1, 28.2)));
+    $('spark9').style.transform = `translate(${p.x - 35}px,${p.y - 35}px) scale(${.8 + .2 * Math.sin(t * 22)})`;
+    coins.forEach(c => { const at = 26.3 + c.si * .18 + c.k * .07; const k = back(seg(t, at, at + .25)); c.d.style.opacity = seg(t, at, at + .08); c.d.style.transform = `translateY(${(1 - k) * -60}px)`; }); }
+
+  // 10. kinetic type 28.6 - 30.3
+  { $('s10').style.opacity = vis(t, 28.6, 30.3, .15);
+    const a = out(seg(t, 28.6, 29.1)), b = out(seg(t, 29.0, 29.5)), drift = seg(t, 28.6, 30.3) * -60;
+    $('k1').style.opacity = a; $('k1').style.transform = `translateX(${(1 - a) * 600 + drift}px) rotateY(${(1 - a) * -50}deg)`;
+    $('k2').style.opacity = b; $('k2').style.transform = `translateX(${(1 - b) * 600 + drift}px) rotateY(${(1 - b) * -50}deg)`; }
+
+  // 11. call to action 30.2 - 33.6
+  { $('s11').style.opacity = vis(t, 30.2, 33.6);
+    $('logoCta').src = spin(t); set($('logoCta'), out(seg(t, 30.3, 30.7)), 0, (1 - out(seg(t, 30.3, 30.7))) * 30);
+    const ls = out(seg(t, 30.4, 31.6)); $('cta1').style.letterSpacing = `${lerp(.35, -.01, ls)}em`; $('cta1').style.opacity = seg(t, 30.4, 30.8);
+    $('cta2').style.letterSpacing = `${lerp(.4, 0, out(seg(t, 30.9, 31.9)))}em`; $('cta2').style.opacity = seg(t, 30.9, 31.3);
+    const cu = out(seg(t, 31.6, 32.4)); set($('cur'), seg(t, 31.6, 31.8), (1 - cu) * 120, (1 - cu) * 120, t > 32.6 && t < 32.8 ? .85 : 1); }
+
+  // 12. end card 33.4 - 37.5
+  { $('s12').style.opacity = seg(t, 33.4, 33.8);
+    $('logoEnd').src = spin(t); const z = back(seg(t, 33.5, 34.3)); set($('logoEnd'), seg(t, 33.5, 33.8), 0, (1 - z) * 60, lerp(.5, 1, z));
+    const a = out(seg(t, 34.1, 34.7)), b = out(seg(t, 34.5, 35.1)); set($('e1'), a, 0, (1 - a) * 40); set($('e2'), b, 0, (1 - b) * 40); set($('e3'), out(seg(t, 35.0, 35.6))); }
+}
+window.render = render;
+window.DURATION = 37.5;
+</script>
+</body>
+</html>

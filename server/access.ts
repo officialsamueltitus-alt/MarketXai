@@ -15,6 +15,12 @@ import { db } from './firebase';
 
 export const ACCESS_BATCH = Math.max(1, Math.floor(Number(process.env.ACCESS_CODE_BATCH) || 1));
 export const ACCESS_BATCH_SIZE = 50;
+/**
+ * Extra seats added to the current batch, each applied once (owner-specified). Their codes sit in the batch's `extra` list and
+ * are handed out after the original 50 (and any seat returned by an expired code). When every seat is taken, sign-ups close:
+ * nobody else can register until a new top-up is added here.
+ */
+export const ACCESS_TOP_UPS: Array<{ id: string; seats: number }> = [{ id: '2026-10-31', seats: 50 }];
 const BATCH_SIZE = ACCESS_BATCH_SIZE;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I lookalikes
 const MAX_ATTEMPTS = 5;
@@ -55,8 +61,14 @@ interface BatchDoc {
   codes: string[];
   next: number;
   free?: string[];
+  /** Top-up seats (ACCESS_TOP_UPS), handed out in order after the original list */
+  extra?: string[];
+  extraNext?: number;
+  topUps?: string[];
   createdAt: number;
 }
+/** Every seat the batch has: the original list plus the top-ups */
+export const batchSeats = (b: Partial<BatchDoc> | null | undefined) => (b?.size || BATCH_SIZE) + (b?.extra?.length || 0);
 
 const expiryOf = (p: PendingSignup) => p.expiresAt || (p.createdAt || 0) + PASSCODE_TTL_MS;
 export const isPendingExpired = (p: PendingSignup, now = Date.now()) => expiryOf(p) <= now;
@@ -86,15 +98,41 @@ function codesMatch(a: string, b: string): boolean {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-/** Generates the batch's codes once; later calls are no-ops. */
+/** Generates the batch's codes once and applies each top-up once; later calls are no-ops. */
+let toppedUp = false;
 export async function ensureAccessBatch(): Promise<void> {
+  if (toppedUp) return;
   await db().runTransaction(async tx => {
     const snap = await tx.get(batchRef());
-    if (snap.exists) return;
-    const codes = new Set<string>();
-    while (codes.size < BATCH_SIZE) codes.add(newCode());
-    tx.set(batchRef(), { batch: ACCESS_BATCH, size: BATCH_SIZE, codes: [...codes], next: 0, createdAt: Date.now() });
+    const batch: BatchDoc = snap.exists
+      ? (snap.data() as BatchDoc)
+      : (() => {
+          const codes = new Set<string>();
+          while (codes.size < BATCH_SIZE) codes.add(newCode());
+          return { batch: ACCESS_BATCH, size: BATCH_SIZE, codes: [...codes], next: 0, createdAt: Date.now() };
+        })();
+    const applied = new Set(batch.topUps || []);
+    const due = ACCESS_TOP_UPS.filter(t => !applied.has(t.id));
+    if (snap.exists && !due.length) return;
+    if (due.length) {
+      const taken = new Set([...batch.codes, ...(batch.free || []), ...(batch.extra || [])]);
+      const extra = [...(batch.extra || [])];
+      for (const t of due) {
+        for (let i = 0; i < t.seats; i++) {
+          let c = newCode();
+          while (taken.has(c)) c = newCode();
+          taken.add(c);
+          extra.push(c);
+        }
+        applied.add(t.id);
+      }
+      batch.extra = extra;
+      batch.extraNext = batch.extraNext || 0;
+      batch.topUps = [...applied];
+    }
+    tx.set(batchRef(), JSON.parse(JSON.stringify(batch)));
   });
+  toppedUp = true;
 }
 
 /**
@@ -150,8 +188,8 @@ export async function releaseExpiredPasscodes(): Promise<number> {
 /** Seats taken in the current batch (reserved or redeemed), for the admin console. */
 export function allocatedSeats(batch: Partial<BatchDoc> | undefined | null): number {
   if (!batch) return 0;
-  // Seats handed out from the original list, minus seats that expired and are waiting in `free`
-  return Math.max(0, (batch.next || 0) - (batch.free?.length || 0));
+  // Seats handed out from the original list and the top-ups, minus seats that expired and are waiting in `free`
+  return Math.max(0, (batch.next || 0) + (batch.extraNext || 0) - (batch.free?.length || 0));
 }
 
 export type ReserveResult =
@@ -186,7 +224,12 @@ export async function createPendingSignup(
     } else if (batch.next < Math.min(batch.codes.length, batch.size || BATCH_SIZE)) {
       code = batch.codes[batch.next];
       update.next = batch.next + 1;
+    } else if ((batch.extraNext || 0) < (batch.extra?.length || 0)) {
+      // The top-up seats, once the original list is used
+      code = batch.extra![batch.extraNext || 0];
+      update.extraNext = (batch.extraNext || 0) + 1;
     } else {
+      // Every seat is taken: registration is closed
       return { status: 'full' };
     }
     const pending: PendingSignup = {
@@ -272,9 +315,7 @@ export function consumePasscodeInTx(tx: Transaction, pending: PendingSignup, uid
 }
 
 export function batchFullMessage(): string {
-  return `Dear Trader, every seat in MarketX Batch ${ACCESS_BATCH} has now been allocated. Kindly await the release of Batch ${
-    ACCESS_BATCH + 1
-  } to access MarketX. Thank you for your patience; we'll be opening new seats soon.`;
+  return 'Dear Trader, every seat on MarketX has now been taken, so registration is closed. Thank you for your interest in MarketX.';
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +345,7 @@ export interface PasscodeReport {
 
 export async function passcodeReport(): Promise<PasscodeReport> {
   // Bring the numbers up to date first: codes whose 48 hours are up go back to the batch now, not at the next hourly sweep
+  await ensureAccessBatch().catch(() => {});
   await releaseExpiredPasscodes().catch(() => 0);
   const now = Date.now();
   const [batchSnap, codesSnap, pendingSnap] = await Promise.all([
@@ -312,7 +354,7 @@ export async function passcodeReport(): Promise<PasscodeReport> {
     db().collection('pendingSignups').get(),
   ]);
   const batch = batchSnap.exists ? (batchSnap.data() as BatchDoc) : null;
-  const size = batch?.size || BATCH_SIZE;
+  const size = batchSeats(batch);
   const codes = codesSnap.docs.map(d => ({ code: d.id, ...(d.data() as any) }));
   const redeemedCodes = codes.filter(c => c.status === 'redeemed').sort((a, b) => (b.redeemedAt || 0) - (a.redeemedAt || 0));
   const pending = pendingSnap.docs

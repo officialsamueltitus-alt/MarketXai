@@ -328,7 +328,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="mx-auto w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-300 flex items-center justify-center text-xl" aria-hidden="true">
               ⏳
             </div>
-            <p className="mt-4 text-[15px] font-semibold text-white">Batch fully allocated</p>
+            <p className="mt-4 text-[15px] font-semibold text-white">Registration is closed</p>
             <p className="mt-2 text-sm text-zinc-400 leading-relaxed">{batchFull}</p>
             <a
               href="https://x.com/_MarketX"
