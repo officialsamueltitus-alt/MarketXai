@@ -93,6 +93,10 @@ export function applyPreferenceChange(current: Preferences, body: any): { prefs:
     if (typeof body.pressureMeter !== 'boolean') return { error: 'The Buyers vs Sellers gauge is on or off.' };
     next.pressureMeter = body.pressureMeter;
   }
+  if (has('wideSl')) {
+    if (typeof body.wideSl !== 'boolean') return { error: 'Wider stop loss is on or off.' };
+    next.wideSl = body.wideSl;
+  }
   if (has('secureHalf')) {
     if (typeof body.secureHalf !== 'boolean') return { error: 'Secure half is on or off.' };
     next.secureHalf = body.secureHalf;

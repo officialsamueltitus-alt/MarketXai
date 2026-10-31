@@ -49,6 +49,7 @@ import { registerFeatureCodeRoutes } from './server/featureCodes';
 import { registerRewardProgramRoutes } from './server/rewardPrograms';
 import { registerPressureRoutes } from './server/pressure';
 import { registerSpeakRoutes, registerVoiceRoutes, useVoiceEngine } from './server/voice';
+import { tagWideStop } from './server/wideStop';
 import { guardResultText } from './server/priceGuard';
 import { describeRules, SETUPS } from './src/utils/strategyRules';
 import { registerFxRoutes } from './server/fx';
@@ -2998,14 +2999,14 @@ async function loadCandles(asset: ReturnType<typeof extractAssetInfo>, tf: strin
 
 /** How this trader's analyses run (Preference Mode): RDM timeframes (all by default), Normal / Confirmation analysis
  *  and the trade type (Scalp, Day, Swing or any) */
-async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle; styleTfs: string[]; steady?: boolean }> {
+async function analysisPrefsFor(res: Response): Promise<{ rdm: string[]; mode: AnalysisMode; style: TradeStyle; styleTfs: string[]; steady?: boolean; wideSl?: boolean }> {
   const uid = (res.locals.user as any)?.uid;
   if (!uid) return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   try {
     // Preference Mode is Pro after the free period: a free account's saved choices are ignored (defaults apply)
     const prefs = effectivePreferences((await userRef(uid).get()).data() as any);
     // styleTfs: the timeframes the trader kept for the active trade type ([] = all of the type's)
-    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle, styleTfs: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle], steady: engineModeOf(prefs) === 'STEADY' };
+    return { rdm: rdmFrames(prefs.rdmTimeframes), mode: prefs.analysisMode, style: prefs.tradeStyle, styleTfs: prefs.tradeStyle === 'ANY' ? [] : prefs.styleTimeframes[prefs.tradeStyle], steady: engineModeOf(prefs) === 'STEADY', wideSl: prefs.wideSl };
   } catch {
     return { rdm: [...SUPPORTED_TIMEFRAMES], mode: 'NORMAL', style: 'ANY', styleTfs: [] };
   }
@@ -4145,7 +4146,8 @@ Do NOT output structured trade card JSON.`;
     // Trade type (Preference Mode): the analysis runs on a timeframe of that type (the nearest one; RDM scans only the
     // type's timeframes), whatever was asked for and whatever strategy is on
     const tradePrefs = chartMode ? null : await analysisPrefsFor(res);
-    const tradeStyle: TradeStyle = chartMode ? (await analysisPrefsFor(res)).style : tradePrefs!.style;
+    const chartPrefs = chartMode ? await analysisPrefsFor(res) : null;
+    const tradeStyle: TradeStyle = chartMode ? chartPrefs!.style : tradePrefs!.style;
     const askedTimeframe = analysisTimeframe;
     // (timeframes the trader kept for the type override everything else: the composer pick, RDM and the strategy's own)
     if (tradePrefs && tradeStyle !== 'ANY') {
@@ -4181,6 +4183,8 @@ Do NOT output structured trade card JSON.`;
     // (a chart's own timeframe can't be moved, so a chart analysis never says it was)
     tagTradeStyle(res, tradeStyle, chartMode ? '' : askedTimeframe, randomTimeframe);
     if (steadyOn || steadyNote) tagSteady(res, steadyOn, steadyNote);
+    // Wider stop loss (Preference Mode): a little extra room past the stop, on every trade served
+    if ((tradePrefs || chartPrefs)?.wideSl) tagWideStop(res);
     // Candles for the requested timeframe load in parallel with the live quote
     const candleWarmup = chartMode || randomTimeframe ? Promise.resolve(null) : fetchCandlesForAsset(asset, analysisTimeframe).catch(() => null);
     const newsWarmup = refreshNewsFeedsWithin(2500).catch(() => {});

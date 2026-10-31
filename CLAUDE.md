@@ -230,6 +230,12 @@
   (agent tick, every 5 min) undeploys a link (`setMt5Power`) when its run isn't RUNNING and it has no PENDING/OPEN trade with an MT5 order PLACED (10 min
   grace after linking/waking); `wakeLink` deploys and waits for CONNECTED (45s) before any order/cancel/close; a run start wakes it in the background
   (`wakeSoon`). The page says "Resting" while asleep; refresh doesn't wake it.
+- Wider stop loss (owner-specified, Preference Mode `users.preferences.wideSl`, off by default, Pro like the rest of Preference Mode): every
+  LONG/SHORT served by `/api/market/analyze` (general engine, Confirmation, Steady, Strategy Builder, charts) gets its stop moved away from the
+  entry by `WIDE_SL_SHARE` 15% of the risk (at least `WIDE_SL_MIN_PIPS` 2 pips on pip markets, whole pips) in `server/wideStop.ts`
+  (`tagWideStop`, a res.json wrapper set in the handler next to `tagTradeStyle`, so the offer, alert, journal, track record and proof use the
+  widened stop); entry and targets stay, R:R recalculated, `stopLoss.widened` {by, unit, original}, a "> **Stop loss widened:**" note and the
+  old stop number swapped on stop lines of the write-up; the card shows a "Widened" chip. The engine (`server/strategy.ts`) is untouched.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
@@ -346,6 +352,15 @@
   /api/admin/invite-rewards`); while on, the inviter gets that many credits into the campaign pool, inside the same transaction, never retroactively.
   Profile shows invited / this month / credits earned. Admin → Leaderboard lists both boards with emails, month picker and the latest invited
   sign-ups. Account deletion removes the trader's rows, code and referral record.
+  Live + history (owner-specified): each worker keeps ONE Firestore listener on this month's top `LIVE_LIMIT` 200 entries (`liveEntries`,
+  closed after 15 min with no viewer; profiles cached 90s, `peopleFor`), rows rebuilt at most every 3s, and the open panel refreshes every 8s
+  (`LIVE_MS`, visible tab only; "Live" dot). `liveStanding` = the trader's place among LISTED traders. Month end (lead worker, hourly,
+  `finalizeMonth`): every entry gets `finalRank` / `publicRank` / `tierId`, and `leaderboards/{month}` keeps {finalizedAt, traders, listed,
+  winners (top 3 listed, uid server-only)}. "Past months winners" (12 months) on the Usage board; tiers shown on the podium, rows, winners and
+  the referral board (this month's level). Profile "My standings" (`StandingsCard.tsx`, `GET /api/leaderboard/standings`: this month live +
+  past months' points, tier, place). Public rows never carry uid, email or `lastAt`. Admin → Leaderboard: public rank column, the month's
+  winners, and "Invited sign-ups" (who joined + who invited them, names, usernames, emails, exact time, credits; 100 a page, `before`).
+  Shared tier colours/month names: `src/utils/leaderboard.ts`.
   Optional "Invite code" box on Create account (owner-specified, `AuthModal.tsx`, prefilled from a link): sent as `ref` (email and Google); a
   typed code that isn't real is 400 `INVALID_INVITE` (`inviteCodeValid`), empty is fine. Kept off the boards (owner-specified): accounts matched
   by a fingerprint of their email (`BLOCKED_KEYS`) or MarketX ID (`BLOCKED_ID_KEYS`, flagged by a lead-worker check of the ID index every 6h)
