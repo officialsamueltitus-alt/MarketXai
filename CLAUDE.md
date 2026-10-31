@@ -441,8 +441,8 @@
   No server notice on the landing page (owner-specified; an auth problem still shows inside the sign-in window). Every feature CTA opens
   Create account / Sign in; only `/checker` and `/blog` open directly. No internals, providers or settings in its copy; keep the prices in step
   with `server/payments.ts`.
-- SEO (`index.html`): link previews use `public/brand/marketx-share-si.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
-  `marketx-og-1200x630.jpg` and `marketx-share-2026.jpg` hold the same picture for old links; a new image gets a NEW file name so social caches refetch;
+- SEO (`index.html`): link previews use `public/brand/marketx-share-copilot.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
+  `marketx-share-si.jpg`, `marketx-og-1200x630.jpg` and `marketx-share-2026.jpg` hold the same picture for old links; a new image gets a NEW file name so social caches refetch;
   design (owner-specified, Oct 2026, styled on the owner's studio template): white page, top nav (logo, dark pill "Ask SI" / "Explore Markets", outlined
   marketx.world), "YOUR TRADING CO-PILOT" over pixel-block "MARKETX", the glossy logo ball behind it, three frosted cards Analysis / Trading Agent / Proof, footer "MarketX, Your Trading Co-Pilot";
   source HTML rendered with headless Chromium at 2x then downscaled);
