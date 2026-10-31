@@ -10,7 +10,7 @@ import { formatMarketPrice } from '../utils/formatPrice';
 // take MarketX's word for it. 1) the fingerprint matches the signal, 2) the fingerprint is in the batch's Merkle root,
 // 3) the root was written to Solana in a transaction anyone can open.
 interface ProofResponse {
-  proof: { id: string; hash: string; canonical: string; prefix: string; issuedAt: number; status: 'SEALED' | 'BATCHED' | 'ANCHORED'; tag?: 'PERSONAL_STRATEGY'; style?: 'SCALP' | 'DAY' | 'SWING'; closeBy?: number | null };
+  proof: { id: string; hash: string; canonical: string; prefix: string; issuedAt: number; status: 'SEALED' | 'BATCHED' | 'ANCHORED'; tag?: 'PERSONAL_STRATEGY' | 'AGENT'; style?: 'SCALP' | 'DAY' | 'SWING'; closeBy?: number | null };
   batch: null | {
     id: string;
     count: number;
@@ -24,7 +24,7 @@ interface ProofResponse {
   /** The readable record: the trade and its result written on Solana in plain words once the trade ends (or after 24h) */
   reveal?: null | {
     state: 'TRACKING' | 'POSTING' | 'POSTED';
-    revealAt: number;
+    revealAt: number | null;
     result: null | { code: 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA' | 'ENDED'; text: string; final: boolean };
     memo: string | null;
     tx: string | null;
@@ -197,6 +197,11 @@ export default function ProofPage() {
                     Personal strategy
                   </span>
                 )}
+                {data.proof.tag === 'AGENT' && (
+                  <span title="A trade the MarketX Trading Agent took on its own" className="ml-2 inline-flex items-center h-7 px-3 rounded-full border border-cyan-400/30 bg-cyan-500/15 text-xs font-semibold text-cyan-100">
+                    Agent
+                  </span>
+                )}
                 {data.proof.style && (
                   <span
                     title={data.proof.closeBy ? `Closes by ${closeByText(data.proof.closeBy)}; still open then = ended at the price then` : undefined}
@@ -211,7 +216,7 @@ export default function ProofPage() {
                     <h1 className="mt-4 text-2xl sm:text-3xl font-semibold text-white tracking-tight">
                       {signal.direction === 'LONG' ? 'Buy' : 'Sell'} {signal.symbol} <span className="text-slate-400 font-normal">on the {signal.timeframe}</span>
                     </h1>
-                    <p className="mt-1 text-sm text-slate-400">{data.proof.tag === 'PERSONAL_STRATEGY' ? 'Found with the trader\'s personal strategy on MarketX' : 'Served by MarketX'} {when(signal.issuedAt)}</p>
+                    <p className="mt-1 text-sm text-slate-400">{data.proof.tag === 'PERSONAL_STRATEGY' ? 'Found with the trader\'s personal strategy on MarketX' : data.proof.tag === 'AGENT' ? 'Order placed by the MarketX Trading Agent' : 'Served by MarketX'} {when(signal.issuedAt)}</p>
                     {data.traderId && (
                       <a
                         href={`https://solscan.io/account/${encodeURIComponent(data.traderId)}`}
@@ -331,8 +336,10 @@ export default function ProofPage() {
                       <>The result is in: {data.reveal.result?.text}. It is being written on Solana now. Check back in a few minutes.</>
                     ) : (
                       <>
-                        While the trade runs, only its sealed fingerprint is public, so nobody can copy it. When it ends, or by {when(data.reveal.revealAt)} at the
-                        latest, the trade and its result are written on Solana in plain words.
+                        While the trade runs, only its sealed fingerprint is public, so nobody can copy it.{' '}
+                        {data.reveal.revealAt
+                          ? <>When it ends, or by {when(data.reveal.revealAt)} at the latest, the trade and its result are written on Solana in plain words.</>
+                          : <>When the agent closes the trade (target, stop or close) or cancels the order, the trade and its result are written on Solana in plain words.</>}
                       </>
                     )
                   }

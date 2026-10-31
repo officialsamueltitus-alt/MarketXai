@@ -205,6 +205,12 @@
   `settings.rdm` = the strategy's own timeframes (`strategyAgentFrames`, filled in at start); the start route keeps them inside the strategy's
   rules (its timeframes, its market kinds). MT5: `matchSymbol` also tries the plain name, and `mt5Open` matches a new market's broker symbol on
   first use and keeps it (`mt5Links.symbols`).
+  On Solana (owner-specified, tag "Agent"): every order the agent places is sealed like a served signal (`sealAgentTrade` in
+  `server/signalProof.ts`, called from `placeOrder`: entry = the order price, stop, the final target; `signalProofs` tag AGENT +
+  `agentTradeId`, `agentTrades.proof` {id, hash}). Its reveal waits in state AGENT (not tracked on candles): `closeTrade` / `cancelPending`
+  call `revealAgentTrade` with `agentResultText` (WIN target hit / LOSS stop hit / ENDED closed by the agent / NOT_TRIGGERED cancelled),
+  then the proof cycle writes the readable memo "MarketX signal result (Agent) …", co-signed by the trader's MarketX ID. The proof page
+  shows an "Agent" badge; the agent page's trade detail links "Sealed on Solana · Agent" to `/proof/<id>`.
   Notifications: every `tell` is a site notification + web push (`PushToggle` card "Alerts on this device" on the page); `users.agentLive`
   (set at start, cleared by `endRun`, `profile.agentLive`) makes the app poll notifications every 15s, and a new `open_agent` notification shows
   a toast + chime on the normal page, or reloads the agent page (`pulse`) when it is open.
