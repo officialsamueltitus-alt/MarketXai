@@ -162,7 +162,7 @@
   lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows; its top bar is opaque, padded for the iPhone
   notch/status bar (`env(safe-area-inset-*)`, viewport-fit=cover) and fits 320px phones; the credits card stacks its button under the mini cards on phones): every entry point (`openAgent`: Tools sheet, slash command,
   notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
-  (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Design (owner-specified,
+  (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Risk disclaimer (owner-specified): EVERY entry to the page first shows `AgentDisclaimer.tsx` (full screen, "I understand" checkbox, Proceed (disabled until ticked) / Take me back = `closeAgent`); `agentAgreed` in `App.tsx` resets whenever the page closes. Design (owner-specified,
   laid out on the owner's dashboard reference, in the SITE's colours: violet accent `--ag-grad` violet → fuchsia, cyan scan lines, the site's
   light and dark themes via `--mx-*`; owner-specified, never the reference's lime), `agents.css` in `@layer components`; pill navigation (Trades / History / Settings, owner-specified: Trades is the default view with the overview, live automation and trades; History = the activity timeline; Settings holds EVERY configuration: strategy + Strategy Builder, trade type, timeframes/markets, risk and limits, run length + credits, Start, Pro card, MT5 link, Alerts on this device, back-test notes; the overview and live automation are hidden on Settings; the header Start opens Settings at the Start button) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
   P/L, time left with striped progress bars and market "avatars"; credits available with MT5 / run / risk mini cards and a white Start now / Stop now pill),
@@ -428,7 +428,7 @@
   white sections (the "Choose your tool" showcase); the screen colours are `--s-*` variables in landing.css, flipped by `.lx-white`.
   "Traders are talking about MarketX" (owner-specified, `XPosts.tsx`, after the Q&A deck): real posts about MarketX on X reproduced word for word as
   white post cards (styled on the owner's sample post; pictures cropped from the owner's screenshots in `public/landing/x/`), every label kept as X
-  shows it (verified badge, "Automated by"); the founder's post (@_saamie, "Founder" tag, the Solana address → Solscan, marketx.world/checker →
+  shows it (verified badge, "Automated by"); @DominatorDyce's card carries a "CMO" tag (`Post.tag`); the founder's post (@_saamie, "Founder" tag, the Solana address → Solscan, marketx.world/checker →
   /checker, the Solscan memo picture) is featured, the others glide in two opposite rows (pause on hover, only while on screen, a plain scroll with
   reduced motion). Each card opens its post on X in a new tab (`url`, tracking parameters removed, never shown as text; `openPost` only opens
   x.com post addresses; links inside a card open only themselves). Add a post only from a real post, word for word, with its link.
