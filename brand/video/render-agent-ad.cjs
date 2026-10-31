@@ -1,5 +1,6 @@
 // Renders a frame-by-frame ad page (brand/video/agent-ad.html by default) at 30 fps and joins the frames into an MP4.
-// Usage: node brand/video/render-agent-ad.cjs SPIN_DIR OUT.mp4 [--page site-ad.html] [--stills 2,9,16]
+// Usage: node brand/video/render-agent-ad.cjs SPIN_DIR OUT.mp4 [--page site-ad.html] [--stills 2,9,16] [--warp timed.json]
+//   --warp: {knots: [[newTime, pageTime]...], duration} stretches scenes so a voice-over fits (piecewise linear)
 //   SPIN_DIR = transparent spin frames from `python3 brand/logo-spin.py SPIN_DIR --size 420 --transparent`
 //   --stills writes PNGs at those seconds instead of the video (for checking a scene).
 // The video is silent: the music is added afterwards.
@@ -12,6 +13,15 @@ const si = process.argv.indexOf('--stills');
 const STILLS = si > 0 ? process.argv[si + 1].split(',').map(Number) : null;
 const pi = process.argv.indexOf('--page');
 const PAGE = pi > 0 ? process.argv[pi + 1] : 'agent-ad.html';
+const wi = process.argv.indexOf('--warp');
+const WARP = wi > 0 ? JSON.parse(fs.readFileSync(path.resolve(process.argv[wi + 1]), 'utf8')) : null;
+/** Video time → the page's own time */
+const pageTime = t => {
+  if (!WARP) return t;
+  const k = WARP.knots;
+  for (let i = 1; i < k.length; i++) if (t <= k[i][0]) return k[i - 1][1] + ((t - k[i - 1][0]) / (k[i][0] - k[i - 1][0])) * (k[i][1] - k[i - 1][1]);
+  return k[k.length - 1][1] + (t - k[k.length - 1][0]);
+};
 const FPS = 30;
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -23,13 +33,13 @@ const ROOT = path.join(__dirname, '..', '..');
   await pg.goto('file://' + path.join(__dirname, PAGE));
   // load every spin frame once so swapping them never waits
   await pg.evaluate(async () => { await Promise.all(window.SPIN.map(u => { const i = new Image(); i.src = u; return i.decode().catch(() => {}); })); });
-  const draw = t => pg.evaluate(async t => { window.render(t); await Promise.all([...document.images].map(i => (i.src ? i.decode().catch(() => {}) : 0))); }, t);
+  const draw = t0 => pg.evaluate(async t => { window.render(t); await Promise.all([...document.images].map(i => (i.src ? i.decode().catch(() => {}) : 0))); }, pageTime(t0));
   if (STILLS) {
     for (const s of STILLS) { await draw(s); await pg.screenshot({ path: OUT.replace(/\.\w+$/, '') + `-${s}s.png` }); }
     await b.close();
     return;
   }
-  const dur = await pg.evaluate(() => window.DURATION);
+  const dur = WARP ? WARP.duration : await pg.evaluate(() => window.DURATION);
   const dir = OUT + '.frames';
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir);
