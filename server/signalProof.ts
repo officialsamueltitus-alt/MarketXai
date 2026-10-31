@@ -68,8 +68,9 @@ export interface SignalPayload {
 /** ENDED: a day / swing trade still open at its close time (9:00 PM WAT), closed there at the price then */
 export type ResultCode = 'WIN' | 'LOSS' | 'MISSED' | 'NOT_TRIGGERED' | 'OPEN' | 'NO_DATA' | 'ENDED';
 export interface Reveal {
-  /** TRACKING: following the trade; DUE: result known, waiting to be written; SENT: memo sent, confirming; POSTED: on chain */
-  state: 'TRACKING' | 'DUE' | 'SENT' | 'POSTED';
+  /** TRACKING: following the trade; AGENT: a Trading Agent trade, its result comes from the agent when the trade ends;
+   *  DUE: result known, waiting to be written; SENT: memo sent, confirming; POSTED: on chain */
+  state: 'TRACKING' | 'AGENT' | 'DUE' | 'SENT' | 'POSTED';
   entered: boolean;
   hits: AlertHit[];
   scanFrom: number;
@@ -93,8 +94,10 @@ export interface SignalProof {
   /** Who got the signal (server only, never returned): their MarketX ID co-signs the readable record */
   uid?: string | null;
   /** PERSONAL_STRATEGY: found by the trader's own strategy (Strategy Builder), not the MarketX engine; shown on the
-   *  proof page and written into the readable result record on Solana */
-  tag?: 'PERSONAL_STRATEGY';
+   *  proof page and written into the readable result record on Solana. AGENT: a trade the Trading Agent took. */
+  tag?: 'PERSONAL_STRATEGY' | 'AGENT';
+  /** AGENT: the agent trade (agentTrades id), server only */
+  agentTradeId?: string;
   /** Trade type of the signal (Preference Mode), outside the sealed fields */
   style?: 'SCALP' | 'DAY' | 'SWING';
   /** Day / swing trade: its close time (epoch ms); the result is decided there (ENDED if still open) */
@@ -184,6 +187,64 @@ export function signalProofMiddleware(_req: Request, res: Response, next: NextFu
     return json(body);
   }) as typeof res.json;
   next();
+}
+
+// ---------------------------------------------------------------------------
+// Trading Agent trades (owner-specified): every order the agent places is sealed the same way, tagged AGENT, and its
+// readable result record is written from the agent's own result when the trade ends (not tracked separately)
+// ---------------------------------------------------------------------------
+export interface AgentSealInput {
+  tradeId: string;
+  uid: string;
+  symbol: string;
+  timeframe: string;
+  direction: 'LONG' | 'SHORT';
+  /** The limit order price (the agent enters at the middle of the zone) */
+  entry: number;
+  stop: number;
+  /** The final target: the agent holds the whole position to it or to the stop */
+  target: number;
+  issuedAt: number;
+}
+/** Seals an agent order; returns { id, hash } to keep on the trade (null when it can't be sealed or storage is off) */
+export async function sealAgentTrade(t: AgentSealInput): Promise<{ id: string; hash: string } | null> {
+  if (!isFirebaseConfigured()) return null;
+  const id = `sp_${Date.now().toString(36)}${crypto.randomBytes(8).toString('hex')}`;
+  const sealed = sealSignal(
+    { tradeType: t.direction, symbol: t.symbol, timeframe: t.timeframe, execution: 'LIMIT', entryZone: { min: t.entry, max: t.entry, optimal: t.entry }, stopLoss: { price: t.stop }, takeProfits: [{ price: t.target }] },
+    id,
+    t.issuedAt,
+  );
+  if (!sealed) return null;
+  const doc: SignalProof = {
+    id, hash: sealed.hash, canonical: sealed.canonical, issuedAt: sealed.payload.issuedAt, batched: false,
+    reveal: { state: 'AGENT', entered: false, hits: [], scanFrom: 0 }, uid: t.uid, tag: 'AGENT', agentTradeId: t.tradeId,
+  };
+  await db().collection(PROOFS).doc(id).set(doc);
+  return { id, hash: sealed.hash };
+}
+
+/** How an agent trade ended, in the readable record's words */
+export function agentResultText(
+  end: { kind: 'WIN' | 'LOSS' | 'CLOSED' | 'CANCELLED'; at: number; price?: number; r?: number; note?: string },
+): NonNullable<Reveal['result']> {
+  const rt = typeof end.r === 'number' && Number.isFinite(end.r) ? `, ${end.r > 0 ? '+' : ''}${end.r.toFixed(2)}R` : '';
+  const px = typeof end.price === 'number' && end.price > 0 ? ` at ${exactPrice(end.price)}` : '';
+  if (end.kind === 'WIN') return { code: 'WIN', text: `Win, target hit${px} (${utc(end.at)})${rt}`, final: true, at: end.at };
+  if (end.kind === 'LOSS') return { code: 'LOSS', text: `Loss, stop hit${px} (${utc(end.at)})${rt}`, final: true, at: end.at };
+  if (end.kind === 'CLOSED') return { code: 'ENDED', text: `Closed by the agent${px} (${utc(end.at)})${rt}`, final: true, at: end.at };
+  return { code: 'NOT_TRIGGERED', text: `Not filled, the order was cancelled (${utc(end.at)})`, final: true, at: end.at };
+}
+
+/** The agent trade ended: its result is fixed now and written on Solana by the next proof cycle (once its seal is anchored) */
+export async function revealAgentTrade(proofId: string, result: NonNullable<Reveal['result']>): Promise<void> {
+  if (!isFirebaseConfigured() || !proofId) return;
+  const ref = db().collection(PROOFS).doc(proofId);
+  await db().runTransaction(async tx => {
+    const cur = (await tx.get(ref)).data() as SignalProof | undefined;
+    if (!cur || cur.reveal?.state !== 'AGENT') return;
+    tx.update(ref, { 'reveal.state': 'DUE', 'reveal.result': result, 'reveal.entered': result.code !== 'NOT_TRIGGERED' });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +467,7 @@ const sideText = (p: SignalPayload) => `${p.direction === 'LONG' ? 'BUY' : 'SELL
 /** The readable memo: the trade itself, its result, its fingerprint and where to verify it (always under 500 bytes) */
 export function revealMemo(p: SignalPayload, hash: string, result: NonNullable<Reveal['result']>, tag?: SignalProof['tag'], style?: SignalProof['style']): string {
   const e = p.entry;
-  const kinds = [tag === 'PERSONAL_STRATEGY' ? 'personal strategy' : '', style === 'SCALP' ? 'scalp trade' : style === 'DAY' ? 'day trade' : style === 'SWING' ? 'swing trade' : ''].filter(Boolean);
+  const kinds = [tag === 'PERSONAL_STRATEGY' ? 'personal strategy' : tag === 'AGENT' ? 'Agent' : '', style === 'SCALP' ? 'scalp trade' : style === 'DAY' ? 'day trade' : style === 'SWING' ? 'swing trade' : ''].filter(Boolean);
   const parts = [
     kinds.length ? `MarketX signal result (${kinds.join(', ')})` : 'MarketX signal result',
     `${p.symbol.slice(0, 24)} ${p.timeframe}`.trim(),
@@ -650,10 +711,11 @@ async function publicTraderId(p: SignalProof): Promise<string | null> {
 function publicReveal(p: SignalProof) {
   const r = p.reveal;
   if (!r) return null;
-  const decided = r.state !== 'TRACKING';
+  const decided = r.state !== 'TRACKING' && r.state !== 'AGENT';
   return {
     state: r.state === 'POSTED' ? 'POSTED' : decided ? 'POSTING' : 'TRACKING',
-    revealAt: p.closeBy || p.issuedAt + REVEAL_AFTER_MS,
+    // An agent trade's record is written when the agent closes or cancels it (no fixed time)
+    revealAt: r.state === 'AGENT' ? null : p.closeBy || p.issuedAt + REVEAL_AFTER_MS,
     result: decided && r.result ? { code: r.result.code, text: r.result.text, final: r.result.final } : null,
     memo: r.state === 'POSTED' ? r.memo || null : null,
     tx: r.state === 'POSTED' ? r.tx || null : null,

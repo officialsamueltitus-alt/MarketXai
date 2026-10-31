@@ -8,6 +8,7 @@ import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
 import { hasFeature, proGateActive, PRO_GATE_AT } from './proAccess';
+import { agentResultText, revealAgentTrade, sealAgentTrade } from './signalProof';
 import { suggestMt5Servers } from '../src/utils/mt5Servers';
 import { listOwn, ownStrategy } from './strategyBuilder';
 import { SETUPS } from '../src/utils/strategyRules';
@@ -271,6 +272,7 @@ function toView(t: AgentTrade): AgentTradeView {
     ...(t.note ? { note: t.note } : {}),
     ...(t.mt5 ? { mt5: { state: t.mt5.state, ...(t.mt5.symbol ? { symbol: t.mt5.symbol } : {}), ...(t.mt5.volume ? { volume: t.mt5.volume } : {}), ...(t.mt5.error ? { error: t.mt5.error } : {}) } } : {}),
     ...((t as any).refunded ? { refunded: (t as any).refunded } : {}),
+    ...(t.proof?.id ? { proof: { id: t.proof.id } } : {}),
   };
 }
 
@@ -354,14 +356,21 @@ async function closeTrade(t: AgentTrade, c: NonNullable<StepResult['closed']>, n
   const r = tradeR(t, c.price);
   const result: AgentTradeResult = c.kind === 'TIME' ? 'TIMEOUT' : r > 0 ? 'WIN' : 'LOSS';
   const pnlPct = Number((r * t.riskPct).toFixed(2));
+  let proofId: string | undefined;
   const done = await db().runTransaction(async tx => {
     const snap = await tx.get(tradeRef(t.id));
     const cur = snap.data() as AgentTrade | undefined;
     if (!cur || cur.state !== 'OPEN') return false;
+    proofId = cur.proof?.id;
     tx.update(tradeRef(t.id), { state: 'CLOSED', result, r, pnlPct, closedAt: c.at, closePrice: c.price, note, updatedAt: now() });
     return true;
   });
   if (!done) return;
+  // The readable result record on Solana (tag Agent): written from this result once the seal is on chain
+  if (proofId) {
+    const kind = c.kind === 'TP' ? 'WIN' : c.kind === 'SL' ? 'LOSS' : 'CLOSED';
+    await revealAgentTrade(proofId, agentResultText({ kind, at: c.at, price: c.price, r })).catch(err => console.warn('[MarketX Agent] proof result failed:', err?.message || err));
+  }
   const kind: AgentLogEntry['kind'] = c.kind === 'TIME' ? 'CLOSE' : r > 0 ? 'WIN' : 'LOSS';
   const head =
     c.kind === 'TP' ? `✅ ${t.symbol} hit the target` : c.kind === 'SL' ? `🛑 ${t.symbol} hit the stop` : `⏹️ ${t.symbol} trade closed`;
@@ -390,10 +399,12 @@ async function fillTrade(t: AgentTrade, f: NonNullable<StepResult['filled']>): P
 
 /** Cancels an order that never filled, once (transaction): its credits go back where they came from */
 async function cancelPending(t: AgentTrade, note: string, extra: Record<string, unknown> = {}): Promise<boolean> {
+  let proofId: string | undefined;
   const ok = await db().runTransaction(async tx => {
     const [ts, as] = await Promise.all([tx.get(tradeRef(t.id)), tx.get(agentRef(t.uid))]);
     const cur = ts.data() as AgentTrade | undefined;
     if (!cur || cur.state !== 'PENDING') return false;
+    proofId = cur.proof?.id;
     const back = Math.max(0, cur.credits || 0);
     const camp = Math.min(back, Math.max(0, cur.campaignCharged || 0));
     const bought = Math.min(back - camp, Math.max(0, cur.purchasedCharged || 0));
@@ -409,6 +420,7 @@ async function cancelPending(t: AgentTrade, note: string, extra: Record<string, 
     return true;
   });
   if (ok) await mt5Cancel(t).catch(() => {});
+  if (ok && proofId) await revealAgentTrade(proofId, agentResultText({ kind: 'CANCELLED', at: now() })).catch(err => console.warn('[MarketX Agent] proof result failed:', err?.message || err));
   return ok;
 }
 
@@ -840,6 +852,16 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     return;
   }
   if (!placed) return;
+  // Sealed on Solana with the tag Agent (owner-specified): the order's levels are fingerprinted now, the result is written when it ends
+  try {
+    const proof = await sealAgentTrade({ tradeId: trade.id, uid: a.uid, symbol: trade.symbol, timeframe: trade.timeframe, direction: trade.direction, entry: trade.entry, stop: trade.stop, target: trade.target, issuedAt: t0 });
+    if (proof) {
+      trade.proof = proof;
+      await tradeRef(trade.id).update({ proof });
+    }
+  } catch (err: any) {
+    console.warn('[MarketX Agent] seal failed:', err?.message || err);
+  }
   const text = `📝 Order placed: ${orderLine(trade)}. Quality ${trade.quality}/100, ${trade.rr}R to the target. ${trade.credits ? `${trade.credits} credits used (refunded if it doesn't fill).` : ''}`.trim();
   await pushLog(a.uid, [logEntry('ORDER', text, trade.id)]);
   await tell(a.uid, `📝 Agent order on ${trade.symbol}`, text, { tradeId: trade.id });

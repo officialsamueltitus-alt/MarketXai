@@ -1,5 +1,6 @@
 // Renders a frame-by-frame ad page (brand/video/agent-ad.html by default) at 30 fps and joins the frames into an MP4.
-// Usage: node brand/video/render-agent-ad.cjs SPIN_DIR OUT.mp4 [--page site-ad.html] [--stills 2,9,16] [--warp timed.json]
+// Usage: node brand/video/render-agent-ad.cjs SPIN_DIR OUT.mp4 [--page site-ad.html] [--stills 2,9,16] [--warp timed.json] [--size 1920x1080]
+//   --size: the page's viewport (default 1080x1920, phone portrait; 1920x1080 for the desktop ad)
 //   --warp: {knots: [[newTime, pageTime]...], duration} stretches scenes so a voice-over fits (piecewise linear)
 //   SPIN_DIR = transparent spin frames from `python3 brand/logo-spin.py SPIN_DIR --size 420 --transparent`
 //   --stills writes PNGs at those seconds instead of the video (for checking a scene).
@@ -14,6 +15,8 @@ const STILLS = si > 0 ? process.argv[si + 1].split(',').map(Number) : null;
 const pi = process.argv.indexOf('--page');
 const PAGE = pi > 0 ? process.argv[pi + 1] : 'agent-ad.html';
 const wi = process.argv.indexOf('--warp');
+const zi = process.argv.indexOf('--size');
+const [VW, VH] = zi > 0 ? process.argv[zi + 1].split('x').map(Number) : [1080, 1920];
 const WARP = wi > 0 ? JSON.parse(fs.readFileSync(path.resolve(process.argv[wi + 1]), 'utf8')) : null;
 /** Video time → the page's own time */
 const pageTime = t => {
@@ -27,7 +30,7 @@ const ROOT = path.join(__dirname, '..', '..');
 
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome' });
-  const pg = await b.newPage({ viewport: { width: 1080, height: 1920 } });
+  const pg = await b.newPage({ viewport: { width: VW, height: VH } });
   const frames = fs.readdirSync(SPIN).filter(f => f.endsWith('.png')).sort().map(f => 'file://' + path.join(SPIN, f));
   await pg.addInitScript(([s, icon]) => { window.SPIN = s; window.APPICON = icon; }, [frames, 'file://' + path.join(ROOT, 'public/brand/marketx-logo-128.png')]);
   await pg.goto('file://' + path.join(__dirname, PAGE));

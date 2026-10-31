@@ -205,6 +205,12 @@
   `settings.rdm` = the strategy's own timeframes (`strategyAgentFrames`, filled in at start); the start route keeps them inside the strategy's
   rules (its timeframes, its market kinds). MT5: `matchSymbol` also tries the plain name, and `mt5Open` matches a new market's broker symbol on
   first use and keeps it (`mt5Links.symbols`).
+  On Solana (owner-specified, tag "Agent"): every order the agent places is sealed like a served signal (`sealAgentTrade` in
+  `server/signalProof.ts`, called from `placeOrder`: entry = the order price, stop, the final target; `signalProofs` tag AGENT +
+  `agentTradeId`, `agentTrades.proof` {id, hash}). Its reveal waits in state AGENT (not tracked on candles): `closeTrade` / `cancelPending`
+  call `revealAgentTrade` with `agentResultText` (WIN target hit / LOSS stop hit / ENDED closed by the agent / NOT_TRIGGERED cancelled),
+  then the proof cycle writes the readable memo "MarketX signal result (Agent) …", co-signed by the trader's MarketX ID. The proof page
+  shows an "Agent" badge; the agent page's trade detail links "Sealed on Solana · Agent" to `/proof/<id>`.
   Notifications: every `tell` is a site notification + web push (`PushToggle` card "Alerts on this device" on the page); `users.agentLive`
   (set at start, cleared by `endRun`, `profile.agentLive`) makes the app poll notifications every 15s, and a new `open_agent` notification shows
   a toast + chime on the normal page, or reloads the agent page (`pulse`) when it is open.
@@ -449,6 +455,11 @@
   four sides, frame and body in view, never cropped by the video edge); the music is always in the style of the owner's
   chosen ad track (the Epidemic Sound track used in the MarketX ad, ~101 BPM, a quiet build-up then a bass drop), with
   the cuts timed to its beat.
+  Desktop ad (owner-requested, Oct 2026): `brand/video/site-ad-desktop.html` (1920x1080, LIGHT mode, motion design, voice-over scene times in `T`),
+  rendered with `render-agent-ad.cjs ... --page site-ad-desktop.html --size 1920x1080`; its music is an ORIGINAL beat made by
+  `brand/video/beat-synth.py` (100 BPM, quiet intro, bass drop at 4.8s, no samples, so no copyright).
+  Trading Agent ad, desktop (owner-requested): `brand/video/agent-ad-desktop.html` = agent-ad.html's scenes, words and timings at 1920x1080
+  in LIGHT mode (setup in a browser window, alerts on a desktop screen); rendered with the same `--warp` voice-over timing.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). Tagline (owner-specified, Oct 2026):
   "MarketX, Your Trading Co-Pilot" (browser title "MarketX · Your Trading Co-Pilot", meta/OG/Twitter/JSON-LD/manifest descriptions, the welcome and Markets
   headlines "Your trading co-pilot, one prompt away.", email footer, guide, Terms intro, Matt, the offline welcome answer); feature names keep "SI". X handle

@@ -1114,6 +1114,17 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                                 {sel.mt5.state === 'FAILED' ? `Not placed on MT5: ${sel.mt5.error || 'error'}` : `On MT5 · ${sel.mt5.symbol} · ${sel.mt5.volume} lots${sel.mt5.state === 'CANCELLED' ? ' · cancelled' : sel.mt5.state === 'CLOSED' ? ' · closed' : ''}`}
                               </p>
                             )}
+                            {sel.proof?.id && (
+                              <a
+                                href={`/proof/${encodeURIComponent(sel.proof.id)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--ag-accent-text)] hover:underline"
+                                title="This trade is sealed on Solana with the tag Agent; its result is written there when it ends"
+                              >
+                                Sealed on Solana · Agent <ArrowUpRight className="w-3 h-3" />
+                              </a>
+                            )}
                             {sel.note && sel.state !== 'OPEN' && sel.state !== 'PENDING' && (
                               <p className="mt-2 text-[11.5px] dim">
                                 {sel.note}
