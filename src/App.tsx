@@ -75,6 +75,7 @@ import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
 import { SiteBanner } from './components/SiteBanner';
 import { PromoBanner } from './components/PromoBanner';
+import { InstallPrompt } from './components/InstallPrompt';
 import { AnnouncementModal } from './components/AnnouncementModal';
 import { MarketXIcon } from './components/MarketXIcon';
 import { formatPriceShort } from './components/AiActivityTrace';
@@ -2986,6 +2987,9 @@ export default function App() {
         onOpenLeaderboard={authUser ? openLeaderboard : undefined}
         onToast={(message, type) => setToastNotification({ message, type: type || 'success' })}
       />
+
+      {/* Signed in: offer to add MarketX to the device as a web app (can be closed) */}
+      <InstallPrompt signedIn={!!authUser} />
 
       {/* Main Workspace Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">

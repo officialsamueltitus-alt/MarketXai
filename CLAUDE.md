@@ -164,7 +164,7 @@
   notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
   (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Design (owner-specified,
   laid out on the owner's dashboard reference, in the SITE's colours: violet accent `--ag-grad` violet → fuchsia, cyan scan lines, the site's
-  light and dark themes via `--mx-*`; owner-specified, never the reference's lime), `agents.css` in `@layer components`; pill navigation (Setup / Trades / Activity) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
+  light and dark themes via `--mx-*`; owner-specified, never the reference's lime), `agents.css` in `@layer components`; pill navigation (Trades / History / Settings, owner-specified: Trades is the default view with the overview, live automation and trades; History = the activity timeline; Settings holds EVERY configuration: strategy + Strategy Builder, trade type, timeframes/markets, risk and limits, run length + credits, Start, Pro card, MT5 link, Alerts on this device, back-test notes; the overview and live automation are hidden on Settings; the header Start opens Settings at the Start button) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
   P/L, time left with striped progress bars and market "avatars"; credits available with MT5 / run / risk mini cards and a white Start now / Stop now pill),
   "Live automation" (owner-specified: a pipeline Scan → Find zone → Quality → Order → Manage with a travelling pulse, a tile per market × timeframe whose
   chart scrolls with a sweeping scan line and step words, a next-scan ring and the latest log lines; it moves ONLY while a run is on, still and grey
@@ -763,6 +763,11 @@
 - Try again (owner-specified): a failed analysis or fundamental read that a retry can fix (`canRetry` in `App.tsx`: 5xx, 408, 429, timeout, network;
   never DAILY_LIMIT, PRO_REQUIRED, NOT_FUNDAMENTAL, UNKNOWN_ASSET, sign-in) carries `ChatMessage.retry` {kind, prompt, timeframe, slMode}; the card's
   "Try again" button (`onRetry` in `ChatFeed.tsx`, `retryMessage`) removes the failed attempt and its prompt and runs it again in the same chat.
+- Install as a web app (owner-specified, `src/utils/install.ts` + `InstallPrompt.tsx`, mounted in `App.tsx` while signed in): ~3.5s after sign-in a
+  bottom sheet asks to add MarketX to the device. `beforeinstallprompt` is kept from page load (the browser's own bar suppressed) so "Install
+  MarketX" opens Chrome/Edge/Samsung's install window; iPhone/iPad (Safari and other iOS browsers), Android browsers without it and Mac Safari get
+  two steps. "Not now" / ✕ / Escape snooze it 7 days (`mx.install.dismissedAt`); installed (`appinstalled`, accepted, or running standalone)
+  never asks again. It registers `/sw.js` (no fetch handler) for install eligibility.
 - Pop-up above the composer (owner-specified, `ChatUpdatesBar.tsx`): random market moves, offers and tips only, each shown for 5 seconds
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
 - Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, NO logo header
