@@ -1004,12 +1004,20 @@ Rationale: ${strategy.entryZone.rationale}
                             <span className="text-[10px] text-rose-300 font-sans block uppercase font-semibold flex items-center gap-1 truncate">
                               <ShieldAlert className="w-3 h-3 text-rose-400 shrink-0" />
                               Stop Loss
+                              {strategy.stopLoss.widened && (
+                                <span
+                                  className="ml-auto shrink-0 px-1.5 py-px rounded-full bg-violet-500/20 text-violet-200 text-[9px] normal-case tracking-normal"
+                                  title={`Widened by ${strategy.stopLoss.widened.by} ${strategy.stopLoss.widened.unit} past the normal stop (${formatMarketPrice(strategy.stopLoss.widened.original, strategy.currentPrice)}) for breathing space`}
+                                >
+                                  Widened
+                                </span>
+                              )}
                             </span>
                             <span className="text-xs sm:text-base font-bold text-rose-200 mt-1 block truncate font-mono">
                               ${formatMarketPrice(strategy.stopLoss.price, strategy.currentPrice)}
                             </span>
                             <span className="text-[10px] text-rose-300/80 block mt-0.5 truncate font-mono">
-                              Risk: -{strategy.stopLoss.riskPercent}%
+                              {strategy.stopLoss.widened ? `+${strategy.stopLoss.widened.by} ${strategy.stopLoss.widened.unit} · ` : ''}Risk: -{strategy.stopLoss.riskPercent}%
                             </span>
                           </div>
 

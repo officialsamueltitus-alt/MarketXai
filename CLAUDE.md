@@ -197,6 +197,11 @@
   with its `agent` prop (saves never switch on the normal page's builder; "Use this" / "Save and use for the agent" only pick it for the agent).
   A strategy run scans with `deps.scanStrategy` (`runUserStrategy` + `personalStrategyStatus`, like the watchlist strategy scan, scan key
   `strategyId|symbol|tf`), floor `AGENT_STRATEGY_MIN_QUALITY` 45; the run stores `strategyName`; a deleted strategy = 400 NO_STRATEGY at start.
+  Strategy runs choose their own markets and timeframes (owner-specified; the MarketX engine keeps `AGENT_MARKETS` on 1H/4H and its Trade type cards):
+  `AGENT_STRATEGY_MARKETS` (18: metals, oil, BTC/ETH/SOL, 9 forex pairs, NAS100/US30/GER40, up to 6), `AGENT_STRATEGY_FRAMES` 5m-1D (up to 4) or
+  `settings.rdm` = the strategy's own timeframes (`strategyAgentFrames`, filled in at start); the start route keeps them inside the strategy's
+  rules (its timeframes, its market kinds). MT5: `matchSymbol` also tries the plain name, and `mt5Open` matches a new market's broker symbol on
+  first use and keeps it (`mt5Links.symbols`).
   Notifications: every `tell` is a site notification + web push (`PushToggle` card "Alerts on this device" on the page); `users.agentLive`
   (set at start, cleared by `endRun`, `profile.agentLive`) makes the app poll notifications every 15s, and a new `open_agent` notification shows
   a toast + chime on the normal page, or reloads the agent page (`pulse`) when it is open.
@@ -225,6 +230,12 @@
   (agent tick, every 5 min) undeploys a link (`setMt5Power`) when its run isn't RUNNING and it has no PENDING/OPEN trade with an MT5 order PLACED (10 min
   grace after linking/waking); `wakeLink` deploys and waits for CONNECTED (45s) before any order/cancel/close; a run start wakes it in the background
   (`wakeSoon`). The page says "Resting" while asleep; refresh doesn't wake it.
+- Wider stop loss (owner-specified, Preference Mode `users.preferences.wideSl`, off by default, Pro like the rest of Preference Mode): every
+  LONG/SHORT served by `/api/market/analyze` (general engine, Confirmation, Steady, Strategy Builder, charts) gets its stop moved away from the
+  entry by `WIDE_SL_SHARE` 15% of the risk (at least `WIDE_SL_MIN_PIPS` 2 pips on pip markets, whole pips) in `server/wideStop.ts`
+  (`tagWideStop`, a res.json wrapper set in the handler next to `tagTradeStyle`, so the offer, alert, journal, track record and proof use the
+  widened stop); entry and targets stay, R:R recalculated, `stopLoss.widened` {by, unit, original}, a "> **Stop loss widened:**" note and the
+  old stop number swapped on stop lines of the write-up; the card shows a "Widened" chip. The engine (`server/strategy.ts`) is untouched.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
@@ -341,6 +352,15 @@
   /api/admin/invite-rewards`); while on, the inviter gets that many credits into the campaign pool, inside the same transaction, never retroactively.
   Profile shows invited / this month / credits earned. Admin → Leaderboard lists both boards with emails, month picker and the latest invited
   sign-ups. Account deletion removes the trader's rows, code and referral record.
+  Live + history (owner-specified): each worker keeps ONE Firestore listener on this month's top `LIVE_LIMIT` 200 entries (`liveEntries`,
+  closed after 15 min with no viewer; profiles cached 90s, `peopleFor`), rows rebuilt at most every 3s, and the open panel refreshes every 8s
+  (`LIVE_MS`, visible tab only; "Live" dot). `liveStanding` = the trader's place among LISTED traders. Month end (lead worker, hourly,
+  `finalizeMonth`): every entry gets `finalRank` / `publicRank` / `tierId`, and `leaderboards/{month}` keeps {finalizedAt, traders, listed,
+  winners (top 3 listed, uid server-only)}. "Past months winners" (12 months) on the Usage board; tiers shown on the podium, rows, winners and
+  the referral board (this month's level). Profile "My standings" (`StandingsCard.tsx`, `GET /api/leaderboard/standings`: this month live +
+  past months' points, tier, place). Public rows never carry uid, email or `lastAt`. Admin → Leaderboard: public rank column, the month's
+  winners, and "Invited sign-ups" (who joined + who invited them, names, usernames, emails, exact time, credits; 100 a page, `before`).
+  Shared tier colours/month names: `src/utils/leaderboard.ts`.
   Optional "Invite code" box on Create account (owner-specified, `AuthModal.tsx`, prefilled from a link): sent as `ref` (email and Google); a
   typed code that isn't real is 400 `INVALID_INVITE` (`inviteCodeValid`), empty is fine. Kept off the boards (owner-specified): accounts matched
   by a fingerprint of their email (`BLOCKED_KEYS`) or MarketX ID (`BLOCKED_ID_KEYS`, flagged by a lead-worker check of the ID index every 6h)
@@ -565,7 +585,9 @@
   trader; a live "Reading the token from the Solana blockchain" step, then the card + Analyze / Info buttons); `tokenSafetyGate` (before
   `chargeAnalysisCredit`) does the same if one reaches the analyze route. `safetyAnswer` finds the mint: an address in the prompt, an
   on-chain token, or an exchange-listed coin whose most liquid pool is on Solana (WIF, BONK, JUP via `lookupDexToken`); SOL itself is
-  explained, tokens on other chains get "trades mainly on X, not Solana". Bare crypto tokens get a third "Safety check" button
+  explained, tokens on other chains get "trades mainly on X, not Solana". Save / share (owner-requested, `src/utils/tokenSafetyShare.ts`, buttons on `TokenSafetyCard`): "Save image" draws the result card
+  (canvas 1080x1350 @2x: token, address, score ring, verdict, headline, checks, checked time, marketx.world; drawn ahead on hover/touch) and
+  downloads it (iPhone: share sheet), "Share" sends picture + short text, "Post on X" opens `openXPost(buildTokenSafetyShareText)` (≤ 280). Bare crypto tokens get a third "Safety check" button
   (`MessageChoice.kind` 'safety'); the composer's slash menu lists Token Safety (Free).
   Signal proofs (`server/signalProof.ts`, `ProofBadge`, `/proof/<id>` page `src/proof/ProofPage.tsx`): `signalProofMiddleware` seals every
   LONG/SHORT served (`strategy.proof` {id, hash}): SHA-256("marketx-signal-v1\n" + canonical JSON of symbol, timeframe, side, execution,
@@ -763,6 +785,9 @@
 - Always use the site's own colour combinations, whatever colours a reference image or "clue" uses: the theme surfaces (`--mx-bg`,
   `--mx-surface*`, `--mx-border*`, `--mx-text`, light and dark themes both), the violet accent (`--mx-accent` #8b5cf6, gradients violet →
   fuchsia / violet → indigo → cyan) and the usual states (emerald win, rose loss, amber warning). Take a reference's layout and motion only.
+- Corners and cards (owner-requested, site-wide): the radius scale is set once in `index.css` `@theme` (md .5rem, lg .75rem, xl 1rem,
+  2xl 1.3rem, 3xl 1.75rem) so every card, button and input is well curved; bordered `rounded-2xl/3xl` cards get a faint top highlight and
+  eased colour changes (`:where(...)` rules at the end of `index.css`). Change the scale there, never card by card.
 
 ## Deployment
 - `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory);

@@ -278,8 +278,9 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
       const H = el?.offsetHeight || 500;
       css(el, {
         transform: `translate3d(${rel * 18}px, ${rel * H * 1.08}px, 0) rotate(${rel * 7}deg)`,
-        // On phones the card leaving upwards would cross the text above it, so it fades out as it goes
-        opacity: String(Math.abs(rel) >= 1.6 ? 0 : vw < 768 && rel < 0 ? Math.max(0, 1 + rel * 2.2) : 1),
+        // On phones the card leaving upwards would cross the text above it, so it fades out as it goes, and the next one
+        // fades in as it rises (a waiting card's corner would otherwise show behind the bottom nav)
+        opacity: String(Math.abs(rel) >= 1.6 ? 0 : vw < 768 ? (rel < 0 ? Math.max(0, 1 + rel * 2.2) : Math.max(0, 1 - rel * 1.6)) : 1),
       });
     }
     setShown(Math.max(0, Math.min(n - 1, Math.round(ue))));
@@ -586,25 +587,33 @@ export const LandingPage: React.FC<LandingProps> = ({ onSignUp, onSignIn, onHave
               </div>
             </div>
 
-            <div ref={s4info} className="absolute inset-x-5 md:right-auto md:w-[42%] top-[84px] md:top-1/2 md:-translate-y-1/2 z-10" style={{ opacity: 0 }}>
-              <div className="flex flex-wrap gap-2">
+            {/* Phones: a compact block on top (chips + Try it on one row, three lines of text) so the card below has the room */}
+            <div ref={s4info} className="absolute inset-x-5 md:right-auto md:w-[42%] top-[64px] md:top-1/2 md:-translate-y-1/2 z-10" style={{ opacity: 0 }}>
+              <div className="flex items-center gap-1.5 md:gap-2">
                 {SHOWCASE.map((s, i) => (
                   <span key={s.id} className={`lx-chip ${i === shown ? 'on' : ''}`} style={i === shown ? { background: s.tint } : undefined} aria-hidden="true">
                     <s.icon className="w-[18px] h-[18px]" />
                   </span>
                 ))}
+                <span className="md:hidden ml-auto">
+                  <button type="button" onClick={onSignUp} className="lx-btn lx-btn-sm bg-[#0b0b12] text-white hover:bg-black">
+                    Try it <ArrowRight className="w-4 h-4" />
+                  </button>
+                </span>
               </div>
-              <div key={shown} className="lx-step mt-4 md:mt-7">
-                <h3 className="text-[22px] md:text-[28px] font-bold tracking-[-0.02em]">{SHOWCASE[shown].title}</h3>
-                <p className="mt-2 md:mt-3 text-[13.5px] md:text-[14.5px] text-[#55556a] leading-relaxed max-w-sm">{SHOWCASE[shown].text}</p>
-                <button type="button" onClick={onSignUp} className="lx-btn lx-btn-sm md:h-11 mt-4 md:mt-6 bg-[#0b0b12] text-white hover:bg-black">
-                  Try it <ArrowRight className="w-4 h-4" />
-                </button>
+              <div key={shown} className="lx-step mt-2.5 md:mt-7">
+                <h3 className="text-[20px] md:text-[28px] font-bold tracking-[-0.02em]">{SHOWCASE[shown].title}</h3>
+                <p className="mt-1 md:mt-3 text-[13px] md:text-[14.5px] text-[#55556a] leading-[1.45] md:leading-relaxed max-w-sm line-clamp-3 md:line-clamp-none min-h-[57px] md:min-h-0">{SHOWCASE[shown].text}</p>
+                <div className="hidden md:block mt-6">
+                  <button type="button" onClick={onSignUp} className="lx-btn h-11 px-[14px] rounded-xl text-[13px] bg-[#0b0b12] text-white hover:bg-black">
+                    Try it <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Clip cards: the one in view plays, the ones above and below wait tilted */}
-            <div className="absolute left-5 right-5 md:left-auto md:right-5 md:w-[50%] top-[52%] md:top-1/2 h-[42%] md:h-[min(560px,64vh)] md:-translate-y-1/2">
+            <div className="absolute left-5 right-5 md:left-auto md:right-5 md:w-[50%] top-[218px] bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-auto md:top-1/2 md:h-[min(560px,64vh)] md:-translate-y-1/2">
               {SHOWCASE.map((s, i) => (
                 <div
                   key={s.id}

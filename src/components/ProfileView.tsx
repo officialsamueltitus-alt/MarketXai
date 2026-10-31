@@ -10,6 +10,7 @@ import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
 import { TraderIdCard } from './TraderIdCard';
 import { InviteCard } from './InviteCard';
+import { StandingsCard } from './StandingsCard';
 import { RewardEmailNotificationModal } from './RewardEmailNotificationModal';
 import { getSubscriptionRemainingInfo, isUnlimitedUser } from '../utils/creditManager';
 import {
@@ -177,6 +178,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       {/* MarketX ID: the trader's own Solana address listing every trade and result */}
       <TraderIdCard />
+
+      {/* Monthly leaderboard: this month's place, level and points, and every past month */}
+      <StandingsCard onOpenBoard={onOpenLeaderboard ? () => onOpenLeaderboard('usage') : undefined} />
 
       {/* Invite link: traders invited so far and the rewards earned */}
       <InviteCard onOpenBoard={onOpenLeaderboard ? () => onOpenLeaderboard('referrals') : undefined} />

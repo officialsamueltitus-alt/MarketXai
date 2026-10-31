@@ -1,0 +1,301 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Trading Agent ad (1080x1920, 30 fps, no voice-over). Every frame is drawn by render(t) from the time alone, so
+     brand/video/render-agent-ad.cjs can step through it frame by frame. Site colours only (violet, fuchsia, cyan). -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#06050d}
+body{font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#fff;letter-spacing:-.01em}
+.a{position:absolute}
+.c{left:0;width:1080px;text-align:center}
+.grad{background:linear-gradient(100deg,#c4b5fd,#a78bfa 30%,#e879f9 65%,#67e8f9);-webkit-background-clip:text;background-clip:text;color:transparent}
+.blob{position:absolute;border-radius:50%}
+.phone{position:absolute;width:560px;height:1140px;border-radius:84px;background:#15131f;padding:16px;box-shadow:0 60px 120px -40px rgba(139,92,246,.7),inset 0 0 0 2px rgba(255,255,255,.12)}
+.screen{position:relative;width:100%;height:100%;border-radius:70px;background:#fff;color:#0b0b12;overflow:hidden}
+.notch{position:absolute;left:50%;top:18px;width:150px;height:40px;margin-left:-75px;border-radius:24px;background:#0b0b12;z-index:3}
+.chip{display:inline-flex;align-items:center;gap:10px;height:62px;padding:0 22px;border-radius:20px;border:2px solid #ece9f6;font-size:24px;font-weight:600;color:#3b3650;background:#fff}
+.chip.on{border-color:#8b5cf6;background:#f5f0ff;color:#6d28d9}
+.dot{width:12px;height:12px;border-radius:50%}
+.lbl{font-size:20px;font-weight:600;color:#8a87a0;letter-spacing:.06em;text-transform:uppercase}
+.card{position:absolute;border-radius:40px;background:#fff;color:#0b0b12;box-shadow:0 40px 90px -30px rgba(76,29,149,.75)}
+.node{position:absolute;width:120px;height:120px;border-radius:38px;background:#14111f;border:2px solid rgba(255,255,255,.12);display:grid;place-items:center}
+.nlab{position:absolute;width:200px;text-align:center;font-size:24px;font-weight:600;color:#cfcbe6}
+.tile{position:absolute;width:470px;height:300px;border-radius:36px;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.09);overflow:hidden}
+.toast{position:absolute;left:34px;right:34px;height:150px;border-radius:38px;background:rgba(255,255,255,.92);color:#0b0b12;display:flex;align-items:center;gap:22px;padding:0 28px;box-shadow:0 20px 50px -20px rgba(30,0,80,.6)}
+.tag{position:absolute;font-size:16px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.45);border:1.5px solid rgba(255,255,255,.18);border-radius:10px;padding:6px 10px}
+.feat{position:absolute;left:90px;right:90px;height:250px;border-radius:44px;padding:44px 48px;background:linear-gradient(140deg,rgba(255,255,255,.08),rgba(255,255,255,.02));border:2px solid rgba(255,255,255,.1);display:flex;gap:36px;align-items:center}
+.ficon{width:120px;height:120px;border-radius:34px;display:grid;place-items:center;flex-shrink:0;background:linear-gradient(140deg,#8b5cf6,#c026d3)}
+</style>
+</head>
+<body>
+<!-- background -->
+<div id="bg" class="a" style="inset:0">
+  <div id="b1" class="blob" style="width:900px;height:900px;left:-200px;top:200px;background:radial-gradient(circle,#6d28d9 0%,rgba(109,40,217,.35) 40%,transparent 70%);opacity:.45"></div>
+  <div id="b2" class="blob" style="width:800px;height:800px;left:500px;top:1100px;background:radial-gradient(circle,#c026d3 0%,rgba(192,38,211,.3) 40%,transparent 70%);opacity:.3"></div>
+  <div id="b3" class="blob" style="width:600px;height:600px;left:600px;top:-100px;background:radial-gradient(circle,#0891b2 0%,rgba(8,145,178,.3) 40%,transparent 70%);opacity:.22"></div>
+  <svg id="grid" class="a" style="left:-120px;top:-120px;opacity:.12" width="1320" height="2160"><defs><pattern id="g" width="120" height="120" patternUnits="userSpaceOnUse"><path d="M120 0H0V120" fill="none" stroke="#fff" stroke-width="1.5"/></pattern></defs><rect width="1320" height="2160" fill="url(#g)"/></svg>
+</div>
+
+<!-- 1. intro -->
+<div id="s1" class="a" style="inset:0">
+  <img id="logo1" class="a" style="left:330px;top:520px;width:420px;height:420px">
+  <p id="s1a" class="a c" style="top:1010px;font-size:46px;font-weight:500;color:#cfcbe6">Meet the</p>
+  <p id="s1b" class="a c" style="top:1070px;font-size:132px;font-weight:800;letter-spacing:-.045em;line-height:1"><span class="grad">Trading Agent</span></p>
+  <p id="s1c" class="a c" style="top:1250px;font-size:36px;color:#a5a2bd">by MarketX</p>
+</div>
+
+<!-- 2. kinetic line -->
+<div id="s2" class="a" style="inset:0">
+  <p id="w1" class="a c" style="top:640px;font-size:120px;font-weight:800;letter-spacing:-.04em">It trades</p>
+  <p id="w2" class="a c" style="top:790px;font-size:120px;font-weight:800;letter-spacing:-.04em"><span class="grad">while you</span></p>
+  <p id="w3" class="a c" style="top:940px;font-size:120px;font-weight:800;letter-spacing:-.04em">live.</p>
+  <div id="s2bar" class="a" style="left:340px;top:1150px;width:400px;height:8px;border-radius:4px;background:linear-gradient(90deg,#8b5cf6,#e879f9,#22d3ee);transform-origin:0 50%"></div>
+</div>
+
+<!-- 3. setup on the phone -->
+<div id="s3" class="a" style="inset:0">
+  <p id="s3t" class="a c" style="top:150px;font-size:64px;font-weight:800;letter-spacing:-.035em">Set it up <span class="grad">once</span></p>
+  <p id="s3s" class="a c" style="top:240px;font-size:32px;color:#a5a2bd">Markets, risk, trades a day, how long it runs</p>
+  <div id="ph1" class="phone" style="left:260px;top:360px">
+    <div class="screen">
+      <div class="notch"></div>
+      <div style="padding:96px 40px 0">
+        <p style="font-size:22px;color:#8a87a0;font-weight:600">MarketX</p>
+        <p style="margin-top:6px;font-size:52px;font-weight:300;letter-spacing:-.04em">Trading Agent</p>
+        <div style="margin-top:22px;display:flex;gap:10px">
+          <span style="height:48px;padding:0 22px;border-radius:24px;background:#0b0b12;color:#fff;font-size:20px;font-weight:600;display:grid;place-items:center">Setup</span>
+          <span style="height:48px;padding:0 22px;border-radius:24px;background:#f2f0f8;color:#6b6880;font-size:20px;font-weight:600;display:grid;place-items:center">Trades</span>
+          <span style="height:48px;padding:0 22px;border-radius:24px;background:#f2f0f8;color:#6b6880;font-size:20px;font-weight:600;display:grid;place-items:center">Activity</span>
+        </div>
+        <p class="lbl" style="margin-top:38px">Markets</p>
+        <div id="chips" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:12px">
+          <span class="chip">Gold</span><span class="chip">BTC</span><span class="chip">ETH</span><span class="chip">USD/JPY</span><span class="chip">GBP/USD</span><span class="chip">NAS100</span>
+        </div>
+        <p class="lbl" style="margin-top:34px">Risk per trade</p>
+        <div style="margin-top:18px;display:flex;align-items:center;gap:20px">
+          <div style="flex:1;height:12px;border-radius:6px;background:#eeeaf7;position:relative"><div id="rk" style="position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:linear-gradient(90deg,#8b5cf6,#d946ef)"></div><div id="rkk" style="position:absolute;top:-12px;width:36px;height:36px;border-radius:50%;background:#fff;border:3px solid #8b5cf6;box-shadow:0 4px 10px rgba(0,0,0,.15)"></div></div>
+          <span id="rkv" style="width:90px;text-align:right;font-size:30px;font-weight:700">0.1%</span>
+        </div>
+        <div style="margin-top:30px;display:flex;gap:16px">
+          <div style="flex:1;border-radius:26px;background:#f7f5fc;padding:20px 22px"><p class="lbl" style="font-size:16px">Trades a day</p><p id="tpd" style="margin-top:6px;font-size:40px;font-weight:700">1</p></div>
+          <div style="flex:1;border-radius:26px;background:#f7f5fc;padding:20px 22px"><p class="lbl" style="font-size:16px">Runs for</p><p id="rl" style="margin-top:6px;font-size:40px;font-weight:700">1 day</p></div>
+        </div>
+        <div style="margin-top:22px;display:flex;align-items:center;justify-content:space-between;border-radius:26px;border:2px solid #ece9f6;padding:20px 24px"><span class="lbl" style="font-size:16px">Strategy</span><span style="font-size:24px;font-weight:700">MarketX engine</span></div>
+        <div id="startBtn" style="margin-top:28px;height:96px;border-radius:48px;background:linear-gradient(100deg,#7c3aed,#c026d3);color:#fff;font-size:32px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:14px;box-shadow:0 20px 40px -18px rgba(124,58,237,.9)"><span id="startDot" class="dot" style="background:#fff;opacity:0"></span><span id="startTxt">Start now</span></div>
+      </div>
+      <div id="tap" class="a" style="width:110px;height:110px;border-radius:50%;border:5px solid rgba(139,92,246,.8);background:rgba(139,92,246,.18)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 4. live automation -->
+<div id="s4" class="a" style="inset:0">
+  <p id="s4t" class="a c" style="top:170px;font-size:64px;font-weight:800;letter-spacing:-.035em">It scans <span class="grad">every minute</span></p>
+  <p id="s4s" class="a c" style="top:260px;font-size:32px;color:#a5a2bd">Supply and demand zones, quality checked</p>
+  <div id="pipe" class="a" style="left:0;top:400px;width:1080px;height:260px">
+    <div class="a" style="left:120px;top:84px;width:840px;height:4px;background:rgba(255,255,255,.1);border-radius:2px"></div>
+    <div id="pipeFill" class="a" style="left:120px;top:84px;height:4px;width:0;background:linear-gradient(90deg,#8b5cf6,#e879f9,#22d3ee);border-radius:2px"></div>
+    <div id="pulse" class="a" style="z-index:2;top:70px;width:32px;height:32px;margin-left:-16px;border-radius:50%;background:#fff;box-shadow:0 0 30px 10px rgba(167,139,250,.9)"></div>
+  </div>
+  <div id="tiles" class="a" style="left:0;top:740px;width:1080px;height:1000px"></div>
+</div>
+
+<!-- 5. order -->
+<div id="s5" class="a" style="inset:0">
+  <p id="s5t" class="a c" style="top:200px;font-size:64px;font-weight:800;letter-spacing:-.035em">Finds the setup.<br><span class="grad">Places the order.</span></p>
+  <div id="ord" class="card" style="left:110px;top:520px;width:860px;padding:52px 56px">
+    <div style="display:flex;align-items:center;gap:20px">
+      <span style="width:84px;height:84px;border-radius:26px;background:#fef3c7;display:grid;place-items:center;font-size:36px;font-weight:800;color:#92400e">Au</span>
+      <div><p style="font-size:42px;font-weight:800;letter-spacing:-.03em">XAU/USD</p><p style="font-size:24px;color:#8a87a0;margin-top:2px">1H · Order placed</p></div>
+      <span style="margin-left:auto;height:56px;padding:0 24px;border-radius:18px;background:#ecfdf5;color:#047857;font-size:24px;font-weight:800;display:grid;place-items:center">BUY LIMIT</span>
+    </div>
+    <div id="lv" style="margin-top:40px;display:grid;gap:16px">
+      <div class="lvr" style="display:flex;justify-content:space-between;align-items:center;height:84px;border-radius:24px;background:#f7f5fc;padding:0 30px;font-size:28px"><span style="color:#6b6880">Entry</span><b>Middle of the zone</b></div>
+      <div class="lvr" style="display:flex;justify-content:space-between;align-items:center;height:84px;border-radius:24px;background:#fff1f2;padding:0 30px;font-size:28px"><span style="color:#be123c">Stop loss</span><b>Beyond the zone</b></div>
+      <div class="lvr" style="display:flex;justify-content:space-between;align-items:center;height:84px;border-radius:24px;background:#ecfdf5;padding:0 30px;font-size:28px"><span style="color:#047857">Target</span><b>Final target</b></div>
+    </div>
+    <div style="margin-top:34px;display:flex;gap:16px">
+      <div style="flex:1;border-radius:24px;border:2px solid #ece9f6;padding:22px 26px"><p class="lbl" style="font-size:16px">Quality</p><p style="font-size:44px;font-weight:800;margin-top:4px"><span id="qv">0</span><span style="font-size:26px;color:#8a87a0">/100</span></p></div>
+      <div style="flex:1;border-radius:24px;border:2px solid #ece9f6;padding:22px 26px"><p class="lbl" style="font-size:16px">Risk</p><p style="font-size:44px;font-weight:800;margin-top:4px">0.5%</p></div>
+    </div>
+  </div>
+  <div id="mt5" class="a" style="left:190px;top:1460px;width:700px;height:120px;border-radius:60px;background:rgba(255,255,255,.07);border:2px solid rgba(167,139,250,.4);display:flex;align-items:center;justify-content:center;gap:20px;font-size:32px;font-weight:600">
+    <span class="dot" style="width:18px;height:18px;background:#34d399;box-shadow:0 0 16px #34d399"></span>Sent to your MT5 · <span class="grad" style="font-weight:800">0.10 lots</span>
+  </div>
+  <span class="tag" style="left:110px;top:1640px">Example</span>
+</div>
+
+<!-- 6. notifications -->
+<div id="s6" class="a" style="inset:0">
+  <p id="s6t" class="a c" style="top:130px;font-size:64px;font-weight:800;letter-spacing:-.035em">You get <span class="grad">every move</span></p>
+  <div id="ph2" class="phone" style="left:260px;top:300px;background:#15131f">
+    <div class="screen" style="background:linear-gradient(170deg,#2e1065,#6d28d9 45%,#a21caf)">
+      <div class="notch"></div>
+      <p style="margin-top:150px;text-align:center;font-size:30px;color:rgba(255,255,255,.75);font-weight:500">Friday 31 October</p>
+      <p style="text-align:center;font-size:150px;font-weight:600;color:#fff;letter-spacing:-.04em;line-height:1.05">9:41</p>
+      <div id="t1" class="toast" style="top:470px"><img class="tl" style="width:72px;height:72px;border-radius:20px"><div><p style="font-size:24px;font-weight:700">Order placed</p><p style="font-size:22px;color:#55526a;margin-top:2px">XAU/USD buy limit, 1H</p></div><span style="margin-left:auto;font-size:18px;color:#8a87a0;align-self:flex-start;margin-top:30px">now</span></div>
+      <div id="t2" class="toast" style="top:640px"><img class="tl" style="width:72px;height:72px;border-radius:20px"><div><p style="font-size:24px;font-weight:700">Order filled</p><p style="font-size:22px;color:#55526a;margin-top:2px">Managing to the target</p></div><span style="margin-left:auto;font-size:18px;color:#8a87a0;align-self:flex-start;margin-top:30px">now</span></div>
+      <div id="t3" class="toast" style="top:810px"><img class="tl" style="width:72px;height:72px;border-radius:20px"><div><p style="font-size:24px;font-weight:700">Target reached</p><p style="font-size:22px;color:#047857;margin-top:2px;font-weight:700">Closed at +2.1R</p></div><span style="margin-left:auto;font-size:18px;color:#8a87a0;align-self:flex-start;margin-top:30px">now</span></div>
+    </div>
+  </div>
+  <span class="tag" style="left:260px;top:1480px">Example</span>
+</div>
+
+<!-- 7. features -->
+<div id="s7" class="a" style="inset:0">
+  <p id="s7t" class="a c" style="top:330px;font-size:64px;font-weight:800;letter-spacing:-.035em">Built to be <span class="grad">careful</span></p>
+  <div id="f1" class="feat" style="top:520px"><div class="ficon"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></div><div><p style="font-size:44px;font-weight:800;letter-spacing:-.03em">Only quality 65+</p><p style="font-size:28px;color:#b5b2cc;margin-top:8px">Weak setups are skipped, never forced</p></div></div>
+  <div id="f2" class="feat" style="top:800px"><div class="ficon" style="background:linear-gradient(140deg,#0891b2,#8b5cf6)"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></div><div><p style="font-size:44px;font-weight:800;letter-spacing:-.03em">Your risk, your limits</p><p style="font-size:28px;color:#b5b2cc;margin-top:8px">Profit target and loss limit for the run</p></div></div>
+  <div id="f3" class="feat" style="top:1080px"><div class="ficon" style="background:linear-gradient(140deg,#c026d3,#f43f5e)"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></div><div><p style="font-size:44px;font-weight:800;letter-spacing:-.03em">Stop it any time</p><p style="font-size:28px;color:#b5b2cc;margin-top:8px">One tap closes what is open</p></div></div>
+</div>
+
+<!-- 8. Pro + end card -->
+<div id="s8" class="a" style="inset:0">
+  <p id="s8a" class="a c" style="top:720px;font-size:46px;color:#cfcbe6;font-weight:500">The Trading Agent is part of</p>
+  <p id="s8b" class="a c" style="top:790px;font-size:150px;font-weight:800;letter-spacing:-.05em"><span class="grad">MarketX Pro</span></p>
+  <div id="s8c" class="a" style="left:290px;top:1020px;width:500px;height:110px;border-radius:55px;background:#fff;color:#0b0b12;font-size:36px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:16px">marketx.world <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#0b0b12" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+</div>
+<div id="s9" class="a" style="inset:0">
+  <img id="logo2" class="a" style="left:360px;top:560px;width:360px;height:360px">
+  <p id="s9a" class="a c" style="top:990px;font-size:92px;font-weight:800;letter-spacing:-.04em">MarketX,</p>
+  <p id="s9c" class="a c" style="top:1260px;font-size:34px;color:#a5a2bd;font-weight:500">marketx.world</p>
+  <p id="s9b" class="a c" style="top:1100px;font-size:72px;font-weight:600;letter-spacing:-.03em"><span class="grad">Your Trading Co-Pilot</span></p>
+</div>
+
+<!-- flash between scenes -->
+<div id="flash" class="a" style="inset:0;background:#fff;opacity:0;pointer-events:none"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const out = v => 1 - Math.pow(1 - v, 3);
+const inOut = v => v < .5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2;
+const back = v => { const c = 1.6; return 1 + (c + 1) * Math.pow(v - 1, 3) + c * Math.pow(v - 1, 2); };
+const lerp = (a, b, v) => a + (b - a) * v;
+const set = (el, o = 1, x = 0, y = 0, s = 1, r = 0, blur) => {
+  el.style.opacity = o; el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`;
+  if (blur !== undefined) el.style.filter = blur > 0.05 ? `blur(${blur}px)` : 'none';
+};
+// a scene is on screen from a to b, fading in/out over f seconds
+const vis = (t, a, b, f = .35) => Math.min(seg(t, a, a + f), 1 - seg(t, b - f, b));
+
+const SPIN = window.SPIN || [];
+const spin = t => SPIN.length ? SPIN[Math.floor(t * 30) % SPIN.length] : '';
+
+// Live automation pieces
+const STEPS = ['Scan', 'Find zone', 'Quality', 'Order', 'Manage'];
+const pipe = $('pipe');
+const nodes = STEPS.map((s, i) => {
+  const n = document.createElement('div'); n.className = 'node'; n.style.left = (120 + i * 210 - 60) + 'px'; n.style.top = '26px';
+  n.innerHTML = `<div class="nd" style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.25)"></div>`;
+  const l = document.createElement('p'); l.className = 'nlab'; l.textContent = s; l.style.left = (120 + i * 210 - 100) + 'px'; l.style.top = '166px';
+  n.lab = l; pipe.appendChild(n); pipe.appendChild(l); return n;
+});
+const TILES = [['XAU/USD', '1H'], ['BTC/USD', '4H'], ['ETH/USD', '1H'], ['USD/JPY', '4H'], ['GBP/USD', '1H'], ['NAS100', '4H']];
+const WORDS = ['Scanning', 'Reading zones', 'Fibonacci', 'RSI · EMA', 'Quality check', 'Scanning'];
+const tilesEl = $('tiles');
+const path = seed => { let y = 150, d = 'M0 ' + y; for (let i = 1; i <= 60; i++) { y = clamp(y + Math.sin(i * 0.7 + seed) * 22 + Math.cos(i * 1.9 + seed * 2) * 14, 60, 240); d += ` L${i * 18} ${y.toFixed(1)}`; } return d; };
+const tiles = TILES.map(([m, tf], i) => {
+  const el = document.createElement('div'); el.className = 'tile';
+  el.style.left = (i % 2 ? 560 : 50) + 'px'; el.style.top = (Math.floor(i / 2) * 330) + 'px';
+  el.innerHTML = `<svg class="a" style="left:0;top:0" width="1080" height="300"><path class="ln" d="${path(i * 1.7)}" fill="none" stroke="url(#tg${i})" stroke-width="4"/><defs><linearGradient id="tg${i}"><stop offset="0" stop-color="#8b5cf6"/><stop offset=".6" stop-color="#e879f9"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+    <div class="zone a" style="left:0;right:0;height:46px;background:rgba(52,211,153,.12);border-top:2px dashed rgba(52,211,153,.5);border-bottom:2px dashed rgba(52,211,153,.5)"></div>
+    <div class="sw a" style="top:0;bottom:0;width:3px;background:linear-gradient(#22d3ee00,#22d3ee,#22d3ee00);box-shadow:0 0 18px #22d3ee"></div>
+    <p class="a" style="left:28px;top:24px;font-size:28px;font-weight:700">${m} <span style="color:#a5a2bd;font-weight:500">· ${tf}</span></p>
+    <p class="wd a" style="left:28px;bottom:24px;font-size:22px;font-weight:600;color:#c4b5fd"></p>`;
+  tilesEl.appendChild(el); return el;
+});
+
+function render(t) {
+  // background drift
+  set($('b1'), .45, Math.sin(t * .3) * 120, Math.cos(t * .25) * 160, 1 + Math.sin(t * .4) * .08);
+  set($('b2'), .3, Math.cos(t * .27) * 140, Math.sin(t * .33) * 120);
+  set($('b3'), .22, Math.sin(t * .2 + 1) * 100, Math.cos(t * .3) * 90);
+  $('grid').style.transform = `translate(${(t * 18) % 120}px,${(t * 30) % 120}px)`;
+
+  // flash on the big cuts
+  const cuts = [3.2, 7.4, 13.6, 19.6, 25.4, 30.6, 35.2];
+  let fl = 0; for (const c of cuts) fl = Math.max(fl, (1 - seg(t, c, c + .25)) * (t >= c ? 1 : 0) * .18);
+  $('flash').style.opacity = fl;
+
+  // 1. intro 0 - 3.4
+  { const v = vis(t, 0, 3.4); $('s1').style.opacity = v;
+    const z = out(seg(t, .1, 1.2));
+    $('logo1').src = spin(t); set($('logo1'), z, 0, (1 - z) * 80 - seg(t, 2.6, 3.4) * 120, lerp(.4, 1, z) * (1 + seg(t, 2.6, 3.4) * .4));
+    const a = out(seg(t, .7, 1.3)), b = back(seg(t, .95, 1.7)), c = out(seg(t, 1.5, 2.1));
+    set($('s1a'), a, 0, (1 - a) * 40); set($('s1b'), seg(t, .95, 1.3), 0, (1 - b) * 120, lerp(.85, 1, b), 0, (1 - seg(t, .95, 1.5)) * 18); set($('s1c'), c, 0, (1 - c) * 30); }
+
+  // 2. "It trades while you live." 3.2 - 7.6
+  { $('s2').style.opacity = vis(t, 3.2, 7.6);
+    ['w1', 'w2', 'w3'].forEach((id, i) => { const k = back(seg(t, 3.4 + i * .35, 4.1 + i * .35)); set($(id), seg(t, 3.4 + i * .35, 3.7 + i * .35), (1 - k) * (i % 2 ? 260 : -260), 0, 1, (1 - k) * (i % 2 ? 6 : -6)); });
+    const bar = out(seg(t, 4.6, 5.6)); $('s2bar').style.transform = `scaleX(${bar})`;
+    const zoom = seg(t, 6.6, 7.6); set($('s2'), vis(t, 3.2, 7.6), 0, 0, 1 + zoom * .25); }
+
+  // 3. setup 7.4 - 13.8
+  { const v = vis(t, 7.4, 13.8); $('s3').style.opacity = v;
+    const p = out(seg(t, 7.4, 8.4)); set($('ph1'), 1, 0, (1 - p) * 900 - seg(t, 13.2, 13.8) * 300, 1, (1 - p) * 8);
+    const h = out(seg(t, 7.6, 8.2)); set($('s3t'), h, 0, (1 - h) * -40); set($('s3s'), out(seg(t, 7.8, 8.4)));
+    const chips = $('chips').children; [0, 1, 2, 3, 4, 5].forEach(i => { const on = t > 8.6 + i * .22; chips[i].className = 'chip' + (on ? ' on' : ''); const k = back(seg(t, 8.6 + i * .22, 8.9 + i * .22)); chips[i].style.transform = `scale(${on ? lerp(.9, 1, k) : 1})`; });
+    const rk = out(seg(t, 10, 10.8)); const pct = 0.1 + rk * 0.4; $('rk').style.width = (rk * 22 + 4) + '%'; $('rkk').style.left = `calc(${rk * 22 + 4}% - 18px)`; $('rkv').textContent = pct.toFixed(1) + '%';
+    $('tpd').textContent = t > 10.9 ? '2' : '1'; $('rl').textContent = t > 11.2 ? '7 days' : t > 11.05 ? '3 days' : '1 day';
+    // finger tap on Start at 12.1
+    const tp = seg(t, 11.7, 12.5); const btn = $('startBtn');
+    $('tap').style.left = '220px'; $('tap').style.top = '920px';
+    set($('tap'), tp > 0 && tp < 1 ? Math.sin(tp * Math.PI) : 0, 0, 0, lerp(.6, 1.4, tp));
+    const pressed = t > 12.1; btn.style.transform = `scale(${t > 12.05 && t < 12.3 ? .96 : 1})`;
+    btn.style.background = pressed ? 'linear-gradient(100deg,#059669,#10b981)' : 'linear-gradient(100deg,#7c3aed,#c026d3)';
+    $('startTxt').textContent = pressed ? 'Running' : 'Start now'; $('startDot').style.opacity = pressed ? (0.5 + 0.5 * Math.sin(t * 8)) : 0; }
+
+  // 4. live automation 13.6 - 19.8
+  { const v = vis(t, 13.6, 19.8); $('s4').style.opacity = v;
+    const h = out(seg(t, 13.7, 14.3)); set($('s4t'), h, 0, (1 - h) * -40); set($('s4s'), out(seg(t, 13.9, 14.5)));
+    const pp = ((t - 14.2) / 2.2) % 1, run = t > 14.2;
+    $('pipeFill').style.width = (out(seg(t, 14, 15)) * 840) + 'px';
+    $('pulse').style.left = (120 + (run ? pp : 0) * 840) + 'px'; $('pulse').style.opacity = run ? 1 : 0;
+    nodes.forEach((n, i) => { const k = back(seg(t, 13.8 + i * .12, 14.3 + i * .12)); set(n, seg(t, 13.8 + i * .12, 14 + i * .12), 0, (1 - k) * 60); set(n.lab, seg(t, 13.9 + i * .12, 14.2 + i * .12), 0, (1 - k) * 40); n.lab.style.color = (t > 14.2 && Math.abs(((t - 14.2) / 2.2 % 1) * 4 - i) < .5) ? '#f0abfc' : '#cfcbe6';
+      const lit = run && Math.abs(pp * 4 - i) < .5; n.style.borderColor = lit ? 'rgba(167,139,250,.9)' : 'rgba(255,255,255,.1)'; n.style.background = lit ? 'rgba(139,92,246,.22)' : 'rgba(255,255,255,.05)';
+      n.querySelector('.nd').style.background = lit ? '#e879f9' : 'rgba(255,255,255,.25)'; n.querySelector('.nd').style.boxShadow = lit ? '0 0 20px #e879f9' : 'none'; });
+    tiles.forEach((el, i) => { const k = out(seg(t, 14.4 + i * .1, 15 + i * .1)); set(el, k, 0, (1 - k) * 80, lerp(.92, 1, k));
+      el.querySelector('.ln').style.transform = `translateX(${-((t * 60 + i * 40) % 540)}px)`;
+      const sx = ((t * .55 + i * .17) % 1) * 470; el.querySelector('.sw').style.left = sx + 'px';
+      el.querySelector('.zone').style.top = (120 + Math.sin(i * 2.1) * 50) + 'px'; el.querySelector('.zone').style.opacity = .5 + .5 * Math.sin(t * 2 + i);
+      el.querySelector('.wd').textContent = WORDS[Math.floor(t * 1.4 + i) % WORDS.length] + '…'; }); }
+
+  // 5. order 19.6 - 25.6
+  { const v = vis(t, 19.6, 25.6); $('s5').style.opacity = v;
+    const h = out(seg(t, 19.7, 20.3)); set($('s5t'), h, 0, (1 - h) * -40);
+    const c = back(seg(t, 20.1, 21)); set($('ord'), seg(t, 20.1, 20.4), 0, (1 - c) * 500, lerp(.9, 1, c), (1 - c) * -4);
+    [...$('lv').children].forEach((r, i) => { const k = out(seg(t, 20.9 + i * .25, 21.4 + i * .25)); set(r, k, (1 - k) * 80); });
+    $('qv').textContent = Math.round(out(seg(t, 21.6, 22.8)) * 78);
+    const m = back(seg(t, 22.8, 23.5)); set($('mt5'), seg(t, 22.8, 23.1), 0, (1 - m) * 80, lerp(.8, 1, m)); }
+
+  // 6. notifications 25.4 - 30.8
+  { const v = vis(t, 25.4, 30.8); $('s6').style.opacity = v;
+    const h = out(seg(t, 25.5, 26.1)); set($('s6t'), h, 0, (1 - h) * -40);
+    const p = out(seg(t, 25.4, 26.3)); set($('ph2'), 1, 0, (1 - p) * 900, 1, (1 - p) * -8);
+    ['t1', 't2', 't3'].forEach((id, i) => { const k = back(seg(t, 26.6 + i * 1.05, 27.2 + i * 1.05)); set($(id), seg(t, 26.6 + i * 1.05, 26.85 + i * 1.05), 0, (1 - k) * -120, lerp(.9, 1, k)); }); }
+
+  // 7. features 30.6 - 35.4
+  { const v = vis(t, 30.6, 35.4); $('s7').style.opacity = v;
+    const h = out(seg(t, 30.7, 31.3)); set($('s7t'), h, 0, (1 - h) * -40);
+    ['f1', 'f2', 'f3'].forEach((id, i) => { const k = back(seg(t, 31.1 + i * .55, 31.8 + i * .55)); set($(id), seg(t, 31.1 + i * .55, 31.4 + i * .55), (1 - k) * (i % 2 ? 700 : -700), 0, 1, (1 - k) * (i % 2 ? 5 : -5)); }); }
+
+  // 8. Pro 35.2 - 38.6
+  { const v = vis(t, 35.2, 38.6); $('s8').style.opacity = v;
+    const a = out(seg(t, 35.3, 35.8)), b = back(seg(t, 35.5, 36.3)), c = back(seg(t, 36.2, 36.9));
+    set($('s8a'), a, 0, (1 - a) * 30); set($('s8b'), seg(t, 35.5, 35.8), 0, 0, lerp(.6, 1, b), 0, (1 - seg(t, 35.5, 36)) * 20); set($('s8c'), seg(t, 36.2, 36.5), 0, (1 - c) * 60, lerp(.8, 1, c)); }
+
+  // 9. end card 38.4 - 43
+  { const v = seg(t, 38.4, 38.9); $('s9').style.opacity = v;
+    $('logo2').src = spin(t); const z = back(seg(t, 38.5, 39.4)); set($('logo2'), seg(t, 38.5, 38.8), 0, (1 - z) * 60, lerp(.5, 1, z));
+    const a = out(seg(t, 39.2, 39.8)), b = out(seg(t, 39.6, 40.2)); set($('s9a'), a, 0, (1 - a) * 40); set($('s9b'), b, 0, (1 - b) * 40, 1, 0, (1 - b) * 10); set($('s9c'), out(seg(t, 40.2, 40.8))); }
+}
+window.render = render;
+window.DURATION = 43;
+document.querySelectorAll('.tl').forEach(i => i.src = window.APPICON || '');
+</script>
+</body>
+</html>

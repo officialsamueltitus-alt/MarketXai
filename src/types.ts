@@ -134,6 +134,8 @@ export interface StrategyResult {
     price: number;
     riskPercent: number;
     rationale: string;
+    /** Wider stop loss (Preference Mode): how far past the normal stop it was moved, and that stop */
+    widened?: { by: number; unit: 'pips' | 'points'; original: number };
   };
   takeProfits: TakeProfitTarget[];
   riskRewardRatio: string;

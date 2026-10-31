@@ -144,7 +144,14 @@
 .lx-sticker { display: inline-block; padding: 3px 9px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 16px -8px rgba(80,60,160,.45); }
 .lx-chip { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: transparent; color: #4b4b5a; border: 0; cursor: pointer; transition: transform .35s, background .35s, color .35s; }
 .lx-chip.on { transform: scale(1.15); color: #0b0b12; }
-.lx-clip { position: relative; border-radius: 30px; overflow: hidden; background: var(--s-bg); color: var(--s-ink); box-shadow: 0 30px 70px -30px rgba(20,10,60,0.55); }
+.lx-clip { position: absolute; inset: 0; border-radius: 30px; overflow: hidden; background: var(--s-bg); color: var(--s-ink); box-shadow: 0 30px 70px -30px rgba(20,10,60,0.55); }
+/* Short clip cards (phones): the Matt orb shrinks so the whole conversation stays readable */
+.lx-clip { container-type: size; }
+@container (max-height: 470px) { .lx-matt .lx-orb { zoom: 0.72; } .lx-matt .lx-wave { margin-top: 10px; } }
+/* Fundamental card: tighter on short cards so the recheck box stays whole above the Demo tag */
+@container (max-height: 470px) { .lx-fund { padding-top: 16px; } .lx-fund-bars { margin-top: 12px; } .lx-fund-bars > :not(:last-child) { margin-block: 0 8px; } .lx-fund-pairs { margin-top: 12px; flex-wrap: nowrap; } .lx-fund-pairs > :nth-child(3) { display: none; } .lx-fund-recheck { margin-top: 12px; padding: 10px 12px; } }
+@container (max-height: 400px) { .lx-fund { padding-top: 14px; padding-bottom: 38px; } .lx-fund-bars > :not(:last-child) { margin-block: 0 2px; } .lx-fund-bars { margin-top: 10px; } .lx-fund-pairs, .lx-fund-recheck { margin-top: 10px; } .lx-fund-recheck p + p { font-size: 12px; } }
+@container (max-height: 370px) { .lx-matt .lx-orb { zoom: 0.5; } .lx-matt .lx-wave { margin-top: 6px; height: 20px; } }
 .lx-clip-in { animation: lx-clip-in 0.95s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes lx-clip-in { from { opacity: 0; transform: translateY(90px) rotate(-6deg) scale(0.95); } to { opacity: 1; transform: rotate(-1.5deg); } }
 .lx-clip-ghost { position: absolute; left: 8%; right: 4%; height: 64px; border-radius: 24px; background: linear-gradient(120deg, #23232c, #3a3a48); }

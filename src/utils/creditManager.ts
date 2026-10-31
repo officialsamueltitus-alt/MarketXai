@@ -84,6 +84,14 @@ export function promptsLeft(state: CreditState): number {
   return Math.max(0, state.dailyUsageRemaining) + campaignCreditsLeft(state) + purchasedCreditsLeft(state);
 }
 
+/** Why nothing can be sent now: Pro's balance is empty, or today's allowance is used up until the refill */
+export function limitReachedText(state: CreditState): string {
+  if (state.dailyNeedsBalance && state.dailyUsageRemaining > 0 && state.availableCredits <= 0) return "You've used your plan's credits. Buy a credit pack or renew Pro to carry on.";
+  return state.dailyNeedsBalance
+    ? `You've used today's ${state.dailyUsageLimit} credits. Your daily limit resets at ${formatDailyResetTime(state)}.`
+    : `Today's analyses are used up. They refill automatically at ${formatDailyResetTime(state)}.`;
+}
+
 /** True when today's analyses and campaign credits are both used up (prompts pause until the refill). */
 export function isDailyLimitReached(state: CreditState, email?: string): boolean {
   return !isUnlimitedUser(email) && promptsLeft(state) <= 0;

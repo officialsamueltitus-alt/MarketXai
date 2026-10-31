@@ -44,6 +44,9 @@ export interface Preferences {
   /** Steady mode (owner-specified option C, off by default, Normal analysis only): stop room x3 with the same entry and
    *  targets, limit entries only, 1H and 4H only, no entries in a hot market. Wins more often, makes less per trade */
   steadyMode: boolean;
+  /** Wider stop loss (owner-specified, off by default): every trade's stop gets a little extra room (a share of the risk,
+   *  at least a couple of pips) past the stop the analysis called, marked "widened" on the card */
+  wideSl: boolean;
   updatedAt?: number;
 }
 
@@ -63,6 +66,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   secureHalf: false,
   pressureMeter: false,
   steadyMode: false,
+  wideSl: false,
 };
 
 /** A valid impact choice (known impacts, no repeats, high first), or null; at least one */
@@ -95,6 +99,7 @@ export function withDefaults(p: Partial<Preferences> | null | undefined): Prefer
   out.secureHalf = out.secureHalf === true;
   out.pressureMeter = out.pressureMeter === true;
   out.steadyMode = out.steadyMode === true;
+  out.wideSl = out.wideSl === true;
   // Fields of removed features never come back from storage
   delete (out as any).tradeLock;
   delete (out as any).tradeLockChosenAt;

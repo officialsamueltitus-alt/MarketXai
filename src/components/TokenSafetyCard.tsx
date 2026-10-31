@@ -1,8 +1,10 @@
 import { AskMattButton } from './AskMattButton';
 import React, { useMemo, useState } from 'react';
-import { ShieldCheck, ShieldAlert, ShieldX, ShieldQuestion, Check, AlertTriangle, X, HelpCircle, RefreshCw, ExternalLink, ChevronDown, Copy } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, ShieldX, ShieldQuestion, Check, AlertTriangle, X, HelpCircle, RefreshCw, ExternalLink, ChevronDown, Copy, Download, Share2, Loader2 } from 'lucide-react';
 import type { TokenSafety } from '../types';
 import { apiFetch } from '../utils/apiClient';
+import { openXPost } from '../utils/shareText';
+import { buildTokenSafetyShareText, prepareTokenSafetyCard, saveTokenSafetyCard, shareTokenSafetyCard } from '../utils/tokenSafetyShare';
 
 // Token safety (Solana tokens): verdict, score ring and every on-chain check, next to an analysis or an answer.
 const TONE = {
@@ -41,6 +43,8 @@ export const TokenSafetyCard: React.FC<{ safety: TokenSafety }> = ({ safety: ini
   const [open, setOpen] = useState(initial.verdict !== 'LOW_RISK');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sending, setSending] = useState<'save' | 'share' | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const t = TONE[safety.verdict] || TONE.UNKNOWN;
   const Icon = t.icon;
   const checks = useMemo(() => [...safety.checks].sort((a, b) => STATUS[a.status].order - STATUS[b.status].order), [safety.checks]);
@@ -56,6 +60,29 @@ export const TokenSafetyCard: React.FC<{ safety: TokenSafety }> = ({ safety: ini
       setBusy(false);
     }
   };
+  const flash = (msg: string) => {
+    setNote(msg);
+    setTimeout(() => setNote(null), 2500);
+  };
+  // The picture is drawn as the trader reaches for the buttons, so the share sheet opens right from the tap
+  const warm = () => void prepareTokenSafetyCard(safety);
+  const save = async () => {
+    if (sending) return;
+    setSending('save');
+    const out = await saveTokenSafetyCard(safety).catch(() => 'failed' as const);
+    setSending(null);
+    if (out === 'saved') flash('Saved');
+    else if (out === 'failed') flash('Could not make the picture');
+  };
+  const share = async () => {
+    if (sending) return;
+    setSending('share');
+    const out = await shareTokenSafetyCard(safety).catch(() => 'failed' as const);
+    setSending(null);
+    if (out === 'copied') flash('Text copied, picture saved');
+    else if (out === 'failed') flash('Could not share');
+  };
+  const postOnX = () => openXPost(buildTokenSafetyShareText(safety, window.location.origin));
   const copy = () => {
     navigator.clipboard?.writeText(safety.mint).then(() => {
       setCopied(true);
@@ -121,6 +148,21 @@ export const TokenSafetyCard: React.FC<{ safety: TokenSafety }> = ({ safety: ini
             <RefreshCw className={`w-3 h-3 ${busy ? 'animate-spin' : ''}`} /> Recheck
           </button>
         </span>
+      </div>
+      <div className="px-3.5 pb-2.5 flex flex-wrap items-center gap-1.5" onPointerEnter={warm} onTouchStart={warm} onFocus={warm}>
+        <button type="button" onClick={save} disabled={!!sending} title="Save this result as a picture" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+          {sending === 'save' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          Save image
+        </button>
+        <button type="button" onClick={share} disabled={!!sending} title="Share the picture and a short summary" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+          {sending === 'share' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+          Share
+        </button>
+        <button type="button" onClick={postOnX} title="Post the result on X" className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-white/[0.1] text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] cursor-pointer">
+          <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
+          Post on X
+        </button>
+        {note && <span role="status" className="text-[10.5px] text-emerald-300">{note}</span>}
       </div>
       <p className="px-3.5 pb-3 text-[10px] text-slate-500 leading-relaxed">On-chain checks lower the risk of a rug pull; they can't remove it. Not financial advice.</p>
     </section>

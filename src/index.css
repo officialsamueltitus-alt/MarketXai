@@ -9,6 +9,12 @@
 @theme {
   --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Softer, rounder corners site-wide (owner-requested: every card well curved and smooth) */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.3rem;
+  --radius-3xl: 1.75rem;
 
   /* Neutrals (was slate) */
   --color-slate-50: #fafafa;
@@ -1224,4 +1230,13 @@ html.mx-blog-page body {
 @media (prefers-reduced-motion: reduce) {
   .mx-lb-pill { transition: none; }
   .mx-lb-in-left, .mx-lb-in-right, .mx-lb-podium, .mx-lb-step, .mx-lb-crown, .mx-lb-trophy, .mx-lb-row, .mx-lb-grow, .mx-lb-seg, .mx-lb-tick, .mx-lb-skel { animation: none !important; }
+}
+
+/* Cards site-wide (owner-requested, sleek and smooth): bordered rounded surfaces get a faint top highlight and ease
+   their colour changes, so every card reads as one soft, finished piece in both themes */
+:where(.rounded-xl, .rounded-2xl, .rounded-3xl).border {
+  transition: background-color .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+:where(.rounded-2xl, .rounded-3xl).border {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-white) 4%, transparent);
 }

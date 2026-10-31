@@ -6,7 +6,7 @@ import {
 import { apiFetch, formatMoney } from '../utils/apiClient';
 import { exactPrice } from '../utils/formatPrice';
 import {
-  AGENT_FRAMES, AGENT_LIMITS, AGENT_PRICING, AGENT_RUN_LABEL, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, normalizeAgentSettings,
+  AGENT_FRAMES, AGENT_LIMITS, AGENT_STRATEGY_MAX, AGENT_SYMBOLS, DEFAULT_AGENT_SETTINGS as AGENT_DEFAULTS, agentMarketInfo, strategyAgentFrames, AGENT_PRICING, AGENT_RUN_LABEL, AGENT_STYLE_INFO, DEFAULT_AGENT_SETTINGS, ENDED_TEXT, normalizeAgentSettings,
   type AgentDuration, type AgentLogEntry, type AgentRunView, type AgentSettings, type AgentStats, type AgentStyle, type AgentTradeView,
 } from '../utils/tradingAgent';
 import { Mt5ServerInput } from './Mt5ServerInput';
@@ -34,7 +34,10 @@ interface AgentState {
   /** A personal strategy's quality floor */
   strategyMinQuality?: number;
   /** The trader's own strategies the agent can trade with */
-  strategies?: Array<{ id: string; name: string; summary: string; setup: string }>;
+  strategies?: Array<{ id: string; name: string; summary: string; setup: string; timeframes?: string[]; ownTimeframes?: boolean; kinds?: string[] }>;
+  /** Markets and timeframes a personal strategy can run on */
+  strategyMarkets?: Array<{ symbol: string; label: string; mt5: string; kind: string }>;
+  strategyFrames?: string[];
   backtest: { won: number; avgR: number; profitFactor: number; maxDrawdownR: number; worstRun: number; tradesPerMonth: number };
   credits: number | null;
   /** Pro gives the agent (free for everyone until the Pro date); credits are still used per trade */
@@ -275,9 +278,24 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   const short = credits !== null && credits < needed;
   const strategies = data?.strategies || [];
   const chosen = draft.strategyId ? strategies.find(x => x.id === draft.strategyId) || null : null;
+  // A personal strategy's choices: its own timeframes (or any the agent runs), markets of the kinds it trades
+  const sFrames = chosen?.ownTimeframes ? chosen.timeframes || [] : data?.strategyFrames || [];
+  const sMarkets = (data?.strategyMarkets || []).filter(m => !chosen?.kinds?.length || chosen.kinds.includes(m.kind));
   /** Picks what the agent trades with (kept with the agent's settings, separate from the normal page's Strategy Builder) */
   const pickStrategy = (strategyId: string | null) => {
-    const next = { ...draft, strategyId };
+    // The engine keeps its back-tested markets on 1H/4H; a personal strategy picks its own (RDM = all the strategy's timeframes)
+    let next: AgentSettings;
+    if (!strategyId) {
+      const markets = draft.markets.filter(m => AGENT_SYMBOLS.includes(m));
+      next = { ...draft, strategyId: null, rdm: false, timeframes: AGENT_FRAMES[draft.style], markets: markets.length ? markets : AGENT_DEFAULTS.markets };
+    } else {
+      const st = strategies.find(x => x.id === strategyId);
+      const kinds = st?.kinds || [];
+      const okMarket = (m: string) => !kinds.length || kinds.includes(agentMarketInfo(m)?.kind || '');
+      const pool = (data?.strategyMarkets || []).filter(m => okMarket(m.symbol)).map(m => m.symbol);
+      const markets = draft.markets.filter(okMarket).slice(0, AGENT_STRATEGY_MAX.markets);
+      next = { ...draft, strategyId, rdm: true, timeframes: st?.timeframes?.slice(0, 1) || ['1H'], markets: markets.length ? markets : pool.slice(0, 1) };
+    }
     setDraft(next);
     if (running) return;
     const v = normalizeAgentSettings(next);
@@ -352,7 +370,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   const link = data?.mt5?.link || null;
   const trades = data?.trades || [];
   const openTrades = trades.filter(t => t.state === 'OPEN' || t.state === 'PENDING');
-  const marketLabel = (s: string) => data?.markets.find(m => m.symbol === s);
+  const marketLabel = (s: string) => data?.markets.find(m => m.symbol === s) || data?.strategyMarkets?.find(m => m.symbol === s) || agentMarketInfo(s);
   const linkStep = link?.stage === 'SIGNING_IN' ? 3 : link?.stage === 'DEPLOYING' ? 2 : 1;
   // The overview follows the live run, else all the agent's trades
   const st = (running && run?.stats) || data?.stats || null;
@@ -361,7 +379,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
   const filtered = tradeFilter === 'live' ? openTrades : tradeFilter === 'won' ? won : tradeFilter === 'lost' ? lost : trades;
   const sel = filtered.find(t => t.id === picked) || filtered[0] || null;
   const runMarkets = running ? run!.settings.markets : draft.markets;
-  const runFrames = running ? run!.settings.timeframes : draft.timeframes;
+  const runFrames = running ? run!.settings.timeframes : draft.rdm && chosen ? chosen.timeframes || [] : draft.timeframes;
   const elapsed = running ? Math.min(1, Math.max(0, (beat - run!.startedAt) / Math.max(1, run!.endsAt - run!.startedAt))) : 0;
   const lastScan = run?.lastScanAt || run?.startedAt || beat;
   const nextScan = running ? 60 - (Math.floor((beat - lastScan) / 1000) % 60) : 60;
@@ -718,33 +736,69 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       {draft.strategyId && <p className="mt-2 text-[11px] text-[var(--ag-muted)]">Your strategy’s own rules find the setups (quality {data.strategyMinQuality ?? 45}+). The agent still places, sizes and manages every trade.</p>}
                     </Section>
 
-                    <Section title="Trade type" hint="Steady mode: limit entries, a wider stop, calm markets only" i={1}>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['DAY', 'SWING', 'ANY'] as AgentStyle[]).map(x => (
-                          <button key={x} type="button" onClick={() => setStyle(x)} className={`ag-choice ${draft.style === x ? 'on' : ''}`} aria-pressed={draft.style === x}>
-                            <span className="block text-[13px] font-semibold text-white">{AGENT_STYLE_INFO[x].label}</span>
-                            <span className="block mt-0.5 text-[10.5px] text-[var(--ag-muted)] leading-snug">{AGENT_STYLE_INFO[x].hint}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </Section>
+                    {!draft.strategyId && (
+                      <Section title="Trade type" hint="Steady mode: limit entries, a wider stop, calm markets only" i={1}>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(['DAY', 'SWING', 'ANY'] as AgentStyle[]).map(x => (
+                            <button key={x} type="button" onClick={() => setStyle(x)} className={`ag-choice ${draft.style === x ? 'on' : ''}`} aria-pressed={draft.style === x}>
+                              <span className="block text-[13px] font-semibold text-white">{AGENT_STYLE_INFO[x].label}</span>
+                              <span className="block mt-0.5 text-[10.5px] text-[var(--ag-muted)] leading-snug">{AGENT_STYLE_INFO[x].hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
 
-                    <Section title="Timeframes and markets" hint="The markets the agent's back-test covered and that held up" i={2}>
-                      <div className="flex flex-wrap gap-2">
-                        {AGENT_FRAMES[draft.style].map(tf => (
-                          <button key={tf} type="button" onClick={() => patch({ timeframes: toggle(draft.timeframes, tf) })} className={`ag-chip ${draft.timeframes.includes(tf) ? 'on' : ''}`} aria-pressed={draft.timeframes.includes(tf)}>
-                            {tf}
+                    {draft.strategyId ? (
+                      <Section title="Timeframes and markets" hint={`Your strategy decides the trades, so you choose where it runs: RDM or up to ${AGENT_STRATEGY_MAX.timeframes} timeframes, up to ${AGENT_STRATEGY_MAX.markets} markets.`} i={2}>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => patch({ rdm: !draft.rdm })} className={`ag-chip ${draft.rdm ? 'on' : ''}`} aria-pressed={draft.rdm} title="Every timeframe your strategy trades; the strongest setup wins">
+                            RDM
                           </button>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {data.markets.map(m => (
-                          <button key={m.symbol} type="button" onClick={() => patch({ markets: toggle(draft.markets, m.symbol) })} className={`ag-chip !pl-1.5 ${draft.markets.includes(m.symbol) ? 'on' : ''}`} aria-pressed={draft.markets.includes(m.symbol)}>
-                            <MarketAv symbol={m.symbol} size={24} /> {m.label} <span className="text-[10px] opacity-60">{m.mt5}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </Section>
+                          {sFrames.map(tf => (
+                            <button
+                              key={tf}
+                              type="button"
+                              disabled={draft.rdm}
+                              onClick={() => patch({ timeframes: toggle(draft.timeframes, tf).slice(-AGENT_STRATEGY_MAX.timeframes) })}
+                              className={`ag-chip ${!draft.rdm && draft.timeframes.includes(tf) ? 'on' : ''} ${draft.rdm ? 'opacity-45' : ''}`}
+                              aria-pressed={!draft.rdm && draft.timeframes.includes(tf)}
+                            >
+                              {tf}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-[var(--ag-muted)]">
+                          {draft.rdm ? `RDM: the agent reads ${(chosen?.timeframes || sFrames).join(', ')} and takes the strongest setup.` : chosen?.ownTimeframes ? `The timeframes "${chosen.name}" trades.` : 'Any timeframe: your strategy has no timeframe rule.'}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {sMarkets.map(m => (
+                            <button key={m.symbol} type="button" onClick={() => patch({ markets: toggle(draft.markets, m.symbol).slice(-AGENT_STRATEGY_MAX.markets) })} className={`ag-chip !pl-1.5 ${draft.markets.includes(m.symbol) ? 'on' : ''}`} aria-pressed={draft.markets.includes(m.symbol)}>
+                              <MarketAv symbol={m.symbol} size={24} /> {m.label} <span className="text-[10px] opacity-60">{m.mt5}</span>
+                            </button>
+                          ))}
+                        </div>
+                        {!!chosen?.kinds?.length && <p className="mt-2 text-[11px] text-[var(--ag-muted)]">Only {chosen.kinds.join(', ')} markets: the kinds "{chosen.name}" trades.</p>}
+                      </Section>
+                    ) : (
+                      <Section title="Timeframes and markets" hint="The MarketX engine trades the markets its back-test covered and that held up, on 1H and 4H" i={2}>
+                        <div className="flex flex-wrap gap-2">
+                          {AGENT_FRAMES[draft.style].map(tf => (
+                            <button key={tf} type="button" onClick={() => patch({ timeframes: toggle(draft.timeframes, tf) })} className={`ag-chip ${draft.timeframes.includes(tf) ? 'on' : ''}`} aria-pressed={draft.timeframes.includes(tf)}>
+                              {tf}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {data.markets.map(m => (
+                            <button key={m.symbol} type="button" onClick={() => patch({ markets: toggle(draft.markets, m.symbol) })} className={`ag-chip !pl-1.5 ${draft.markets.includes(m.symbol) ? 'on' : ''}`} aria-pressed={draft.markets.includes(m.symbol)}>
+                              <MarketAv symbol={m.symbol} size={24} /> {m.label} <span className="text-[10px] opacity-60">{m.mt5}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-[var(--ag-muted)]">Want other markets or timeframes? Pick your own strategy above.</p>
+                      </Section>
+                    )}
 
                     <Section title="Risk and limits" i={3}>
                       <div className="grid grid-cols-2 gap-2.5">
@@ -1116,7 +1170,19 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
           load(true);
         }}
         onToast={(m, t) => toast(m, t)}
-        onState={st => setData(cur => (cur ? { ...cur, strategies: st.strategies.map(x => ({ id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules.setup]?.short || '' })) } : cur))}
+        onState={st =>
+          setData(cur =>
+            cur
+              ? {
+                  ...cur,
+                  strategies: st.strategies.map(x => ({
+                    id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules.setup]?.short || '',
+                    timeframes: strategyAgentFrames(x.rules.timeframes), ownTimeframes: x.rules.timeframes.length > 0, kinds: x.rules.markets,
+                  })),
+                }
+              : cur
+          )
+        }
         onProRequired={() => (setBuilderOpen(false), onUpgrade?.())}
         agent={{ selectedId: draft.strategyId, onSelect: id => pickStrategy(id) }}
       />

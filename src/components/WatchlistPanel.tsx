@@ -271,7 +271,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({ isOpen, onClose,
               setQuery(e.target.value);
               if (verify?.error) setVerify(null);
             }}
-            placeholder="Add a pair: EURUSD, gold, BTC, $WIF…"
+            placeholder="Add a pair: EURUSD, gold, BTC…"
             aria-label="Pair to watch"
             maxLength={80}
             disabled={verifying}

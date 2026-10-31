@@ -3,6 +3,7 @@ import { BarChart3, ChevronDown, Crown, Eye, EyeOff, Flame, Info, Loader2, Refre
 import { apiFetch } from '../utils/apiClient';
 import { VerifiedBadge } from './VerifiedBadge';
 import { InviteCard } from './InviteCard';
+import { monthName, monthYear, tierStyle, type Tier } from '../utils/leaderboard';
 
 // Leaderboard (owner-specified): two boards behind one animated switch.
 //   Usage     : this month's most active traders. Points from real use (analyses, questions, Fundamental Analysis, Matt),
@@ -10,7 +11,6 @@ import { InviteCard } from './InviteCard';
 //   Referrals : who brought the most traders to MarketX, plus the trader's own invite link.
 // Public rows carry display name, username, picture and badge only. Traders can hide themselves.
 export type Board = 'usage' | 'referrals';
-interface Tier { id: string; label: string; min: number; next: { label: string; min: number } | null }
 interface Person { rank: number; username: string; displayName: string; avatarUrl: string | null; verified: boolean; isMe?: boolean }
 interface UsageRow extends Person {
   points: number;
@@ -23,33 +23,31 @@ interface UsageRow extends Person {
   streak: number;
   topPair: string | null;
 }
+interface Winners { month: string; traders: number; top: Array<Person & { points: number; tier: Tier }> }
 interface UsageData {
   month: string;
+  startsAt?: number;
   resetsAt: number;
+  updatedAt?: number;
   scoring: { points: Record<'analysis' | 'question' | 'fundamental' | 'matt', number>; activeDay: number };
   rows: UsageRow[];
   me: Omit<UsageRow, keyof Person> & { rank: number | null; hidden: boolean; locked?: boolean };
   lastMonth: { month: string; top: Array<Person & { points: number; tier: Tier }> };
+  pastWinners?: Winners[];
 }
-interface RefRow extends Person { invited: number; thisMonth: number }
+interface RefRow extends Person { invited: number; thisMonth: number; tier?: Tier }
 interface RefData {
   month: string;
+  updatedAt?: number;
   rows: RefRow[];
   me: { rank: number | null; invited: number; thisMonth: number; earned: number; hidden: boolean; locked?: boolean };
   program: { enabled: boolean; credits: number };
 }
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const monthName = (key: string) => MONTHS[Number(key.split('-')[1]) - 1] || key;
-const TIER_STYLE: Record<string, { ring: string; chip: string; bar: string }> = {
-  ROOKIE: { ring: 'from-slate-400 to-slate-600', chip: 'bg-slate-500/15 text-slate-300', bar: 'from-slate-400 to-slate-300' },
-  EXPLORER: { ring: 'from-sky-400 to-cyan-500', chip: 'bg-sky-500/15 text-sky-300', bar: 'from-sky-400 to-cyan-300' },
-  ANALYST: { ring: 'from-emerald-400 to-teal-500', chip: 'bg-emerald-500/15 text-emerald-300', bar: 'from-emerald-400 to-teal-300' },
-  STRATEGIST: { ring: 'from-violet-400 to-indigo-500', chip: 'bg-violet-500/15 text-violet-300', bar: 'from-violet-400 to-indigo-300' },
-  MARKET_PRO: { ring: 'from-amber-300 to-orange-500', chip: 'bg-amber-500/15 text-amber-300', bar: 'from-amber-300 to-orange-400' },
-  LEGEND: { ring: 'from-fuchsia-400 via-amber-300 to-cyan-300', chip: 'bg-fuchsia-500/15 text-fuchsia-300', bar: 'from-fuchsia-400 via-amber-300 to-cyan-300' },
-};
-const tierStyle = (id?: string) => TIER_STYLE[id || 'ROOKIE'] || TIER_STYLE.ROOKIE;
+
+/** How often an open board refreshes itself (while the tab is visible) */
+const LIVE_MS = 8000;
+
 
 function Avatar({ p, size = 36, ring }: { p: Pick<Person, 'avatarUrl' | 'displayName' | 'username'>; size?: number; ring?: string }) {
   const letter = (p.displayName || p.username || '?').trim().slice(0, 1).toUpperCase();
@@ -113,7 +111,12 @@ function Countdown({ to }: { to: number }) {
   );
 }
 
-function Podium<T extends Person>({ rows, value, unit }: { rows: T[]; value: (r: T) => number; unit: string }) {
+function TierChip({ tier, className = '' }: { tier?: Tier; className?: string }) {
+  if (!tier) return null;
+  return <span className={`inline-flex items-center h-4 px-1.5 rounded-full text-[9px] font-semibold ${tierStyle(tier.id).chip} ${className}`}>{tier.label}</span>;
+}
+
+function Podium<T extends Person & { tier?: Tier }>({ rows, value, unit }: { rows: T[]; value: (r: T) => number; unit: string }) {
   const [first, second, third] = rows;
   const slot = (r: T | undefined, place: 1 | 2 | 3) => {
     const h = place === 1 ? 'h-24' : place === 2 ? 'h-16' : 'h-12';
@@ -133,6 +136,7 @@ function Podium<T extends Person>({ rows, value, unit }: { rows: T[]; value: (r:
             </div>
             <p className={`mt-1.5 max-w-full truncate text-xs font-semibold ${r.isMe ? 'text-violet-200' : 'text-white'}`}>{r.displayName || r.username}</p>
             <p className="max-w-full truncate text-[10px] text-slate-500">@{r.username}</p>
+            <TierChip tier={r.tier} className="mt-1" />
             <p className="mt-0.5 text-[11px] font-semibold text-slate-200 tabular-nums">
               {value(r).toLocaleString()} <span className="text-slate-500 font-normal">{unit}</span>
             </p>
@@ -181,16 +185,17 @@ function UsageMix({ r, scoring }: { r: Pick<UsageRow, 'analyses' | 'questions' |
 }
 
 function UsageBoardView({ data, onToggleHidden, hiding }: { data: UsageData; onToggleHidden: () => void; hiding: boolean }) {
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [rules, setRules] = useState(false);
   const me = data.me;
   const points = useCountUp(me.points);
   const tier = tierStyle(me.tier.id);
   const toNext = me.tier.next ? Math.min(100, ((me.points - me.tier.min) / (me.tier.next.min - me.tier.min)) * 100) : 100;
   const monthStart = useMemo(() => {
+    if (data.startsAt) return data.startsAt;
     const [y, m] = data.month.split('-').map(Number);
     return Date.UTC(y, m - 1, 1);
-  }, [data.month]);
+  }, [data.month, data.startsAt]);
   const elapsed = Math.min(100, Math.max(0, ((Date.now() - monthStart) / (data.resetsAt - monthStart)) * 100));
   const rest = data.rows.slice(3);
 
@@ -290,12 +295,12 @@ function UsageBoardView({ data, onToggleHidden, hiding }: { data: UsageData; onT
           <ol className="space-y-1.5">
             {rest.map((r, i) => {
               const t = tierStyle(r.tier.id);
-              const expanded = open === r.rank;
+              const expanded = open === r.username;
               return (
-                <li key={r.rank} className="mx-lb-row" style={{ animationDelay: `${Math.min(i * 35, 600)}ms` }}>
+                <li key={r.username} className="mx-lb-row" style={{ animationDelay: `${Math.min(i * 35, 600)}ms` }}>
                   <button
                     type="button"
-                    onClick={() => setOpen(expanded ? null : r.rank)}
+                    onClick={() => setOpen(expanded ? null : r.username)}
                     aria-expanded={expanded}
                     className={`w-full text-left rounded-2xl border px-3 py-2.5 transition-colors cursor-pointer ${r.isMe ? 'border-violet-400/40 bg-violet-500/[0.08]' : 'border-white/[0.06] bg-[var(--mx-surface)] hover:border-white/[0.14]'}`}
                   >
@@ -347,27 +352,62 @@ function UsageBoardView({ data, onToggleHidden, hiding }: { data: UsageData; onT
         </div>
       )}
 
-      {data.lastMonth.top.length > 0 && (
-        <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-3.5">
-          <p className="text-[11px] font-semibold text-slate-300 inline-flex items-center gap-1.5">
-            <Crown className="w-3.5 h-3.5 text-amber-300" /> {monthName(data.lastMonth.month)} champions
-          </p>
-          <div className="mt-2.5 flex gap-2">
-            {data.lastMonth.top.map(r => (
-              <div key={r.rank} className="flex-1 min-w-0 flex items-center gap-2 rounded-2xl bg-black/20 border border-white/[0.05] p-2">
-                <Avatar p={r} size={28} ring={r.rank === 1 ? 'from-amber-200 to-orange-500' : r.rank === 2 ? 'from-slate-200 to-slate-400' : 'from-orange-300 to-amber-700'} />
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-semibold text-white truncate">{r.displayName || r.username}</span>
-                  <span className="block text-[9px] text-slate-500 tabular-nums">#{r.rank} · {r.points.toLocaleString()} pts</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      <PastWinners list={data.pastWinners?.length ? data.pastWinners : data.lastMonth.top.length ? [{ month: data.lastMonth.month, traders: 0, top: data.lastMonth.top }] : []} />
 
       <VisibilityRow hidden={me.hidden} locked={me.locked} onToggle={onToggleHidden} busy={hiding} />
     </div>
+  );
+}
+
+/** Past months winners: each finished month's top 3, with their level and points */
+function PastWinners({ list }: { list: Winners[] }) {
+  const [all, setAll] = useState(false);
+  if (!list.length) return null;
+  const shown = all ? list : list.slice(0, 3);
+  const ring = (rank: number) => (rank === 1 ? 'from-amber-200 via-amber-400 to-orange-500' : rank === 2 ? 'from-slate-200 to-slate-400' : 'from-orange-300 to-amber-700');
+  return (
+    <section className="rounded-3xl border border-white/[0.07] bg-[var(--mx-surface)] p-3.5">
+      <div className="flex items-center gap-2">
+        <span className="w-7 h-7 rounded-xl bg-gradient-to-br from-amber-400/25 to-fuchsia-500/20 flex items-center justify-center">
+          <Crown className="w-3.5 h-3.5 text-amber-300" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-white leading-tight">Past months winners</p>
+          <p className="text-[10px] text-slate-500">Each season's top 3, kept for good</p>
+        </div>
+      </div>
+      <div className="mt-3 space-y-3">
+        {shown.map(w => (
+          <div key={w.month}>
+            <p className="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+              <span>{monthYear(w.month)}</span>
+              {w.traders > 0 && <span className="normal-case tracking-normal font-normal">{w.traders.toLocaleString()} on the board</span>}
+            </p>
+            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+              {w.top.map(r => (
+                <div key={r.rank} className="min-w-0 flex flex-col items-center text-center rounded-2xl bg-black/20 border border-white/[0.05] px-1.5 py-2.5">
+                  <span className="relative">
+                    <Avatar p={r} size={r.rank === 1 ? 38 : 32} ring={ring(r.rank)} />
+                    <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[var(--mx-bg-2)] border border-white/10 text-[9px] font-bold text-white flex items-center justify-center">{r.rank}</span>
+                  </span>
+                  <span className="mt-1.5 max-w-full truncate text-[11px] font-semibold text-white inline-flex items-center gap-0.5">
+                    <span className="truncate">{r.displayName || r.username}</span>
+                    {r.verified && <VerifiedBadge size="sm" />}
+                  </span>
+                  <TierChip tier={r.tier} className="mt-1" />
+                  <span className="mt-1 text-[10px] text-slate-400 tabular-nums">{r.points.toLocaleString()} pts</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {list.length > 3 && (
+        <button type="button" onClick={() => setAll(v => !v)} className="mt-3 w-full h-8 rounded-xl text-[11px] font-semibold text-violet-300 hover:text-violet-200 hover:bg-white/[0.04] cursor-pointer">
+          {all ? 'Show fewer months' : `Show all ${list.length} months`}
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -430,7 +470,7 @@ function ReferralBoardView({ data, onToggleHidden, hiding }: { data: RefData; on
           <Podium rows={data.rows.slice(0, 3)} value={r => r.invited} unit="invited" />
           <ol className="space-y-1.5">
             {data.rows.slice(3).map((r, i) => (
-              <li key={r.rank} className="mx-lb-row" style={{ animationDelay: `${Math.min(i * 35, 600)}ms` }}>
+              <li key={r.username} className="mx-lb-row" style={{ animationDelay: `${Math.min(i * 35, 600)}ms` }}>
                 <div className={`flex items-center gap-2.5 rounded-2xl border px-3 py-2.5 ${r.isMe ? 'border-violet-400/40 bg-violet-500/[0.08]' : 'border-white/[0.06] bg-[var(--mx-surface)]'}`}>
                   <span className="w-7 text-center text-xs font-bold text-slate-400 tabular-nums">{r.rank}</span>
                   <Avatar p={r} size={34} ring="from-cyan-300/70 to-violet-500/70" />
@@ -440,9 +480,12 @@ function ReferralBoardView({ data, onToggleHidden, hiding }: { data: RefData; on
                       {r.verified && <VerifiedBadge size="sm" />}
                       {r.isMe && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-200">You</span>}
                     </span>
-                    <span className="block text-[10px] text-slate-500 truncate">
-                      @{r.username}
-                      {r.thisMonth > 0 ? ` · +${r.thisMonth} this month` : ''}
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-500 truncate">
+                      <TierChip tier={r.tier} />
+                      <span className="truncate">
+                        @{r.username}
+                        {r.thisMonth > 0 ? ` · +${r.thisMonth} this month` : ''}
+                      </span>
                     </span>
                   </span>
                   <span className="text-right">
@@ -478,17 +521,20 @@ export const LeaderboardPanel: React.FC<{ isOpen: boolean; onClose: () => void; 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  const load = useCallback(async (which: Board) => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (which: Board, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const d = await apiFetch<any>(`/api/leaderboard?board=${which}`);
       if (which === 'usage') setUsage(d);
       else setRefs(d);
     } catch (err: any) {
-      setError(err?.message || 'The leaderboard is unavailable right now.');
+      // A live refresh that fails keeps the board on screen
+      if (!silent) setError(err?.message || 'The leaderboard is unavailable right now.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -500,6 +546,17 @@ export const LeaderboardPanel: React.FC<{ isOpen: boolean; onClose: () => void; 
     if (!isOpen) return;
     if (board === 'usage' ? !usage : !refs) load(board);
   }, [isOpen, board, usage, refs, load]);
+  // Live: the open board refreshes itself every few seconds while the tab is visible (and at once when it comes back)
+  useEffect(() => {
+    if (!isOpen) return;
+    const tick = () => document.visibilityState === 'visible' && load(board, true);
+    const t = setInterval(tick, LIVE_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [isOpen, board, load]);
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
@@ -542,7 +599,13 @@ export const LeaderboardPanel: React.FC<{ isOpen: boolean; onClose: () => void; 
           </span>
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white tracking-tight leading-tight">Leaderboard</h2>
-            <p className="text-[11px] text-slate-500 truncate">The most active traders and the top inviters on MarketX</p>
+            <p className="text-[11px] text-slate-500 truncate inline-flex items-center gap-1.5">
+              <span className="relative flex w-1.5 h-1.5" aria-hidden="true">
+                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-60" />
+                <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              </span>
+              Live · the most active traders and the top inviters
+            </p>
           </div>
           <button
             type="button"

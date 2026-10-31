@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon, Newspaper, Gauge } from 'lucide-react';
+import { SlidersHorizontal, Check, Loader2, Shield, Crosshair, Wallet, LayoutList, AlignLeft, LineChart, RotateCcw, Zap, Hand, BellRing, Calculator, ScanSearch, Target, CandlestickChart, ChevronRight, Timer, Sun, CalendarRange, Infinity as InfinityIcon, Newspaper, Gauge, MoveVertical } from 'lucide-react';
 import { TradeCalculator, type CalcSeed } from './TradeCalculator';
 import { SUPPORTED_TIMEFRAMES } from '../utils/timeframe';
 import { DEFAULT_PREFERENCES, NEWS_IMPACTS, formatMoney, newsImpactLabel, type Currency, type NewsImpact, type Preferences } from '../utils/preferences';
@@ -443,6 +443,36 @@ export const PreferencePanel: React.FC<PreferencePanelProps> = ({ isOpen, onClos
               'Add your account size to see your risk and rewards in money on every trade.'
             )}
           </div>
+        </Section>
+
+        <Section
+          icon={MoveVertical}
+          title="Wider stop loss"
+          text="Gives every trade a little breathing space: the stop loss is moved a few pips past the normal stop the analysis calls, so a quick wick is less likely to take you out."
+          ask={{ q: 'How does the wider stop loss work, and how does it change my trades?', label: 'Wider stop loss' }}
+        >
+          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-black/20 border border-white/[0.06]">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white">{p.wideSl ? 'Wider stop loss is on' : 'Normal stop loss'}</div>
+              <div className="text-[11px] text-slate-500 leading-snug">
+                {p.wideSl ? 'Each new trade card shows the widened stop, marked "Widened".' : 'Off. Trades use the stop the analysis calls.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={p.wideSl}
+              aria-label="Wider stop loss"
+              onClick={() => save({ wideSl: !p.wideSl })}
+              className={`h-7 w-12 rounded-full relative transition-colors cursor-pointer shrink-0 ${p.wideSl ? 'bg-violet-500/90' : 'bg-white/[0.12]'}`}
+            >
+              <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all ${p.wideSl ? 'right-1' : 'left-1'}`} />
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+            The extra room is 15% of the trade's risk (at least 2 pips on forex, gold, silver and oil). Entry and targets stay the same, so the R:R is a
+            little lower; size your position from the widened stop. Your price alerts, journal and results follow the widened stop.
+          </p>
         </Section>
 
         <Section
