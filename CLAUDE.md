@@ -452,6 +452,8 @@
   Desktop ad (owner-requested, Oct 2026): `brand/video/site-ad-desktop.html` (1920x1080, LIGHT mode, motion design, voice-over scene times in `T`),
   rendered with `render-agent-ad.cjs ... --page site-ad-desktop.html --size 1920x1080`; its music is an ORIGINAL beat made by
   `brand/video/beat-synth.py` (100 BPM, quiet intro, bass drop at 4.8s, no samples, so no copyright).
+  Trading Agent ad, desktop (owner-requested): `brand/video/agent-ad-desktop.html` = agent-ad.html's scenes, words and timings at 1920x1080
+  in LIGHT mode (setup in a browser window, alerts on a desktop screen); rendered with the same `--warp` voice-over timing.
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). Tagline (owner-specified, Oct 2026):
   "MarketX, Your Trading Co-Pilot" (browser title "MarketX · Your Trading Co-Pilot", meta/OG/Twitter/JSON-LD/manifest descriptions, the welcome and Markets
   headlines "Your trading co-pilot, one prompt away.", email footer, guide, Terms intro, Matt, the offline welcome answer); feature names keep "SI". X handle
