@@ -337,6 +337,8 @@ export interface UserProfile {
   featurePasses?: Partial<Record<string, number>>;
   /** When the commands and RDM become Pro only (ms) */
   proFreeUntil?: number;
+  /** A trading agent run is live (the app picks up its notices more often) */
+  agentLive?: boolean;
   subscription: UserSubscription;
 }
 
@@ -380,7 +382,7 @@ export interface AlertLiveQuote {
 
 export interface CreditState {
   availableCredits: number;
-  dailyUsageLimit: number; // 10 per day for subscribers
+  dailyUsageLimit: number; // 50 a day on Pro (a cap on the plan's credits), 3 on Free
   dailyUsageRemaining: number;
   lastDailyResetTime: number; // when the daily analyses last refilled
   /** Next automatic refill (3:00 AM in the site's time zone), set by the server */
@@ -390,6 +392,8 @@ export interface CreditState {
   campaignCredits?: number;
   /** Credits bought in packs: used by the trading agent and for analyses once the day's analyses run out */
   purchasedCredits?: number;
+  /** Pro: the day's 50 is a hard total of credits spent, from any pool, and needs a balance to spend */
+  dailyNeedsBalance?: boolean;
 }
 
 export interface CreditGift {

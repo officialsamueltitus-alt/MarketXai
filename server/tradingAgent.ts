@@ -3,18 +3,20 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { sendPush } from './webPush';
-import { campaignPool, purchasedPool, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
+import { agentSpendable, chargeAgentInTx, refundAgentInTx, claimMarketMail, getUser, isUnlimitedEmail, marketMailDay, notifyActivity, requireAuth, siteLink, userRef, type UserDoc } from './account';
 import { IS_LEAD_WORKER } from './workers';
 import { createKeyedThrottle } from './security';
 import { fmtPrice, levelTolerance, tfMinutes, type Bar } from './priceAlerts';
 import { hasFeature, proGateActive, PRO_GATE_AT } from './proAccess';
 import { suggestMt5Servers } from '../src/utils/mt5Servers';
+import { listOwn, ownStrategy } from './strategyBuilder';
+import { SETUPS } from '../src/utils/strategyRules';
 import {
   Mt5Error, brokerLevels, createMt5Account, deleteMt5Account, lotSize, maskLogin, matchSymbol, mt5AccountInfo, mt5AccountState, mt5Configured, mt5Positions,
   mt5KnownServers, mt5Price, mt5Spec, mt5Symbols, mt5Trade, setMt5Power, type Mt5Link,
 } from './mt5';
 import {
-  AGENT_BACKTEST, AGENT_MARKETS, AGENT_MIN_QUALITY, AGENT_PRICING, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
+  AGENT_BACKTEST, AGENT_MARKETS, AGENT_MIN_QUALITY, AGENT_PRICING, AGENT_STRATEGY_MIN_QUALITY, ENDED_TEXT, agentMaxCost, agentStats, normalizeAgentSettings, DEFAULT_AGENT_SETTINGS,
   type AgentLogEntry, type AgentRunView, type AgentSettings, type AgentTradeResult, type AgentTradeState, type AgentTradeView,
 } from '../src/utils/tradingAgent';
 
@@ -35,8 +37,9 @@ import {
 // plan or unlimited staff). The separate agent subscription is gone; a `users.agentSub` bought before that is honoured
 // until it expires.
 // Credits (owner-specified, never below 5 a trade): charged ONCE per trade, when the agent places it, inside the same
-// transaction, at the run's rate (daily 7, weekly 6, monthly 5), campaign credits first; an order that is cancelled
-// before it fills is refunded in full.
+// transaction, at the run's rate (daily 7, weekly 6, monthly 5), from the trader's general credits (the same pools and
+// order as an analysis, so it counts toward the Pro daily cap: chargeAgentInTx), bought credits only when those can't pay;
+// an order that is cancelled before it fills is refunded in full.
 //
 // Execution: every trade is tracked by MarketX on live prices (the record for alerts and stats). With an MT5 account
 // linked (server/mt5.ts, MetaApi), each order is also placed on the trader's account, sized to their risk, with the stop
@@ -85,6 +88,8 @@ export interface AgentSetup {
 export interface AgentDeps {
   /** Steady mode read of a market on a timeframe: the plan the analysis would serve, or null */
   scan: (symbol: string, timeframe: string) => Promise<AgentSetup | null>;
+  /** A trader's own strategy (Strategy Builder rules, no AI call) on a market and timeframe: its setup now, or null */
+  scanStrategy?: (strategyId: string, symbol: string, timeframe: string) => Promise<AgentSetup | null>;
   /** Recent 1-minute candles of a market (oldest first), or null */
   getBars: (symbol: string) => Promise<Bar[] | null>;
 }
@@ -102,6 +107,8 @@ interface AgentTrade extends AgentTradeView {
   /** Credits of this trade taken from the campaign pool / bought credits (refunded there if the order never fills) */
   campaignCharged?: number;
   purchasedCharged?: number;
+  /** How the charge split (the same pools as an analysis), so a refund goes back where it came from */
+  charge?: { availableDelta: number; campaignDelta: number; purchasedDelta: number; dailyDelta: number; chargedAt: number };
   /** The order on the trader's MT5 account (MetaApi), when linked */
   mt5?: { state: 'PLACED' | 'FAILED' | 'CANCELLED' | 'CLOSED'; symbol?: string; volume?: number; entry?: number; stop?: number; target?: number; orderId?: string; clientId?: string; error?: string };
 }
@@ -109,6 +116,8 @@ interface AgentRun extends Omit<AgentRunView, 'stats'> {
   day: string;
   placedToday: number;
   lowCreditsAt?: number;
+  /** Site-TZ day the Pro daily credit limit stopped new orders (told once) */
+  capDay?: string;
 }
 interface AgentDoc {
   uid: string;
@@ -219,18 +228,23 @@ export function stepTrade(
 }
 
 /** Best setup for an agent among fresh scans: quality floor, markets with no live order/trade, not used before */
+/** Where a scan is kept: the MarketX engine's reads by market|timeframe, a personal strategy's by st_…|market|timeframe */
+export const scanKey = (strategyId: string | null | undefined, symbol: string, tf: string) => (strategyId ? `${strategyId}|${symbol}|${tf}` : `${symbol}|${tf}`);
+
 export function pickSetup(
-  settings: Pick<AgentSettings, 'markets' | 'timeframes'>,
+  settings: Pick<AgentSettings, 'markets' | 'timeframes'> & { strategyId?: string | null },
   scans: Map<string, AgentSetup | null>,
   busy: Set<string>,
   seen: Set<string>
 ): { symbol: string; timeframe: string; setup: AgentSetup; key: string } | null {
   let best: { symbol: string; timeframe: string; setup: AgentSetup; key: string } | null = null;
+  // The MarketX engine trades its back-tested floor; a personal strategy the site's own quality floor
+  const floor = settings.strategyId ? AGENT_STRATEGY_MIN_QUALITY : AGENT_MIN_QUALITY;
   for (const symbol of settings.markets) {
     if (busy.has(symbol)) continue;
     for (const timeframe of settings.timeframes) {
-      const s = scans.get(`${symbol}|${timeframe}`);
-      if (!s || s.quality < AGENT_MIN_QUALITY || !s.targets.length) continue;
+      const s = scans.get(scanKey(settings.strategyId, symbol, timeframe));
+      if (!s || s.quality < floor || !s.targets.length) continue;
       const key = setupKey(symbol, timeframe, s);
       if (seen.has(key)) continue;
       // Higher quality first; on a tie the higher timeframe (it held up better in the back-test)
@@ -282,7 +296,7 @@ async function pushLog(uid: string, entries: AgentLogEntry[], extra: Record<stri
 
 /** Tells the trader: site notification + push always; email for the steps that matter, within the market budget */
 async function tell(uid: string, title: string, message: string, opts: { tradeId?: string; mail?: boolean; rows?: [string, string][] } = {}) {
-  const url = `/?agent=1${opts.tradeId ? `&focus=${encodeURIComponent(opts.tradeId)}` : ''}`;
+  const url = `/agents${opts.tradeId ? `?focus=${encodeURIComponent(opts.tradeId)}` : ''}`;
   const mail = opts.mail && (await claimMarketMail(uid).catch(() => false))
     ? { subject: title, lines: [message], options: { rows: (opts.rows || []).slice(0, 3), cta: { label: 'Open the trading agent', url: siteLink(url) } } }
     : undefined;
@@ -302,6 +316,8 @@ async function endRun(uid: string, reason: NonNullable<AgentRunView['endedReason
     const a = snap.data() as AgentDoc | undefined;
     if (!a?.run || a.run.state !== 'RUNNING') return null;
     tx.update(agentRef(uid), { 'run.state': 'ENDED', 'run.endedReason': reason, 'run.endedAt': now(), updatedAt: now() });
+    // The app stops checking for agent notices as often once no run is live
+    tx.set(userRef(uid), { agentLive: false }, { merge: true });
     return a.run;
   });
   if (!ended) return null;
@@ -383,12 +399,9 @@ async function cancelPending(t: AgentTrade, note: string, extra: Record<string, 
     const bought = Math.min(back - camp, Math.max(0, cur.purchasedCharged || 0));
     if (back) {
       const us = await tx.get(userRef(t.uid));
-      if (us.exists)
-        tx.update(userRef(t.uid), {
-          'credits.available': FieldValue.increment(back),
-          ...(camp ? { 'credits.campaign': FieldValue.increment(camp) } : {}),
-          ...(bought ? { 'credits.purchased': FieldValue.increment(bought) } : {}),
-        });
+      // Orders placed before the charge split was kept: everything goes back to the balance it came from
+      const split = cur.charge || { availableDelta: back, campaignDelta: camp, purchasedDelta: bought, dailyDelta: 0, chargedAt: cur.createdAt };
+      if (us.exists) refundAgentInTx(tx, t.uid, us.data() as UserDoc, split);
       const a = as.data() as AgentDoc | undefined;
       if (a?.run?.id === t.runId) tx.update(agentRef(t.uid), { 'run.creditsUsed': FieldValue.increment(-back), updatedAt: now() });
     }
@@ -722,15 +735,17 @@ async function runAgents(deps: AgentDeps, onlyUid?: string) {
     const left = Math.min(run.settings.tradesPerDay - placed, run.settings.tradesPerDay - active);
     room.set(a.uid, left);
     if (left <= 0) continue;
-    for (const s of run.settings.markets) for (const tf of run.settings.timeframes) wanted.add(`${s}|${tf}`);
+    for (const s of run.settings.markets) for (const tf of run.settings.timeframes) wanted.add(scanKey(run.settings.strategyId, s, tf));
   }
   const scans = new Map<string, AgentSetup | null>();
   const keys = [...wanted];
   for (let i = 0; i < keys.length; i += SCAN_CONCURRENCY) {
     await Promise.all(
       keys.slice(i, i + SCAN_CONCURRENCY).map(async k => {
-        const [s, tf] = k.split('|');
-        scans.set(k, await deps.scan(s, tf).catch(() => null));
+        const parts = k.split('|');
+        // A personal strategy (st_…|market|timeframe) reads with its own rules; otherwise the MarketX engine
+        const read = parts.length === 3 ? (deps.scanStrategy ? deps.scanStrategy(parts[0], parts[1], parts[2]) : Promise.resolve(null)) : deps.scan(parts[0], parts[1]);
+        scans.set(k, await read.catch(() => null));
       })
     );
   }
@@ -751,6 +766,15 @@ async function runAgents(deps: AgentDeps, onlyUid?: string) {
   }
 }
 
+/** Today's credit limit is used up (Pro, 50 a day): no order today, told once a day; the run carries on after 3:00 AM */
+async function capReached(a: AgentDoc, today: string) {
+  if (a.run?.capDay === today) return;
+  await agentRef(a.uid).update({ 'run.capDay': today }).catch(() => {});
+  const text = "Today's 50-credit limit is used, so the agent places no new trades until it resets at 3:00 AM. Open trades are still managed.";
+  await pushLog(a.uid, [logEntry('PAUSE', text)]);
+  await tell(a.uid, '⏸️ Agent paused for today', text).catch(() => {});
+}
+
 /** Places one order for an agent: its credits are charged in the same transaction (refunded if it never fills) */
 async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickSetup>>, today: string) {
   const run = a.run!;
@@ -761,7 +785,9 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     return;
   }
   const free = !!user.emailVerified && isUnlimitedEmail(user.email);
-  if (!free && (user.credits?.available ?? 0) < run.perTrade) {
+  if (!free && agentSpendable(user) < run.perTrade) {
+    // Pro's 50 credits a day used up but the balance can pay: the agent waits for the 3:00 AM reset, the run goes on
+    if ((user.credits?.available ?? 0) >= run.perTrade) return capReached(a, today);
     await endRun(a.uid, 'NO_CREDITS');
     return;
   }
@@ -780,37 +806,29 @@ async function placeOrder(a: AgentDoc, pick: NonNullable<ReturnType<typeof pickS
     createdAt: t0, updatedAt: t0, expiresAt: t0 + PENDING_CANDLES * tfMs, holdMs: MAX_CANDLES * tfMs, scanFrom: Math.floor(t0 / 60e3) * 60e3, execution: 'TRACKED',
   };
   const placed = await db().runTransaction(async tx => {
-    const [as, us] = await Promise.all([tx.get(agentRef(a.uid)), tx.get(userRef(a.uid))]);
+    const as = await tx.get(agentRef(a.uid));
     const cur = as.data() as AgentDoc | undefined;
-    const u = us.data() as UserDoc | undefined;
-    if (!cur?.run || cur.run.state !== 'RUNNING' || cur.run.id !== run.id || !u) return false;
+    if (!cur?.run || cur.run.state !== 'RUNNING' || cur.run.id !== run.id) return false;
     if ((cur.seen || []).includes(pick.key)) return false;
     const placedToday = cur.run.day === today ? cur.run.placedToday : 0;
     if (placedToday >= cur.run.settings.tradesPerDay) return false;
     const cost = free ? 0 : run.perTrade;
-    if (cost > (u.credits?.available ?? 0)) return 'NO_CREDITS' as const;
-    // Campaign credits first, then the ordinary balance, then bought credits
-    const campaign = campaignPool(u.credits);
-    const bought = purchasedPool(u.credits);
-    const fromCampaign = Math.min(campaign, cost);
-    const ordinary = Math.max(0, (u.credits?.available ?? 0) - campaign - bought);
-    const fromPurchased = Math.min(bought, Math.max(0, cost - fromCampaign - ordinary));
-    if (cost) {
-      tx.update(userRef(a.uid), {
-        'credits.available': FieldValue.increment(-cost),
-        ...(fromCampaign ? { 'credits.campaign': campaign - fromCampaign } : {}),
-        ...(fromPurchased ? { 'credits.purchased': bought - fromPurchased } : {}),
-        // The last campaign credit restarts the daily refill clock (same rule as an analysis)
-        ...(fromCampaign && campaign - fromCampaign === 0 ? { 'credits.lastDailyReset': now() } : {}),
-      });
-    }
-    tx.set(tradeRef(trade.id), { ...trade, credits: cost, campaignCharged: fromCampaign, purchasedCharged: fromPurchased });
+    // The trader's general credits (campaign first, then the day's allowance), bought credits only after: the same
+    // pools as an analysis, so the agent counts toward the daily cap. Can't pay = nothing placed.
+    const charge = cost ? await chargeAgentInTx(tx, a.uid, cost) : null;
+    if (charge === 'CAP') return 'CAP' as const;
+    if (cost && !charge) return 'NO_CREDITS' as const;
+    tx.set(tradeRef(trade.id), {
+      ...trade, credits: cost, campaignCharged: charge?.campaignDelta || 0, purchasedCharged: charge?.purchasedDelta || 0,
+      ...(charge ? { charge: { availableDelta: charge.availableDelta, campaignDelta: charge.campaignDelta, purchasedDelta: charge.purchasedDelta, dailyDelta: charge.dailyDelta, chargedAt: charge.chargedAt } } : {}),
+    });
     tx.update(agentRef(a.uid), {
       'run.day': today, 'run.placedToday': placedToday + 1, 'run.lastScanAt': t0, 'run.creditsUsed': FieldValue.increment(cost),
       seen: [pick.key, ...(cur.seen || [])].slice(0, SEEN_MAX), updatedAt: t0,
     });
     return true;
   });
+  if (placed === 'CAP') return capReached(a, today);
   if (placed === 'NO_CREDITS') {
     await endRun(a.uid, 'NO_CREDITS');
     return;
@@ -886,10 +904,15 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       stats: agentStats(trades),
       log: (a?.log || []).slice(0, 40),
       markets: AGENT_MARKETS,
+      // Run lengths only (the page shows the credits the trader has, never a price list)
       pricing: AGENT_PRICING,
       minQuality: AGENT_MIN_QUALITY,
+      strategyMinQuality: AGENT_STRATEGY_MIN_QUALITY,
+      // The trader's own strategies the agent can trade with (its own choice, separate from the normal page's Strategy Builder)
+      strategies: (await listOwn(uid).catch(() => [])).map(x => ({ id: x.id, name: x.name, summary: x.summary || '', setup: SETUPS[x.rules?.setup as keyof typeof SETUPS]?.short || '' })),
       backtest: AGENT_BACKTEST,
-      credits: free ? null : Math.max(0, u?.credits?.available ?? 0),
+      // What the agent can spend now: general credits (within today's allowance) + bought credits
+      credits: free ? null : agentSpendable(u),
       // Pro gives the agent (free for everyone until the Pro date); staff always
       access: { allowed: agentAccess(u), staff: free, freeUntil: proGateActive() ? null : PRO_GATE_AT },
       // MT5 link: never the password or MetaApi's account id
@@ -922,10 +945,13 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
     if (v.ok === false) return res.status(400).json({ error: 'BAD_SETTINGS', message: v.message });
     const s = v.settings;
     const price = AGENT_PRICING[s.duration];
+    // A personal strategy must still be the trader's own (deleted or someone else's = refused before anything runs)
+    const strategy = s.strategyId ? await ownStrategy(uid, s.strategyId) : null;
+    if (s.strategyId && !strategy) return res.status(400).json({ error: 'NO_STRATEGY', message: 'That strategy no longer exists. Pick another one, or the MarketX engine.' });
     const t = now();
     const run: AgentRun = {
       id: id('ar'), state: 'RUNNING', startedAt: t, endsAt: t + price.days * 86400e3, settings: s, perTrade: price.perTrade,
-      maxCredits: agentMaxCost(s), creditsUsed: 0, day: marketMailDay(t), placedToday: 0, lastScanAt: 0,
+      maxCredits: agentMaxCost(s), creditsUsed: 0, day: marketMailDay(t), placedToday: 0, lastScanAt: 0, strategyName: strategy?.name || null,
     };
     const result = await db().runTransaction(async tx => {
       const [as, us] = await Promise.all([tx.get(agentRef(uid)), tx.get(userRef(uid))]);
@@ -935,18 +961,21 @@ export function registerTradingAgentRoutes(app: Express, deps: AgentDeps & { clo
       if (!agentAccess(u)) return 'NO_SUB';
       if (a?.run?.state === 'RUNNING') return 'RUNNING';
       const free = !!u.emailVerified && isUnlimitedEmail(u.email);
-      if (!free && (u.credits?.available ?? 0) < price.perTrade) return 'NO_CREDITS';
+      if (!free && agentSpendable(u) < price.perTrade) return 'NO_CREDITS';
       tx.set(agentRef(uid), { uid, settings: s, run, log: a?.log || [], seen: a?.seen || [], updatedAt: t });
+      tx.set(userRef(uid), { agentLive: true }, { merge: true });
       return 'OK';
     });
     if (result === 'NO_SUB') return res.status(402).json(PRO_NEEDED);
     if (result === 'RUNNING') return res.status(409).json({ error: 'AGENT_RUNNING', message: 'The agent is already running.' });
-    if (result === 'NO_CREDITS') return res.status(402).json({ error: 'NO_CREDITS', message: `You need at least ${price.perTrade} credits (one trade) to start a ${price.label.toLowerCase()} run.` });
+    // Checked before anything runs: not enough credits for the agent's first trade = nothing starts
+    if (result === 'NO_CREDITS') return res.status(402).json({ error: 'NO_CREDITS', message: 'No credits available. Add credits to start the agent.' });
     if (result !== 'OK') return res.status(409).json({ error: 'NO_ACCOUNT', message: 'Account not initialised. Please sign in again.' });
     const ends = new Date(run.endsAt).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const text = `${price.label} run started: ${s.markets.join(', ')} on ${s.timeframes.join(' and ')}, risk ${s.riskPct}% a trade, up to ${s.tradesPerDay} trade${s.tradesPerDay === 1 ? '' : 's'} a day. Runs until ${ends} WAT. ${price.perTrade} credits a trade, taken when the agent places it and refunded if it never fills.`;
+    const using = strategy ? `your strategy "${strategy.name}"` : 'the MarketX engine';
+    const text = `${price.label} run started with ${using}: ${s.markets.join(', ')} on ${s.timeframes.join(' and ')}, risk ${s.riskPct}% a trade, up to ${s.tradesPerDay} trade${s.tradesPerDay === 1 ? '' : 's'} a day. Runs until ${ends} WAT. Credits are used from your balance only when the agent places a trade, and refunded if it never fills.`;
     await pushLog(uid, [logEntry('START', text)]);
-    tell(uid, '🤖 Trading agent is on', text, { mail: true, rows: [['Run', price.label], ['Risk a trade', `${s.riskPct}%`], ['Most it can cost', `${run.maxCredits} credits`]] }).catch(() => {});
+    tell(uid, '🤖 Trading agent is on', text, { mail: true, rows: [['Run', price.label], ['Strategy', strategy ? strategy.name : 'MarketX engine'], ['Risk a trade', `${s.riskPct}%`]] }).catch(() => {});
     wakeSoon(uid);
     // First look straight away on the lead worker (others: within the next cycle)
     if (IS_LEAD_WORKER) runAgents(deps, uid).catch(err => console.warn('[MarketX Agent] first scan failed:', err?.message || err));

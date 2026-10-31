@@ -29,6 +29,16 @@
   analyses AFTER the day's analyses run out (`chargeAnalysisCredit`: campaign → daily → bought; refunded on failure), by the trading agent
   (campaign → ordinary → bought, `purchasedCharged`, refunded on cancel) and are never giftable. UI: `BuyCreditsCard.tsx` in the Credits tab,
   "Buy credits" link in the agent panel; `CreditState.purchasedCredits`, `promptsLeft` counts them.
+- Pro credits (owner-specified, Oct 2026): every Pro payment adds `PLAN_CREDITS` to the general balance (`credits.available`): 3 months
+  1,000, yearly 3,500 (`fulfillPayment`, `subscription.creditsGranted`; plans bought before get theirs once in `normalizeUser`). Pro's daily
+  allowance is `PRO_DAILY_LIMIT` 50 a day on both plans: a HARD TOTAL of credits spent a day (owner-specified), whatever pays (campaign,
+  then the general balance, then bought credits) and whatever spends (analyses, Fundamental Analysis, the trading agent); `splitCharge(c, cost,
+  'PRO')`, no campaign pause on Pro (refills every 3:00 AM), `CreditState.dailyNeedsBalance`, `promptsLeft` = min(today's left, balance).
+  Over the 50 = 402 `DAILY_LIMIT` until 3:00 AM; balance empty = 402 `NO_CREDITS` ("You've used your plan's credits"). Free keeps 3 free
+  analyses a day (`'FREE'`). Plan credits stay in the balance when Pro ends and can be gifted (owner-specified), bought credits can't.
+  Trading agent credits (owner-specified, no separate agent credit): `chargeAgentInTx` (general credits first, bought only when those can't pay;
+  Pro = `'PRO'`, counted in the 50; non-Pro = `'BALANCE'`), `refundAgentInTx` on an unfilled cancel (`agentTrades.charge` keeps the split),
+  `agentSpendable` = what the agent page shows and the start/placement check.
 - Sign-up is invite-only (`server/access.ts`): a new sign-up reserves one of the batch's 50 server-generated
   pass codes, the code is emailed once, and the account is only created when `/api/access/redeem` accepts it.
   Unredeemed codes expire after 48 hours: the pending sign-up is removed and the seat returns to the batch with a
@@ -145,8 +155,18 @@
   them; none allowed = a Normal analysis saying so), no hot market (ATR percentile ≥ 0.67), stop moved to `STEADY_STOP_MULT` 3 × its normal
   distance (same entry and price targets, R recomputed) and untouched since the zone formed; else "No signal (Steady mode)…". Results carry
   `strategy.steadyMode` and a "> **Stop loss:** Steady mode…" note. Strategy Builder and Confirmation ignore it.
-- Trading agent (owner-specified, `/trading-agent`, `server/tradingAgent.ts`, shared `src/utils/tradingAgent.ts`, panel `TradingAgentPanel.tsx`, slash
-  command `agent` live, Tools sheet More tools, `?agent=1&focus=at_…`, notifications `open_agent`): the trader sets trade type (DAY = 1H, SWING = 4H,
+- Trading agent (owner-specified, `/trading-agent`, `server/tradingAgent.ts`, shared `src/utils/tradingAgent.ts`, slash command `agent` live, Tools sheet
+  More tools, notifications `open_agent`). Its own full-screen PAGE at `/agents` (owner-specified, `src/agents/AgentsPage.tsx` + `agents.css` + `Mt5ServerInput.tsx`,
+  lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows): every entry point (`openAgent`: Tools sheet, slash command,
+  notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
+  (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Design (owner-specified,
+  laid out on the owner's dashboard reference, in the SITE's colours: violet accent `--ag-grad` violet → fuchsia, cyan scan lines, the site's
+  light and dark themes via `--mx-*`; owner-specified, never the reference's lime), `agents.css` in `@layer components`; pill navigation (Setup / Trades / Activity) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
+  P/L, time left with striped progress bars and market "avatars"; credits available with MT5 / run / risk mini cards and a white Start now / Stop now pill),
+  "Live automation" (owner-specified: a pipeline Scan → Find zone → Quality → Order → Manage with a travelling pulse, a tile per market × timeframe whose
+  chart scrolls with a sweeping scan line and step words, a next-scan ring and the latest log lines; it moves ONLY while a run is on, still and grey
+  "Paused" otherwise; the tile charts are drawn shapes, never prices), Trades = a segmented filter (All / Live / Won / Lost) on a white panel with a trade
+  list and a violet detail card, Activity = a timeline; reduced motion respected: the trader sets trade type (DAY = 1H, SWING = 4H,
   ANY = both; Steady mode only trades 1H/4H), timeframes, markets (`AGENT_MARKETS`: gold, BTC, ETH, USD/JPY, GBP/USD, NAS100; EUR/USD lost in the
   back-test so it is not offered), risk per trade 0.1-2%, trades per day 1-5, profit target and loss limit for the run (% of account, 0 = none) and
   the run length; then switches it on and it works on its own (lead worker, `AGENT_TICK_MS` 60s): scans with Steady mode (option C, the same
@@ -160,16 +180,26 @@
   free); starting needs one trade's credits; can't pay at the fill = order cancelled + run ends NO_CREDITS. Runs end on time (TIME_UP), Stop (STOPPED,
   `closeOpen` closes open trades at the live price), profit target (TARGET) or loss limit (LOSS_LIMIT): unfilled orders are cancelled, open trades are
   still managed to the end. Alerts (`tell`): order placed, filled, closed, run started/ended = site notification + push (`kind: 'agent'`); fills, closes and
-  start/end also email within the market budget. Panel: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
+  start/end also email within the market budget. Page: status (run, stats, credits), MT5 card, Setup / Trades (win rate, R, P/L %, history) / Activity
   (`log`, 60 kept). Storage `tradingAgents/{uid}` (settings, run, log, seen) + `agentTrades/{at_…}`; deleted with the account.
   Routes `GET /api/agent`, `PUT /api/agent/settings` (not while running), `POST /api/agent/start` {settings}, `POST /api/agent/stop`.
   Access (owner-specified, supersedes the old $30 agent plan): the agent is part of Pro: free for everyone until `PRO_GATE_AT`, then a live Pro plan or
   unlimited staff (`agentAccess` = `hasProFeatures`, or an old `users.agentSub` still running, honoured until it expires); start and MT5 linking return
   402 `PRO_REQUIRED` otherwise, and a run without access ends `SUB_ENDED` ("Pro plan needed"). `agent_monthly` / `agent_yearly` are no longer sold
-  (`/api/payments/initialize` 400 `PLAN_RETIRED`), kept only to verify checkouts started before. The panel shows an "Upgrade to Pro" card (`onUpgrade`
+  (`/api/payments/initialize` 400 `PLAN_RETIRED`), kept only to verify checkouts started before. The page shows an "Upgrade to Pro" card (`onUpgrade`
   → Plans) instead of plan cards. Credits stay per trade. Credits (owner-specified, supersedes "at the fill"): charged ONCE per trade when the agent
   PLACES it (same transaction as the order, campaign first, `campaignCharged`), refunded in full when the order is cancelled unfilled (`cancelPending`,
   `refunded`); can't pay = nothing placed, run ends NO_CREDITS.
+  No price list on the page (owner-specified): it shows only the credits the trader has ("N credits available"); with fewer than one trade's
+  credits the start says "No credits available" (Start button disabled, the page re-reads `/api/agent` before starting, the server refuses
+  402 NO_CREDITS) and nothing runs. Agent strategy (owner-specified, SEPARATE from the normal page's `users.strategyMode`): `settings.strategyId`
+  (null = the MarketX engine, the default) picked in the Setup tab's Strategy section; "Create or edit a strategy" opens `StrategyBuilderPanel`
+  with its `agent` prop (saves never switch on the normal page's builder; "Use this" / "Save and use for the agent" only pick it for the agent).
+  A strategy run scans with `deps.scanStrategy` (`runUserStrategy` + `personalStrategyStatus`, like the watchlist strategy scan, scan key
+  `strategyId|symbol|tf`), floor `AGENT_STRATEGY_MIN_QUALITY` 45; the run stores `strategyName`; a deleted strategy = 400 NO_STRATEGY at start.
+  Notifications: every `tell` is a site notification + web push (`PushToggle` card "Alerts on this device" on the page); `users.agentLive`
+  (set at start, cleared by `endRun`, `profile.agentLive`) makes the app poll notifications every 15s, and a new `open_agent` notification shows
+  a toast + chime on the normal page, or reloads the agent page (`pulse`) when it is open.
   MT5 execution (owner-specified: MetaApi only, no copy-trade platform; the old "MT5 Connector" Soon command is removed; `server/mt5.ts`, MetaApi REST, `METAAPI_TOKEN` server only + `METAAPI_REGION`): the trader links MT5 in the panel
   (`POST /api/agent/mt5/connect` {login digits, server, master password, consent}, 6/h; `POST /api/agent/mt5/refresh`; `DELETE /api/agent/mt5`):
   login/password/server go ONCE to MetaApi `POST /users/current/accounts` (cloud-g2, mt5, magic 20261023, transaction-id; never `manualTrades`, which MetaApi refuses with a magic number; its errors are reworded by `friendlyMt5Message` with request ids stripped). Server box (owner-requested) = `Mt5ServerInput`: suggestions from `src/utils/mt5Servers.ts` (common brokers) + `GET /api/agent/mt5/servers?q=` (that list + MetaApi's `known-mt-servers/5/search`, cached 10 min) and are NEVER stored,
@@ -184,7 +214,7 @@
   sent (TOKEN_FORMAT); setup problems show a code (TOKEN_REFUSED / TOKEN_FORMAT / NO_TOKEN) and are logged. The token is read forgivingly (quotes,
   "Bearer "/"auth-token:" prefixes, line breaks removed). Admin → Overview "MT5 connection" card (`Mt5Check.tsx`, `GET /api/admin/mt5/check`, `mt5Check`):
   token shape, region, provisioning API reachable + token accepted, with a plain hint; the provider is never named in trader-facing text or the bundle. A link cancelled
-  mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The panel polls every 4s while
+  mid-way deletes what MetaApi made; one left CONNECTING by a restart fails with "interrupted" after `LINK_STALE_MS`. The page polls every 4s while
   linking and shows Step N of 3, a timer, the live message, Cancel, and the failure reason in red. With a CONNECTED link, `mt5Open` places each agent order on the account:
   the levels shifted onto the broker's own quote (`brokerLevels`, refused if > 0.5% apart), lots from balance x risk% over the stop
   (`lotSize`: stop/tickSize x lossTickValue, rounded DOWN to the volume step; under the minimum = not placed), BUY/SELL LIMIT with stop, final target,
@@ -194,7 +224,7 @@
   Connected only when needed (owner-approved, MetaApi bills per connected hour): `mt5Links.power` ON / WAKING / OFF (missing = ON). `sleepIdleLinks`
   (agent tick, every 5 min) undeploys a link (`setMt5Power`) when its run isn't RUNNING and it has no PENDING/OPEN trade with an MT5 order PLACED (10 min
   grace after linking/waking); `wakeLink` deploys and waits for CONNECTED (45s) before any order/cancel/close; a run start wakes it in the background
-  (`wakeSoon`). The panel says "Resting" while asleep; refresh doesn't wake it.
+  (`wakeSoon`). The page says "Resting" while asleep; refresh doesn't wake it.
 - Secure half (owner-specified, Preference Mode `users.preferences.secureHalf`, off by default): at +1R take half off and move the stop to
   entry. The card shows the +1R price (`TradeNotes` in `ChatFeed.tsx`); a price alert started while it is on stores `secureHalf` (the +1R
   price, `secureHalfPrice`) and `evaluateBars` adds HALF (+1R, notice "secure half now") then treats entry as the stop from the next candle
@@ -357,6 +387,31 @@
   the owner's ownership tags when set (`GOOGLE_SITE_VERIFICATION` HTML-tag content, `BING_SITE_VERIFICATION`; or `GOOGLE_VERIFICATION_FILE` answered at
   /googleXXXX.html). `index.html` carries a readable boot screen `#mx-boot` (h1 "MarketX · Your Trading Co-Pilot", what it does, links) that search engines
   read; `src/main.tsx` removes it once the app paints and the boot watchdog removes it before showing its fallback. JSON-LD has alternateName/slogan.
+- Landing page (owner-specified, Oct 2026, built on the owner's Pinterest reference video "Fitonist", its layout AND its scroll-driven motion):
+  `src/landing/LandingPage.tsx` + `landing.css` (scoped `.lx`, its own scroll container) + `scenes.ts` (`useScene`: a tall `.lx-scene` with a
+  pinned `.lx-stage`; progress 0→1 drives transforms written straight to elements, no render per frame; `useEnter` for the CTA card) + `demos.tsx`;
+  lazily loaded, shown to every signed-out visitor in place of the old `WelcomeGate`. Scenes: (1) gradient hero card slides away while the phone
+  stays, lands in soft rings, then rises for the curved-line annotation; (2) market pills fly in as a tilted deck, fan out, scroll, then turn into
+  LIVE price rows; (3) "Define your goal" then the goal list steps with the scroll; (4) white "Choose your tool": stickers fly in, clip cards rotate
+  through like a conveyor (only the card in view plays its demo); (5) ring draws, then splits into two cards; (6) device screens rise at their own
+  speeds around a big gradient "MT5"; (7) Q&A deck rises and turns (real Q&A, never made-up reviews); (8) "Unlock all benefits": the Pro card opens
+  then closes (Free $0 3 a day / Pro $30 per 3 months / $176 a year); then the CTA card grows in, ID checker strip, "Contact us" (opens the visitor's
+  mail app to the public support address) and the footer (Terms / Privacy open the existing modal). Pill nav at the top that glides to the bottom
+  on scroll + a back-to-top bump. Live prices (owner-specified): the SAME feed as the signed-in home page (`tickers` from App's
+  `/api/market/stream` / `/api/market/tickers`, public), hero chips + the price rows, flashing on each tick; only real quotes (`asOf` set) are
+  shown, a featured market without one is swapped for another live market, never App's built-in starting values. Demo clips (Analyze a trade, Matt
+  talk back, Fundamental Analysis, Token safety, Solana records) are animated replicas tagged "Demo" with example numbers; owner-specified: every
+  site screen shown on the page (phone screens, clip cards, device screens, mini cards) is LIGHT (white) on dark or coloured sections and DARK on
+  white sections (the "Choose your tool" showcase); the screen colours are `--s-*` variables in landing.css, flipped by `.lx-white`.
+  "Traders are talking about MarketX" (owner-specified, `XPosts.tsx`, after the Q&A deck): real posts about MarketX on X reproduced word for word as
+  white post cards (styled on the owner's sample post; pictures cropped from the owner's screenshots in `public/landing/x/`), every label kept as X
+  shows it (verified badge, "Automated by"); the founder's post (@_saamie, "Founder" tag, the Solana address → Solscan, marketx.world/checker →
+  /checker, the Solscan memo picture) is featured, the others glide in two opposite rows (pause on hover, only while on screen, a plain scroll with
+  reduced motion). Each card opens its post on X in a new tab (`url`, tracking parameters removed, never shown as text; `openPost` only opens
+  x.com post addresses; links inside a card open only themselves). Add a post only from a real post, word for word, with its link.
+  No server notice on the landing page (owner-specified; an auth problem still shows inside the sign-in window). Every feature CTA opens
+  Create account / Sign in; only `/checker` and `/blog` open directly. No internals, providers or settings in its copy; keep the prices in step
+  with `server/payments.ts`.
 - SEO (`index.html`): link previews use `public/brand/marketx-share-si.jpg` (og:image + twitter:image + JSON-LD, with size/alt tags;
   `marketx-og-1200x630.jpg` and `marketx-share-2026.jpg` hold the same picture for old links; a new image gets a NEW file name so social caches refetch;
   design (owner-specified, Oct 2026, styled on the owner's studio template): white page, top nav (logo, dark pill "Ask SI" / "Explore Markets", outlined
@@ -683,7 +738,7 @@
   (`VISIBLE_MS`). It never shows notifications (prompts, analysis results or anything the notification center already shows).
 - Emails (`server/mailer.ts`, the only template; a body line is only turned into a link when it is a MarketX link, `ownLink`): light design (owner-specified): soft white page, NO logo header
   above the card (owner-specified, removed), white card with a violet to cyan top bar, dark readable text, violet button, footer with a row of round icon buttons
-  (`SOCIALS`: X → x.com/_MarketX, Telegram → `/go/telegram`, YouTube → `/go/youtube`; PNGs `public/brand/social/{x,telegram,youtube}-72.png?v=1`, shown 32px)
+  (`SOCIALS`: X → x.com/_MarketX, Telegram → `/go/telegram`, YouTube → `/go/youtube`; PNGs `public/brand/social/{x,telegram,youtube}-72.png?v=2`, shown 32px; YouTube = red circle with the white rounded play button, same as `YouTubeIcon`)
   then marketx.world · Support; tables with `bgcolor` and
   `color-scheme: light only` so mail apps keep it light.
 - Admin console at `/admin` (`server/admin.ts`, `src/admin/*`, lazily loaded): its own password (`ADMIN_DEFAULT_PASSWORD` env, 12+ chars, never
@@ -703,6 +758,11 @@
   against the monthly free allowance. Model names stay server-side (never in the bundle).
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
+
+## Design colours (owner-specified, every design)
+- Always use the site's own colour combinations, whatever colours a reference image or "clue" uses: the theme surfaces (`--mx-bg`,
+  `--mx-surface*`, `--mx-border*`, `--mx-text`, light and dark themes both), the violet accent (`--mx-accent` #8b5cf6, gradients violet →
+  fuchsia / violet → indigo → cyan) and the usual states (emerald win, rose loss, amber warning). Take a reference's layout and motion only.
 
 ## Deployment
 - `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory);

@@ -34,6 +34,8 @@ import { preloadMarkdown } from './components/LazyMarkdown';
 import { lazyWithReload } from './utils/lazyReload';
 
 // Modals load on first open (smaller first download); once loaded they stay mounted
+// Signed-out visitors land on the marketing page (owner-specified); its own chunk, so the app never loads it
+const LandingPage = lazyWithReload(() => import('./landing/LandingPage').then(m => ({ default: m.LandingPage })));
 const PricingModal = lazyWithReload(() => import('./components/PricingModal').then(m => ({ default: m.PricingModal })));
 const GiftCreditsModal = lazyWithReload(() => import('./components/GiftCreditsModal').then(m => ({ default: m.GiftCreditsModal })));
 const NotificationCenterModal = lazyWithReload(() => import('./components/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
@@ -48,16 +50,19 @@ const WatchlistPanel = lazyWithReload(() => import('./components/WatchlistPanel'
 const TradeJournalPanel = lazyWithReload(() => import('./components/TradeJournalPanel').then(m => ({ default: m.TradeJournalPanel })));
 const TrackRecordPanel = lazyWithReload(() => import('./components/TrackRecordPanel').then(m => ({ default: m.TrackRecordPanel })));
 const LeaderboardPanel = lazyWithReload(() => import('./components/LeaderboardPanel').then(m => ({ default: m.LeaderboardPanel })));
-const TradingAgentPanel = lazyWithReload(() => import('./components/TradingAgentPanel').then(m => ({ default: m.TradingAgentPanel })));
+const AgentsPage = lazyWithReload(() => import('./agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
 const ConnectorsModal = lazyWithReload(() => import('./components/ConnectorsModal').then(m => ({ default: m.ConnectorsModal })));
 const PreferencePanel = lazyWithReload(() => import('./components/PreferencePanel').then(m => ({ default: m.PreferencePanel })));
 const StrategyBuilderPanel = lazyWithReload(() => import('./components/StrategyBuilderPanel').then(m => ({ default: m.StrategyBuilderPanel })));
 const FundamentalPanel = lazyWithReload(() => import('./components/FundamentalPanel').then(m => ({ default: m.FundamentalPanel })));
 // Fetched in idle time after start-up, so the first tap on the bell or a Settings item opens instantly (no download
 // on a slow mobile connection) and still works if a new version is deployed while the tab stays open
-const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel, FundamentalPanel];
+const PRELOADED_SCREENS = [NotificationCenterModal, SupportChat, TermsAndPrivacyModal, PricingModal, GiftCreditsModal, ShareProfileModal, PriceAlertsPanel, WatchlistPanel, TradeJournalPanel, TrackRecordPanel, ConnectorsModal, PreferencePanel, StrategyBuilderPanel, FundamentalPanel, AgentsPage];
 
 /** Renders its children from the first time `when` is true, then keeps them mounted. */
+/** True on the Trading Agent page's address (/agents, any letter case, optional trailing slash) */
+const isAgentsPath = (path = typeof window !== 'undefined' ? window.location.pathname : '') => /^\/agents\/?$/i.test(path);
+
 const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when, children }) => {
   const [loaded, setLoaded] = useState(when);
   useEffect(() => {
@@ -68,7 +73,6 @@ const Deferred: React.FC<{ when: boolean; children: React.ReactNode }> = ({ when
 import { AuthModal } from './components/AuthModal';
 import { ChatUpdatesBar } from './components/ChatUpdatesBar';
 import { PasscodePage } from './components/PasscodePage';
-import { WelcomeGate } from './components/WelcomeGate';
 import { SiteBanner } from './components/SiteBanner';
 import { PromoBanner } from './components/PromoBanner';
 import { AnnouncementModal } from './components/AnnouncementModal';
@@ -193,9 +197,13 @@ export default function App() {
   // Leaderboard (usage this month / referrals), opened from the sidebar, /leaderboard, the profile and ?leaderboard=1
   const [leaderboard, setLeaderboard] = useState<'usage' | 'referrals' | null>(null);
   const leaderboardLinkRef = useRef<'usage' | 'referrals' | null>(null);
-  // Trading agent (/trading-agent, ?agent=1&focus=at_…, agent notifications)
+  // Trading agent: its own full-screen page at /agents (also ?agent=1&focus=at_… from older links, agent notifications)
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentFocus, setAgentFocus] = useState<string | null>(null);
+  /** A run is live, as the agent page last saw it (null = not seen this visit: the account's own flag is used) */
+  const [agentRunLive, setAgentRunLive] = useState<boolean | null>(null);
+  /** Counts agent notices that arrived while the agent page is open (it reloads at once) */
+  const [agentPulse, setAgentPulse] = useState(0);
   const agentLinkRef = useRef(false);
   // Arrived through an invite link (?ref=CODE) while signed out: the sign-up form opens once we know
   const inviteArrivalRef = useRef(false);
@@ -336,7 +344,7 @@ export default function App() {
     // Invite link: the code is kept on this device until sign-up (removed from the address bar)
     if (captureRefFromUrl()) inviteArrivalRef.current = true;
     if (params.get('leaderboard') === '1') leaderboardLinkRef.current = params.get('board') === 'referrals' ? 'referrals' : 'usage';
-    if (params.get('agent') === '1') {
+    if (params.get('agent') === '1' || isAgentsPath()) {
       agentLinkRef.current = true;
       const f = params.get('focus') || '';
       if (/^at_[a-f0-9]{16}$/.test(f)) setAgentFocus(f);
@@ -413,9 +421,12 @@ export default function App() {
     };
   }, [handleAuthenticated]);
 
-  // Browser back/forward between the app and the pass code page
+  // Browser back/forward between the app, the pass code page and the agent page
   useEffect(() => {
-    const onPop = () => setOnAccessPage(window.location.pathname === '/access');
+    const onPop = () => {
+      setOnAccessPage(window.location.pathname === '/access');
+      setAgentOpen(isAgentsPath());
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -1347,7 +1358,15 @@ export default function App() {
     setIsSidebarOpen(false);
     setAgentFocus(focus);
     setAgentOpen(true);
+    if (!isAgentsPath()) window.history.pushState({ mxAgents: 1 }, '', '/agents');
   }, [authUser]);
+  /** Leaves the agent page: back to where the trader came from inside the app, else to the home page */
+  const closeAgent = useCallback(() => {
+    setAgentOpen(false);
+    if (!isAgentsPath()) return;
+    if (window.history.state?.mxAgents) window.history.back();
+    else window.history.replaceState(null, '', '/');
+  }, []);
   const openToolPanel = useCallback((id: 'preference' | 'strategy' | 'fundamental') => {
     if (!authUser) {
       setIsAuthModalOpen(true);
@@ -1412,13 +1431,18 @@ export default function App() {
   useEffect(() => {
     if (authUser) clearRefCode();
   }, [authUser]);
-  // A trading agent link (?agent=1, from its emails and push notifications) opens it once signed in
+  // A trading agent link (/agents, or ?agent=1 from older emails) opens the page once signed in; signed out, sign-in comes first
   useEffect(() => {
     if (authUser && agentLinkRef.current) {
       agentLinkRef.current = false;
       setAgentOpen(true);
+      if (!isAgentsPath()) window.history.replaceState(null, '', '/agents');
+    } else if (authChecked && !authUser && agentLinkRef.current && !isAuthModalOpen) {
+      setAuthModalMode('signin');
+      setIsAuthModalOpen(true);
     }
-  }, [authUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, authChecked]);
   // A leaderboard link (?leaderboard=1&board=referrals) opens it once signed in
   useEffect(() => {
     if (authUser && leaderboardLinkRef.current) {
@@ -1458,6 +1482,39 @@ export default function App() {
       playChime(fresh.some(n => n.title.startsWith('🎯')) ? 'ready' : 'building');
     }
   }, [notifications]);
+  // While the trading agent runs, its notices (order placed, filled, won, lost, run ended) are picked up every 15s on the
+  // normal page too (tab visible only), and at once when the trader comes back to the tab
+  const agentLive = agentRunLive ?? !!userProfile.agentLive;
+  useEffect(() => {
+    if (!authUser || !agentLive || hasActiveAlerts) return;
+    const id = setInterval(() => {
+      if (!document.hidden) refreshNotifications(true);
+    }, 15_000);
+    const onVisible = () => {
+      if (!document.hidden) refreshNotifications(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [authUser, agentLive, hasActiveAlerts, refreshNotifications]);
+  // A new agent notice while the trader is elsewhere in MarketX: a short toast (tap opens the agent page) and a chime
+  const seenAgentNotifsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const agentNotifs = notifications.filter(n => n.actionType === 'open_agent');
+    if (!seenAgentNotifsRef.current) {
+      seenAgentNotifsRef.current = new Set(agentNotifs.map(n => n.id));
+      return;
+    }
+    const fresh = agentNotifs.filter(n => !seenAgentNotifsRef.current!.has(n.id) && !n.read);
+    agentNotifs.forEach(n => seenAgentNotifsRef.current!.add(n.id));
+    if (fresh.length && agentOpen) setAgentPulse(p => p + 1);
+    else if (fresh.length) {
+      setToastNotification({ message: fresh[0].title, type: 'info', notif: fresh[0] });
+      playChime(/won|target|filled/i.test(fresh[0].title) ? 'ready' : 'building');
+    }
+  }, [notifications, agentOpen]);
   useEffect(() => primeSound(), []);
   // Phone / desktop notifications: this device is linked to whoever signs in; a push that arrives while MarketX is
   // open refreshes the notices at once (toast + chime), and a tapped notification opens its exact item
@@ -1479,10 +1536,12 @@ export default function App() {
           } else if (q.get('alerts') === '1') {
             setAlertFocus(/^al_of_[a-z0-9]{8,40}$/.test(focus) ? focus : null);
             openPluginPanel('alerts');
+          } else if (q.get('agent') === '1' || isAgentsPath(new URL(url, window.location.origin).pathname)) {
+            openAgent(/^at_[a-f0-9]{16}$/.test(focus) ? focus : null);
           }
         },
       }),
-    [authUser, refreshNotifications, openPluginPanel]
+    [authUser, refreshNotifications, openPluginPanel, openAgent]
   );
 
   /** Opens the reply a notification is about, in its chat, scrolled to and highlighted */
@@ -2569,8 +2628,17 @@ export default function App() {
           }}
         />
         {authChecked ? (
-          <WelcomeGate
-            notice={authUnavailable}
+          <Suspense
+            fallback={
+              <div className="mx-backdrop min-h-[100dvh] flex items-center justify-center" aria-busy="true">
+                <span className="mx-shimmer">
+                  <MarketXIcon size="lg" />
+                </span>
+              </div>
+            }
+          >
+          <LandingPage
+            tickers={tickers}
             onSignUp={() => {
               setAuthModalMode('signup');
               setIsAuthModalOpen(true);
@@ -2580,7 +2648,12 @@ export default function App() {
               setIsAuthModalOpen(true);
             }}
             onHaveCode={() => goToAccessPage(accessEmail)}
+            onOpenTerms={tab => {
+              setTermsModalTab(tab);
+              setIsTermsModalOpen(true);
+            }}
           />
+          </Suspense>
         ) : (
           <div className="mx-backdrop min-h-[100dvh] flex items-center justify-center" aria-busy="true">
             <span className="mx-shimmer">
@@ -2589,6 +2662,10 @@ export default function App() {
           </div>
         )}
         {authModal}
+        {/* Terms & Privacy from the landing page footer */}
+        <Deferred when={isTermsModalOpen}>
+          <TermsAndPrivacyModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} defaultTab={termsModalTab} />
+        </Deferred>
       </>
     );
   }
@@ -2733,9 +2810,19 @@ export default function App() {
           onToast={showToast}
         />
       </Deferred>
-      <Deferred when={agentOpen}>
-        <TradingAgentPanel isOpen={agentOpen} focusId={agentFocus} onClose={() => setAgentOpen(false)} onBuyCredits={() => (setAgentOpen(false), openAccountTab('credits'))} onUpgrade={() => (setAgentOpen(false), setIsPricingModalOpen(true))} />
-      </Deferred>
+      {agentOpen && (
+        <Suspense fallback={<div className="fixed inset-0 z-[46] bg-[var(--mx-bg)]" aria-busy="true" />}>
+          <AgentsPage
+            focusId={agentFocus}
+            onBack={closeAgent}
+            onBuyCredits={() => (closeAgent(), openAccountTab('credits'))}
+            onUpgrade={() => setIsPricingModalOpen(true)}
+            onToast={showToast}
+            onRunning={setAgentRunLive}
+            pulse={agentPulse}
+          />
+        </Suspense>
+      )}
       <Deferred when={!!leaderboard}>
         <LeaderboardPanel isOpen={!!leaderboard} initialBoard={leaderboard || 'usage'} onClose={() => setLeaderboard(null)} />
       </Deferred>

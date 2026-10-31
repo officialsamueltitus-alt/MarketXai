@@ -103,7 +103,9 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
     const https = req.secure || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
     // The Vite dev server injects inline scripts, so CSP is enforced in production builds only
     res.setHeader('Content-Security-Policy', https ? `${CSP}; upgrade-insecure-requests` : CSP);
-    if (https) res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+    // HTTPS only for this host: no includeSubDomains, so a sub-address of the domain without its own certificate
+    // (e.g. www not yet issued on the host) is never locked out of Safari and other browsers for two years
+    if (https) res.setHeader('Strict-Transport-Security', 'max-age=63072000');
   }
   next();
 }

@@ -75,11 +75,11 @@ const toClient = (s: SavedStrategy) => ({
   updatedAt: s.updatedAt,
 });
 
-async function listOwn(uid: string): Promise<SavedStrategy[]> {
+export async function listOwn(uid: string): Promise<SavedStrategy[]> {
   const snap = await db().collection(COL).where('uid', '==', uid).get();
   return snap.docs.map(d => d.data() as SavedStrategy).sort((a, b) => a.createdAt - b.createdAt);
 }
-async function ownStrategy(uid: string, id: string): Promise<SavedStrategy | null> {
+export async function ownStrategy(uid: string, id: string): Promise<SavedStrategy | null> {
   if (!/^st_[a-f0-9]{16}$/.test(id)) return null;
   const s = (await db().collection(COL).doc(id).get()).data() as SavedStrategy | undefined;
   return s && s.uid === uid ? s : null;

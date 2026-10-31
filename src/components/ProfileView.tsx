@@ -5,7 +5,7 @@ import { MarketXText } from './MarketXText';
 import { EditProfileModal } from './EditProfileModal';
 import { DeleteAccountModal } from './DeleteAccountModal';
 import { TOKEN_RANGE_TEXT } from '../utils/tokens';
-import { DEFAULT_BENEFITS as B } from '../utils/apiClient';
+import { DEFAULT_BENEFITS as B, proCreditsLine } from '../utils/apiClient';
 import { ShareProfileModal } from './ShareProfileModal';
 import { CampaignBanner } from './CampaignBanner';
 import { TraderIdCard } from './TraderIdCard';
@@ -264,7 +264,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
         {!isPremium && !isUnlimited && (
-          <p className="mt-2 text-xs text-slate-500">Pro gives {B.proDailyAnalyses} daily analyses (Free: {B.freeDailyAnalyses}) and a verified badge.</p>
+          <p className="mt-2 text-xs text-slate-500">Pro gives {proCreditsLine(B)}, up to {B.proDailyAnalyses} a day (Free: {B.freeDailyAnalyses} analyses a day), and a verified badge.</p>
         )}
         {isUnlimited && <p className="mt-2 text-xs text-slate-500">Unlimited analyses with no credit deductions.</p>}
       </section>
