@@ -15,9 +15,10 @@ import { PushToggle } from '../components/PushToggle';
 import { SETUPS } from '../utils/strategyRules';
 import './agents.css';
 
-// Trading Agent page (owner-specified, `/agents`): a full-screen page of its own, a dark dashboard with lime accents styled on
-// the owner's reference (white pill navigation, big title, stat cards with progress bars, credits card with highlighted mini
-// cards, a white trades panel with a dark detail card). "Live automation" shows the agent at work (a pipeline pulse, market
+// Trading Agent page (owner-specified, `/agents`): a full-screen page of its own, a dashboard laid out on the owner's reference in the
+// site's own colours (owner-specified: violet accent with cyan / fuchsia, following the site's light and dark themes): pill
+// navigation, big title, stat cards with progress bars, credits card with highlighted mini cards, a trades panel with a
+// violet detail card. "Live automation" shows the agent at work (a pipeline pulse, market
 // charts being scanned, the next-scan ring, its latest steps): it moves only while a run is on and stops when it ends or the
 // trader stops it. The trader sets it up (strategy, trade type, timeframes, markets, risk, limits, run length) and switches it
 // on; the agent then finds, places and manages trades on its own and alerts the trader at every step. Same routes as before.
@@ -82,17 +83,17 @@ const STATE_CHIP: Record<string, { text: string; tone: 'live' | 'win' | 'loss' |
 };
 const chipOf = (t: AgentTradeView) => STATE_CHIP[t.state === 'CLOSED' ? t.result || 'TIMEOUT' : t.state] || STATE_CHIP.TIMEOUT;
 const LOG_ICON: Record<AgentLogEntry['kind'], { icon: React.ElementType; color: string }> = {
-  START: { icon: Power, color: '#4d7c0f' },
-  SCAN: { icon: Activity, color: '#6b7280' },
-  ORDER: { icon: CircleDot, color: '#0369a1' },
-  FILL: { icon: Target, color: '#6d28d9' },
-  WIN: { icon: CheckCircle2, color: '#15803d' },
-  LOSS: { icon: XCircle, color: '#be123c' },
-  CLOSE: { icon: Square, color: '#374151' },
-  CANCEL: { icon: Minus, color: '#6b7280' },
-  STOP: { icon: Square, color: '#b45309' },
-  END: { icon: Clock, color: '#374151' },
-  PAUSE: { icon: ShieldAlert, color: '#b45309' },
+  START: { icon: Power, color: '#8b5cf6' },
+  SCAN: { icon: Activity, color: '#94a3b8' },
+  ORDER: { icon: CircleDot, color: '#0ea5e9' },
+  FILL: { icon: Target, color: '#a855f7' },
+  WIN: { icon: CheckCircle2, color: '#10b981' },
+  LOSS: { icon: XCircle, color: '#f43f5e' },
+  CLOSE: { icon: Square, color: '#94a3b8' },
+  CANCEL: { icon: Minus, color: '#94a3b8' },
+  STOP: { icon: Square, color: '#f59e0b' },
+  END: { icon: Clock, color: '#94a3b8' },
+  PAUSE: { icon: ShieldAlert, color: '#f59e0b' },
 };
 
 /** Market "avatars": a short code on the market's own colour */
@@ -150,7 +151,7 @@ function Stepper({ value, min, max, step, onChange, suffix, label, title, hint }
   return (
     <div className="ag-soft p-3.5">
       <p className="text-[13px] font-medium text-white">{title}</p>
-      <p className="text-[11px] text-[#8a91a0] leading-snug min-h-[28px]">{hint}</p>
+      <p className="text-[11px] text-[var(--ag-muted)] leading-snug min-h-[28px]">{hint}</p>
       <div className="mt-2.5 flex items-center justify-between gap-2">
         <button type="button" disabled={value <= min} onClick={() => set(value - step)} aria-label={`Less ${label}`} className="ag-step-btn">
           <Minus className="w-3.5 h-3.5" />
@@ -170,7 +171,7 @@ function Section({ title, hint, children, i = 0 }: { title: string; hint?: strin
   return (
     <section className="ag-card ag-rise p-4 sm:p-5" style={rise(i)}>
       <p className="text-[15px] font-medium text-white">{title}</p>
-      {hint && <p className="mt-0.5 text-[11.5px] text-[#8a91a0]">{hint}</p>}
+      {hint && <p className="mt-0.5 text-[11.5px] text-[var(--ag-muted)]">{hint}</p>}
       <div className="mt-3.5">{children}</div>
     </section>
   );
@@ -434,7 +435,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
         </div>
 
         {!data && loading && (
-          <div className="py-28 flex flex-col items-center gap-4 text-[#8a91a0]">
+          <div className="py-28 flex flex-col items-center gap-4 text-[var(--ag-muted)]">
             <span className="ag-mark on" aria-hidden="true">
               <Bot className="w-4 h-4" />
             </span>
@@ -474,7 +475,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                   </div>
                   <div className="min-w-0">
                     <p className="ag-label">Result</p>
-                    <p key={`r${st?.totalR}`} className={`ag-big ag-pop mt-1.5 ${st && st.totalR > 0 ? '!text-[#b6f23d]' : st && st.totalR < 0 ? '!text-rose-300' : ''}`}>
+                    <p key={`r${st?.totalR}`} className={`ag-big ag-pop mt-1.5 ${st && st.totalR > 0 ? '!text-[var(--ag-accent-text)]' : st && st.totalR < 0 ? '!text-rose-300' : ''}`}>
                       {st?.trades ? `${sign(st.totalR)}R` : '–'}
                     </p>
                     <div className="mt-5 flex justify-between ag-label text-[11px]">
@@ -484,14 +485,14 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                     <div className="mt-1.5 ag-bar-track">
                       <span className={`ag-bar-fill ${running && openTrades.length ? 'run' : ''}`} style={{ width: `${Math.min(100, (openTrades.length / Math.max(1, (running ? run!.settings : draft).tradesPerDay)) * 100)}%` }} />
                     </div>
-                    <p className="mt-4 text-[11.5px] text-[#8a91a0] leading-snug">
+                    <p className="mt-4 text-[11.5px] text-[var(--ag-muted)] leading-snug">
                       {running ? `Up to ${run!.settings.tradesPerDay} a day · risk ${run!.settings.riskPct}% a trade` : `${data.stats.trades} closed trade${data.stats.trades === 1 ? '' : 's'} so far`}
                     </p>
                   </div>
                   <div className="min-w-0">
                     <p className="ag-label">{running ? 'Time left' : 'Status'}</p>
                     <p className="ag-big mt-1.5" data-clock={clock}>
-                      {running ? left(run!.endsAt) : <span className="text-[24px] text-[#c7ccd6]">{run ? ENDED_TEXT[run.endedReason || 'TIME_UP'] : 'Off'}</span>}
+                      {running ? left(run!.endsAt) : <span className="text-[24px] text-[var(--ag-text-2)]">{run ? ENDED_TEXT[run.endedReason || 'TIME_UP'] : 'Off'}</span>}
                     </p>
                     <div className="mt-5 flex justify-between ag-label text-[11px]">
                       <span>{running ? AGENT_PRICING[run!.settings.duration].label : AGENT_PRICING[draft.duration].label}</span>
@@ -500,7 +501,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                     <div className="mt-1.5 ag-bar-track">
                       <span className={`ag-bar-fill ${running ? 'run' : ''}`} style={{ width: `${running ? Math.max(3, elapsed * 100) : 0}%` }} />
                     </div>
-                    <p className="mt-4 text-[11.5px] text-[#8a91a0] leading-snug truncate">{running ? (run!.strategyName ? `Strategy: ${run!.strategyName}` : 'MarketX engine') : chosen ? `Strategy: ${chosen.name}` : 'MarketX engine'}</p>
+                    <p className="mt-4 text-[11.5px] text-[var(--ag-muted)] leading-snug truncate">{running ? (run!.strategyName ? `Strategy: ${run!.strategyName}` : 'MarketX engine') : chosen ? `Strategy: ${chosen.name}` : 'MarketX engine'}</p>
                   </div>
                 </div>
               </section>
@@ -517,7 +518,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                         </button>
                       )}
                     </div>
-                    <p className="mt-1 text-[11px] text-[#8a91a0]">{short ? 'No credits available: the agent can’t start.' : 'Used only when the agent places a trade, refunded if it never fills.'}</p>
+                    <p className="mt-1 text-[11px] text-[var(--ag-muted)]">{short ? 'No credits available: the agent can’t start.' : 'Used only when the agent places a trade, refunded if it never fills.'}</p>
                   </div>
                   {onBuyCredits && (
                     <button type="button" onClick={onBuyCredits} className="ag-round sm ml-auto" aria-label="Open credits">
@@ -560,7 +561,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
               <div className={`ag-collapse ${confirmStop ? 'open' : ''}`}>
                 <div>
                   <div className="mt-3 ag-card p-4 flex flex-wrap items-center gap-2.5">
-                    <p className="text-[12.5px] text-[#c7ccd6] mr-auto">Stop the agent? Orders waiting to fill are cancelled and their credits refunded.</p>
+                    <p className="text-[12.5px] text-[var(--ag-text-2)] mr-auto">Stop the agent? Orders waiting to fill are cancelled and their credits refunded.</p>
                     <button type="button" disabled={busy} onClick={() => stop(false)} className="ag-pill">
                       Stop, keep open trades
                     </button>
@@ -575,7 +576,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
               </div>
             )}
             {error && (
-              <p className="mt-3 ag-rise text-[12px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-full px-4 py-2.5" role="alert">
+              <p className="mt-3 ag-rise text-[12px] text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-full px-4 py-2.5" role="alert">
                 {error}
               </p>
             )}
@@ -585,9 +586,9 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
               <div className="relative flex flex-wrap items-center gap-3">
                 <div className="min-w-0">
                   <p className="text-[15px] font-medium text-white flex items-center gap-2">
-                    <Radar className={`w-4 h-4 ${running ? 'text-[#b6f23d]' : 'text-[#6b7280]'}`} /> Live automation
+                    <Radar className={`w-4 h-4 ${running ? 'text-[var(--ag-accent-text)]' : 'text-[var(--ag-muted)]'}`} /> Live automation
                   </p>
-                  <p className="mt-0.5 text-[11.5px] text-[#8a91a0]">
+                  <p className="mt-0.5 text-[11.5px] text-[var(--ag-muted)]">
                     {running
                       ? `Scanning ${runMarkets.length} market${runMarkets.length === 1 ? '' : 's'} on ${runFrames.join(' + ')} every minute, on its own.`
                       : run
@@ -627,15 +628,15 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                           <MarketAv symbol={m} size={26} />
                           <div className="min-w-0">
                             <p className="text-[12px] font-semibold text-white truncate">{marketLabel(m)?.label || m}</p>
-                            <p className="text-[10px] text-[#8a91a0]">{tf}</p>
+                            <p className="text-[10px] text-[var(--ag-muted)]">{tf}</p>
                           </div>
                         </div>
                         <div className="ag-scan-chart" aria-hidden="true">
                           <svg viewBox="0 0 200 54" preserveAspectRatio="none">
                             <defs>
                               <linearGradient id="ag-fade" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0" stopColor="#b6f23d" stopOpacity=".28" />
-                                <stop offset="1" stopColor="#b6f23d" stopOpacity="0" />
+                                <stop offset="0" stopColor="#8b5cf6" stopOpacity=".28" />
+                                <stop offset="1" stopColor="#8b5cf6" stopOpacity="0" />
                               </linearGradient>
                             </defs>
                             <path className="area" d={p.area} />
@@ -651,7 +652,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       </div>
                     );
                   })}
-                  {!scanTiles.length && <p className="col-span-full text-[12px] text-[#8a91a0]">Pick markets and timeframes in Setup.</p>}
+                  {!scanTiles.length && <p className="col-span-full text-[12px] text-[var(--ag-muted)]">Pick markets and timeframes in Setup.</p>}
                 </div>
 
                 {/* Next scan + the agent's latest steps */}
@@ -667,7 +668,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                     </div>
                     <div className="min-w-0">
                       <p className="text-[13px] font-medium text-white">{running ? 'Next scan' : 'Not scanning'}</p>
-                      <p className="text-[11px] text-[#8a91a0] leading-snug">
+                      <p className="text-[11px] text-[var(--ag-muted)] leading-snug">
                         {running ? `Quality ${run!.settings.strategyId ? data.strategyMinQuality ?? 45 : data.minQuality}+ only, so some days it takes none.` : 'The agent is off.'}
                       </p>
                     </div>
@@ -675,11 +676,11 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                   <ol className="ag-feed space-y-2 min-w-0" aria-label="Latest steps">
                     {data.log.slice(0, 3).map((l, i) => (
                       <li key={`${l.at}-${i}`} className="flex gap-2 text-[11.5px] leading-snug min-w-0" style={rise(i)}>
-                        <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 && running ? 'bg-[#b6f23d]' : 'bg-[#4b5263]'}`} />
-                        <span className="text-[#c7ccd6] line-clamp-2 break-words">{l.text}</span>
+                        <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 && running ? 'bg-[#a855f7]' : 'bg-[var(--ag-line-2)]'}`} />
+                        <span className="text-[var(--ag-text-2)] line-clamp-2 break-words">{l.text}</span>
                       </li>
                     ))}
-                    {!data.log.length && <li className="text-[11.5px] text-[#8a91a0]">Its steps show here as it works.</li>}
+                    {!data.log.length && <li className="text-[11.5px] text-[var(--ag-muted)]">Its steps show here as it works.</li>}
                   </ol>
                 </div>
               </div>
@@ -690,15 +691,15 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
               {tab === 'setup' && (
                 <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start">
                   <div className={`space-y-4 ${running ? 'opacity-55 pointer-events-none select-none' : ''}`} aria-disabled={running}>
-                    {running && <p className="text-[12px] text-[#8a91a0] px-1">Stop the agent to change its setup.</p>}
+                    {running && <p className="text-[12px] text-[var(--ag-muted)] px-1">Stop the agent to change its setup.</p>}
                     <Section title="Strategy" hint="What the agent trades with. Separate from your normal MarketX setup." i={0}>
                       <div className="grid sm:grid-cols-2 gap-2">
                         <button type="button" onClick={() => pickStrategy(null)} className={`ag-choice ${!draft.strategyId ? 'on' : ''}`} aria-pressed={!draft.strategyId}>
                           <span className="flex items-center gap-1.5 text-[13px] font-semibold text-white">
-                            <Bot className="w-3.5 h-3.5 text-[#b6f23d]" /> MarketX engine
-                            <span className="ml-auto text-[10px] font-semibold text-[#b6f23d]">Default</span>
+                            <Bot className="w-3.5 h-3.5 text-[var(--ag-accent-text)]" /> MarketX engine
+                            <span className="ml-auto text-[10px] font-semibold text-[var(--ag-accent-text)]">Default</span>
                           </span>
-                          <span className="block mt-0.5 text-[10.5px] text-[#8a91a0] leading-snug">Steady mode: supply and demand zones with a Fibonacci entry, back-tested on these markets</span>
+                          <span className="block mt-0.5 text-[10.5px] text-[var(--ag-muted)] leading-snug">Steady mode: supply and demand zones with a Fibonacci entry, back-tested on these markets</span>
                         </button>
                         {strategies.map(x => (
                           <button key={x.id} type="button" onClick={() => pickStrategy(x.id)} className={`ag-choice ${draft.strategyId === x.id ? 'on' : ''}`} aria-pressed={draft.strategyId === x.id}>
@@ -706,7 +707,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                               <span className="truncate">{x.name}</span>
                               {x.setup && <span className="ml-auto shrink-0 text-[10px] font-semibold text-violet-300">{x.setup}</span>}
                             </span>
-                            <span className="block mt-0.5 text-[10.5px] text-[#8a91a0] leading-snug line-clamp-2">{x.summary || 'Your own strategy'}</span>
+                            <span className="block mt-0.5 text-[10.5px] text-[var(--ag-muted)] leading-snug line-clamp-2">{x.summary || 'Your own strategy'}</span>
                           </button>
                         ))}
                       </div>
@@ -714,7 +715,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       <button type="button" onClick={() => setBuilderOpen(true)} className="mt-3 ag-pill">
                         <WandSparkles className="w-3.5 h-3.5" /> {strategies.length ? 'Create or edit a strategy' : 'Create your own strategy'}
                       </button>
-                      {draft.strategyId && <p className="mt-2 text-[11px] text-[#8a91a0]">Your strategy’s own rules find the setups (quality {data.strategyMinQuality ?? 45}+). The agent still places, sizes and manages every trade.</p>}
+                      {draft.strategyId && <p className="mt-2 text-[11px] text-[var(--ag-muted)]">Your strategy’s own rules find the setups (quality {data.strategyMinQuality ?? 45}+). The agent still places, sizes and manages every trade.</p>}
                     </Section>
 
                     <Section title="Trade type" hint="Steady mode: limit entries, a wider stop, calm markets only" i={1}>
@@ -722,7 +723,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                         {(['DAY', 'SWING', 'ANY'] as AgentStyle[]).map(x => (
                           <button key={x} type="button" onClick={() => setStyle(x)} className={`ag-choice ${draft.style === x ? 'on' : ''}`} aria-pressed={draft.style === x}>
                             <span className="block text-[13px] font-semibold text-white">{AGENT_STYLE_INFO[x].label}</span>
-                            <span className="block mt-0.5 text-[10.5px] text-[#8a91a0] leading-snug">{AGENT_STYLE_INFO[x].hint}</span>
+                            <span className="block mt-0.5 text-[10.5px] text-[var(--ag-muted)] leading-snug">{AGENT_STYLE_INFO[x].hint}</span>
                           </button>
                         ))}
                       </div>
@@ -759,7 +760,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                         {(Object.keys(AGENT_PRICING) as AgentDuration[]).map(k => (
                           <button key={k} type="button" onClick={() => patch({ duration: k })} className={`ag-choice ${draft.duration === k ? 'on' : ''}`} aria-pressed={draft.duration === k}>
                             <span className="block text-[13px] font-semibold text-white">{AGENT_PRICING[k].label}</span>
-                            <span className="block mt-0.5 text-[10.5px] text-[#8a91a0]">{AGENT_RUN_LABEL[k]}</span>
+                            <span className="block mt-0.5 text-[10.5px] text-[var(--ag-muted)]">{AGENT_RUN_LABEL[k]}</span>
                           </button>
                         ))}
                       </div>
@@ -772,12 +773,12 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                           <p className={`text-[13px] font-semibold ${short ? 'text-amber-300' : 'text-white'}`}>
                             {credits === null ? 'Unlimited credits' : short ? 'No credits available' : `${credits.toLocaleString()} credits available`}
                           </p>
-                          <p className="text-[11px] text-[#8a91a0] leading-snug">
+                          <p className="text-[11px] text-[var(--ag-muted)] leading-snug">
                             {short ? 'The agent can’t start until you add credits.' : 'Credits come from your balance only when the agent places a trade, and are refunded if it never fills.'}
                           </p>
                         </div>
                         {short && onBuyCredits && (
-                          <button type="button" onClick={onBuyCredits} className="ag-pill lime shrink-0 !h-9">
+                          <button type="button" onClick={onBuyCredits} className="ag-pill accent shrink-0 !h-9">
                             Buy credits
                           </button>
                         )}
@@ -799,10 +800,10 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                     {access && !allowed && (
                       <section className="ag-card ag-rise p-5" style={rise(1)}>
                         <div className="flex items-center gap-2">
-                          <Crown className="w-4 h-4 text-[#b6f23d]" />
+                          <Crown className="w-4 h-4 text-[var(--ag-accent-text)]" />
                           <p className="text-[14px] font-semibold text-white">The Trading Agent is part of Pro</p>
                         </div>
-                        <p className="mt-1 text-[12px] text-[#8a91a0]">Upgrade to Pro to switch it on. Credits are used per trade the agent takes.</p>
+                        <p className="mt-1 text-[12px] text-[var(--ag-muted)]">Upgrade to Pro to switch it on. Credits are used per trade the agent takes.</p>
                         {onUpgrade && (
                           <button type="button" onClick={onUpgrade} className="mt-3.5 w-full ag-cta !h-12">
                             <Lock className="w-4 h-4" /> Upgrade to Pro
@@ -811,8 +812,8 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       </section>
                     )}
                     {access && allowed && !access.staff && access.freeUntil && (
-                      <p className="ag-rise text-[11.5px] text-[#8a91a0] flex items-center gap-1.5 px-1" style={rise(1)}>
-                        <Crown className="w-3.5 h-3.5 text-[#b6f23d]" /> Free for everyone until{' '}
+                      <p className="ag-rise text-[11.5px] text-[var(--ag-muted)] flex items-center gap-1.5 px-1" style={rise(1)}>
+                        <Crown className="w-3.5 h-3.5 text-[var(--ag-accent-text)]" /> Free for everyone until{' '}
                         {new Date(access.freeUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, then part of Pro.
                       </p>
                     )}
@@ -827,7 +828,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                           <p className="text-[14px] font-semibold text-white">
                             {link?.status === 'CONNECTED' ? `MT5 linked · ${link.login}` : link?.status === 'CONNECTING' ? 'Linking your MT5…' : link?.status === 'FAILED' ? `MT5 not linked · ${link.server}` : 'MT5'}
                           </p>
-                          <p className={`mt-0.5 text-[11.5px] leading-relaxed ${link?.status === 'FAILED' ? 'text-rose-300' : 'text-[#8a91a0]'}`} role={link?.status === 'FAILED' ? 'alert' : undefined}>
+                          <p className={`mt-0.5 text-[11.5px] leading-relaxed ${link?.status === 'FAILED' ? 'text-rose-300' : 'text-[var(--ag-muted)]'}`} role={link?.status === 'FAILED' ? 'alert' : undefined}>
                             {link?.status === 'CONNECTED'
                               ? `${link.broker || link.server}${link.balance != null && link.currency ? ` · balance ${formatMoney(link.balance, link.currency)}` : ''}. The agent places its trades here, sized to your risk per trade.${link.asleep ? ' Resting while the agent is off: it reconnects by itself when you start a run.' : ''}`
                               : link?.status === 'CONNECTING'
@@ -843,7 +844,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       {link?.status === 'CONNECTED' && (
                         <div className="mt-3 flex flex-wrap gap-1.5">
                           {Object.entries(link.symbols).map(([m, bs]) => (
-                            <span key={m} className={`text-[10.5px] px-2.5 py-1 rounded-full ${bs ? 'bg-[#b6f23d]/10 text-[#d9f99d]' : 'bg-white/[0.04] text-[#6b7280]'}`}>
+                            <span key={m} className={`text-[10.5px] px-2.5 py-1 rounded-full ${bs ? 'bg-violet-500/10 text-[var(--ag-accent-text)]' : 'bg-[var(--ag-panel-2)] text-[var(--ag-muted)]'}`}>
                               {marketLabel(m)?.label || m}: {bs || 'not at your broker'}
                             </span>
                           ))}
@@ -851,12 +852,12 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       )}
                       {link?.status === 'CONNECTING' && (
                         <div className="mt-3.5">
-                          <div className="flex items-center gap-2 text-[11.5px] text-[#c7ccd6]">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#b6f23d]" />
+                          <div className="flex items-center gap-2 text-[11.5px] text-[var(--ag-text-2)]">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--ag-accent-text)]" />
                             <span>
                               Step {linkStep} of 3: {linkStep === 3 ? 'signing in to your broker' : linkStep === 2 ? 'starting the MT5 connection' : 'checking your details'}
                             </span>
-                            <span className="ml-auto tabular-nums text-[#8a91a0]">
+                            <span className="ml-auto tabular-nums text-[var(--ag-muted)]">
                               {(() => {
                                 const sec = Math.max(0, Math.floor(((clock || Date.now()) - link.linkedAt) / 1000));
                                 return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
@@ -868,7 +869,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                               <span key={n} className={`ag-step ${n < linkStep ? 'done' : n === linkStep ? 'now' : ''}`} />
                             ))}
                           </div>
-                          <p className="mt-2 text-[10.5px] text-[#8a91a0]">Usually under 2 minutes; a broker server MT5 hasn't seen before can take up to 5. If it can't link, the reason shows here.</p>
+                          <p className="mt-2 text-[10.5px] text-[var(--ag-muted)]">Usually under 2 minutes; a broker server MT5 hasn't seen before can take up to 5. If it can't link, the reason shows here.</p>
                         </div>
                       )}
                       {link && (
@@ -897,11 +898,11 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                             <Mt5ServerInput value={mt5Form.server} onChange={v => setMt5Form(f => ({ ...f, server: v }))} />
                           </div>
                           <input type="password" value={mt5Form.password} onChange={e => setMt5Form(f => ({ ...f, password: e.target.value.slice(0, 64) }))} placeholder="Master (trading) password" aria-label="MT5 master password" autoComplete="new-password" className="ag-input w-full" />
-                          <label className="flex items-start gap-2.5 text-[11.5px] text-[#8a91a0] cursor-pointer leading-relaxed">
-                            <input type="checkbox" checked={mt5Form.consent} onChange={e => setMt5Form(f => ({ ...f, consent: e.target.checked }))} className="mt-0.5 accent-lime-400" />
+                          <label className="flex items-start gap-2.5 text-[11.5px] text-[var(--ag-muted)] cursor-pointer leading-relaxed">
+                            <input type="checkbox" checked={mt5Form.consent} onChange={e => setMt5Form(f => ({ ...f, consent: e.target.checked }))} className="mt-0.5 accent-violet-500" />
                             <span>I let the MarketX agent place and close trades on this account. The password goes straight to the secure MT5 connection: MarketX never stores it. An investor password can't place trades.</span>
                           </label>
-                          <button type="submit" disabled={busy || !mt5Form.login || !mt5Form.server || !mt5Form.password || !mt5Form.consent} className="w-full ag-pill lime !h-11">
+                          <button type="submit" disabled={busy || !mt5Form.login || !mt5Form.server || !mt5Form.password || !mt5Form.consent} className="w-full ag-pill accent !h-11">
                             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Link MT5
                           </button>
                         </form>
@@ -916,20 +917,20 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                         </span>
                         <div className="min-w-0">
                           <p className="text-[14px] font-semibold text-white">Alerts on this device</p>
-                          <p className="text-[11.5px] text-[#8a91a0]">Orders, fills, wins and losses show on your phone or computer, and in MarketX's notifications wherever you are.</p>
+                          <p className="text-[11.5px] text-[var(--ag-muted)]">Orders, fills, wins and losses show on your phone or computer, and in MarketX's notifications wherever you are.</p>
                         </div>
                       </div>
                       <PushToggle what="every agent order, fill and result" onToast={toast} />
                     </section>
 
                     <section className="ag-card ag-rise overflow-hidden" style={rise(4)}>
-                      <button type="button" onClick={() => setShowBacktest(v => !v)} aria-expanded={showBacktest} className="w-full flex items-center gap-2 text-left px-5 py-4 text-[12.5px] text-[#c7ccd6] hover:text-white cursor-pointer">
-                        <Info className="w-4 h-4 shrink-0 text-[#8a91a0]" /> How it has done in back-tests, and the risks
+                      <button type="button" onClick={() => setShowBacktest(v => !v)} aria-expanded={showBacktest} className="w-full flex items-center gap-2 text-left px-5 py-4 text-[12.5px] text-[var(--ag-text-2)] hover:text-white cursor-pointer">
+                        <Info className="w-4 h-4 shrink-0 text-[var(--ag-muted)]" /> How it has done in back-tests, and the risks
                         <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-300 ${showBacktest ? 'rotate-180' : ''}`} />
                       </button>
                       <div className={`ag-collapse ${showBacktest ? 'open' : ''}`}>
                         <div>
-                          <div className="px-5 pb-4 text-[11.5px] leading-relaxed text-[#8a91a0] space-y-1.5">
+                          <div className="px-5 pb-4 text-[11.5px] leading-relaxed text-[var(--ag-muted)] space-y-1.5">
                             <p>
                               Replayed on years of real prices for these markets, after spreads and fees: <span className="text-white">{data.backtest.won}% of trades won</span>, about{' '}
                               <span className="text-white">{sign(data.backtest.avgR)}R a trade</span> on average, about {data.backtest.tradesPerMonth} trades a month across all six markets.
@@ -974,7 +975,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                     </div>
                     {!filtered.length ? (
                       <div className="py-14 text-center">
-                        <Target className="w-6 h-6 mx-auto text-[#9ca3af]" />
+                        <Target className="w-6 h-6 mx-auto text-[var(--ag-muted)]" />
                         <p className="mt-3 text-[12.5px] muted">{trades.length ? 'Nothing here for this filter.' : 'No trades yet. Switch the agent on and its orders show here.'}</p>
                       </div>
                     ) : (
@@ -995,7 +996,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                                   </span>
                                 </span>
                                 <span className="ag-row-chip hidden sm:inline-grid">{chip.text}</span>
-                                <span className={`w-[64px] text-right text-[13.5px] font-semibold tabular-nums ${typeof t.r === 'number' ? (t.r > 0 ? 'text-[#4d7c0f]' : t.r < 0 ? 'text-[#be123c]' : '') : 'muted !font-medium'} ${on && typeof t.r === 'number' && t.r > 0 ? '!text-[#b6f23d]' : ''} ${on && typeof t.r === 'number' && t.r < 0 ? '!text-rose-300' : ''}`}>
+                                <span className={`w-[64px] text-right text-[13.5px] font-semibold tabular-nums ${typeof t.r === 'number' ? (t.r > 0 ? 'text-emerald-500' : t.r < 0 ? 'text-rose-500' : '') : 'muted !font-medium'} ${on && typeof t.r === 'number' && t.r > 0 ? '!text-[var(--ag-accent-text)]' : ''} ${on && typeof t.r === 'number' && t.r < 0 ? '!text-rose-300' : ''}`}>
                                   {typeof t.r === 'number' ? `${sign(t.r)}R` : `${t.rr}R aim`}
                                 </span>
                               </button>
@@ -1007,21 +1008,21 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                           <div key={sel.id} className="ag-detail ag-fade">
                             <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                               <div className="min-w-0">
-                                <p className="text-[11.5px] text-[#8a91a0]">Trade details</p>
+                                <p className="text-[11.5px] dim">Trade details</p>
                                 <div className="mt-1 flex items-center gap-2.5">
                                   <p className="text-[26px] sm:text-[30px] font-medium tracking-[-0.02em] leading-none">
-                                    <span className="text-[#8a91a0] text-[16px] mr-1">#</span>
+                                    <span className="dim text-[16px] mr-1">#</span>
                                     {marketLabel(sel.symbol)?.mt5 || sel.symbol}
                                   </p>
-                                  <span className={`ag-pill !h-7 !px-3 !text-[11px] ${chipOf(sel).tone === 'win' ? 'lime' : ''}`}>{chipOf(sel).text}</span>
+                                  <span className={`ag-pill !h-7 !px-3 !text-[11px] ${chipOf(sel).tone === 'win' ? 'accent' : ''}`}>{chipOf(sel).text}</span>
                                 </div>
                               </div>
                               <div>
-                                <p className="text-[11.5px] text-[#8a91a0]">Side</p>
-                                <p className={`mt-1 text-[18px] font-semibold ${sel.direction === 'LONG' ? 'text-[#b6f23d]' : 'text-rose-300'}`}>{sel.direction === 'LONG' ? 'Buy' : 'Sell'}</p>
+                                <p className="text-[11.5px] dim">Side</p>
+                                <p className={`mt-1 text-[18px] font-semibold ${sel.direction === 'LONG' ? 'text-[#fff]' : 'text-rose-200'}`}>{sel.direction === 'LONG' ? 'Buy' : 'Sell'}</p>
                               </div>
                               <div>
-                                <p className="text-[11.5px] text-[#8a91a0]">Chart</p>
+                                <p className="text-[11.5px] dim">Chart</p>
                                 <p className="mt-1 text-[18px] font-semibold">{sel.timeframe}</p>
                               </div>
                             </div>
@@ -1035,37 +1036,37 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                                 ] as const
                               ).map(([k, v]) => (
                                 <div key={k} className="ag-dtile">
-                                  <ArrowUpRight className="absolute right-2.5 top-2.5 w-3.5 h-3.5 text-[#8a91a0]" />
+                                  <ArrowUpRight className="absolute right-2.5 top-2.5 w-3.5 h-3.5 dim" />
                                   <p className="text-[14px] font-medium tabular-nums truncate pr-4">{v}</p>
-                                  <p className="mt-3 text-[10.5px] text-[#8a91a0]">{k}</p>
+                                  <p className="mt-3 text-[10.5px] dim">{k}</p>
                                 </div>
                               ))}
                             </div>
                             {sel.mt5 && (
-                              <p className={`mt-3 text-[11.5px] ${sel.mt5.state === 'FAILED' ? 'text-amber-300' : 'text-[#d9f99d]'}`}>
+                              <p className={`mt-3 text-[11.5px] ${sel.mt5.state === 'FAILED' ? 'text-amber-300' : 'text-[#fff]'}`}>
                                 {sel.mt5.state === 'FAILED' ? `Not placed on MT5: ${sel.mt5.error || 'error'}` : `On MT5 · ${sel.mt5.symbol} · ${sel.mt5.volume} lots${sel.mt5.state === 'CANCELLED' ? ' · cancelled' : sel.mt5.state === 'CLOSED' ? ' · closed' : ''}`}
                               </p>
                             )}
                             {sel.note && sel.state !== 'OPEN' && sel.state !== 'PENDING' && (
-                              <p className="mt-2 text-[11.5px] text-[#8a91a0]">
+                              <p className="mt-2 text-[11.5px] dim">
                                 {sel.note}
                                 {sel.refunded ? ` · ${sel.refunded} credits refunded` : sel.credits ? ` · ${sel.credits} credits` : ''}
                               </p>
                             )}
                             <div className="mt-4 ag-dsum">
                               <div className="min-w-0">
-                                <p className="text-[10.5px] text-[#8a91a0]">Reward to risk</p>
+                                <p className="text-[10.5px] dim">Reward to risk</p>
                                 <p className="text-[15px] font-semibold tabular-nums">{sel.rr}R</p>
                               </div>
                               <div className="min-w-0">
-                                <p className="text-[10.5px] text-[#8a91a0]">Risk</p>
+                                <p className="text-[10.5px] dim">Risk</p>
                                 <p className="text-[15px] font-semibold tabular-nums">{sel.riskPct}%</p>
                               </div>
                               <div className="min-w-0 hidden sm:block">
-                                <p className="text-[10.5px] text-[#8a91a0]">Placed</p>
+                                <p className="text-[10.5px] dim">Placed</p>
                                 <p className="text-[15px] font-semibold">{ago(sel.createdAt)}</p>
                               </div>
-                              <span className={`ml-auto ag-pill !h-10 ${typeof sel.r === 'number' && sel.r > 0 ? 'lime' : typeof sel.r === 'number' && sel.r < 0 ? 'danger' : 'white'}`}>
+                              <span className={`ml-auto ag-pill !h-10 ${typeof sel.r === 'number' && sel.r > 0 ? 'accent' : typeof sel.r === 'number' && sel.r < 0 ? 'danger' : 'white'}`}>
                                 {typeof sel.r === 'number' ? `${sign(sel.r)}R · ${sign(sel.pnlPct || 0)}%` : chipOf(sel).text}
                               </span>
                             </div>
@@ -1083,7 +1084,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                   <p className="muted text-[11.5px]">Everything the agent does, newest first. You're alerted as it happens.</p>
                   {!data.log.length && (
                     <div className="py-10 text-center">
-                      <Activity className="w-6 h-6 mx-auto text-[#9ca3af]" />
+                      <Activity className="w-6 h-6 mx-auto text-[var(--ag-muted)]" />
                       <p className="mt-3 text-[12.5px] muted">Nothing yet.</p>
                     </div>
                   )}
@@ -1092,7 +1093,7 @@ export function AgentsPage({ focusId, onBack, onBuyCredits, onUpgrade, onToast, 
                       const { icon: Icon, color } = LOG_ICON[l.kind] || LOG_ICON.SCAN;
                       return (
                         <li key={`${l.at}-${i}`} className="ag-rise relative pl-11 pb-5 last:pb-0" style={rise(i)}>
-                          <span className="absolute left-0 top-0 w-7 h-7 rounded-full grid place-items-center bg-white border border-[#e6e8ec]" style={{ color }}>
+                          <span className="absolute left-0 top-0 w-7 h-7 rounded-full grid place-items-center bg-[var(--ag-panel)] border border-[var(--ag-line-2)]" style={{ color }}>
                             <Icon className="w-3.5 h-3.5" />
                           </span>
                           <p className="text-[13px] leading-relaxed break-words">{l.text}</p>

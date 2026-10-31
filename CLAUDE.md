@@ -160,13 +160,13 @@
   lazily loaded inside the app, above the sidebar (z 46) and under the pricing / sign-in windows): every entry point (`openAgent`: Tools sheet, slash command,
   notifications, push, `/agents?focus=at_…` links from emails and pushes, old `?agent=1` links) opens it and puts `/agents` in the address bar
   (`history.pushState`); Back / the browser's back leave it (`closeAgent`, popstate); signed out, `/agents` asks to sign in first, then opens. Design (owner-specified,
-  styled on the owner's dashboard reference): always dark (forced like `.mx-talk` in `index.css`) with lime accents, `agents.css` in `@layer components`;
-  white pill navigation (Setup / Trades / Activity) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
+  laid out on the owner's dashboard reference, in the SITE's colours: violet accent `--ag-grad` violet → fuchsia, cyan scan lines, the site's
+  light and dark themes via `--mx-*`; owner-specified, never the reference's lime), `agents.css` in `@layer components`; pill navigation (Setup / Trades / Activity) in the top bar, big light "Trading Agent" title with Start / Stop pill, overview cards (won %, result R +
   P/L, time left with striped progress bars and market "avatars"; credits available with MT5 / run / risk mini cards and a white Start now / Stop now pill),
   "Live automation" (owner-specified: a pipeline Scan → Find zone → Quality → Order → Manage with a travelling pulse, a tile per market × timeframe whose
   chart scrolls with a sweeping scan line and step words, a next-scan ring and the latest log lines; it moves ONLY while a run is on, still and grey
   "Paused" otherwise; the tile charts are drawn shapes, never prices), Trades = a segmented filter (All / Live / Won / Lost) on a white panel with a trade
-  list and a dark detail card, Activity = a white timeline; reduced motion respected: the trader sets trade type (DAY = 1H, SWING = 4H,
+  list and a violet detail card, Activity = a timeline; reduced motion respected: the trader sets trade type (DAY = 1H, SWING = 4H,
   ANY = both; Steady mode only trades 1H/4H), timeframes, markets (`AGENT_MARKETS`: gold, BTC, ETH, USD/JPY, GBP/USD, NAS100; EUR/USD lost in the
   back-test so it is not offered), risk per trade 0.1-2%, trades per day 1-5, profit target and loss limit for the run (% of account, 0 = none) and
   the run length; then switches it on and it works on its own (lead worker, `AGENT_TICK_MS` 60s): scans with Steady mode (option C, the same
@@ -758,6 +758,11 @@
   against the monthly free allowance. Model names stay server-side (never in the bundle).
   Usage/activity are recorded server-side by `server/tracking.ts`; moderation status (`suspended`/`banned`) is enforced
   in `requireAuth` and at sign-in.
+
+## Design colours (owner-specified, every design)
+- Always use the site's own colour combinations, whatever colours a reference image or "clue" uses: the theme surfaces (`--mx-bg`,
+  `--mx-surface*`, `--mx-border*`, `--mx-text`, light and dark themes both), the violet accent (`--mx-accent` #8b5cf6, gradients violet →
+  fuchsia / violet → indigo → cyan) and the usual states (emerald win, rose loss, amber warning). Take a reference's layout and motion only.
 
 ## Deployment
 - `package.json` `overrides` pins `uuid` to ^11.1.1 (patched advisory inside Firebase's storage client) and `source-map-js` to ^1.2.2 (build tooling advisory);
