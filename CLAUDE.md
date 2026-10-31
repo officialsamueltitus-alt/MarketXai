@@ -449,6 +449,9 @@
   four sides, frame and body in view, never cropped by the video edge); the music is always in the style of the owner's
   chosen ad track (the Epidemic Sound track used in the MarketX ad, ~101 BPM, a quiet build-up then a bass drop), with
   the cuts timed to its beat.
+  Desktop ad (owner-requested, Oct 2026): `brand/video/site-ad-desktop.html` (1920x1080, LIGHT mode, motion design, voice-over scene times in `T`),
+  rendered with `render-agent-ad.cjs ... --page site-ad-desktop.html --size 1920x1080`; its music is an ORIGINAL beat made by
+  `brand/video/beat-synth.py` (100 BPM, quiet intro, bass drop at 4.8s, no samples, so no copyright).
 - Brand (owner-specified): the site says SI / Super Intelligence, never AI ("MarketX SI", "Ask SI", "SI credits"). Tagline (owner-specified, Oct 2026):
   "MarketX, Your Trading Co-Pilot" (browser title "MarketX · Your Trading Co-Pilot", meta/OG/Twitter/JSON-LD/manifest descriptions, the welcome and Markets
   headlines "Your trading co-pilot, one prompt away.", email footer, guide, Terms intro, Matt, the offline welcome answer); feature names keep "SI". X handle

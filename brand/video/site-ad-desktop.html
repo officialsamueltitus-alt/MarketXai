@@ -1,0 +1,424 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- MarketX site-wide ad, DESKTOP (1920x1080, 30 fps), light mode, motion design, made for a voice-over.
+     Scenes: intro, trading on feelings, Ask SI in the browser, the trade card, quality checks, the Trading Agent,
+     alerts / watchlist / Matt, Solana proof, every market, call to action, end card "MarketX, Your Trading Co-Pilot".
+     Every frame is drawn by render(t); the UI is drawn (never real prices, cards are tagged Example).
+     Render: node brand/video/render-agent-ad.cjs SPIN_DIR OUT.mp4 --page site-ad-desktop.html --size 1920x1080 -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#f6f6f7}
+body{font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#18181b;letter-spacing:-.01em}
+.a{position:absolute}
+.scene{position:absolute;inset:0;opacity:0}
+.grad{background:linear-gradient(100deg,#7c3aed,#a855f7 40%,#d946ef 75%,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent}
+.card{position:absolute;background:#fff;border:1.5px solid rgba(9,9,11,.08);border-radius:28px;box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 40px 90px -40px rgba(76,29,149,.35),0 12px 30px -18px rgba(24,24,27,.25)}
+.h1{position:absolute;left:150px;width:660px;font-size:76px;font-weight:700;letter-spacing:-.045em;line-height:1.02}
+.sub{position:absolute;left:152px;width:600px;font-size:28px;font-weight:450;color:#52525b;line-height:1.4}
+.eyebrow{position:absolute;left:152px;font-size:20px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#7c3aed}
+.w{display:inline-block;will-change:transform}
+.chip{position:absolute;height:54px;padding:0 22px;border-radius:27px;display:flex;align-items:center;gap:12px;font-size:22px;font-weight:600;white-space:nowrap;background:#fff;border:1.5px solid rgba(9,9,11,.08);box-shadow:0 18px 40px -22px rgba(76,29,149,.45)}
+.ok{width:28px;height:28px;border-radius:50%;background:#10b981;color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800}
+.tag{position:absolute;font-size:15px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#71717a;border:1.5px solid rgba(9,9,11,.12);border-radius:20px;padding:6px 14px;background:#fff}
+.lbl{font-size:15px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#71717a}
+.row{display:flex;justify-content:space-between;align-items:center;height:58px;padding:0 20px;border-radius:16px;background:#f6f6f7;font-size:21px}
+.row b{font-weight:700}
+.pill{position:absolute;height:64px;padding:0 28px;border-radius:32px;display:flex;align-items:center;gap:14px;font-size:24px;font-weight:650;white-space:nowrap;background:#fff;border:1.5px solid rgba(9,9,11,.07);box-shadow:0 20px 40px -26px rgba(76,29,149,.5)}
+.dot{width:12px;height:12px;border-radius:50%}
+.toast{position:absolute;left:30px;right:30px;height:92px;border-radius:22px;background:#fff;border:1.5px solid rgba(9,9,11,.07);box-shadow:0 20px 40px -24px rgba(24,24,27,.35);display:flex;align-items:center;gap:18px;padding:0 22px}
+.toast img{width:52px;height:52px;border-radius:14px}
+.tt{font-size:21px;font-weight:700}.ts{font-size:18px;color:#71717a;margin-top:2px}
+</style>
+</head>
+<body>
+<!-- background motion: soft site-colour blobs and a dot grid -->
+<div id="b1" class="a" style="left:-200px;top:-300px;width:1100px;height:1100px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.22),transparent 65%)"></div>
+<div id="b2" class="a" style="left:1100px;top:300px;width:1100px;height:1100px;border-radius:50%;background:radial-gradient(circle,rgba(217,70,239,.16),transparent 65%)"></div>
+<div id="b3" class="a" style="left:700px;top:-500px;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(6,182,212,.13),transparent 65%)"></div>
+<div id="grid" class="a" style="left:-80px;top:-80px;width:2080px;height:1240px;background-image:radial-gradient(rgba(24,24,27,.10) 1.6px,transparent 1.6px);background-size:40px 40px;-webkit-mask-image:radial-gradient(ellipse at 50% 50%,#000 30%,transparent 80%)"></div>
+
+<!-- 0. intro -->
+<div id="s0" class="scene">
+  <img id="logo0" class="a" style="left:780px;top:170px;width:360px;height:360px">
+  <p id="s0a" class="a" style="left:0;width:1920px;text-align:center;top:560px;font-size:150px;font-weight:800;letter-spacing:-.055em">MarketX</p>
+  <p id="s0b" class="a" style="left:0;width:1920px;text-align:center;top:760px;font-size:56px;font-weight:600;letter-spacing:-.03em"><span class="grad">Your Trading Co-Pilot</span></p>
+</div>
+
+<!-- 1. trading on feelings -->
+<div id="s1" class="scene">
+  <p class="eyebrow" style="top:300px">The problem</p>
+  <p id="s1h" class="h1" style="top:350px">Trading on feelings, <span style="color:#a1a1aa">not on a plan.</span></p>
+  <p id="s1s" class="sub" style="top:620px">Most traders lose money, guessing their way in and out.</p>
+  <div id="s1c" class="card" style="left:960px;top:200px;width:820px;height:640px">
+    <p class="a lbl" style="left:40px;top:38px">My account</p>
+    <p id="bal" class="a" style="left:40px;top:66px;font-size:64px;font-weight:700;letter-spacing:-.04em">$10,000</p>
+    <p id="balp" class="a" style="left:44px;top:150px;font-size:22px;font-weight:700;color:#f43f5e"></p>
+    <svg class="a" style="left:0;top:0" width="820" height="640"><path id="p1" fill="none" stroke="#f43f5e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path id="p1f" stroke="none"/></svg>
+  </div>
+  <div id="e1" class="chip" style="left:1380px;top:330px"><span style="font-size:28px">😬</span>Fear of missing out</div>
+  <div id="e2" class="chip" style="left:1460px;top:560px"><span style="font-size:28px">😱</span>Panic selling</div>
+  <div id="e3" class="chip" style="left:1060px;top:760px"><span style="font-size:28px">🤞</span>Hoping it comes back</div>
+</div>
+
+<!-- 2-4. Ask SI in the browser -->
+<div id="s2" class="scene">
+  <p class="eyebrow" id="ey2" style="top:300px">Ask SI</p>
+  <p id="h2a" class="h1" style="top:350px">Just ask <span class="grad">SI.</span></p>
+  <p id="h2b" class="h1" style="top:350px;opacity:0">The zone, the entry, the stop, <span class="grad">every target.</span></p>
+  <p id="h2c" class="h1" style="top:338px;opacity:0">Checked on real candles. <span class="grad">Graded for quality.</span></p>
+  <p id="s2s" class="sub" style="top:600px">Name any market and timeframe. MarketX reads the chart for you.</p>
+  <div id="cam" class="a" style="left:860px;top:110px;width:960px;height:860px;transform-origin:62% 52%">
+    <div id="win" class="card" style="left:0;top:0;width:960px;height:860px;overflow:hidden;border-radius:26px">
+      <div class="a" style="left:0;top:0;right:0;height:58px;background:#fafafa;border-bottom:1.5px solid rgba(9,9,11,.06)">
+        <span class="a dot" style="left:24px;top:23px;background:#fb7185"></span><span class="a dot" style="left:46px;top:23px;background:#fbbf24"></span><span class="a dot" style="left:68px;top:23px;background:#34d399"></span>
+        <div class="a" style="left:330px;top:12px;width:300px;height:34px;border-radius:17px;background:#f1f1f3;font-size:17px;color:#52525b;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>marketx.world</div>
+      </div>
+      <!-- sidebar -->
+      <div class="a" style="left:0;top:58px;width:210px;bottom:0;background:#fafafa;border-right:1.5px solid rgba(9,9,11,.06)">
+        <div class="a" style="left:22px;top:22px;display:flex;align-items:center;gap:10px;font-size:21px;font-weight:800"><img class="tl" style="width:34px;height:34px">MarketX</div>
+        <div class="a" style="left:14px;top:86px;width:182px">
+          <div style="height:44px;border-radius:12px;background:#ede9fe;color:#6d28d9;font-size:17px;font-weight:650;display:flex;align-items:center;padding:0 14px;margin-bottom:6px">Ask SI</div>
+          <div style="height:44px;font-size:17px;color:#52525b;display:flex;align-items:center;padding:0 14px">Markets</div>
+          <div style="height:44px;font-size:17px;color:#52525b;display:flex;align-items:center;padding:0 14px">Watchlist</div>
+          <div style="height:44px;font-size:17px;color:#52525b;display:flex;align-items:center;padding:0 14px">Price alerts</div>
+          <div style="height:44px;font-size:17px;color:#52525b;display:flex;align-items:center;padding:0 14px">Trading Agent</div>
+          <div style="height:44px;font-size:17px;color:#52525b;display:flex;align-items:center;padding:0 14px">Track record</div>
+        </div>
+      </div>
+      <!-- chat -->
+      <div class="a" style="left:210px;top:58px;right:0;bottom:0">
+        <div id="ubub" class="a" style="right:30px;top:24px;height:52px;padding:0 22px;border-radius:26px 26px 8px 26px;background:linear-gradient(100deg,#7c3aed,#c026d3);color:#fff;font-size:20px;font-weight:600;display:flex;align-items:center">Analyze gold on the 1H</div>
+        <div id="steps" class="a" style="left:30px;top:100px;width:480px"></div>
+        <!-- trade card -->
+        <div id="tc" class="a" style="left:26px;top:96px;width:698px;height:576px;border-radius:24px;border:1.5px solid rgba(9,9,11,.08);background:#fff;box-shadow:0 24px 50px -30px rgba(76,29,149,.4)">
+          <div class="a" style="left:22px;top:20px;display:flex;align-items:center;gap:14px">
+            <span style="width:48px;height:48px;border-radius:14px;background:#fef3c7;color:#b45309;font-weight:800;font-size:19px;display:flex;align-items:center;justify-content:center">Au</span>
+            <div><p style="font-size:23px;font-weight:750">XAU/USD <span style="color:#a1a1aa;font-weight:500">· 1H</span></p><p style="font-size:15px;color:#71717a">Supply &amp; Demand + Fibonacci</p></div>
+          </div>
+          <div class="a" style="right:22px;top:26px;display:flex;gap:10px">
+            <span style="height:38px;padding:0 16px;border-radius:19px;background:#d1fae5;color:#047857;font-weight:800;font-size:17px;display:flex;align-items:center">LONG</span>
+            <span style="height:38px;padding:0 16px;border-radius:19px;background:#ede9fe;color:#6d28d9;font-weight:700;font-size:17px;display:flex;align-items:center">Quality <span id="qv1" style="margin-left:6px">0</span>/100</span>
+          </div>
+          <svg id="chart" class="a" style="left:20px;top:94px" width="400" height="360"></svg>
+          <div id="lv" class="a" style="left:436px;top:96px;width:240px;display:flex;flex-direction:column;gap:9px">
+            <div class="row" style="font-size:18px;height:52px"><span style="color:#71717a">Entry</span><b style="color:#7c3aed">Zone mid</b></div>
+            <div class="row" style="font-size:18px;height:52px"><span style="color:#71717a">Stop</span><b style="color:#e11d48">Past zone</b></div>
+            <div class="row" style="font-size:18px;height:52px"><span style="color:#71717a">TP1</span><b style="color:#059669">1.8R</b></div>
+            <div class="row" style="font-size:18px;height:52px"><span style="color:#71717a">TP2</span><b style="color:#059669">3.1R</b></div>
+            <div class="row" style="font-size:18px;height:52px"><span style="color:#71717a">TP3</span><b style="color:#059669">4.6R</b></div>
+            <div class="row" style="font-size:18px;height:52px;background:#ede9fe"><span style="color:#6d28d9">Limit order</span><b style="color:#6d28d9">Ready</b></div>
+          </div>
+          <div class="a" style="left:22px;bottom:22px;right:22px;display:flex;gap:10px">
+            <span style="height:42px;padding:0 18px;border-radius:21px;background:#f4f4f5;font-size:16px;font-weight:600;display:flex;align-items:center">Get price alert</span>
+            <span style="height:42px;padding:0 18px;border-radius:21px;background:#f4f4f5;font-size:16px;font-weight:600;display:flex;align-items:center">Lot size</span>
+            <span style="height:42px;padding:0 18px;border-radius:21px;background:#f4f4f5;font-size:16px;font-weight:600;display:flex;align-items:center">Sealed on Solana</span>
+          </div>
+        </div>
+        <!-- composer -->
+        <div class="a" style="left:26px;right:26px;bottom:22px;height:96px;border-radius:24px;border:1.5px solid rgba(9,9,11,.1);background:#fff;box-shadow:0 12px 30px -20px rgba(76,29,149,.35)">
+          <p id="typed" class="a" style="left:24px;top:16px;font-size:21px;color:#18181b"></p>
+          <span id="caret" class="a" style="top:16px;width:2px;height:26px;background:#7c3aed"></span>
+          <p id="ph" class="a" style="left:24px;top:16px;font-size:21px;color:#a1a1aa">Ask SI about any market…</p>
+          <span class="a" style="left:20px;bottom:12px;height:30px;padding:0 12px;border-radius:15px;background:#f4f4f5;font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px">Tools<i class="dot" style="width:7px;height:7px;background:#10b981;display:inline-block"></i></span>
+          <span class="a" style="right:66px;bottom:12px;height:30px;padding:0 12px;border-radius:15px;background:#f4f4f5;font-size:15px;font-weight:600;display:flex;align-items:center">1H</span>
+          <span id="send" class="a" style="right:14px;bottom:10px;width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#d946ef);display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+        </div>
+      </div>
+      <div id="click" class="a" style="width:56px;height:56px;border-radius:50%;border:4px solid rgba(139,92,246,.7);opacity:0"></div>
+    </div>
+    <span class="tag" style="right:20px;top:-46px">Example</span>
+  </div>
+  <!-- quality checks float beside the card -->
+  <div id="q1" class="chip" style="left:500px;top:700px"><span class="ok">✓</span>RSI(14) on the right side</div>
+  <div id="q2" class="chip" style="left:500px;top:772px"><span class="ok">✓</span>EMA(50) trend agrees</div>
+  <div id="q3" class="chip" style="left:500px;top:844px"><span class="ok">✓</span>Fresh zone, untouched</div>
+  <div id="q4" class="chip" style="left:500px;top:916px"><span class="ok">✓</span>Not already moved</div>
+  <div id="qring" class="card" style="left:150px;top:690px;width:300px;height:300px;border-radius:150px;display:flex;align-items:center;justify-content:center">
+    <svg class="a" style="left:20px;top:20px" width="260" height="260"><circle cx="130" cy="130" r="112" fill="none" stroke="#f1f1f3" stroke-width="20"/><circle id="qarc" cx="130" cy="130" r="112" fill="none" stroke="url(#qg)" stroke-width="20" stroke-linecap="round" transform="rotate(-90 130 130)" stroke-dasharray="704" stroke-dashoffset="704"/><defs><linearGradient id="qg"><stop offset="0" stop-color="#8b5cf6"/><stop offset=".6" stop-color="#d946ef"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
+    <div style="text-align:center;position:relative"><p id="qv2" style="font-size:84px;font-weight:800;letter-spacing:-.05em;line-height:1">0</p><p class="lbl" style="margin-top:6px">Quality</p></div>
+  </div>
+</div>
+
+<!-- 5. Trading Agent -->
+<div id="s5" class="scene">
+  <p class="eyebrow" style="top:300px">Trading Agent</p>
+  <p id="s5h" class="h1" style="top:350px">It trades your plan <span class="grad">on its own.</span></p>
+  <p id="s5s" class="sub" style="top:560px">Scans every minute, takes only quality setups, and places the order on your MT5.</p>
+  <div id="ag" class="card" style="left:900px;top:150px;width:900px;height:780px">
+    <p class="a" style="left:44px;top:38px;font-size:40px;font-weight:300;letter-spacing:-.03em">Trading Agent</p>
+    <div id="agRun" class="a" style="right:40px;top:40px;height:48px;padding:0 22px;border-radius:24px;color:#fff;font-weight:700;font-size:19px;display:flex;align-items:center;gap:10px;background:linear-gradient(100deg,#059669,#10b981)"><i id="agDot" class="dot" style="background:#fff;display:inline-block"></i>Running</div>
+    <div id="pipe" class="a" style="left:44px;top:140px;width:812px;height:150px;border-radius:24px;background:#faf8ff;border:1.5px solid rgba(139,92,246,.15)">
+      <div class="a" style="left:70px;top:58px;width:672px;height:4px;border-radius:2px;background:#ede9fe"></div>
+      <div id="pfill" class="a" style="left:70px;top:58px;height:4px;border-radius:2px;background:linear-gradient(90deg,#8b5cf6,#d946ef)"></div>
+      <div id="ppulse" class="a" style="top:46px;width:28px;height:28px;border-radius:50%;background:#d946ef;box-shadow:0 0 24px #d946ef;margin-left:-14px"></div>
+    </div>
+    <div id="toasts" class="a" style="left:14px;top:320px;width:872px;height:440px">
+      <div id="t1" class="toast"><img class="tl"><div style="flex:1"><p class="tt">Order placed</p><p class="ts">XAU/USD buy limit · 1H · quality 82</p></div><span style="color:#a1a1aa;font-size:17px">now</span></div>
+      <div id="t2" class="toast" style="top:112px"><img class="tl"><div style="flex:1"><p class="tt">Sent to your MT5</p><p class="ts">0.10 lots · stop and final target set</p></div><span style="color:#a1a1aa;font-size:17px">now</span></div>
+      <div id="t3" class="toast" style="top:224px"><img class="tl"><div style="flex:1"><p class="tt">Order filled</p><p class="ts">Managing to the target</p></div><span style="color:#a1a1aa;font-size:17px">now</span></div>
+      <div id="t4" class="toast" style="top:336px;border-color:rgba(16,185,129,.4)"><img class="tl"><div style="flex:1"><p class="tt" style="color:#047857">Target reached</p><p class="ts">Closed at +2.1R</p></div><span style="color:#a1a1aa;font-size:17px">now</span></div>
+    </div>
+  </div>
+  <span class="tag" style="left:1680px;top:950px">Example</span>
+</div>
+
+<!-- 6. alerts, watchlist, Matt -->
+<div id="s6" class="scene">
+  <p class="eyebrow" style="top:150px;left:0;width:1920px;text-align:center">Your tools</p>
+  <p id="s6h" class="h1" style="top:196px;left:0;width:1920px;text-align:center">One step <span class="grad">ahead.</span></p>
+  <div id="c1" class="card" style="left:160px;top:400px;width:500px;height:520px">
+    <div class="a" style="left:36px;top:36px;width:64px;height:64px;border-radius:20px;background:#ede9fe;display:flex;align-items:center;justify-content:center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.2" stroke-linecap="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></div>
+    <p class="a" style="left:36px;top:124px;font-size:34px;font-weight:750;letter-spacing:-.03em">Price alerts</p>
+    <p class="a" style="left:36px;top:172px;width:430px;font-size:20px;color:#71717a">Entry, every target and the stop, the moment price gets there.</p>
+    <div id="al" class="a" style="left:30px;top:270px;width:440px;display:flex;flex-direction:column;gap:12px">
+      <div class="row"><span>Entry zone reached</span><b style="color:#7c3aed">✓</b></div>
+      <div class="row"><span>TP1 hit</span><b style="color:#059669">+1.8R</b></div>
+      <div class="row"><span>TP2 hit</span><b style="color:#059669">+3.1R</b></div>
+    </div>
+  </div>
+  <div id="c2" class="card" style="left:710px;top:400px;width:500px;height:520px">
+    <div class="a" style="left:36px;top:36px;width:64px;height:64px;border-radius:20px;background:#cffafe;display:flex;align-items:center;justify-content:center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></div>
+    <p class="a" style="left:36px;top:124px;font-size:34px;font-weight:750;letter-spacing:-.03em">Watchlist</p>
+    <p class="a" style="left:36px;top:172px;width:430px;font-size:20px;color:#71717a">Your pairs, scanned for you. Told the moment a setup is ready.</p>
+    <div id="wl" class="a" style="left:30px;top:270px;width:440px;display:flex;flex-direction:column;gap:12px">
+      <div class="row"><span>BTC/USD · 4H</span><b style="color:#059669;font-size:16px;background:#d1fae5;padding:6px 12px;border-radius:12px">READY</b></div>
+      <div class="row"><span>GBP/USD · 1H</span><b style="color:#b45309;font-size:16px;background:#fef3c7;padding:6px 12px;border-radius:12px">BUILDING</b></div>
+      <div class="row"><span>NAS100 · 1H</span><b style="color:#71717a;font-size:16px;background:#f4f4f5;padding:6px 12px;border-radius:12px">WAITING</b></div>
+    </div>
+  </div>
+  <div id="c3" class="card" style="left:1260px;top:400px;width:500px;height:520px">
+    <img class="a tl" style="left:36px;top:36px;width:64px;height:64px;border-radius:20px">
+    <p class="a" style="left:36px;top:124px;font-size:34px;font-weight:750;letter-spacing:-.03em">Matt</p>
+    <p class="a" style="left:36px;top:172px;width:430px;font-size:20px;color:#71717a">Your MarketX guide. Ask anything, or just talk.</p>
+    <div id="mt" class="a" style="left:30px;top:270px;width:440px">
+      <div style="margin-left:auto;width:fit-content;max-width:330px;padding:14px 18px;border-radius:20px 20px 6px 20px;background:linear-gradient(100deg,#7c3aed,#c026d3);color:#fff;font-size:19px;font-weight:550">How does Confirmation mode work?</div>
+      <div id="mtr" style="margin-top:14px;width:fit-content;max-width:400px;padding:14px 18px;border-radius:20px 20px 20px 6px;background:#f4f4f5;font-size:19px;line-height:1.4">It waits for price to reach the zone, then a lower timeframe candle to confirm it.</div>
+    </div>
+  </div>
+</div>
+
+<!-- 7. Solana proof -->
+<div id="s7" class="scene">
+  <p class="eyebrow" style="top:300px">Proof</p>
+  <p id="s7h" class="h1" style="top:350px">Every result, <span class="grad">sealed on Solana.</span></p>
+  <p id="s7s" class="sub" style="top:560px">Sealed the moment it's served. Anyone can check the record.</p>
+  <div id="pf" class="card" style="left:960px;top:180px;width:820px;height:700px">
+    <div class="a" style="left:44px;top:40px;display:flex;align-items:center;gap:14px"><span style="width:56px;height:56px;border-radius:18px;background:linear-gradient(135deg,#9945ff,#14f195);display:flex;align-items:center;justify-content:center"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><div><p style="font-size:30px;font-weight:750;letter-spacing:-.03em">Signal sealed</p><p style="font-size:18px;color:#71717a">XAU/USD · 1H · LONG</p></div></div>
+    <p class="a lbl" style="left:44px;top:150px">Fingerprint</p>
+    <p id="hash" class="a" style="left:44px;top:180px;width:732px;font-family:ui-monospace,Menlo,monospace;font-size:22px;color:#6d28d9;word-break:break-all;line-height:1.5"></p>
+    <svg class="a" style="left:44px;top:270px" width="732" height="220"><g id="tree" fill="none" stroke="#c4b5fd" stroke-width="3"></g></svg>
+    <div id="res" class="a" style="left:44px;top:510px;width:732px;height:80px;border-radius:20px;background:#ecfdf5;border:1.5px solid rgba(16,185,129,.3);display:flex;align-items:center;justify-content:space-between;padding:0 26px"><span style="font-size:22px;font-weight:600;color:#047857">Result</span><span style="font-size:28px;font-weight:800;color:#047857">WIN · +2.0R</span></div>
+    <div id="scan" class="a" style="left:44px;top:610px;height:56px;padding:0 24px;border-radius:28px;background:#18181b;color:#fff;font-size:19px;font-weight:650;display:flex;align-items:center;gap:10px">Read it on Solscan <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6"><path d="M7 17L17 7M9 7h8v8"/></svg></div>
+  </div>
+  <span class="tag" style="left:1680px;top:900px">Example</span>
+</div>
+
+<!-- 8. every market -->
+<div id="s8" class="scene">
+  <p id="s8h" class="a" style="left:0;width:1920px;text-align:center;top:410px;font-size:110px;font-weight:800;letter-spacing:-.05em">Any market. <span class="grad">Any timeframe.</span></p>
+  <div id="r1" class="a" style="left:0;top:160px;height:80px;width:6000px"></div>
+  <div id="r2" class="a" style="left:0;top:260px;height:80px;width:6000px"></div>
+  <div id="r3" class="a" style="left:0;top:680px;height:80px;width:6000px"></div>
+  <div id="r4" class="a" style="left:0;top:780px;height:80px;width:6000px"></div>
+</div>
+
+<!-- 9. call to action -->
+<div id="s9" class="scene">
+  <p id="s9a" class="a" style="left:0;width:1920px;text-align:center;top:300px;font-size:120px;font-weight:800;letter-spacing:-.05em">Start <span class="grad">free</span> today.</p>
+  <p id="s9b" class="a" style="left:0;width:1920px;text-align:center;top:470px;font-size:32px;color:#52525b">Free analyses every day. Upgrade to Pro when you're ready.</p>
+  <div id="s9c" class="a" style="left:710px;top:580px;width:500px;height:110px;border-radius:55px;background:linear-gradient(100deg,#7c3aed,#c026d3);color:#fff;font-size:40px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:18px;box-shadow:0 30px 60px -24px rgba(124,58,237,.7)">marketx.world <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+  <svg id="cursor" class="a" width="54" height="54" viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z" fill="#18181b" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+  <div id="ripple" class="a" style="width:120px;height:120px;border-radius:50%;border:5px solid rgba(139,92,246,.6);opacity:0"></div>
+</div>
+
+<!-- 10. end card -->
+<div id="s10" class="scene">
+  <img id="logo1" class="a" style="left:800px;top:150px;width:320px;height:320px">
+  <p id="s10a" class="a" style="left:0;width:1920px;text-align:center;top:520px;font-size:120px;font-weight:800;letter-spacing:-.05em">MarketX,</p>
+  <p id="s10b" class="a" style="left:0;width:1920px;text-align:center;top:680px;font-size:84px;font-weight:650;letter-spacing:-.035em"><span class="grad">Your Trading Co-Pilot</span></p>
+  <p id="s10c" class="a" style="left:0;width:1920px;text-align:center;top:840px;font-size:32px;color:#71717a;font-weight:500">marketx.world</p>
+</div>
+
+<div id="flash" class="a" style="inset:0;background:#fff;opacity:0;pointer-events:none"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const out = v => 1 - Math.pow(1 - v, 3);
+const out5 = v => 1 - Math.pow(1 - v, 5);
+const inOut = v => v < .5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2;
+const back = v => { const c = 1.5; return 1 + (c + 1) * Math.pow(v - 1, 3) + c * Math.pow(v - 1, 2); };
+const lerp = (a, b, v) => a + (b - a) * v;
+const set = (el, o = 1, x = 0, y = 0, s = 1, r = 0, blur) => {
+  el.style.opacity = o; el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`;
+  if (blur !== undefined) el.style.filter = blur > 0.05 ? `blur(${blur}px)` : 'none';
+};
+const vis = (t, a, b, f = .45) => Math.min(seg(t, a, a + f), 1 - seg(t, b - f, b));
+const SPIN = window.SPIN || [];
+const spin = t => SPIN.length ? SPIN[Math.floor(t * 30) % SPIN.length] : '';
+
+// Scene times (seconds): one voice-over line each
+const T = { s0: [0, 4.8], s1: [4.8, 10.2], s2: [10.2, 26.8], s5: [26.8, 33.0], s6: [33.0, 37.6], s7: [37.6, 42.8], s8: [42.8, 47.8], s9: [47.8, 51.4], s10: [51.4, 56] };
+window.DURATION = 56;
+
+// Headlines: word by word
+function words(el) {
+  const walk = n => [...n.childNodes].forEach(c => {
+    if (c.nodeType === 3) { const f = document.createDocumentFragment(); c.textContent.split(/(\s+)/).forEach(p => { if (!p) return; if (/^\s+$/.test(p)) f.append(p); else { const s = document.createElement('span'); s.className = 'w'; s.textContent = p; f.append(s); } }); c.replaceWith(f); }
+    else if (c.nodeType === 1 && !c.classList.contains('w')) { if (c.classList.contains('grad')) { c.classList.add('w'); } else walk(c); }
+  });
+  walk(el); return [...el.querySelectorAll('.w')];
+}
+const HW = {};
+['s1h', 'h2a', 'h2b', 'h2c', 's5h', 's6h', 's7h', 's8h', 's9a', 's10a'].forEach(id => (HW[id] = words($(id))));
+const head = (id, t, a, b) => {
+  const el = $(id); const o = vis(t, a, b, .3); el.style.opacity = o;
+  HW[id].forEach((w, i) => { const k = out5(seg(t, a + i * .08, a + .55 + i * .08)); w.style.opacity = k; w.style.transform = `translateY(${(1 - k) * 60}px)`; w.style.filter = k < .98 ? `blur(${(1 - k) * 10}px)` : 'none'; });
+};
+
+// 1. account path (falls) + fill
+const P1 = []; { let y = 330, s = 7; for (let i = 0; i <= 60; i++) { s = (s * 9301 + 49297) % 233280; const r = s / 233280; y += (r - .38) * 26 + (i > 20 ? 4.2 : -1); y = clamp(y, 230, 600); P1.push([40 + i * 12.4, y]); } }
+
+// 2. candles for the trade card: a drop into a demand zone, base, rally out, pullback toward the zone
+const C = []; { let p = 300, s = 3; const drift = i => i < 14 ? -9 : i < 18 ? 0 : i < 23 ? 15 : i < 30 ? -6 : 1; for (let i = 0; i < 34; i++) { s = (s * 9301 + 49297) % 233280; const r = s / 233280; const o = p; const c = p + drift(i) + (r - .5) * 14; const h = Math.max(o, c) + 3 + r * 9, l = Math.min(o, c) - 3 - (1 - r) * 9; C.push({ o, c, h, l }); p = c; } }
+const cmin = Math.min(...C.map(c => c.l)), cmax = Math.max(...C.map(c => c.h));
+const cy = v => 20 + (1 - (v - cmin) / (cmax - cmin)) * 300 * .78 + 30; // chart y; leaves room for targets above
+{
+  const svg = $('chart'); let html = `<rect x="0" y="0" width="400" height="360" rx="18" fill="#fafafa"/><g id="cg">`;
+  C.forEach((c, i) => { const x = 16 + i * 10.6, up = c.c >= c.o, col = up ? '#10b981' : '#f43f5e'; html += `<g class="cd" opacity="0"><line x1="${x + 3.5}" x2="${x + 3.5}" y1="${cy(c.h)}" y2="${cy(c.l)}" stroke="${col}" stroke-width="1.6"/><rect x="${x}" y="${Math.min(cy(c.o), cy(c.c))}" width="7" height="${Math.max(2, Math.abs(cy(c.o) - cy(c.c)))}" rx="1.5" fill="${col}"/></g>`; });
+  const zl = Math.min(...C.slice(13, 18).map(c => c.l)), zh = Math.max(...C.slice(13, 18).map(c => Math.max(c.o, c.c)));
+  const zt = cy(zh), zb = cy(zl);
+  html += `</g><rect id="zone" x="150" y="${zt}" width="250" height="${zb - zt}" fill="rgba(16,185,129,.14)" stroke="rgba(16,185,129,.6)" stroke-dasharray="6 5" stroke-width="1.6"/>`;
+  const lines = [[(zt + zb) / 2, '#7c3aed', 'Entry'], [zb + 12, '#e11d48', 'SL'], [zt - 70, '#059669', 'TP1'], [zt - 125, '#059669', 'TP2'], [zt - 175, '#059669', 'TP3']];
+  lines.forEach(([y, col, l], i) => { html += `<g class="lvl" opacity="0"><line x1="150" x2="400" y1="${y}" y2="${y}" stroke="${col}" stroke-width="2" stroke-dasharray="${i ? '7 6' : '0'}"/><rect x="346" y="${y - 13}" width="48" height="26" rx="8" fill="${col}"/><text x="370" y="${y + 5}" font-size="13" font-weight="800" fill="#fff" text-anchor="middle" font-family="Inter">${l}</text></g>`; });
+  svg.innerHTML = html;
+}
+
+// steps under the prompt
+const STEPS = ['Starting…', 'Waking up MarketX engine', 'Finding tools', 'Using tools · RSI · EMA · Zones'];
+$('steps').innerHTML = STEPS.map(s => `<div class="st" style="display:flex;align-items:center;gap:12px;height:44px;font-size:19px;color:#52525b"><span class="sp" style="width:22px;height:22px;border-radius:50%;border:3px solid #ddd6fe;border-top-color:#8b5cf6"></span><span>${s}</span></div>`).join('');
+const stEls = [...document.querySelectorAll('.st')];
+
+// agent pipeline nodes
+const PN = ['Scan', 'Find zone', 'Quality', 'Order', 'Manage'];
+const pnEls = PN.map((n, i) => { const d = document.createElement('div'); d.className = 'a'; d.style.cssText = `left:${70 + i * 168 - 50}px;top:28px;width:100px;text-align:center`; d.innerHTML = `<div class="nd" style="width:28px;height:28px;margin:4px auto 0;border-radius:50%;background:#fff;border:3px solid #ddd6fe"></div><p style="margin-top:22px;font-size:18px;font-weight:650;color:#52525b">${n}</p>`; $('pipe').appendChild(d); return d; });
+
+// proof tree
+{ let g = ''; const lv = [[366], [183, 549], [92, 274, 458, 640]]; for (let r = 0; r < 2; r++) lv[r].forEach((x, i) => { [lv[r + 1][i * 2], lv[r + 1][i * 2 + 1]].forEach(cx => (g += `<path class="tp" d="M${x} ${20 + r * 90} C ${x} ${65 + r * 90}, ${cx} ${45 + r * 90}, ${cx} ${110 + r * 90}" stroke-dasharray="200" stroke-dashoffset="200"/>`)); }); lv.flat().forEach((x, i) => { const r = i === 0 ? 0 : i < 3 ? 1 : 2; g += `<circle class="tn" cx="${x}" cy="${20 + r * 90}" r="12" fill="#8b5cf6" stroke="#fff" stroke-width="4" opacity="0"/>`; }); $('tree').innerHTML = g; }
+const HASH = 'a3f9c1e07b5d42e8f61c9a0d7e3b58c2f4d916ab07e2c53d8f1a64b9c0e7d2f5';
+
+// market pills
+const MK = [['EUR/USD', '#2563eb'], ['XAU/USD', '#d97706'], ['BTC/USD', '#f59e0b'], ['ETH/USD', '#6366f1'], ['NAS100', '#0ea5e9'], ['GBP/JPY', '#e11d48'], ['SOL/USD', '#8b5cf6'], ['US30', '#0f766e'], ['USD/JPY', '#dc2626'], ['WTI Oil', '#334155'], ['GER40', '#ca8a04'], ['WIF', '#c026d3'], ['XAG/USD', '#71717a'], ['GBP/USD', '#1d4ed8']];
+const TF = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', 'RDM'];
+const fillRow = (id, items, isTf, shift) => { const r = $(id); r.innerHTML = [...items, ...items, ...items].map((m, i) => isTf ? `<div class="pill" style="left:${i * 190}px;top:0;justify-content:center;width:170px;${m === 'RDM' ? 'background:linear-gradient(100deg,#7c3aed,#c026d3);color:#fff' : ''}">${m}</div>` : `<div class="pill" style="left:${i * 290}px;top:0;width:270px"><span class="dot" style="background:${m[1]}"></span>${m[0]}<svg width="60" height="24" style="margin-left:auto"><path d="M0 ${18 - (i % 3) * 4} L12 ${14 + (i % 2) * 5} L24 ${16 - (i % 4) * 2} L36 ${8 + (i % 3) * 3} L48 ${10 - (i % 2) * 4} L60 4" fill="none" stroke="${i % 4 === 1 ? '#f43f5e' : '#10b981'}" stroke-width="2.4" stroke-linecap="round"/></svg></div>`).join(''); };
+fillRow('r1', MK.slice(0, 7), false); fillRow('r2', TF, true); fillRow('r3', MK.slice(7), false); fillRow('r4', [...TF].reverse(), true);
+
+function render(t) {
+  // background drift
+  $('b1').style.transform = `translate(${Math.sin(t * .23) * 160}px,${Math.cos(t * .19) * 120}px)`;
+  $('b2').style.transform = `translate(${Math.cos(t * .21) * 180}px,${Math.sin(t * .27) * 140}px)`;
+  $('b3').style.transform = `translate(${Math.sin(t * .17 + 1) * 200}px,${Math.cos(t * .23) * 90}px)`;
+  $('grid').style.transform = `translate(${(t * 14) % 40}px,${(t * 8) % 40}px)`;
+  let fl = 0; for (const c of [4.8, 10.2, 26.8, 33, 37.6, 42.8, 47.8, 51.4]) fl = Math.max(fl, t >= c ? (1 - seg(t, c, c + .3)) * .35 : 0);
+  $('flash').style.opacity = fl;
+
+  // 0. intro
+  { const [a, b] = T.s0; $('s0').style.opacity = vis(t, a, b);
+    $('logo0').src = spin(t); const z = back(seg(t, .1, 1.1)); set($('logo0'), seg(t, .1, .4), 0, (1 - z) * 80 - seg(t, 4.1, 4.8) * 60, lerp(.3, 1, z));
+    const k = out5(seg(t, .6, 1.4)); set($('s0a'), k, 0, (1 - k) * 70, 1, 0, (1 - k) * 14);
+    const k2 = out5(seg(t, 1.3, 2.1)); set($('s0b'), k2, 0, (1 - k2) * 40, 1, 0, (1 - k2) * 10); }
+
+  // 1. feelings
+  { const [a, b] = T.s1; const v = vis(t, a, b); $('s1').style.opacity = v; head('s1h', t, a + .1, b);
+    const k = out(seg(t, a + .7, a + 1.3)); set($('s1s'), k, 0, (1 - k) * 20);
+    const c = out5(seg(t, a, a + .8)); set($('s1c'), 1, (1 - c) * 300, 0, lerp(.94, 1, c), (1 - c) * 3);
+    const n = Math.floor(seg(t, a + .5, b - .6) * (P1.length - 1)) + 1, pts = P1.slice(0, n);
+    $('p1').setAttribute('d', 'M' + pts.map(p => p.join(' ')).join(' L'));
+    const last = pts[pts.length - 1]; $('p1f').setAttribute('d', 'M' + pts.map(p => p.join(' ')).join(' L') + ` L${last[0]} 640 L40 640 Z`); $('p1f').setAttribute('fill', 'rgba(244,63,94,.07)');
+    const loss = Math.round((last[1] - P1[0][1]) * 17); $('bal').textContent = '$' + Math.max(0, 10000 - Math.max(0, loss)).toLocaleString('en-US'); $('balp').textContent = loss > 0 ? `−${(loss / 100).toFixed(1)}% this month` : '';
+    ['e1', 'e2', 'e3'].forEach((id, i) => { const s = a + 1 + i * .9; const e = back(seg(t, s, s + .5)); set($(id), seg(t, s, s + .2), Math.sin(t * 1.6 + i) * 8, (1 - e) * 40 + Math.cos(t * 1.3 + i) * 8, lerp(.7, 1, e), Math.sin(t + i) * 2); }); }
+
+  // 2-4. Ask SI
+  { const [a, b] = T.s2; $('s2').style.opacity = vis(t, a, b);
+    head('h2a', t, a + .1, 13.8); head('h2b', t, 13.8, 20.6); head('h2c', t, 20.6, b);
+    $('ey2').textContent = t < 20.6 ? 'Ask SI' : 'Quality first';
+    const ss = out(seg(t, a + .6, a + 1.2)) * (1 - seg(t, 13.5, 13.8)); set($('s2s'), ss, 0, (1 - ss) * 20);
+    const w = out5(seg(t, a, a + .9));
+    // camera: in, then a push toward the chart for the quality checks, out at the end
+    const push = inOut(seg(t, 20.6, 21.8)) * (1 - inOut(seg(t, 25.6, 26.8)));
+    $('cam').style.transform = `translate(${(1 - w) * 700 + push * 50}px,${(1 - w) * 40 + push * -30}px) scale(${lerp(.92, 1, w) * (1 + push * .06)}) rotate(${(1 - w) * 4}deg)`;
+    $('cam').style.opacity = seg(t, a, a + .3);
+    // typing
+    const msg = 'Analyze gold on the 1H'; const n = Math.floor(seg(t, 10.9, 12.3) * msg.length); const sent = t > 12.6;
+    $('typed').textContent = sent ? '' : msg.slice(0, n); $('ph').style.opacity = n || sent ? 0 : 1;
+    $('caret').style.left = (24 + $('typed').offsetWidth + 2) + 'px'; $('caret').style.opacity = (Math.floor(t * 2.5) % 2 || (n > 0 && n < msg.length)) && !sent ? 1 : 0;
+    const sp = t > 12.45 && t < 12.65; $('send').style.transform = `scale(${sp ? .86 : 1})`;
+    $('click').style.right = '20px'; $('click').style.bottom = '18px'; const ck = seg(t, 12.45, 12.95); set($('click'), ck > 0 && ck < 1 ? 1 - ck : 0, 0, 0, lerp(.5, 1.8, ck));
+    const ub = back(seg(t, 12.6, 13.1)); set($('ubub'), seg(t, 12.6, 12.8), 0, (1 - ub) * 30, lerp(.85, 1, ub));
+    // steps (compressed version of the real intro steps)
+    const stepsOn = t > 12.8 && t < 14.4; $('steps').style.opacity = stepsOn ? 1 - seg(t, 14.1, 14.4) : 0;
+    stEls.forEach((s, i) => { const st = 12.85 + i * .33; const k = out(seg(t, st, st + .2)); set(s, k, (1 - k) * -20); const done = t > st + .33; const sp2 = s.querySelector('.sp'); sp2.style.transform = `rotate(${t * 720}deg)`; sp2.style.borderColor = done ? '#10b981' : '#ddd6fe'; sp2.style.borderTopColor = done ? '#10b981' : '#8b5cf6'; sp2.style.background = done ? '#10b981' : 'transparent'; });
+    // trade card
+    const tc = out5(seg(t, 14.3, 15)); set($('tc'), seg(t, 14.3, 14.5), 0, (1 - tc) * 60, lerp(.96, 1, tc));
+    document.querySelectorAll('.cd').forEach((c, i) => c.setAttribute('opacity', seg(t, 14.6 + i * .035, 14.75 + i * .035)));
+    $('zone').setAttribute('opacity', out(seg(t, 16.0, 16.5))); $('zone').setAttribute('transform', `translate(${(1 - out(seg(t, 16, 16.5))) * 30} 0)`);
+    document.querySelectorAll('.lvl').forEach((l, i) => { const k = out(seg(t, 16.6 + i * .45, 17 + i * .45)); l.setAttribute('opacity', k); l.setAttribute('transform', `translate(${(1 - k) * 60} 0)`); });
+    [...$('lv').children].forEach((r, i) => { const k = out(seg(t, 16.6 + i * .4, 17 + i * .4)); set(r, k, (1 - k) * 40); });
+    const q = Math.round(out(seg(t, 18.6, 19.8)) * 82); $('qv1').textContent = q;
+    // quality checks
+    const qr = back(seg(t, 21.2, 21.9)); set($('qring'), seg(t, 21.2, 21.4) * (1 - seg(t, 26.3, 26.8)), 0, (1 - qr) * 80, lerp(.7, 1, qr));
+    const qq = out(seg(t, 21.6, 24.6)); $('qarc').setAttribute('stroke-dashoffset', 704 - 704 * .82 * qq); $('qv2').textContent = Math.round(82 * qq);
+    ['q1', 'q2', 'q3', 'q4'].forEach((id, i) => { const s = 22 + i * .75; const k = back(seg(t, s, s + .45)); set($(id), seg(t, s, s + .15) * (1 - seg(t, 26.3, 26.8)), (1 - k) * -60, 0, lerp(.8, 1, k)); }); }
+
+  // 5. agent
+  { const [a, b] = T.s5; $('s5').style.opacity = vis(t, a, b); head('s5h', t, a + .1, b);
+    const k = out(seg(t, a + .7, a + 1.3)); set($('s5s'), k, 0, (1 - k) * 20);
+    const g = out5(seg(t, a, a + .9)); set($('ag'), 1, (1 - g) * 600, 0, lerp(.94, 1, g), (1 - g) * 3);
+    $('pfill').style.width = out(seg(t, a + .6, a + 1.6)) * 672 + 'px';
+    const pp = Math.max(0, (t - a - 1.2) / 1.8) % 1; $('ppulse').style.left = (70 + pp * 672) + 'px'; $('ppulse').style.opacity = t > a + 1.2 ? 1 : 0;
+    pnEls.forEach((n, i) => { const lit = t > a + 1.2 && Math.abs(pp * 4 - i) < .55; const nd = n.querySelector('.nd'); nd.style.background = lit ? '#d946ef' : '#fff'; nd.style.borderColor = lit ? '#f0abfc' : '#ddd6fe'; nd.style.boxShadow = lit ? '0 0 18px #e879f9' : 'none'; const e = back(seg(t, a + .5 + i * .1, a + .9 + i * .1)); set(n, seg(t, a + .5 + i * .1, a + .7 + i * .1), 0, (1 - e) * 30); });
+    $('agDot').style.opacity = .4 + .6 * Math.abs(Math.sin(t * 4));
+    ['t1', 't2', 't3', 't4'].forEach((id, i) => { const s = a + 1.6 + i * 1.05; const e = back(seg(t, s, s + .5)); set($(id), seg(t, s, s + .2), (1 - e) * 120, 0, lerp(.9, 1, e)); }); }
+
+  // 6. tools
+  { const [a, b] = T.s6; $('s6').style.opacity = vis(t, a, b); head('s6h', t, a + .1, b);
+    ['c1', 'c2', 'c3'].forEach((id, i) => { const s = a + .25 + i * .3; const e = back(seg(t, s, s + .7)); set($(id), seg(t, s, s + .25), 0, (1 - e) * 260 + Math.sin(t * 1.4 + i * 1.3) * 6, lerp(.85, 1, e), (1 - e) * (i - 1) * 6); });
+    [...$('al').children, ...$('wl').children].forEach((r, i) => { const s = a + 1.2 + (i % 3) * .35 + (i > 2 ? .2 : 0); const k = out(seg(t, s, s + .4)); set(r, k, (1 - k) * 30); });
+    const m = out(seg(t, a + 1.9, a + 2.4)); set($('mtr'), m, 0, (1 - m) * 20); }
+
+  // 7. proof
+  { const [a, b] = T.s7; $('s7').style.opacity = vis(t, a, b); head('s7h', t, a + .1, b);
+    const k = out(seg(t, a + .7, a + 1.3)); set($('s7s'), k, 0, (1 - k) * 20);
+    const g = out5(seg(t, a, a + .9)); set($('pf'), 1, (1 - g) * 500, 0, lerp(.94, 1, g), (1 - g) * -3);
+    const hn = Math.floor(seg(t, a + .8, a + 2) * HASH.length); $('hash').textContent = HASH.slice(0, hn) + (hn < HASH.length ? '▍' : '');
+    document.querySelectorAll('.tp').forEach((p, i) => p.setAttribute('stroke-dashoffset', 200 * (1 - out(seg(t, a + 1.8 + Math.floor(i / 2) * .25, a + 2.3 + Math.floor(i / 2) * .25)))));
+    document.querySelectorAll('.tn').forEach((n, i) => n.setAttribute('opacity', seg(t, a + 1.7 + i * .12, a + 1.9 + i * .12)));
+    const r = back(seg(t, a + 3, a + 3.5)); set($('res'), seg(t, a + 3, a + 3.2), 0, (1 - r) * 30, lerp(.9, 1, r));
+    const s = back(seg(t, a + 3.5, a + 4)); set($('scan'), seg(t, a + 3.5, a + 3.7), 0, (1 - s) * 30, lerp(.9, 1, s)); }
+
+  // 8. markets
+  { const [a, b] = T.s8; $('s8').style.opacity = vis(t, a, b); head('s8h', t, a + .2, b);
+    const d = t - a; [['r1', -1, 120], ['r2', 1, 90], ['r3', 1, 130], ['r4', -1, 100]].forEach(([id, dir, sp], i) => { const e = out5(seg(t, a + i * .12, a + .9 + i * .12)); $(id).style.opacity = e; $(id).style.transform = `translateX(${(dir < 0 ? -200 : -1400) + dir * d * sp + (1 - e) * dir * -600}px)`; }); }
+
+  // 9. CTA
+  { const [a, b] = T.s9; $('s9').style.opacity = vis(t, a, b); head('s9a', t, a + .1, b);
+    const k = out(seg(t, a + .5, a + 1)); set($('s9b'), k, 0, (1 - k) * 20);
+    const c = back(seg(t, a + .7, a + 1.3)); const pr = t > a + 1.95 && t < a + 2.15; set($('s9c'), seg(t, a + .7, a + .9), 0, (1 - c) * 50, lerp(.7, 1, c) * (pr ? .95 : 1));
+    const cu = inOut(seg(t, a + 1, a + 1.9)); set($('cursor'), seg(t, a + .9, a + 1.1), lerp(1500, 1010, cu), lerp(900, 640, cu));
+    const rp = seg(t, a + 1.95, a + 2.6); $('ripple').style.left = '900px'; $('ripple').style.top = '575px'; set($('ripple'), rp > 0 && rp < 1 ? 1 - rp : 0, 0, 0, lerp(.4, 2.2, rp)); }
+
+  // 10. end
+  { const [a] = T.s10; $('s10').style.opacity = seg(t, a, a + .4);
+    $('logo1').src = spin(t); const z = back(seg(t, a + .1, a + 1)); set($('logo1'), seg(t, a + .1, a + .3), 0, (1 - z) * 60, lerp(.4, 1, z));
+    head('s10a', t, a + .5, 99);
+    const k = out5(seg(t, a + 1, a + 1.7)); set($('s10b'), k, 0, (1 - k) * 40, 1, 0, (1 - k) * 12);
+    set($('s10c'), out(seg(t, a + 1.6, a + 2.2))); }
+}
+window.render = render;
+document.querySelectorAll('.tl').forEach(i => (i.src = window.APPICON || ''));
+</script>
+</body>
+</html>
