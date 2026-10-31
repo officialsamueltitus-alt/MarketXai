@@ -51,13 +51,13 @@ body{font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;c
 <div class="a" style="left:208px;top:938px;width:78px;height:78px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff7a6b,#e8352b 60%,#c4241c);border:3px solid rgba(255,255,255,.25);display:grid;place-items:center;font-size:42px;font-weight:600;box-shadow:0 8px 16px -6px rgba(0,0,0,.6)">1</div>
 
 <!-- MarketX tile on the phone screen: the reference tile's corners TL(850,1160) TR(1000,1143) BL(907,1287) -->
-<div class="a" style="left:0;top:0;width:100px;height:100px;transform-origin:0 0;transform:matrix(1.55,-0.175,0.47,1.26,845,1162)">
+<div class="a" style="left:0;top:0;width:100px;height:100px;transform-origin:0 0;transform:matrix(1.54,-0.23,0.56,1.25,845,1162)">
   <div class="a ico" style="left:-4px;top:-7px;width:108px;height:111px;border-radius:25px"></div>
 </div>
 <!-- The logo on the tile, drawn round and upright (only turned with the screen), centred on the tile -->
-<img class="a" src="${b64(LOGO)}" style="left:${946 - 60}px;top:${1214 - 60}px;width:120px;height:120px;transform:rotate(-6.6deg);filter:drop-shadow(0 4px 8px rgba(0,0,0,.45))">
+<img class="a" src="${b64(LOGO)}" style="left:${950 - 60}px;top:${1213 - 60}px;width:120px;height:120px;transform:rotate(-8.5deg);filter:drop-shadow(0 4px 8px rgba(0,0,0,.45))">
 <!-- Its name, along the same slant as the reference label -->
-<div class="a" style="left:0;top:0;transform-origin:0 0;transform:matrix(0.9937,-0.1126,0.409,0.912,920,1334)">
+<div class="a" style="left:0;top:0;transform-origin:0 0;transform:matrix(0.989,-0.148,0.47,0.883,922,1338)">
   <span style="display:block;font-size:33px;font-weight:500;letter-spacing:.6px;color:#f4f4f6;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.35);transform:translateY(-100%)">MarketX</span>
 </div>
 </div>
@@ -75,6 +75,13 @@ img.onload = () => {
   for (let X = 190; X <= 462; X++) fill(X, 920, 1232);
   // 2) the app label under the tile on the phone
   for (let X = 905; X <= 1070; X++) { const t = (X - 905) / 165; fill(X, Math.round(1297 - 21 * t), Math.round(1334 - 24 * t)); }
+  // 3) any edge of the old green tile left around the new tile: each green pixel takes the colour of the wallpaper beside it
+  const green = (c) => c[1] > 95 && c[1] > c[0] + 12 && c[1] > c[2] + 22;
+  for (let pass = 0; pass < 6; pass++) for (let Y = 1125; Y <= 1305; Y++) for (let X = 830; X <= 1075; X++) {
+    if (!green(at(X, Y))) continue;
+    const ns = [[X - 3, Y], [X, Y + 3], [X - 3, Y + 3], [X + 3, Y], [X, Y - 3]].map(([a, b]) => at(a, b)).filter(c => !green(c));
+    if (ns.length) put(X, Y, ns[0]);
+  }
   x.putImageData(d, 0, 0);
   document.title = 'ready';
 };
