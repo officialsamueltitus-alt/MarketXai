@@ -52,8 +52,10 @@ body{font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;c
 
 <!-- MarketX tile on the phone screen: the reference tile's corners TL(850,1160) TR(1000,1143) BL(907,1287) -->
 <div class="a" style="left:0;top:0;width:100px;height:100px;transform-origin:0 0;transform:matrix(1.55,-0.175,0.47,1.26,845,1162)">
-  <div class="a ico" style="left:-4px;top:-7px;width:108px;height:111px;border-radius:25px"><img src="${b64(LOGO)}"></div>
+  <div class="a ico" style="left:-4px;top:-7px;width:108px;height:111px;border-radius:25px"></div>
 </div>
+<!-- The logo on the tile, drawn round and upright (only turned with the screen), centred on the tile -->
+<img class="a" src="${b64(LOGO)}" style="left:${946 - 60}px;top:${1214 - 60}px;width:120px;height:120px;transform:rotate(-6.6deg);filter:drop-shadow(0 4px 8px rgba(0,0,0,.45))">
 <!-- Its name, along the same slant as the reference label -->
 <div class="a" style="left:0;top:0;transform-origin:0 0;transform:matrix(0.9937,-0.1126,0.409,0.912,920,1334)">
   <span style="display:block;font-size:33px;font-weight:500;letter-spacing:.6px;color:#f4f4f6;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.35);transform:translateY(-100%)">MarketX</span>
